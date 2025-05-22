@@ -1,7 +1,3 @@
-Here's a beginner-friendly tutorial on **Rust variables, types, and typecasting**, covering:
-
----
-
 ## Declaring Variables in Rust
 
 In Rust, variables are **immutable by default**. You use `let` to declare a variable:
@@ -27,27 +23,28 @@ Rust is statically typed, so every variable has a type. You can let the compiler
 
 ### Scalar types:
 
-| Type   | Description                   | Example                  |
-| ------ | ----------------------------- | ------------------------ |
-| `i32`  | 32-bit signed integer         | `let x: i32 = -10;`      |
-| `u32`  | 32-bit unsigned integer       | `let x: u32 = 10;`       |
-| `f64`  | 64-bit floating point         | `let pi: f64 = 3.14;`    |
-| `bool` | Boolean                       | `let flag: bool = true;` |
-| `char` | A single Unicode scalar value | `let c: char = '♥';`     |
+| Type   | Description             | Example                  |
+|--------|-------------------------|--------------------------|
+| `i32`  | 32-bit signed integer   | `let x: i32 = -10;`      |
+| `u32`  | 32-bit unsigned integer | `let x: u32 = 10;`       |
+| `f64`  | 64-bit floating point   | `let pi: f64 = 3.14;`    |
+| `bool` | Boolean                 | `let flag: bool = true;` |
+| `char` | Unicode scalar          | `let c: char = '♥';`     |
+
 
 ### Compound types:
 
 * **Tuple**
 
-  ```rust
+```rust
   let tup: (i32, f64, u8) = (500, 6.4, 1);
   let (x, y, z) = tup;
   println!("x: {}, y: {}, z: {}", x, y, z);
-  ```
+```
 
 * **Array**
 
-  ```rust
+```rust
   let a: [i32; 3] = [1, 2, 3];
   println!("First element: {}", a[0]);
   ```
