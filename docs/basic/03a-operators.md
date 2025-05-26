@@ -36,27 +36,27 @@ Used in conditions; result is  true  or  false .
 |  >=      | Greater or equal |  a >= b  |
 |  <=      | Less or equal    |  a <= b  |
 
-   rust
+```rust
 let x = 5;
 let y = 10;
 println!("{}", x < y); // true
-   
+```   
 
 
 ## Logical 
 
 Work with boolean values:
 
-| Operator | Meaning | Example           |  
-|------|---------|-------------------| 
-| &&   | AND     |  a > 5 && a < 10  |    
-| \|\| | OR |  a == 0 || a == 1  |
-| !    | NOT     |  !true  →  false  |   
+| Operator | Meaning | Example            |  
+|------|---------|--------------------| 
+| &&   | AND     | a > 5 && a < 10    |    
+| \|\| | OR | a == 0 \|\| a == 1 |
+| !    | NOT     | !true  →  false    |   
 
-   rust
+```rust
 let x = 7;
 println!("{}", x > 5 && x < 10); // true
-   
+```   
 
 ---
 
@@ -72,11 +72,11 @@ Operate on binary values (advanced use cases):
 | <<       | Left Shift  | a << 1  |
 | >>       | Right Shift | a >> 1  |
 
-   rust
+```rust
 let a = 0b1100;
 let b = 0b1010;
 println!("{:b}", a & b); // 1000
-   
+```   
 
 
 ## Assignment 
@@ -90,9 +90,10 @@ println!("{:b}", a & b); // 1000
 |  /=      | Divide and assign   |  x /= 2  |
 |  %=      | Modulo and assign   |  x %= 2  |
 
-   rust
+```rust
 let mut x = 5;
 x += 3; // x is now 8
+```
    
 
 
@@ -103,20 +104,21 @@ x += 3; // x is now 8
 |  a..b   | Exclusive range |  1..5  → 1 to 4  |
 |  a..=b  | Inclusive range |  1..=5  → 1 to 5 |
 
-   rust
+```rust
 for i in 1..4 {
     println!("{}", i); // 1, 2, 3
 }
+```
    
 
 
 ## Summary
 
-| Category   | Examples                                      |       
-|------------|-----------------------------------------------|
-| Arithmetic | + ,  - ,  * ,  / ,  %                         |   
-| Comparison | == ,  != ,  < ,  >                            |   
-| Logical    | && ,  \|              \|  ',  !               |
-| Bitwise    | & ,                             \| ,  ^ ,  << |   
-| Assignment | = ,  += ,  *=                                 |        
-| Range      | 1..5 ,  1..=5                                 |     
+| Category   | Examples          |       
+|------------|-------------------|
+| Arithmetic | + ,  - ,  * ,  / ,  % |   
+| Comparison | == ,  != ,  < ,  > |   
+| Logical    | && ,  \|\|  ',  ! |
+| Bitwise    | & , \| ,  ^ ,  << |   
+| Assignment | = ,  += ,  *=     |        
+| Range      | 1..5 ,  1..=5     |     
