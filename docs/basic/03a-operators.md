@@ -64,13 +64,15 @@ println!("{}", x > 5 && x < 10); // true
 
 Operate on binary values (advanced use cases):
 
+
 | Operator | Meaning     | Example |
 |----------|-------------|---------|
-| &        | AND         | a & b   |
+| \&       | AND         | a \& b  |
 | \|       | OR          | a \| b  |
-| ^        | XOR         | a ^ b   |
+| \^       | XOR         | a \^ b  |
 | <<       | Left Shift  | a << 1  |
 | >>       | Right Shift | a >> 1  |
+
 
 ```rust
 let a = 0b1100;
