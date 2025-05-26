@@ -59,7 +59,6 @@ let x = 7;
 println!("{}", x > 5 && x < 10); // true
 ```   
 
----
 
 ## Bitwise 
 
