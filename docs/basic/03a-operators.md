@@ -12,7 +12,7 @@ Used for basic math:
 |  /       | Division       |  10 / 3  |
 |  %       | Modulus        |  10 % 3  |
 
-   rust
+```rust
 fn main() {
     let a = 10;
     let b = 3;
@@ -20,6 +20,7 @@ fn main() {
     println!("Add: {}", a + b);
     println!("Modulus: {}", a % b);
 }
+```
    
 
 
@@ -114,11 +115,11 @@ for i in 1..4 {
 
 ## Summary
 
-| Category   | Examples          |       
-|------------|-------------------|
+| Category   | Examples            |       
+|------------|---------------------|
 | Arithmetic | + ,  - ,  * ,  / ,  % |   
-| Comparison | == ,  != ,  < ,  > |   
-| Logical    | && ,  \|\|  ',  ! |
-| Bitwise    | & , \| ,  ^ ,  << |   
-| Assignment | = ,  += ,  *=     |        
-| Range      | 1..5 ,  1..=5     |     
+| Comparison | == ,  != ,  < ,  >  |   
+| Logical    | && ,  \|\|  ,  !    |
+| Bitwise    | & , \| ,  ^ ,  <<   |   
+| Assignment | = ,  += ,  *=       |        
+| Range      | 1..5 ,  1..=5       |     
