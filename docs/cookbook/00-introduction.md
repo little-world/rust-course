@@ -207,7 +207,17 @@ Based on your existing structure, here's a comprehensive outline for a Rust cook
 - Extension traits for libraries
 - Sealed trait pattern
 
-**28. Performance Optimization**
+**28. Struct & Enum Patterns**
+- Struct design patterns (tuple, unit, named fields)
+- Enum-driven architecture
+- Newtype and wrapper patterns
+- Struct update syntax and partial moves
+- Enum variants with data payloads
+- Pattern matching for enums
+- Visitor pattern with enums
+- Type-safe state machines with enums
+
+**29. Performance Optimization**
 - Profiling strategies (perf, flamegraph)
 - Allocation reduction techniques
 - Cache-friendly data structures
@@ -242,4 +252,11 @@ Each chapter should follow the format:
 3. **Performance notes** (dos/don'ts)
 4. **Quick reference** (conversions, common idioms)
 
-Dense code, minimal prose, maximum practical value.
+
+
+Structural Elements:
+- Conceptual introductions - Each section explains WHY before showing HOW
+- Smooth transitions - Sections flow naturally with connecting prose
+- Progressive complexity - Starts simple, builds to advanced patterns
+- Add explanation with advanced topic
+- Real-world context - Explains practical challenges and solutions
