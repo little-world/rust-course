@@ -36,9 +36,7 @@ impl User {
     }
 }
 
-//======
 // Usage
-//======
 let user = User::new(1, "alice".to_string(), "alice@example.com".to_string());
 println!("User {} is active: {}", user.username, user.active);
 ```
@@ -50,14 +48,10 @@ println!("User {} is active: {}", user.username, user.active);
 Tuple structs are useful when field names would be redundant or when you want to create distinct types:
 
 ```rust
-//===================================================
 // Coordinates where position matters more than names
-//===================================================
 struct Point3D(f64, f64, f64);
 
-//=====================================
 // Type-safe wrappers (newtype pattern)
-//=====================================
 struct Kilometers(f64);
 struct Miles(f64);
 
@@ -71,20 +65,14 @@ impl Point3D {
     }
 }
 
-//======
 // Usage
-//======
 let point = Point3D(3.0, 4.0, 0.0);
 println!("Distance: {}", point.distance_from_origin());
 
-//==================================
 // Type safety prevents mixing units
-//==================================
 let distance_km = Kilometers(100.0);
 let distance_mi = Miles(62.0);
-//===============================================================================
 // let total = distance_km.0 + distance_mi.0; // Compiles but semantically wrong!
-//===============================================================================
 ```
 
 **The pattern:** Use tuple structs when the structure itself conveys meaning more than field names would. They're particularly powerful for the newtype pattern.
@@ -94,15 +82,11 @@ let distance_mi = Miles(62.0);
 Unit structs carry no data but can implement traits and provide type-level information:
 
 ```rust
-//========================================
 // Marker types for type-level programming
-//========================================
 struct Authenticated;
 struct Unauthenticated;
 
-//==================================
 // Zero-sized types for phantom data
-//==================================
 struct Database<State> {
     connection_string: String,
     _state: std::marker::PhantomData<State>,
@@ -135,13 +119,9 @@ impl Database<Authenticated> {
     }
 }
 
-//======
 // Usage
-//======
 let db = Database::new("postgres://localhost".to_string());
-//=====================================================================
 // db.query("SELECT *"); // Error! Can't query unauthenticated database
-//=====================================================================
 let db = db.authenticate("secret").unwrap();
 let results = db.query("SELECT * FROM users"); // Now this works
 ```
@@ -155,37 +135,25 @@ The newtype pattern wraps an existing type to create a distinct type with its ow
 ```rust
 use std::fmt;
 
-//=============================
 // Newtype for semantic clarity
-//=============================
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct UserId(u64);
 
 #[derive(Debug, Clone, Copy)]
 struct OrderId(u64);
 
-//================================
 // Prevent accidentally mixing IDs
-//================================
 fn get_user(id: UserId) -> User {
     println!("Fetching user {}", id.0);
-    //===============
     // ... fetch user
-    //===============
     unimplemented!()
 }
 
-//====================
 // This won't compile:
-//====================
 // let order_id = OrderId(123);
-//===================================
 // get_user(order_id); // Type error!
-//===================================
 
-//=================================
 // Wrapper for adding functionality
-//=================================
 struct PositiveInteger(i32);
 
 impl PositiveInteger {
@@ -208,13 +176,9 @@ impl fmt::Display for PositiveInteger {
     }
 }
 
-//==============================
 // Usage prevents invalid states
-//==============================
 let num = PositiveInteger::new(42).unwrap();
-//=======================================================
 // let invalid = PositiveInteger::new(-5); // Returns Err
-//=======================================================
 ```
 
 **Why wrappers matter:** They encode invariants in the type system. Once you have a `PositiveInteger`, you know it's valid. This eliminates defensive checks throughout your codebase.
@@ -252,9 +216,7 @@ impl<T> Deref for Validated<T> {
     }
 }
 
-//======
 // Usage
-//======
 let validated_string = Validated::new("hello".to_string());
 println!("Length: {}", validated_string.len()); // Deref to String
 println!("Age: {:?}", validated_string.age());  // Validated method
@@ -284,9 +246,7 @@ impl Config {
     }
 }
 
-//======================
 // Builder-style updates
-//======================
 let config = Config {
     host: "localhost".to_string(),
     port: 8080,
@@ -299,14 +259,10 @@ let new_config = Config {
     ..config // Moves non-Copy fields!
 };
 
-//=====================================================
 // config is now partially moved - can't use it anymore
-//=====================================================
 // println!("{:?}", config); // Error!
 
-//================================
 // Safe pattern: clone when needed
-//================================
 let config = Config {
     host: "localhost".to_string(),
     port: 8080,
@@ -319,9 +275,7 @@ let new_config = Config {
     ..config.clone()
 };
 
-//========================
 // Both configs are usable
-//========================
 println!("Old: {:?}", config);
 println!("New: {:?}", new_config);
 ```
@@ -339,19 +293,13 @@ let data = Data {
     moveable: "hello".to_string(),
 };
 
-//=============
 // Partial move
-//=============
 let s = data.moveable;  // Moves String out
 let n = data.copyable;  // Copies i32
 
-//==============================================================
 // data.moveable is moved, but data.copyable is still accessible
-//==============================================================
 println!("Copyable: {}", data.copyable); // OK
-//===================================================================
 // println!("{}", data.moveable); // Error: value borrowed after move
-//===================================================================
 ```
 
 **The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming self and returning Self, or use `&mut self` for in-place updates.
@@ -361,9 +309,7 @@ println!("Copyable: {}", data.copyable); // OK
 Enums in Rust are far more powerful than in most languages. They enable algebraic data types that model complex domains precisely:
 
 ```rust
-//===============================
 // Model HTTP responses precisely
-//===============================
 enum HttpResponse {
     Ok { body: String, headers: Vec<(String, String)> },
     Created { id: u64, location: String },
@@ -410,9 +356,7 @@ impl HttpResponse {
     }
 }
 
-//======
 // Usage
-//======
 fn handle_request(path: &str) -> HttpResponse {
     match path {
         "/users" => HttpResponse::Ok {
@@ -502,9 +446,7 @@ impl OrderStatus {
 Pattern matching extracts data from enums elegantly:
 
 ```rust
-//========================
 // Nested pattern matching
-//========================
 enum Message {
     Quit,
     Move { x: i32, y: i32 },
@@ -540,9 +482,7 @@ fn process_message(msg: Message) {
     }
 }
 
-//==========================
 // Match guards and bindings
-//==========================
 fn classify_response(response: &HttpResponse) -> &str {
     match response {
         HttpResponse::Ok { body, .. } if body.contains("error") => {
@@ -569,9 +509,7 @@ fn classify_response(response: &HttpResponse) -> &str {
 The visitor pattern in Rust leverages enums for traversing complex structures:
 
 ```rust
-//=====================================
 // AST for a simple expression language
-//=====================================
 enum Expr {
     Number(f64),
     Variable(String),
@@ -598,9 +536,7 @@ enum UnOp {
     Abs,
 }
 
-//==============
 // Visitor trait
-//==============
 trait ExprVisitor {
     type Output;
 
@@ -623,9 +559,7 @@ trait ExprVisitor {
     fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output;
 }
 
-//=======================
 // Pretty printer visitor
-//=======================
 struct PrettyPrinter {
     indent: usize,
 }
@@ -665,9 +599,7 @@ impl ExprVisitor for PrettyPrinter {
     }
 }
 
-//==================
 // Evaluator visitor
-//==================
 struct Evaluator {
     variables: std::collections::HashMap<String, f64>,
 }
@@ -712,13 +644,9 @@ impl ExprVisitor for Evaluator {
     }
 }
 
-//======
 // Usage
-//======
 fn demo_visitor() {
-    //============
     // (3 + 4) * 2
-    //============
     let expr = Expr::BinaryOp {
         op: BinOp::Multiply,
         left: Box::new(Expr::BinaryOp {
@@ -749,9 +677,7 @@ fn demo_visitor() {
 State machines prevent invalid states and transitions at compile time:
 
 ```rust
-//===========================
 // Simple state machine: Door
-//===========================
 struct Open;
 struct Closed;
 struct Locked;
@@ -791,9 +717,7 @@ impl Door<Locked> {
     }
 }
 
-//=======================================
 // Complex state machine with enum states
-//=======================================
 #[derive(Debug)]
 enum ConnectionState {
     Disconnected,
@@ -862,22 +786,16 @@ impl Connection {
 }
 
 fn demo_state_machine() {
-    //================
     // Type-state door
-    //================
     let door = Door::<Closed>::new();
     let door = door.open();
     let door = door.close();
     let door = door.lock();
-    //========================================================
     // door.open(); // Compile error! Can't open a locked door
-    //========================================================
     let door = door.unlock();
     let _door = door.open();
 
-    //======================
     // Enum-based connection
-    //======================
     let mut conn = Connection::new();
     conn.connect().unwrap();
     conn.establish("session-123".to_string()).unwrap();
@@ -894,9 +812,7 @@ fn demo_state_machine() {
 For maximum safety, combine both approaches:
 
 ```rust
-//=================================
 // Payment processing state machine
-//=================================
 struct Pending;
 struct Authorized;
 struct Captured;
@@ -908,9 +824,7 @@ struct Payment<State> {
     state_data: State,
 }
 
-//============================
 // Each state has its own data
-//============================
 impl Payment<Pending> {
     fn new(amount: u64) -> Self {
         Payment {
@@ -989,20 +903,14 @@ enum PaymentResult {
     Voided { payment_id: String, auth_code: String },
 }
 
-//=======================================
 // Usage demonstrates compile-time safety
-//=======================================
 fn process_payment() {
     let payment = Payment::<Pending>::new(10000);
-    //===================================================================
     // payment.capture(); // Compile error! Can't capture pending payment
-    //===================================================================
 
     let payment = payment.authorize("AUTH123".to_string());
     let payment = payment.capture();
-    //===========================================================
     // payment.authorize(...); // Compile error! Already captured
-    //===========================================================
 
     let _result = payment.refund("Customer requested".to_string());
 }

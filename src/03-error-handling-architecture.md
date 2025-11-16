@@ -63,9 +63,7 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-//======
 // Usage
-//======
 fn parse_number(input: &str) -> Result<i32, ParseError> {
     if input.is_empty() {
         return Err(ParseError::EmptyInput);
@@ -119,7 +117,6 @@ pub enum ApiError {
     Timeout,
     InvalidResponse,
     // Can add variants without breaking compatibility
-    //================================================
 }
 
 //============================================
@@ -146,9 +143,7 @@ pub enum DatabaseError {
     NotFound { table: String, id: i64 },
 }
 
-//=================
 // Mock for example
-//=================
 #[derive(Error, Debug)]
 #[error("transaction error")]
 pub struct TransactionError;
@@ -629,9 +624,7 @@ impl std::fmt::Display for MultiError {
     }
 }
 
-//======
 // Usage
-//======
 fn validate_all(items: Vec<Item>) -> Result<(), MultiError> {
     let mut errors = MultiError::new();
 

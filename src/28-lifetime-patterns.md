@@ -24,9 +24,7 @@ char* get_string() {
 The function returns a pointer to stack memory that's immediately deallocated. Using this pointer is undefined behavior. Lifetimes prevent this entire class of bugs:
 
 ```rust
-//===========================
 // Rust code - won't compile!
-//===========================
 fn get_string() -> &str {
     let s = String::from("Hello");
     &s // Error: cannot return reference to local variable
@@ -40,9 +38,7 @@ The compiler sees that the returned reference doesn't outlive the function and r
 Lifetime annotations use apostrophe syntax:
 
 ```rust
-//=====================
 // Explicit lifetime 'a
-//=====================
 fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
     if x.len() > y.len() {
         x
@@ -72,9 +68,7 @@ fn example_invalid() {
         result = longest(&string1, &string2);
     } // string2 dropped here
 
-    //==========================================
     // Error! result might point to dropped data
-    //==========================================
     // println!("{}", result);
 }
 ```
@@ -86,16 +80,12 @@ Writing lifetimes everywhere would be tedious. The compiler applies elision rule
 **Rule 1: Each elided lifetime gets a distinct parameter**
 
 ```rust
-//================
 // What you write:
-//================
 fn first_word(s: &str) -> &str {
     s.split_whitespace().next().unwrap()
 }
 
-//========================
 // What the compiler sees:
-//========================
 fn first_word<'a>(s: &'a str) -> &'a str {
     s.split_whitespace().next().unwrap()
 }
@@ -104,16 +94,12 @@ fn first_word<'a>(s: &'a str) -> &'a str {
 **Rule 2: If there's exactly one input lifetime, it's assigned to all output lifetimes**
 
 ```rust
-//================
 // What you write:
-//================
 fn get_first(vec: &Vec<i32>) -> &i32 {
     &vec[0]
 }
 
-//========================
 // What the compiler sees:
-//========================
 fn get_first<'a>(vec: &'a Vec<i32>) -> &'a i32 {
     &vec[0]
 }
@@ -123,16 +109,12 @@ fn get_first<'a>(vec: &'a Vec<i32>) -> &'a i32 {
 
 ```rust
 impl<'a> Container<'a> {
-    //================
     // What you write:
-    //================
     fn get_data(&self) -> &str {
         self.data
     }
 
-    //========================
     // What the compiler sees:
-    //========================
     fn get_data(&'a self) -> &'a str {
         self.data
     }
@@ -146,23 +128,17 @@ These rules cover the vast majority of cases. When they don't apply, you need ex
 If the compiler can't determine the lifetime, you must annotate explicitly:
 
 ```rust
-//==========================================
 // Multiple inputs, no &self - must annotate
-//==========================================
 fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
     if x.len() > y.len() { x } else { y }
 }
 
-//=============================================
 // Different lifetimes for different parameters
-//=============================================
 fn mix<'a, 'b>(x: &'a str, y: &'b str) -> (&'a str, &'b str) {
     (x, y)
 }
 
-//====================================
 // Returning one of several references
-//====================================
 fn choose<'a>(x: &'a str, y: &'a str, first: bool) -> &'a str {
     if first { x } else { y }
 }
@@ -185,16 +161,12 @@ impl<'a, 'b> Context<'a, 'b> {
         Context { user, session }
     }
 
-    //==================================
     // Return reference with lifetime 'a
-    //==================================
     fn get_user(&self) -> &'a User {
         self.user
     }
 
-    //==================================
     // Return reference with lifetime 'b
-    //==================================
     fn get_session(&self) -> &'b Session {
         self.session
     }
@@ -219,9 +191,7 @@ fn example() {
         let session_ref = ctx.get_session(); // Lives as long as session
     }
 
-    //======================================
     // user still valid here, session is not
-    //======================================
 }
 ```
 
@@ -232,41 +202,27 @@ Multiple lifetimes give you fine-grained control over which references outlive w
 The `'static` lifetime is special—it means "lives for the entire program":
 
 ```rust
-//======================================
 // String literals have 'static lifetime
-//======================================
 let s: &'static str = "Hello, world!";
 
-//================================
 // Constants have 'static lifetime
-//================================
 const MAX_SIZE: &'static str = "100";
 
-//==================================
 // Leaked allocations become 'static
-//==================================
 let leaked: &'static str = Box::leak(Box::new(String::from("leaked")));
 ```
 
 Be careful with `'static`—it's often not what you want:
 
 ```rust
-//===============
 // Common mistake
-//===============
 fn get_string() -> &'static str {
-    //==========================================================
     // Error! Cannot return 'static reference to non-static data
-    //==========================================================
     // let s = String::from("Hello");
-    //===
     // &s
-    //===
 }
 
-//=====================================
 // Correct: return owned String instead
-//=====================================
 fn get_string() -> String {
     String::from("Hello")
 }
@@ -283,22 +239,16 @@ Lifetime bounds constrain how long types must live, similar to trait bounds. The
 Lifetime bounds use the same syntax as trait bounds:
 
 ```rust
-//==================
 // T must outlive 'a
-//==================
 struct Wrapper<'a, T: 'a> {
     value: &'a T,
 }
 
-//===============================
 // Modern syntax (implicit bound)
-//===============================
 struct Wrapper<'a, T> {
     value: &'a T,
 }
-//=============================================
 // The bound T: 'a is implied when we use &'a T
-//=============================================
 ```
 
 Before Rust 2018, you had to write `T: 'a` explicitly. Now the compiler infers it from context.
@@ -391,9 +341,7 @@ impl<'a, T: 'a> Parser<'a, T> {
     where
         T: Default,
     {
-        //============================================
         // Parse logic using self.input and self.state
-        //============================================
         Some(self.input)
     }
 }
@@ -419,9 +367,7 @@ where
         MultiRef { short, medium, long }
     }
 
-    //=============================================
     // Can return long reference as medium or short
-    //=============================================
     fn long_as_medium(&self) -> &'b str {
         self.long // OK because 'c: 'b
     }
@@ -443,9 +389,7 @@ Higher-ranked trait bounds (HRTBs) are one of Rust's more exotic features. They 
 Consider a function that takes a closure:
 
 ```rust
-//===================
 // This doesn't work!
-//===================
 fn apply_to_string<F>(f: F) -> String
 where
     F: Fn(&str) -> String,
@@ -457,9 +401,7 @@ where
 What's the lifetime of the `&str` parameter? The closure should work with *any* lifetime, not just a specific one. This is where HRTBs come in:
 
 ```rust
-//=================================
 // Correct: works for all lifetimes
-//=================================
 fn apply_to_string<F>(f: F) -> String
 where
     F: for<'a> Fn(&'a str) -> String,
@@ -480,28 +422,20 @@ The `for<'a>` syntax means "for any lifetime 'a, F implements Fn(&'a str) -> Str
 The `for<'a>` bound is a universal quantifier:
 
 ```rust
-//=========================================
 // Without HRTB (doesn't work for closures)
-//=========================================
 fn call_with_ref<'a, F>(f: F)
 where
     F: Fn(&'a str) -> usize,
 {
-    //=====================
     // Specific lifetime 'a
-    //=====================
 }
 
-//===============================
 // With HRTB (works for closures)
-//===============================
 fn call_with_ref<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> usize,
 {
-    //================
     // Any lifetime 'a
-    //================
 }
 ```
 
@@ -512,9 +446,7 @@ The second version is more flexible—it accepts closures that work with any lif
 HRTBs appear frequently with function traits:
 
 ```rust
-//==================================================================
 // Function that accepts a closure working with any string reference
-//==================================================================
 fn process_strings<F>(items: Vec<String>, f: F) -> Vec<usize>
 where
     F: for<'a> Fn(&'a str) -> usize,
@@ -525,9 +457,7 @@ where
 fn example() {
     let strings = vec!["hello".to_string(), "world".to_string()];
 
-    //================================
     // Closure works with any lifetime
-    //================================
     let lengths = process_strings(strings, |s| s.len());
 
     println!("{:?}", lengths); // [5, 5]
@@ -570,9 +500,7 @@ fn map_strs<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> String,
 {
-    //====
     // ...
-    //====
 }
 ```
 
@@ -587,9 +515,7 @@ fn use_parser<P>(parser: P)
 where
     P: for<'a> Parser<Input<'a> = &'a str>,
 {
-    //====
     // ...
-    //====
 }
 ```
 
@@ -615,15 +541,11 @@ where
 The compiler often infers HRTBs for function traits:
 
 ```rust
-//======================
 // These are equivalent:
-//======================
 fn example1<F: Fn(&str) -> String>(f: F) { }
 fn example2<F: for<'a> Fn(&'a str) -> String>(f: F) { }
 
-//=====================================
 // Compiler adds the HRTB automatically
-//=====================================
 ```
 
 However, making it explicit can improve clarity and error messages.
@@ -642,17 +564,13 @@ struct SelfReferential {
     reference: &str, // Error! Missing lifetime
 }
 
-//========================================
 // Even with lifetimes, this doesn't work:
-//========================================
 struct SelfReferential<'a> {
     data: String,
     reference: &'a str,
 }
 
-//=============================
 // Can't implement this safely!
-//=============================
 impl<'a> SelfReferential<'a> {
     fn new(s: String) -> Self {
         SelfReferential {
@@ -670,15 +588,11 @@ The problem: you can't create a reference to `data` before `data` exists, but yo
 Moving a self-referential struct breaks the references:
 
 ```rust
-//=====================================
 // Hypothetical self-referential struct
-//=====================================
 let mut s = SelfReferential::new(String::from("hello"));
 let s2 = s; // Move!
 
-//=====================================
 // s.reference now points to moved data
-//=====================================
 // This would be use-after-free!
 ```
 
@@ -731,9 +645,7 @@ use std::marker::PhantomPinned;
 
 struct SelfReferential {
     data: String,
-    //=================================
     // Raw pointer instead of reference
-    //=================================
     reference: *const String,
     _pin: PhantomPinned,
 }
@@ -746,9 +658,7 @@ impl SelfReferential {
             _pin: PhantomPinned,
         });
 
-        //=============================
         // Safe because we pinned first
-        //=============================
         let self_ptr: *const String = &boxed.data;
         unsafe {
             let mut_ref = Pin::as_mut(&mut boxed);
@@ -775,9 +685,7 @@ impl SelfReferential {
 Libraries like `ouroboros` provide safe abstractions:
 
 ```rust
-//======================
 // Using ouroboros crate
-//======================
 use ouroboros::self_referencing;
 
 #[self_referencing]
@@ -804,17 +712,13 @@ The `ouroboros` crate uses macros and `Pin` internally to provide a safe interfa
 Often, self-references indicate a design problem. Consider alternatives:
 
 ```rust
-//=============================
 // Instead of self-referential:
-//=============================
 struct BadDesign<'a> {
     data: String,
     view: &'a str,
 }
 
-//========================
 // Use two separate types:
-//========================
 struct Data {
     content: String,
 }
@@ -873,9 +777,7 @@ Types have variance with respect to their lifetime and type parameters:
 **Covariant**: Subtyping flows in the same direction
 
 ```rust
-//===========================
 // &'a T is covariant over 'a
-//===========================
 // If 'a: 'b, then &'a T <: &'b T
 
 fn covariant_example() {
@@ -887,18 +789,14 @@ fn covariant_example() {
 **Invariant**: No subtyping allowed
 
 ```rust
-//===============================
 // &'a mut T is invariant over 'a
-//===============================
 // Cannot substitute different lifetimes
 
 fn invariant_example<'a, 'b>(x: &'a mut i32, y: &'b mut i32)
 where
     'a: 'b,
 {
-    //========================================
     // Cannot assign x to y even though 'a: 'b
-    //========================================
     // let z: &'b mut i32 = x; // Error!
 }
 ```
@@ -906,9 +804,7 @@ where
 **Contravariant**: Subtyping flows in opposite direction (rare in Rust)
 
 ```rust
-//====================================================
 // Function arguments are contravariant over lifetimes
-//====================================================
 // fn(&'a T) is contravariant over 'a
 ```
 
@@ -917,9 +813,7 @@ where
 Variance determines when types are compatible:
 
 ```rust
-//========================
 // Covariance allows this:
-//========================
 fn take_short(x: &str) {}
 
 fn example() {
@@ -927,13 +821,9 @@ fn example() {
     take_short(s); // OK: can pass 'static where shorter lifetime expected
 }
 
-//==========================
 // Invariance prevents this:
-//==========================
 fn swap<'a, 'b>(x: &'a mut &'static str, y: &'b mut &'a str) {
-    //=============================================================
     // std::mem::swap(x, y); // Error! Invariance prevents swapping
-    //=============================================================
 }
 ```
 
@@ -942,30 +832,18 @@ fn swap<'a, 'b>(x: &'a mut &'static str, y: &'b mut &'a str) {
 Common types and their variance:
 
 ```rust
-//===========
 // Covariant:
-//===========
 // &'a T
-//=========
 // *const T
-//=========
 // fn() -> T
-//=====================
 // Vec<T>, Box<T>, etc.
-//=====================
 
-//===========
 // Invariant:
-//===========
 // &'a mut T
-//=======
 // *mut T
-//=======
 // Cell<T>, UnsafeCell<T>
 
-//======================
 // Contravariant (rare):
-//======================
 // fn(T) -> ()
 ```
 
@@ -981,19 +859,13 @@ struct Consumer<T> {
 }
 
 fn example() {
-    //================================================================
     // Can use Producer<&'static str> where Producer<&'a str> expected
-    //================================================================
     let p: Producer<&'static str> = Producer { produce: || "hello" };
     let _p2: Producer<&str> = p; // OK
 
-    //=============================
     // Contravariance with Consumer
-    //=============================
     let c: Consumer<&str> = Consumer { consume: |_s| {} };
-    //======================================================================
     // let _c2: Consumer<&'static str> = c; // Would be error if uncommented
-    //======================================================================
 }
 ```
 
@@ -1007,13 +879,9 @@ use std::cell::Cell;
 fn example() {
     let cell: Cell<&'static str> = Cell::new("hello");
 
-    //=======================================
     // Cannot do this even though 'static: 'a
-    //=======================================
     // fn take_cell<'a>(c: Cell<&'a str>) {}
-    //=============================================
     // take_cell(cell); // Error! Cell is invariant
-    //=============================================
 }
 ```
 
@@ -1026,23 +894,17 @@ Control variance explicitly with `PhantomData`:
 ```rust
 use std::marker::PhantomData;
 
-//=================
 // Covariant over T
-//=================
 struct Covariant<T> {
     _marker: PhantomData<T>,
 }
 
-//=================
 // Invariant over T
-//=================
 struct Invariant<T> {
     _marker: PhantomData<Cell<T>>,
 }
 
-//============================
 // Contravariant over T (rare)
-//============================
 struct Contravariant<T> {
     _marker: PhantomData<fn(T)>,
 }
@@ -1055,9 +917,7 @@ Use `PhantomData` when you need to control variance without storing the actual t
 HRTBs interact with variance:
 
 ```rust
-//==========================
 // Works because of variance
-//==========================
 fn accepts_any_lifetime<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> String,
@@ -1066,9 +926,7 @@ where
 }
 
 fn example() {
-    //=====================================
     // This closure works with any lifetime
-    //=====================================
     accepts_any_lifetime(|s: &str| s.to_uppercase());
 }
 ```
@@ -1080,9 +938,7 @@ The HRTB ensures the function works with any lifetime, leveraging variance.
 Design APIs to work with variance:
 
 ```rust
-//==========================
 // Good: covariant, flexible
-//==========================
 struct GoodReader<'a> {
     data: &'a [u8],
 }
@@ -1093,20 +949,14 @@ impl<'a> GoodReader<'a> {
     }
 }
 
-//==========================================================
 // Can use GoodReader<'static> where GoodReader<'a> expected
-//==========================================================
 
-//===========================
 // Bad: invariant, inflexible
-//===========================
 struct BadReader<'a> {
     data: &'a mut [u8],
 }
 
-//======================================
 // Cannot substitute different lifetimes
-//======================================
 ```
 
 Prefer immutable references for flexibility unless mutation is necessary.
@@ -1174,17 +1024,13 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    //========================================
     // Elided: fn parse(&self) -> Option<&str>
-    //========================================
     // Actual: fn parse(&'a self) -> Option<&'a str>
     fn parse(&self) -> Option<&str> {
         Some(self.input)
     }
 
-    //===============================
     // Multiple lifetimes when needed
-    //===============================
     fn parse_with<'b>(&self, other: &'b str) -> (&'a str, &'b str) {
         (self.input, other)
     }
@@ -1198,16 +1044,12 @@ Use `'_` for clarity without naming:
 ```rust
 impl<'a> Parser<'a> {
     fn peek(&self) -> Option<&'_ str> {
-        //========================
         // '_ = 'a in this context
-        //========================
         Some(self.input)
     }
 }
 
-//================
 // Generic context
-//================
 fn get_first<T>(vec: &Vec<T>) -> Option<&'_ T> {
     vec.first()
 }

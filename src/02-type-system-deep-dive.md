@@ -241,9 +241,7 @@ impl Door<Unlocked> {
     }
 }
 
-//================================================
 // Usage: Invalid state transitions don't compile!
-//================================================
 fn door_example() {
     let door = Door::<Locked>::new();
     // door.open();  // Compile error: method not available
@@ -322,9 +320,7 @@ struct HttpRequest {
     body: String,
 }
 
-//===============================================
 // Usage: Cannot build without setting all fields
-//===============================================
 fn request_example() {
     let request = HttpRequestBuilder::new()
         .url("https://api.example.com".to_string())
