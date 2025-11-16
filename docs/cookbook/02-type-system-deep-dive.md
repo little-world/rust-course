@@ -1,4 +1,4 @@
-# Chapter 2: Type System Deep Dive
+# Chapter 2: Type System Pattern
 
 ## Overview
 
