@@ -88,21 +88,15 @@ macro_rules! greet {
 //=============================
 // This demonstrates how one macro can have different "overloads"
 macro_rules! calculate {
-    //=====================================================
     // Pattern 1: literal "add" followed by two expressions
-    //=====================================================
     (add $a:expr, $b:expr) => {
         $a + $b
     };
-    //=====================================================
     // Pattern 2: literal "sub" followed by two expressions
-    //=====================================================
     (sub $a:expr, $b:expr) => {
         $a - $b
     };
-    //=====================================================
     // Pattern 3: literal "mul" followed by two expressions
-    //=====================================================
     (mul $a:expr, $b:expr) => {
         $a * $b
     };
@@ -142,33 +136,23 @@ Fragment specifiers tell the macro what kind of syntax to expect. Each specifier
 // Different fragment types
 //=========================
 macro_rules! fragment_examples {
-    //==================
     // expr - expression
-    //==================
     // Matches: 5 + 3, vec![1, 2], function_call()
     ($e:expr) => {
         println!("Expression: {}", $e);
     };
-    //===================
     // ident - identifier
-    //===================
     // Matches: x, my_var, SomeStruct
-    //=======================================
     // This creates a variable with that name
-    //=======================================
     ($i:ident) => {
         let $i = 42;
     };
-    //==========
     // ty - type
-    //==========
     // Matches: i32, Vec<String>, &str
     ($t:ty) => {
         std::mem::size_of::<$t>()
     };
-    //==============
     // pat - pattern
-    //==============
     // Matches: Some(42), _, x @ 1..=5
     ($p:pat) => {
         match Some(42) {
@@ -176,38 +160,28 @@ macro_rules! fragment_examples {
             _ => println!("Not matched"),
         }
     };
-    //=================
     // stmt - statement
-    //=================
     // Matches: let x = 5;, println!("hi");
     ($s:stmt) => {
         $s
     };
-    //=========================
     // block - block expression
-    //=========================
     // Matches: { let x = 5; x * 2 }
     ($b:block) => {
         $b
     };
-    //===========================================
     // item - item (function, struct, impl, etc.)
-    //===========================================
     // Matches: fn foo() {}, struct Bar {}, impl Trait for Type {}
     ($it:item) => {
         $it
     };
-    //==========================
     // meta - attribute contents
-    //==========================
     // Matches: derive(Debug), inline, cfg(test)
     ($m:meta) => {
         #[$m]
         fn dummy() {}
     };
-    //======================================================
     // tt - token tree (single token or group in delimiters)
-    //======================================================
     // Matches: x, (a, b), {code}, "string"
     ($tt:tt) => {
         stringify!($tt)
@@ -242,13 +216,9 @@ Creating `vec![1, 2, 3]` or `println!("{} {}", a, b)` requires matching an arbit
 //========================
 // This is how vec! works internally
 macro_rules! create_vec {
-    //=======================
     // $($elem:expr),* means:
-    //=======================
     // - Match zero or more expressions
-    //======================
     // - Separated by commas
-    //======================
     // - Bind each to $elem
     ($($elem:expr),*) => {
         {
@@ -292,9 +262,7 @@ macro_rules! optional_value {
 //=====================
 // This is how HashMap literals could work
 macro_rules! hash_map {
-    //==================================
     // Trailing comma is optional: $(,)?
-    //==================================
     ($($key:expr => $val:expr),* $(,)?) => {
         {
             let mut map = std::collections::HashMap::new();
@@ -307,21 +275,15 @@ macro_rules! hash_map {
 }
 
 fn repetition_examples() {
-    //============================================
     // create_vec! accepts any number of arguments
-    //============================================
     let v = create_vec![1, 2, 3, 4, 5];
     println!("Vector: {:?}", v);
 
-    //====================================
     // sum! requires at least one argument
-    //====================================
     let total = sum!(1, 2, 3, 4, 5);
     println!("Sum: {}", total);
 
-    //=======================================
     // hash_map! with optional trailing comma
-    //=======================================
     let map = hash_map! {
         "name" => "Alice",
         "role" => "Developer",  // Trailing comma works
@@ -374,9 +336,7 @@ macro_rules! function_table {
 }
 
 fn nested_examples() {
-    //====================
     // Create a 3x3 matrix
-    //====================
     let mat = matrix![
         [1, 2, 3],
         [4, 5, 6],
@@ -387,9 +347,7 @@ fn nested_examples() {
         println!("{:?}", row);
     }
 
-    //====================================
     // Generate multiple functions at once
-    //====================================
     function_table! {
         fn add(a: i32, b: i32) -> i32 {
             a + b
@@ -451,9 +409,7 @@ macro_rules! tuple_access {
 }
 
 fn counting_examples() {
-    //=============================
     // Count tokens at compile time
-    //=============================
     let count = count!(a b c d e);
     println!("Count: {}", count);  // Prints 5
 
@@ -499,9 +455,7 @@ macro_rules! describe_expr {
 //=========================
 // Match literal operators to create a calculator DSL
 macro_rules! operation {
-    //==================================
     // Match literal operators as tokens
-    //==================================
     ($a:expr, +, $b:expr) => {
         $a + $b
     };
@@ -520,9 +474,7 @@ fn pattern_matching_examples() {
     println!("{}", match_literal!(true));  // "It's true!"
     println!("{}", match_literal!(42));    // "It's something else"
 
-    //==============================================
     // operation! creates a mini calculator language
-    //==============================================
     let result = operation!(10, +, 5);
     println!("Result: {}", result);  // 15
 }
@@ -656,9 +608,7 @@ Macros have special visibility rules compared to other items.
 // Macros can be exported from modules
 //====================================
 mod macros {
-    //===================================================
     // #[macro_export] makes this available at crate root
-    //===================================================
     #[macro_export]
     macro_rules! public_macro {
         () => {
@@ -666,9 +616,7 @@ mod macros {
         };
     }
 
-    //==============================================
     // Non-exported macros are private to the module
-    //==============================================
     macro_rules! private_macro {
         () => {
             println!("Private macro");
@@ -685,9 +633,7 @@ mod macros {
 //===========================================
 fn visibility_example() {
     public_macro!();
-    //=========================================
     // private_macro!(); // Error: not in scope
-    //=========================================
     macros::use_private(); // But can call function that uses it
 }
 ```
@@ -741,9 +687,7 @@ This demonstrates how macros can create query-like syntax that compiles to itera
 // SQL-like query syntax compiled to iterator chains
 //==================================================
 macro_rules! select {
-    //=================================================
     // select field1, field2 from table where condition
-    //=================================================
     ($($field:ident),+ from $table:ident where $condition:expr) => {
         {
             let results = $table
@@ -772,14 +716,10 @@ fn sql_dsl_example() {
         User { id: 3, name: "Carol".to_string(), age: 35 },
     ];
 
-    //====================================================
     // Looks like SQL, compiles to efficient iterator code
-    //====================================================
     let results = select!(name, age from users where |u: &User| u.age > 26);
     println!("Results: {:?}", results);
-    //=======================================
     // Output: [("Alice", 30), ("Carol", 35)]
-    //=======================================
 }
 ```
 
@@ -835,9 +775,7 @@ fn config_dsl_example() {
     };
 
     println!("Config: {:?}", settings);
-    //====================================
     // Produces a nested HashMap structure
-    //====================================
 }
 ```
 
@@ -850,16 +788,12 @@ Generate HTML strings with XML-like syntax (simplified version of real templatin
 // HTML-like DSL (simplified)
 //===========================
 macro_rules! html {
-    //=========================
     // Self-closing tag: <br />
-    //=========================
     (<$tag:ident />) => {
         format!("<{} />", stringify!($tag))
     };
 
-    //==============================
     // Tag with content: <p>text</p>
-    //==============================
     (<$tag:ident> $($content:tt)* </$close:ident>) => {
         format!("<{}>{}</{}>",
             stringify!($tag),
@@ -867,16 +801,12 @@ macro_rules! html {
             stringify!($close))
     };
 
-    //=============
     // Text content
-    //=============
     ($text:expr) => {
         $text.to_string()
     };
 
-    //==================
     // Multiple elements
-    //==================
     ($($element:tt)*) => {
         {
             let mut result = String::new();
@@ -900,9 +830,7 @@ fn html_dsl_example() {
     };
 
     println!("{}", page);
-    //============================================================================================
     // Produces: <html><body><h1>Hello, World!</h1><p>This is a paragraph.</p><br /></body></html>
-    //============================================================================================
 }
 ```
 
@@ -947,9 +875,7 @@ macro_rules! state_machine {
             }
 
             fn transition(&mut self, event: Event) -> Result<(), String> {
-                //============================================================
                 // Pattern match on (current_state, event) to find transitions
-                //============================================================
                 let new_state = match (self.current_state, event) {
                     $(
                         (State::$from, Event::$event) => State::$to,
@@ -1027,25 +953,19 @@ macro_rules! accessors {
         }
 
         impl $name {
-            //=================
             // Generate getters
-            //=================
             $(
                 pub fn $field(&self) -> &$type {
                     &self.$field
                 }
 
                 paste::paste! {
-                    //=================================
                     // _mut suffix for mutable accessor
-                    //=================================
                     pub fn [<$field _mut>](&mut self) -> &mut $type {
                         &mut self.$field
                     }
 
-                    //=======================
                     // set_ prefix for setter
-                    //=======================
                     pub fn [<set_ $field>](&mut self, value: $type) {
                         self.$field = value;
                     }
@@ -1110,9 +1030,7 @@ impl_from!(bool => Value, Bool);
 fn trait_impl_example() {
     let int_value: Value = 42i64.into();
     let string_value: Value = "hello".to_string().into();
-    //============================================
     // Now you can use .into() to convert to Value
-    //============================================
 }
 ```
 
@@ -1222,9 +1140,7 @@ macro_rules! bitflags {
             }
         }
 
-        //=========================================
         // Implement | operator for combining flags
-        //=========================================
         impl std::ops::BitOr for $name {
             type Output = Self;
 
@@ -1317,9 +1233,7 @@ macro_rules! trace {
 fn tracing_example() {
     let x = trace!(5 + 3);
     println!("Result: {}", x);
-    //=============================
     // Stderr: "Macro trace: 5 + 3"
-    //=============================
     // Stdout: "Result: 8"
 }
 ```
@@ -1367,9 +1281,7 @@ fn debugging_patterns() {
     echo!(println!("Hello"));
 
     let x = show_type!(vec![1, 2, 3]);
-    //======================================================
     // Prints: "Type of vec![1, 2, 3]: alloc::vec::Vec<i32>"
-    //======================================================
 
     const COUNT: usize = count_tts!(a b c d e);
     println!("Token count: {}", COUNT);  // 5
@@ -1389,9 +1301,7 @@ macro_rules! validate_input {
         compile_error!("Input cannot be empty!");
     };
     ($($valid:tt)*) => {
-        //====================
         // Process valid input
-        //====================
         $($valid)*
     };
 }

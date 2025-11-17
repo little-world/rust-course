@@ -24,16 +24,12 @@ use std::thread;
 /// A basic echo server that handles one client at a time
 /// This is synchronous and will block on each operation
 fn simple_echo_server() -> std::io::Result<()> {
-    //===============================
     // Bind to localhost on port 8080
-    //===============================
     // The "0.0.0.0:8080" address means "listen on all network interfaces"
     let listener = TcpListener::bind("127.0.0.1:8080")?;
     println!("Server listening on port 8080");
 
-    //=============================
     // Accept connections in a loop
-    //=============================
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -53,22 +49,16 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
     let mut buffer = [0; 1024];
 
     loop {
-        //==========================
         // Read data from the client
-        //==========================
         let bytes_read = stream.read(&mut buffer)?;
 
-        //================================================
         // If bytes_read is 0, the client has disconnected
-        //================================================
         if bytes_read == 0 {
             println!("Client disconnected");
             break;
         }
 
-        //=================================
         // Echo the data back to the client
-        //=================================
         stream.write_all(&buffer[..bytes_read])?;
         stream.flush()?;
     }
@@ -97,9 +87,7 @@ fn multithreaded_server() -> std::io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                //=======================================
                 // Spawn a new thread for each connection
-                //=======================================
                 thread::spawn(move || {
                     if let Err(e) = handle_client_thread(stream) {
                         eprintln!("Error handling client: {}", e);
@@ -129,9 +117,7 @@ fn handle_client_thread(mut stream: TcpStream) -> std::io::Result<()> {
             break;
         }
 
-        //==========
         // Echo back
-        //==========
         stream.write_all(&buffer[..bytes_read])?;
     }
 
@@ -157,15 +143,11 @@ async fn async_echo_server() -> tokio::io::Result<()> {
     println!("Async server listening on port 8080");
 
     loop {
-        //====================================================
         // Accept is async - other tasks can run while waiting
-        //====================================================
         let (socket, addr) = listener.accept().await?;
         println!("New connection from {}", addr);
 
-        //========================================
         // Spawn an async task for this connection
-        //========================================
         // Tasks are much cheaper than threads
         tokio::spawn(async move {
             if let Err(e) = handle_connection(socket).await {
@@ -179,21 +161,15 @@ async fn handle_connection(mut socket: TcpStream) -> tokio::io::Result<()> {
     let mut buffer = vec![0; 1024];
 
     loop {
-        //==========================================================
         // Async read - yields to other tasks while waiting for data
-        //==========================================================
         let n = socket.read(&mut buffer).await?;
 
         if n == 0 {
-            //==================
             // Connection closed
-            //==================
             return Ok(());
         }
 
-        //===================
         // Echo the data back
-        //===================
         socket.write_all(&buffer[..n]).await?;
     }
 }
@@ -220,9 +196,7 @@ async fn line_based_server() -> tokio::io::Result<()> {
         println!("Connection from {}", addr);
 
         tokio::spawn(async move {
-            //==============================================
             // BufReader provides efficient buffered reading
-            //==============================================
             let (reader, mut writer) = socket.into_split();
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
@@ -230,26 +204,18 @@ async fn line_based_server() -> tokio::io::Result<()> {
             loop {
                 line.clear();
 
-                //============================
                 // Read until we get a newline
-                //============================
                 match reader.read_line(&mut line).await {
                     Ok(0) => {
-                        //========================
                         // EOF - connection closed
-                        //========================
                         println!("Client {} disconnected", addr);
                         break;
                     }
                     Ok(_) => {
-                        //=================
                         // Process the line
-                        //=================
                         let response = process_command(&line);
 
-                        //==============
                         // Send response
-                        //==============
                         if let Err(e) = writer.write_all(response.as_bytes()).await {
                             eprintln!("Failed to write to {}: {}", addr, e);
                             break;
@@ -288,21 +254,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Connect to a server and exchange messages
 async fn tcp_client_example() -> tokio::io::Result<()> {
-    //======================
     // Connect to the server
-    //======================
     let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
     println!("Connected to server");
 
-    //===============
     // Send a message
-    //===============
     let message = "Hello, Server!\n";
     stream.write_all(message.as_bytes()).await?;
 
-    //==================
     // Read the response
-    //==================
     let mut buffer = vec![0; 1024];
     let n = stream.read(&mut buffer).await?;
 
@@ -324,9 +284,7 @@ async fn interactive_client() -> tokio::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
-    //=========================================
     // Spawn a task to handle incoming messages
-    //=========================================
     let read_handle = tokio::spawn(async move {
         let mut line = String::new();
         loop {
@@ -342,9 +300,7 @@ async fn interactive_client() -> tokio::io::Result<()> {
         }
     });
 
-    //=========================================
     // Main task handles user input and sending
-    //=========================================
     let write_handle = tokio::spawn(async move {
         use tokio::io::{stdin, AsyncBufReadExt, BufReader};
 
@@ -358,9 +314,7 @@ async fn interactive_client() -> tokio::io::Result<()> {
         }
     });
 
-    //===============================
     // Wait for either task to finish
-    //===============================
     tokio::select! {
         _ = read_handle => println!("Read task finished"),
         _ = write_handle => println!("Write task finished"),
@@ -402,9 +356,7 @@ impl ConnectionPool {
     async fn acquire(&self) -> tokio::io::Result<PooledConnection> {
         let mut pool = self.available.lock().await;
 
-        //====================================
         // Try to reuse an existing connection
-        //====================================
         if let Some(stream) = pool.pop_front() {
             return Ok(PooledConnection {
                 stream: Some(stream),
@@ -412,9 +364,7 @@ impl ConnectionPool {
             });
         }
 
-        //==================================
         // Otherwise create a new connection
-        //==================================
         drop(pool); // Release lock before async operation
         let stream = TcpStream::connect(&self.address).await?;
 
@@ -480,26 +430,20 @@ use std::io;
 /// UDP echo server
 /// Receives datagrams and echoes them back to the sender
 async fn udp_echo_server() -> io::Result<()> {
-    //===============
     // Bind to a port
-    //===============
     let socket = UdpSocket::bind("127.0.0.1:8080").await?;
     println!("UDP server listening on port 8080");
 
     let mut buffer = vec![0u8; 1024];
 
     loop {
-        //===================
         // Receive a datagram
-        //===================
         // recv_from returns the number of bytes and the sender's address
         let (len, addr) = socket.recv_from(&mut buffer).await?;
 
         println!("Received {} bytes from {}", len, addr);
 
-        //=============
         // Echo it back
-        //=============
         socket.send_to(&buffer[..len], addr).await?;
     }
 }
@@ -514,29 +458,19 @@ use tokio::net::UdpSocket;
 
 /// Send a UDP message and wait for a response
 async fn udp_client_example() -> tokio::io::Result<()> {
-    //===========================
     // Bind to any available port
-    //===========================
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-    //=====================================
     // Connect sets the default destination
-    //=====================================
     // This doesn't establish a connection (UDP is connectionless)
-    //========================================================
     // but allows using send/recv instead of send_to/recv_from
-    //========================================================
     socket.connect("127.0.0.1:8080").await?;
 
-    //===============
     // Send a message
-    //===============
     let message = b"Hello, UDP Server!";
     socket.send(message).await?;
 
-    //====================
     // Wait for a response
-    //====================
     let mut buffer = vec![0u8; 1024];
     let len = socket.recv(&mut buffer).await?;
 
@@ -558,14 +492,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 async fn udp_broadcast() -> tokio::io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-    //=================
     // Enable broadcast
-    //=================
     socket.set_broadcast(true)?;
 
-    //=======================================================================
     // Broadcast address (255.255.255.255 reaches all hosts on local network)
-    //=======================================================================
     let broadcast_addr = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
         8080
@@ -613,26 +543,18 @@ async fn reliable_udp_request(
     let mut buffer = vec![0u8; 1024];
 
     for attempt in 0..retries {
-        //=================
         // Send the request
-        //=================
         socket.send_to(message, server_addr).await?;
 
-        //===============================
         // Wait for response with timeout
-        //===============================
         match timeout(Duration::from_secs(2), socket.recv_from(&mut buffer)).await {
             Ok(Ok((len, _addr))) => {
-                //=============================
                 // Success! Return the response
-                //=============================
                 return Ok(buffer[..len].to_vec());
             }
             Ok(Err(e)) => return Err(e),
             Err(_) => {
-                //================
                 // Timeout - retry
-                //================
                 println!("Attempt {} timed out, retrying...", attempt + 1);
                 continue;
             }
@@ -668,17 +590,13 @@ struct ApiResponse {
 
 /// Simple GET request
 async fn simple_get_request() -> Result<(), Box<dyn std::error::Error>> {
-    //===============================
     // GET request returns a Response
-    //===============================
     let response = reqwest::get("https://httpbin.org/get").await?;
 
     println!("Status: {}", response.status());
     println!("Headers: {:#?}", response.headers());
 
-    //===============================
     // Read the response body as text
-    //===============================
     let body = response.text().await?;
     println!("Body: {}", body);
 
@@ -795,17 +713,13 @@ async fn client_with_defaults() -> Result<(), Box<dyn std::error::Error>> {
         header::HeaderValue::from_static("application/json")
     );
 
-    //=====================================
     // Create a client with default headers
-    //=====================================
     let client = Client::builder()
         .default_headers(headers)
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 
-    //===============================================================
     // All requests with this client will include the default headers
-    //===============================================================
     let response = client
         .get("https://api.example.com/data")
         .send()
@@ -841,9 +755,7 @@ async fn request_with_retry(
                         return Ok(response.text().await?);
                     }
                     StatusCode::TOO_MANY_REQUESTS => {
-                        //==============================
                         // Rate limited - wait and retry
-                        //==============================
                         if attempts >= max_retries {
                             return Err("Max retries exceeded".into());
                         }
@@ -852,9 +764,7 @@ async fn request_with_retry(
                         continue;
                     }
                     status if status.is_server_error() => {
-                        //==================================
                         // Server error - retry with backoff
-                        //==================================
                         if attempts >= max_retries {
                             return Err(format!("Server error: {}", status).into());
                         }
@@ -864,9 +774,7 @@ async fn request_with_retry(
                         continue;
                     }
                     status => {
-                        //===========================
                         // Client error - don't retry
-                        //===========================
                         return Err(format!("HTTP error: {}", status).into());
                     }
                 }
@@ -904,21 +812,15 @@ async fn download_file(
     let client = Client::new();
     let response = client.get(url).send().await?;
 
-    //========================
     // Get the total file size
-    //========================
     let total_size = response.content_length().unwrap_or(0);
     println!("Downloading {} bytes", total_size);
 
-    //===================
     // Create output file
-    //===================
     let mut file = File::create(output_path).await?;
     let mut downloaded = 0u64;
 
-    //=========================
     // Stream the response body
-    //=========================
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
@@ -982,17 +884,13 @@ struct ListQuery {
 
 #[tokio::main]
 async fn basic_axum_server() {
-    //==================================
     // Build our application with routes
-    //==================================
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/users", get(list_users).post(create_user))
         .route("/users/:id", get(get_user));
 
-    //===============
     // Run the server
-    //===============
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("Server running on http://{}", addr);
 
@@ -1018,9 +916,7 @@ async fn list_users(Query(params): Query<ListQuery>) -> Json<Vec<User>> {
 
     println!("Listing users: page={}, per_page={}", page, per_page);
 
-    //===================================
     // In a real app, fetch from database
-    //===================================
     let users = vec![
         User {
             id: 1,
@@ -1043,9 +939,7 @@ async fn list_users(Query(params): Query<ListQuery>) -> Json<Vec<User>> {
 async fn get_user(Path(user_id): Path<u64>) -> Result<Json<User>, StatusCode> {
     println!("Getting user {}", user_id);
 
-    //=========================
     // Simulate database lookup
-    //=========================
     if user_id == 1 {
         Ok(Json(User {
             id: 1,
@@ -1065,9 +959,7 @@ async fn create_user(
 ) -> (StatusCode, Json<User>) {
     println!("Creating user: {}", payload.username);
 
-    //============================================================
     // In a real app, save to database and return the created user
-    //============================================================
     let user = User {
         id: 42, // Would come from database
         username: payload.username,
@@ -1097,9 +989,7 @@ use serde::Serialize;
 
 #[derive(Clone)]
 struct AppState {
-    //==========================================
     // Use Arc for shared ownership across tasks
-    //==========================================
     // RwLock allows multiple readers or one writer
     db: Arc<RwLock<Database>>,
     config: Arc<Config>,
@@ -1134,22 +1024,16 @@ async fn stateful_server() {
         .route("/users", get(get_all_users))
         .with_state(state);
 
-    //==============
     // Run server...
-    //==============
 }
 
 async fn get_all_users(
     State(state): State<AppState>,
 ) -> Json<Vec<User>> {
-    //==================
     // Acquire read lock
-    //==================
     let db = state.db.read().await;
 
-    //============================================================
     // Clone the users (in real app, might want to use pagination)
-    //============================================================
     Json(db.users.clone())
 }
 ```
@@ -1174,15 +1058,11 @@ use std::time::Instant;
 async fn middleware_example() {
     let app = Router::new()
         .route("/", get(|| async { "Hello!" }))
-        //=============================
         // Add middleware to all routes
-        //=============================
         .layer(middleware::from_fn(timing_middleware))
         .layer(middleware::from_fn(auth_middleware));
 
-    //==============
     // Run server...
-    //==============
 }
 
 /// Middleware that logs request timing
@@ -1206,21 +1086,15 @@ async fn auth_middleware<B>(
     request: Request<B>,
     next: Next<B>,
 ) -> Response {
-    //======================
     // Check for auth header
-    //======================
     if let Some(auth_header) = request.headers().get("authorization") {
         if auth_header.to_str().unwrap_or("").starts_with("Bearer ") {
-            //=====================
             // Valid auth, continue
-            //=====================
             return next.run(request).await;
         }
     }
 
-    //==============
     // No valid auth
-    //==============
     Response::builder()
         .status(401)
         .body("Unauthorized".into())
@@ -1325,17 +1199,13 @@ use tokio::sync::broadcast;
 
 #[derive(Clone)]
 struct AppState {
-    //======================================================
     // Broadcast channel for sending messages to all clients
-    //======================================================
     tx: broadcast::Sender<String>,
 }
 
 #[tokio::main]
 async fn websocket_server() {
-    //=========================
     // Create broadcast channel
-    //=========================
     let (tx, _rx) = broadcast::channel(100);
 
     let state = AppState { tx };
@@ -1357,56 +1227,40 @@ async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    //===============================
     // Complete the WebSocket upgrade
-    //===============================
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
 /// Handle an individual WebSocket connection
 async fn handle_socket(socket: WebSocket, state: AppState) {
-    //==========================================
     // Split the socket into sender and receiver
-    //==========================================
     let (mut sender, mut receiver) = socket.split();
 
-    //===============================
     // Subscribe to broadcast channel
-    //===============================
     let mut rx = state.tx.subscribe();
 
-    //=======================================================
     // Spawn a task to send broadcast messages to this client
-    //=======================================================
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            //============================
             // Send message to this client
-            //============================
             if sender.send(Message::Text(msg)).await.is_err() {
                 break;
             }
         }
     });
 
-    //==================================================
     // Spawn a task to receive messages from this client
-    //==================================================
     let tx = state.tx.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
-                //=====================================
                 // Broadcast the message to all clients
-                //=====================================
                 let _ = tx.send(text);
             }
         }
     });
 
-    //===============================
     // Wait for either task to finish
-    //===============================
     tokio::select! {
         _ = (&mut send_task) => recv_task.abort(),
         _ = (&mut recv_task) => send_task.abort(),
@@ -1429,17 +1283,13 @@ use futures_util::{StreamExt, SinkExt};
 async fn websocket_client() -> Result<(), Box<dyn std::error::Error>> {
     let url = "ws://127.0.0.1:3000/ws";
 
-    //======================
     // Connect to the server
-    //======================
     let (ws_stream, _) = connect_async(url).await?;
     println!("Connected to {}", url);
 
     let (mut write, mut read) = ws_stream.split();
 
-    //=========================================
     // Spawn a task to handle incoming messages
-    //=========================================
     let read_handle = tokio::spawn(async move {
         while let Some(msg) = read.next().await {
             match msg {
@@ -1459,18 +1309,14 @@ async fn websocket_client() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    //===================
     // Send some messages
-    //===================
     for i in 0..5 {
         let msg = format!("Message {}", i);
         write.send(Message::Text(msg)).await?;
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    //=====================
     // Close the connection
-    //=====================
     write.send(Message::Close(None)).await?;
 
     read_handle.await?;
@@ -1497,13 +1343,9 @@ struct ChatServer {
 }
 
 struct Room {
-    //================================
     // Broadcast channel for this room
-    //================================
     tx: broadcast::Sender<ChatMessage>,
-    //================
     // Connected users
-    //================
     users: HashMap<UserId, UserInfo>,
 }
 
@@ -1552,9 +1394,7 @@ impl ChatServer {
         if let Some(room) = rooms.get_mut(room_id) {
             room.users.remove(user_id);
 
-            //=====================
             // Clean up empty rooms
-            //=====================
             if room.users.is_empty() {
                 rooms.remove(room_id);
             }
@@ -1579,9 +1419,7 @@ async fn websocket_with_keepalive(mut socket: WebSocket) {
     loop {
         tokio::select! {
             _ = ping_interval.tick() => {
-                //==========
                 // Send ping
-                //==========
                 if socket.send(Message::Ping(vec![])).await.is_err() {
                     break;
                 }
@@ -1589,14 +1427,10 @@ async fn websocket_with_keepalive(mut socket: WebSocket) {
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Pong(_))) => {
-                        //================
                         // Client is alive
-                        //================
                     }
                     Some(Ok(Message::Text(text))) => {
-                        //===============
                         // Handle message
-                        //===============
                         println!("Received: {}", text);
                     }
                     Some(Ok(Message::Close(_))) | None => {

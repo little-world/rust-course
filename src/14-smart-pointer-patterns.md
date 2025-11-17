@@ -16,7 +16,7 @@ This chapter explores smart pointer patterns in Rust, covering heap allocation w
 
 Smart pointers enable different ownership models beyond Rust's default move semantics.
 
-### Recipe 1: Box for Heap Allocation
+### Pattern 1: Box for Heap Allocation
 
 **Problem**: Store data on the heap for recursive types, large data, or trait objects.
 
@@ -81,18 +81,14 @@ struct LargeData {
 }
 
 fn stack_overflow_risk() -> LargeData {
-    //===============================
     // This could overflow the stack!
-    //===============================
     LargeData {
         buffer: [0; 1024 * 1024],
     }
 }
 
 fn heap_allocation() -> Box<LargeData> {
-    //========================
     // Safe: allocated on heap
-    //========================
     Box::new(LargeData {
         buffer: [0; 1024 * 1024],
     })
@@ -204,9 +200,7 @@ impl<T: Ord> TreeNode<T> {
 // Pattern 4: Box for ownership transfer
 //======================================
 fn process_large_data(data: Box<LargeData>) {
-    //================================
     // Takes ownership without copying
-    //================================
     println!("Processing {} bytes", data.buffer.len());
 }
 
@@ -253,7 +247,7 @@ fn main() {
 
 ---
 
-### Recipe 2: Rc for Shared Ownership
+### Pattern 2: Rc for Shared Ownership
 
 **Problem**: Multiple owners need read-only access to the same data.
 
@@ -322,9 +316,7 @@ fn shared_config() {
     let api = ApiServer::new(Rc::clone(&config));
     println!("After API: {}", Rc::strong_count(&config));
 
-    //========================================================
     // config, db_pool, cache, api all dropped at end of scope
-    //========================================================
     // Reference count goes to 0, memory freed
 }
 
@@ -513,7 +505,7 @@ fn main() {
 
 ---
 
-### Recipe 3: Arc for Thread-Safe Sharing
+### Pattern 3: Arc for Thread-Safe Sharing
 
 **Problem**: Share data across threads safely.
 
@@ -626,9 +618,7 @@ impl Cache {
 fn arc_rwlock_example() {
     let cache = Cache::new();
 
-    //==============
     // Writer thread
-    //==============
     let writer_cache = cache.clone_handle();
     let writer = thread::spawn(move || {
         for i in 0..100 {
@@ -637,9 +627,7 @@ fn arc_rwlock_example() {
         }
     });
 
-    //===============
     // Reader threads
-    //===============
     let mut readers = vec![];
     for id in 0..5 {
         let reader_cache = cache.clone_handle();
@@ -771,7 +759,7 @@ fn main() {
 
 Weak references prevent memory leaks from reference cycles.
 
-### Recipe 4: Breaking Reference Cycles
+### Pattern 4: Breaking Reference Cycles
 
 **Problem**: Prevent memory leaks when data structures have circular references.
 
@@ -934,9 +922,7 @@ impl Subject {
     }
 
     fn notify_all(&mut self, message: &str) {
-        //===============================================
         // Clean up dead observers and notify living ones
-        //===============================================
         self.observers.retain(|weak| {
             if let Some(observer) = weak.upgrade() {
                 observer.notify(message);
@@ -1044,14 +1030,10 @@ fn main() {
             println!("Found in cache: {}", cached);
         }
 
-        //===================
         // value dropped here
-        //===================
     }
 
-    //==================================
     // Try to get after value is dropped
-    //==================================
     if cache.get(&"key1").is_none() {
         println!("Cache entry expired");
     }
@@ -1073,7 +1055,7 @@ fn main() {
 
 Custom smart pointers enable domain-specific ownership semantics.
 
-### Recipe 5: Implementing Custom Smart Pointers
+### Pattern 5: Implementing Custom Smart Pointers
 
 **Problem**: Create custom pointer types with specialized behavior.
 
@@ -1365,7 +1347,7 @@ fn main() {
 
 Intrusive structures embed pointers within nodes, enabling efficient operations without separate allocations.
 
-### Recipe 6: Intrusive Linked Lists
+### Pattern 6: Intrusive Linked Lists
 
 **Problem**: Implement efficient linked lists where nodes are embedded in objects.
 
@@ -1486,9 +1468,7 @@ where
         let node_ptr = *self.map.get(key)?;
 
         unsafe {
-            //==============
             // Move to front
-            //==============
             self.detach(node_ptr);
             self.attach_front(node_ptr);
 
@@ -1506,9 +1486,7 @@ where
             return;
         }
 
-        //=====================
         // Evict if at capacity
-        //=====================
         if self.map.len() >= self.capacity {
             unsafe {
                 if !self.tail.is_null() {
@@ -1520,9 +1498,7 @@ where
             }
         }
 
-        //================
         // Create new node
-        //================
         let node = Box::into_raw(Box::new(LruNode {
             key: key.clone(),
             value,
@@ -1633,7 +1609,7 @@ fn main() {
 
 Optimizing reference counting reduces overhead and improves performance.
 
-### Recipe 7: Reference Counting Optimizations
+### Pattern 7: Reference Counting Optimizations
 
 **Problem**: Reduce the overhead of reference counting operations.
 
@@ -1647,9 +1623,7 @@ use std::sync::Arc;
 // Pattern 1: Avoid unnecessary clones
 //====================================
 fn inefficient_clones(data: &Rc<Vec<i32>>) {
-    //===============================
     // Bad: Clone for every operation
-    //===============================
     let clone1 = Rc::clone(data);
     println!("Length: {}", clone1.len());
 
@@ -1658,9 +1632,7 @@ fn inefficient_clones(data: &Rc<Vec<i32>>) {
 }
 
 fn efficient_borrows(data: &Rc<Vec<i32>>) {
-    //======================
     // Good: Borrow directly
-    //======================
     println!("Length: {}", data.len());
     println!("First: {}", data[0]);
 }
@@ -1669,9 +1641,7 @@ fn efficient_borrows(data: &Rc<Vec<i32>>) {
 // Pattern 2: Make owned data when possible
 //=========================================
 fn make_owned(data: Rc<Vec<i32>>) -> Vec<i32> {
-    //======================================
     // Try to unwrap if we're the only owner
-    //======================================
     Rc::try_unwrap(data).unwrap_or_else(|rc| (*rc).clone())
 }
 
@@ -1681,18 +1651,14 @@ fn make_owned(data: Rc<Vec<i32>>) -> Vec<i32> {
 fn batch_updates() {
     let data = Rc::new(vec![1, 2, 3, 4, 5]);
 
-    //====================================
     // Bad: Multiple increments/decrements
-    //====================================
     {
         let _clone1 = Rc::clone(&data);
         let _clone2 = Rc::clone(&data);
         let _clone3 = Rc::clone(&data);
     }
 
-    //======================================
     // Better: Pass references when possible
-    //======================================
     {
         process_data(&data);
         process_data(&data);
@@ -1711,14 +1677,10 @@ use std::borrow::Cow;
 
 fn process_string(s: Cow<str>) -> Cow<str> {
     if s.contains("replace") {
-        //==================================
         // Need to modify - convert to owned
-        //==================================
         Cow::Owned(s.replace("replace", "replaced"))
     } else {
-        //================================
         // No modification - keep borrowed
-        //================================
         s
     }
 }
@@ -1741,14 +1703,10 @@ impl StringInterner {
 
     fn intern(&mut self, s: &str) -> Rc<str> {
         if let Some(interned) = self.map.get(s) {
-            //=================================
             // Already interned - just clone Rc
-            //=================================
             Rc::clone(interned)
         } else {
-            //==================================
             // Not interned - create new Rc<str>
-            //==================================
             let rc: Rc<str> = Rc::from(s);
             self.map.insert(s.to_string(), Rc::clone(&rc));
             rc
@@ -1760,9 +1718,7 @@ impl StringInterner {
     }
 
     fn memory_saved(&self, total_strings: usize) -> usize {
-        //===================================
         // Estimate memory saved by interning
-        //===================================
         let unique = self.len();
         let duplicates = total_strings - unique;
         duplicates * std::mem::size_of::<String>()
@@ -1780,9 +1736,7 @@ struct Observer {
 
 impl Observer {
     fn observe(&self) {
-        //=================================================
         // Upgrade temporarily, don't keep strong reference
-        //=================================================
         if let Some(subject) = self.subject.upgrade() {
             println!("Observing: {} items", subject.len());
         }
@@ -1797,9 +1751,7 @@ fn arc_performance_test() {
 
     let data = Arc::new(vec![0; 1_000_000]);
 
-    //========================
     // Test 1: Many Arc clones
-    //========================
     let start = Instant::now();
     let mut clones = Vec::new();
     for _ in 0..1000 {
@@ -1809,9 +1761,7 @@ fn arc_performance_test() {
 
     drop(clones);
 
-    //==================================
     // Test 2: Many borrows (no cloning)
-    //==================================
     let start = Instant::now();
     for _ in 0..1000 {
         let _borrow = &data;
@@ -1831,9 +1781,7 @@ fn rc_vs_owned_benchmark() {
 
     let data = vec![1, 2, 3, 4, 5];
 
-    //======================================
     // With Rc (reference counting overhead)
-    //======================================
     let start = Instant::now();
     let rc_data = Rc::new(data.clone());
     for _ in 0..1_000_000 {
@@ -1841,9 +1789,7 @@ fn rc_vs_owned_benchmark() {
     }
     let rc_time = start.elapsed();
 
-    //=========================================
     // With owned (no overhead but more memory)
-    //=========================================
     let start = Instant::now();
     for _ in 0..1_000_000 {
         let _clone = data.clone();

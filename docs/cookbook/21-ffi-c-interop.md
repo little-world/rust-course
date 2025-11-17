@@ -45,9 +45,7 @@ fn demonstrate_repr() {
     println!("RustStruct size: {}", std::mem::size_of::<RustStruct>());
     println!("CCompatibleStruct size: {}", std::mem::size_of::<CCompatibleStruct>());
 
-    //================================================================
     // Both are likely 12 bytes, but only CCompatibleStruct guarantees
-    //================================================================
     // the exact layout C expects
 }
 ```
@@ -63,32 +61,22 @@ To call a C function from Rust, you first declare it with `extern "C"`. This dec
 // Declare external C functions
 //=============================
 extern "C" {
-    //===================
     // C: int abs(int n);
-    //===================
     fn abs(n: i32) -> i32;
 
-    //==============================
     // C: void *malloc(size_t size);
-    //==============================
     fn malloc(size: usize) -> *mut std::ffi::c_void;
 
-    //=========================
     // C: void free(void *ptr);
-    //=========================
     fn free(ptr: *mut std::ffi::c_void);
 
-    //==========================
     // C: double sqrt(double x);
-    //==========================
     fn sqrt(x: f64) -> f64;
 }
 
 fn use_c_functions() {
     unsafe {
-        //================================
         // All C function calls are unsafe
-        //================================
         // The Rust compiler can't verify C code's safety guarantees
         let result = abs(-42);
         println!("abs(-42) = {}", result);
@@ -119,13 +107,9 @@ pub extern "C" fn rust_add(a: i32, b: i32) -> i32 {
 //=========================================
 #[no_mangle]
 pub extern "C" fn rust_compute_average(values: *const f64, count: usize) -> f64 {
-    //============================
     // Safety: Caller must ensure:
-    //============================
     // 1. values is valid for count elements
-    //==============================
     // 2. values is properly aligned
-    //==============================
     // 3. values is not mutated during this call
     unsafe {
         if values.is_null() || count == 0 {
@@ -207,14 +191,10 @@ C compilers insert padding between struct fields to satisfy alignment requiremen
 #[repr(C)]
 struct Padded {
     a: u8,    // 1 byte
-    //================
     // 3 bytes padding
-    //================
     b: u32,   // 4 bytes (must be 4-byte aligned)
     c: u8,    // 1 byte
-    //====================================================================
     // 3 bytes padding (to make struct size multiple of largest alignment)
-    //====================================================================
 }
 
 #[repr(C, packed)]
@@ -229,17 +209,13 @@ fn examine_layout() {
         std::mem::size_of::<Padded>(),
         std::mem::align_of::<Padded>()
     );
-    //==========================
     // Padded size: 12, align: 4
-    //==========================
 
     println!("NoPadding size: {}, align: {}",
         std::mem::size_of::<NoPadding>(),
         std::mem::align_of::<NoPadding>()
     );
-    //============================
     // NoPadding size: 6, align: 1
-    //============================
 }
 ```
 
@@ -275,48 +251,34 @@ use std::os::raw::c_char;
 fn rust_string_to_c() {
     let rust_string = "Hello, C!";
 
-    //===================================================
     // Create a CString (allocates, adds null terminator)
-    //===================================================
     let c_string = CString::new(rust_string).expect("CString::new failed");
 
-    //=============================
     // Get a pointer suitable for C
-    //=============================
     let c_ptr: *const c_char = c_string.as_ptr();
 
     unsafe {
-        //===================
         // Pass to C function
-        //===================
         some_c_function(c_ptr);
     }
 
-    //=============================================
     // c_string is dropped here, freeing the memory
-    //=============================================
 }
 
 //==========
 // C to Rust
 //==========
 unsafe fn c_string_to_rust(c_ptr: *const c_char) -> String {
-    //==============================================================
     // Safety: Caller must ensure c_ptr is valid and null-terminated
-    //==============================================================
 
     if c_ptr.is_null() {
         return String::new();
     }
 
-    //=====================================
     // Create a CStr (borrows the C string)
-    //=====================================
     let c_str = CStr::from_ptr(c_ptr);
 
-    //=======================
     // Convert to Rust String
-    //=======================
     // to_string_lossy replaces invalid UTF-8 with �
     c_str.to_string_lossy().into_owned()
 }
@@ -337,14 +299,10 @@ fn demonstrate_null_bytes() {
     match CString::new(with_null) {
         Ok(_) => println!("Success"),
         Err(e) => println!("Failed: {}", e),
-        //===============================================================
         // Output: Failed: nul byte found in provided data at position: 5
-        //===============================================================
     }
 
-    //====================================================
     // If you need to handle this, strip null bytes first:
-    //====================================================
     let without_null: String = with_null.chars()
         .filter(|&c| c != '\0')
         .collect();
@@ -362,28 +320,20 @@ use std::ffi::{OsString, OsStr};
 use std::path::{Path, PathBuf};
 
 fn working_with_os_strings() {
-    //=====================
     // Creating an OsString
-    //=====================
     let os_string = OsString::from("my_file.txt");
 
-    //==================================
     // Converting between Path and OsStr
-    //==================================
     let path = Path::new("/home/user/document.txt");
     let os_str: &OsStr = path.as_os_str();
 
-    //==========================================================
     // Attempting UTF-8 conversion (may fail on Windows or Unix)
-    //==========================================================
     match os_str.to_str() {
         Some(s) => println!("Valid UTF-8: {}", s),
         None => println!("Path contains invalid UTF-8"),
     }
 
-    //===================================================
     // Lossy conversion (replaces invalid UTF-8 with �)
-    //===================================================
     let string = os_str.to_string_lossy();
     println!("Path (lossy): {}", string);
 }
@@ -398,9 +348,7 @@ use std::ffi::{OsString, OsStr};
 fn platform_specific_path() -> OsString {
     use std::os::windows::ffi::OsStringExt;
 
-    //====================
     // Windows uses UTF-16
-    //====================
     let wide: Vec<u16> = vec![0x0048, 0x0065, 0x006C, 0x006C, 0x006F]; // "Hello"
     OsString::from_wide(&wide)
 }
@@ -409,9 +357,7 @@ fn platform_specific_path() -> OsString {
 fn platform_specific_path() -> OsString {
     use std::os::unix::ffi::OsStringExt;
 
-    //============================
     // Unix allows arbitrary bytes
-    //============================
     let bytes: Vec<u8> = vec![0x48, 0x65, 0x6C, 0x6C, 0x6F]; // "Hello"
     OsString::from_vec(bytes)
 }
@@ -432,9 +378,7 @@ use std::os::raw::c_char;
 pub extern "C" fn rust_creates_string() -> *mut c_char {
     let s = CString::new("Hello from Rust").unwrap();
 
-    //========================
     // Transfer ownership to C
-    //========================
     // C must call rust_free_string() when done
     s.into_raw()
 }
@@ -442,9 +386,7 @@ pub extern "C" fn rust_creates_string() -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn rust_free_string(s: *mut c_char) {
     if !s.is_null() {
-        //=============================
         // Take ownership back and drop
-        //=============================
         let _ = CString::from_raw(s);
     }
 }
@@ -458,15 +400,11 @@ pub unsafe extern "C" fn rust_uses_c_string(s: *const c_char) {
         return;
     }
 
-    //========================================
     // Borrow the string, don't take ownership
-    //========================================
     let c_str = CStr::from_ptr(s);
     println!("C string: {}", c_str.to_string_lossy());
 
-    //======================================
     // s is still valid here; C will free it
-    //======================================
 }
 
 //==========================
@@ -500,9 +438,7 @@ extern "C" {
 
 /// Safe wrapper around C's fopen
 fn open_file(path: &Path, mode: &str) -> Option<*mut std::ffi::c_void> {
-    //========================
     // Convert Path to CString
-    //========================
     // This can fail if the path contains null bytes
     let path_str = path.to_str()?;
     let c_path = CString::new(path_str).ok()?;
@@ -599,9 +535,7 @@ struct CallbackState {
 
 extern "C" fn stateful_callback(user_data: *mut c_void, value: c_int) {
     unsafe {
-        //========================================
         // Cast the void pointer back to our state
-        //========================================
         let state = &mut *(user_data as *mut CallbackState);
 
         state.count += 1;
@@ -657,9 +591,7 @@ extern "C" fn threadsafe_callback(user_data: *mut c_void, value: c_int) {
     unsafe {
         let state = &*(user_data as *const ThreadSafeState);
 
-        //============================================
         // Lock the mutex before accessing shared data
-        //============================================
         if let Ok(mut data) = state.data.lock() {
             data.push(value);
         }
@@ -678,9 +610,7 @@ fn threadsafe_example() {
         );
     }
 
-    //=================================================
     // Keep state alive for the duration of the program
-    //=================================================
     std::mem::forget(state);
 }
 ```
@@ -731,9 +661,7 @@ impl Drop for ManagedCallback {
         unsafe {
             unregister_callback(self.handle);
         }
-        //==========================================
         // state is automatically dropped after this
-        //==========================================
     }
 }
 
@@ -743,9 +671,7 @@ struct CallbackState {
 }
 
 extern "C" fn stateful_callback(user_data: *mut c_void, value: c_int) {
-    //===============
     // Same as before
-    //===============
     unsafe {
         let state = &mut *(user_data as *mut CallbackState);
         state.count += 1;
@@ -767,9 +693,7 @@ extern "C" {
 }
 
 fn closure_callback_example() {
-    //=========================================================
     // Non-capturing closure can be coerced to function pointer
-    //=========================================================
     let callback: extern "C" fn(c_int) = {
         extern "C" fn wrapper(value: c_int) {
             println!("Closure callback: {}", value);
@@ -810,14 +734,10 @@ use std::ffi::CString;
 use std::io;
 
 extern "C" {
-    //================================
     // Returns -1 on error, sets errno
-    //================================
     fn c_function(path: *const c_char) -> c_int;
 
-    //=====================
     // Gets the errno value
-    //=====================
     fn __errno_location() -> *mut c_int;
 }
 
@@ -826,21 +746,15 @@ fn errno() -> i32 {
 }
 
 fn safe_c_function(path: &str) -> io::Result<i32> {
-    //===============
     // Convert string
-    //===============
     let c_path = CString::new(path)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))?;
 
-    //================
     // Call C function
-    //================
     let result = unsafe { c_function(c_path.as_ptr()) };
 
     if result == -1 {
-        //============================
         // Error occurred, check errno
-        //============================
         let err = errno();
         Err(io::Error::from_raw_os_error(err))
     } else {
@@ -879,34 +793,26 @@ pub extern "C" fn rust_compute(
     input: *const c_char,
     output: *mut f64,
 ) -> c_int {
-    //========================
     // Check for null pointers
-    //========================
     if input.is_null() || output.is_null() {
         return ERROR_NULL_POINTER;
     }
 
     unsafe {
-        //=========================
         // Convert C string to Rust
-        //=========================
         let c_str = std::ffi::CStr::from_ptr(input);
         let rust_str = match c_str.to_str() {
             Ok(s) => s,
             Err(_) => return ERROR_INVALID_INPUT,
         };
 
-        //===============
         // Do computation
-        //===============
         let result = match compute_internal(rust_str) {
             Ok(r) => r,
             Err(_) => return ERROR_COMPUTATION_FAILED,
         };
 
-        //=============
         // Write result
-        //=============
         *output = result;
         SUCCESS
     }
@@ -944,13 +850,9 @@ use std::os::raw::c_int;
 
 #[no_mangle]
 pub extern "C" fn safe_rust_function(value: c_int) -> c_int {
-    //=================
     // Catch any panics
-    //=================
     let result = panic::catch_unwind(|| {
-        //======================
         // Code that might panic
-        //======================
         risky_computation(value)
     });
 
@@ -1002,9 +904,7 @@ pub extern "C" fn rust_function_with_error(value: c_int) -> c_int {
         return -1;
     }
 
-    //====================
     // ... computation ...
-    //====================
 
     0
 }
@@ -1014,9 +914,7 @@ pub extern "C" fn rust_get_last_error() -> *const std::os::raw::c_char {
     LAST_ERROR.with(|e| {
         match &*e.borrow() {
             Some(err) => {
-                //=======================================================
                 // Note: This is simplified. In production, you'd want to
-                //=======================================================
                 // manage the string's lifetime more carefully
                 let c_str = std::ffi::CString::new(err.as_str()).unwrap();
                 c_str.into_raw()
@@ -1071,28 +969,20 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    //======================================================================
     // Tell cargo to invalidate the built crate whenever the wrapper changes
-    //======================================================================
     println!("cargo:rerun-if-changed=wrapper.h");
 
-    //==================
     // Link to C library
-    //==================
     println!("cargo:rustc-link-lib=mylib");
 
-    //==================
     // Generate bindings
-    //==================
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
 
-    //=======================================
     // Write bindings to $OUT_DIR/bindings.rs
-    //=======================================
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
@@ -1121,9 +1011,7 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 fn use_bindings() {
     unsafe {
-        //===========================
         // Use the generated bindings
-        //===========================
         let result = some_c_function(42);
         println!("Result: {}", result);
     }
@@ -1146,52 +1034,36 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
 
-        //============================================
         // Allowlist: only generate bindings for these
-        //============================================
         .allowlist_function("my_.*")  // Regex: functions starting with my_
         .allowlist_type("MyStruct")
         .allowlist_var("MY_CONSTANT")
 
-        //=============================================
         // Blocklist: don't generate bindings for these
-        //=============================================
         .blocklist_function("internal_.*")
 
-        //=======================================
         // Generate comments from C documentation
-        //=======================================
         .generate_comments(true)
 
-        //==================================================
         // Use core instead of std (for no_std environments)
-        //==================================================
         .use_core()
 
-        //=========================
         // Derive additional traits
-        //=========================
         .derive_default(true)
         .derive_debug(true)
         .derive_eq(true)
 
-        //=======================
         // Handle C++ (if needed)
-        //=======================
         .clang_arg("-x")
         .clang_arg("c++")
 
-        //=====================
         // Custom type mappings
-        //=====================
         .raw_line("use std::os::raw::c_char;")
 
         .generate()
         .expect("Unable to generate bindings");
 
-    //==================
     // Write bindings...
-    //==================
 }
 ```
 
@@ -1243,9 +1115,7 @@ impl Database {
                 return Err("Query failed".to_string());
             }
 
-            //===================
             // Process results...
-            //===================
             // (This is simplified; real code would parse the result)
 
             ffi::db_free_result(result);

@@ -1,4 +1,59 @@
 # Chapter 5: Iterator Patterns & Combinators
+Pattern 1: Custom Iterators and IntoIterator
+
+- Problem: Returning Vec forces allocation; exposing internals breaks
+  encapsulation; manual indexing error-prone
+- Solution: Implement Iterator trait; IntoIterator for all three forms;
+  return impl Iterator
+- Why It Matters: Eliminates unnecessary allocations; lazy evaluation;
+  free composition
+- Use Cases: Custom collections, infinite sequences, computed ranges,
+  generators
+
+Pattern 2: Zero-Allocation Iteration
+
+- Problem: Intermediate collections waste memory; allocations dominate
+  runtime in hot paths
+- Solution: Chain adapters without collect(); use fold/try_fold; leverage
+  windows/chunks
+- Why It Matters: 10-100x faster; zero intermediates; compiler optimizes
+  to hand-written loops
+- Use Cases: Data pipelines, large datasets, hot paths, parsing, real-time
+  streams
+
+Pattern 3: Iterator Adapter Composition
+
+- Problem: Nested loops hard to read; intermediate collections waste
+  memory; custom operations require boilerplate
+- Solution: Compose with map/filter/flat_map/scan/peekable; build custom
+  adapters
+- Why It Matters: Declarative pipelines document intent; compiler
+  optimizes chains to single loop
+- Use Cases: Log analysis, ETL, parsers, grouping, batching, complex
+  filters
+
+Pattern 4: Streaming Algorithms
+
+- Problem: Loading entire datasets causes OOM; multiple passes multiply
+  I/O cost
+- Solution: Process one element at a time; maintain minimal state; use
+  BufReader::lines()
+- Why It Matters: Process data larger than RAM; single-pass algorithms
+  halve I/O time
+- Use Cases: Log analysis, database ETL, real-time analytics, sensor data,
+  infinite streams
+
+Pattern 5: Parallel Iteration with Rayon
+
+- Problem: Sequential iteration wastes cores; manual threading complex and
+  error-prone
+- Solution: Replace .iter() with .par_iter(); let Rayon handle
+  work-stealing
+- Why It Matters: Near-linear speedup; single character change for 8x
+  performance
+- Use Cases: Data-intensive computations, batch processing, scientific
+  computing, map-reduce
+
 
 ## Overview
 
@@ -51,7 +106,13 @@ iter.find(|x| *x == target)     // Find first match
 
 ## Pattern 1: Custom Iterators and IntoIterator
 
-Implementing custom iterators allows you to provide lazy, composable iteration over your data structures without allocating intermediate collections.
+**Problem**: Returning `Vec` from collection methods forces immediate allocation and copying—even if the caller only needs the first few elements. Exposing internal structure breaks encapsulation. External iteration with manual indexing is error-prone and doesn't work with custom data structures (graphs, trees, generators). Standard for-loops require allocating collections first.
+
+**Solution**: Implement the `Iterator` trait for custom types to enable lazy, composable iteration. Implement `IntoIterator` for owned, borrowed (`&T`), and mutable (`&mut T`) forms to enable for-loop syntax. Use iterator adapters (wrapping other iterators) to extend functionality. Return `impl Iterator` from functions to hide implementation details while enabling zero-allocation iteration.
+
+**Why It Matters**: Custom iterators eliminate unnecessary allocations—a function returning "first 10 primes" as `Vec<u64>` allocates even if caller only checks the first. Iterators are lazy: `Fibonacci::new().take(10)` computes 10 values, not infinite. They compose: `.filter().map().take()` chains without intermediate vectors. This is transformative for API design: libraries can expose iteration without committing to storage format, and code using them gets full iterator method access (map, filter, fold, etc.) for free.
+
+**Use Cases**: Custom collections (trees, graphs, circular buffers), infinite sequences (Fibonacci, primes, random numbers), computed ranges (2D coordinates, date ranges), stateful generators, adapters for external APIs, zero-copy views into data structures.
 
 ```rust
 //===============================
@@ -272,7 +333,13 @@ impl<I: Iterator> BatchedExt for I {}
 
 ## Pattern 2: Zero-Allocation Iteration
 
-Iterators enable processing data without intermediate allocations by leveraging lazy evaluation and iterator adapters.
+**Problem**: Processing collections with intermediate steps typically requires allocating temporary vectors: `filter` → allocate Vec → `map` → allocate another Vec → `collect`. For large datasets or hot paths, these allocations dominate runtime. Calling `.collect()` after every transformation step wastes memory. Manual loops avoid allocation but lose composability and are verbose.
+
+**Solution**: Chain iterator adapters without calling `.collect()` until the final result. Use `.iter()` for borrowing instead of `.into_iter()` which consumes. Leverage `fold` and `try_fold` for custom reductions without temporary storage. Use `from_fn` for stateful generators. Employ `.windows()` and `.chunks()` for sliding operations without copying data. Return `impl Iterator` to avoid boxing or collecting.
+
+**Why It Matters**: Zero-allocation iteration can be 10-100x faster than collecting intermediate results. Processing 1M elements with 3 transformations: naive approach allocates 3M+ elements across temporary vectors. Iterator chains allocate zero intermediates—just iterate once, applying transformations on-the-fly. For data pipelines, this means gigabytes saved and cache-friendly sequential access. The compiler often optimizes iterator chains to the same machine code as hand-written loops, giving you high-level abstraction at zero cost.
+
+**Use Cases**: Data processing pipelines (ETL, analytics), filtering and transforming large datasets, hot path operations in servers, parsing without intermediate buffers, mathematical computations on sequences, real-time stream processing.
 
 ```rust
 //===================================================
@@ -409,7 +476,13 @@ fn find_sum_exceeding(numbers: &[i32], threshold: i32) -> Option<i32> {
 
 ## Pattern 3: Iterator Adapter Composition
 
-Complex data transformations can be expressed as compositions of simple iterator adapters, creating readable and efficient pipelines.
+**Problem**: Complex data transformations expressed as nested loops are hard to read and error-prone. Breaking transformations into separate functions with intermediate collections wastes memory. State machines for parsing or grouping require manual bookkeeping. Expressing operations like "group by key", "interleave two sequences", or "cartesian product" requires custom code that can't leverage standard library optimizations.
+
+**Solution**: Compose transformations using iterator adapters: `.map()`, `.filter()`, `.flat_map()`, `.scan()`, `.take_while()`, `.skip_while()`, `.zip()`, `.chain()`, `.peekable()`, etc. Build custom adapters for domain-specific operations. Use `.scan()` for stateful transformations and `.peekable()` for lookahead. Combine adapters to express complex operations declaratively.
+
+**Why It Matters**: Iterator composition turns imperative procedural code into declarative pipelines that document intent. A log analysis pipeline: `logs.filter(errors).filter(recent).group_by(level).count()` reads like a specification. Custom adapters (interleave, batch, group_by) compose with standard ones, building a vocabulary for your domain. The compiler optimizes these chains: a 5-adapter pipeline often compiles to a single loop. This enables writing code that is simultaneously readable, composable, and fast.
+
+**Use Cases**: Log analysis pipelines, data transformation ETL, parsers with lookahead (peekable), grouping and aggregation, mathematical sequences, interleaving or merging streams, batching for bulk processing, complex filtering logic.
 
 ```rust
 use std::collections::HashMap;
@@ -582,7 +655,13 @@ enum Token {
 
 ## Pattern 4: Streaming Algorithms
 
-Streaming algorithms process data incrementally without loading entire datasets into memory, enabling efficient handling of large or infinite data sources.
+**Problem**: Loading entire files or datasets into memory causes OOM errors with large data (multi-GB log files, database dumps). Computing statistics requires multiple passes over data, multiplying I/O cost. Finding top-K elements naively requires sorting entire dataset. Algorithms that need to "see all data" seem to require loading everything. Batch processing forces awkward chunking logic.
+
+**Solution**: Process data one element at a time using iterators, maintaining only essential state (aggregates, sliding windows, top-K heaps). Use `BufReader::lines()` for line-by-line file processing. Implement single-pass streaming algorithms (moving average, cumulative sum, top-K with min-heap). Merge sorted streams without loading both. Use `fold` for incremental aggregation. Batch process with fixed-size windows while streaming.
+
+**Why It Matters**: Streaming algorithms enable processing datasets larger than RAM—a 100GB log file processes with constant 1MB memory. Single-pass algorithms are dramatically faster: computing average + variance in one pass vs two passes halves I/O time. Top-K with a heap of size K uses O(K) memory, not O(N). Real-time systems process infinite streams (network packets, sensor data, user events) that can't be collected first. This is the difference between "works on test data" and "works on production scale".
+
+**Use Cases**: Log file analysis (grep-like filtering, statistics), database ETL (processing query results), real-time analytics (streaming averages, alerting), sensor data processing, network packet analysis, infinite sequences (event streams, live data feeds), CSV/JSON parsing of large files.
 
 ```rust
 use std::io::{BufRead, BufReader, Read};
@@ -876,7 +955,13 @@ fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
 
 ## Pattern 5: Parallel Iteration with Rayon
 
-Rayon provides data parallelism through parallel iterators that automatically distribute work across CPU cores while maintaining iterator semantics.
+**Problem**: Sequential iteration leaves CPU cores idle—processing 1M elements on an 8-core machine uses 12.5% capacity. Manual threading with channels and thread pools is complex and error-prone. Partitioning work across threads requires careful load balancing. Race conditions and deadlocks plague hand-written parallel code. Data parallelism seems to require giving up iterator abstractions.
+
+**Solution**: Replace `.iter()` with `.par_iter()` from Rayon to enable automatic parallelization. Use `.par_chunks()` for better cache locality. Apply `fold` + `reduce` for parallel aggregation. Use `par_sort` for automatic parallel sorting. Let Rayon's work-stealing scheduler balance load. Use `par_bridge()` to parallelize sequential iterators. Leverage `scope` for fine-grained control when needed.
+
+**Why It Matters**: Parallel iteration provides near-linear speedup with CPU cores—8 cores can process 7-8x faster with a single character change (`.par_iter()`). Rayon automatically handles work distribution, load balancing, and thread management. The work-stealing scheduler prevents idle threads while maintaining cache efficiency. This enables writing high-level declarative code that runs at maximum hardware speed. For data processing (image processing, log analysis, simulations), parallelization is often free performance: change one word, get 8x speedup.
+
+**Use Cases**: Data-intensive computations (matrix operations, image/video processing), batch processing (file processing, database imports), scientific computing (simulations, Monte Carlo), sorting and searching large datasets, map-reduce patterns, parallel validation, embarrassingly parallel workloads.
 
 ```rust
 use rayon::prelude::*;
@@ -939,9 +1024,7 @@ fn parallel_sort(mut data: Vec<i32>) -> Vec<i32> {
 fn parallel_chunk_processing(data: &[u8], chunk_size: usize) -> Vec<u32> {
     data.par_chunks(chunk_size)
         .map(|chunk| {
-            //================================
             // Expensive computation per chunk
-            //================================
             chunk.iter().map(|&b| b as u32).sum()
         })
         .collect()

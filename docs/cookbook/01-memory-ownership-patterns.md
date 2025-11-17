@@ -472,16 +472,12 @@ impl Drop for StateGuard<'_> {
 //===========================================
 fn complex_operation(processing: &mut bool) {
     let _guard = StateGuard::new(processing, true);
-    //=================================================
     // If this panics, processing is reset to old value
-    //=================================================
     risky_operation();
 }
 
 fn risky_operation() {
-    //============
     // Might panic
-    //============
 }
 
 //===========================================

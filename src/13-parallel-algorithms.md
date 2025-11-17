@@ -16,7 +16,7 @@ This chapter explores parallel algorithm patterns using Rust's ecosystem, focusi
 
 Rayon provides data parallelism through work-stealing and parallel iterators, making it easy to parallelize sequential code.
 
-### Recipe 1: Parallel Iterator Basics
+### Pattern 1: Parallel Iterator Basics
 
 **Problem**: Convert sequential operations to parallel execution with minimal code changes.
 
@@ -37,16 +37,12 @@ use std::time::Instant;
 fn parallel_map_example() {
     let numbers: Vec<i32> = (0..1_000_000).collect();
 
-    //===========
     // Sequential
-    //===========
     let start = Instant::now();
     let sequential: Vec<i32> = numbers.iter().map(|&x| x * x).collect();
     let seq_time = start.elapsed();
 
-    //=========
     // Parallel
-    //=========
     let start = Instant::now();
     let parallel: Vec<i32> = numbers.par_iter().map(|&x| x * x).collect();
     let par_time = start.elapsed();
@@ -64,21 +60,15 @@ fn parallel_map_example() {
 fn iterator_variants() {
     let mut data = vec![1, 2, 3, 4, 5];
 
-    //=============================
     // Immutable parallel iteration
-    //=============================
     let sum: i32 = data.par_iter().sum();
     println!("Sum: {}", sum);
 
-    //===========================
     // Mutable parallel iteration
-    //===========================
     data.par_iter_mut().for_each(|x| *x *= 2);
     println!("Doubled: {:?}", data);
 
-    //=============================
     // Consuming parallel iteration
-    //=============================
     let owned_data = vec![1, 2, 3, 4, 5];
     let squares: Vec<i32> = owned_data.into_par_iter().map(|x| x * x).collect();
     println!("Squares: {:?}", squares);
@@ -239,7 +229,7 @@ fn main() {
 
 ---
 
-### Recipe 2: par_bridge for Dynamic Sources
+### Pattern 2: par_bridge for Dynamic Sources
 
 **Problem**: Parallelize iterators that don't implement `ParallelIterator` directly, or process items as they arrive.
 
@@ -257,9 +247,7 @@ use std::time::Duration;
 fn par_bridge_basic() {
     let iter = (0..1000).filter(|x| x % 2 == 0);
 
-    //===================
     // Bridge to parallel
-    //===================
     let sum: i32 = iter.par_bridge().map(|x| x * x).sum();
     println!("Sum: {}", sum);
 }
@@ -270,9 +258,7 @@ fn par_bridge_basic() {
 fn par_bridge_from_channel() {
     let (tx, rx) = mpsc::channel();
 
-    //================
     // Producer thread
-    //================
     thread::spawn(move || {
         for i in 0..1000 {
             tx.send(i).unwrap();
@@ -280,16 +266,12 @@ fn par_bridge_from_channel() {
         }
     });
 
-    //=====================================
     // Parallel processing of channel items
-    //=====================================
     let sum: i32 = rx
         .into_iter()
         .par_bridge()
         .map(|x| {
-            //======================
             // Expensive computation
-            //======================
             thread::sleep(Duration::from_micros(100));
             x * x
         })
@@ -352,9 +334,7 @@ impl Iterator for DatabaseIterator {
         if self.current < self.total {
             let value = self.current as i32;
             self.current += 1;
-            //==============================
             // Simulate database fetch delay
-            //==============================
             thread::sleep(Duration::from_micros(10));
             Some(value)
         } else {
@@ -369,9 +349,7 @@ fn process_database_results() {
         total: 1000,
     };
 
-    //===========================================
     // Process results in parallel as they arrive
-    //===========================================
     let sum: i32 = db_iter
         .par_bridge()
         .map(|x| x * 2)
@@ -386,9 +364,7 @@ fn process_database_results() {
 fn process_network_stream() {
     let (tx, rx) = mpsc::channel();
 
-    //==================================
     // Simulate network packets arriving
-    //==================================
     thread::spawn(move || {
         for i in 0..100 {
             let packet = format!("packet_{}", i);
@@ -397,16 +373,12 @@ fn process_network_stream() {
         }
     });
 
-    //============================
     // Process packets in parallel
-    //============================
     let processed: Vec<String> = rx
         .into_iter()
         .par_bridge()
         .map(|packet| {
-            //=================================================
             // Expensive processing (e.g., parsing, validation)
-            //=================================================
             thread::sleep(Duration::from_millis(10));
             format!("processed_{}", packet)
         })
@@ -442,7 +414,7 @@ fn main() {
 
 Effective work partitioning is crucial for parallel performance. Different strategies suit different workloads.
 
-### Recipe 3: Chunking and Load Balancing
+### Pattern 3: Chunking and Load Balancing
 
 **Problem**: Partition work efficiently across threads to minimize overhead and maximize CPU utilization.
 
@@ -458,23 +430,17 @@ use std::time::Instant;
 fn chunk_size_comparison() {
     let data: Vec<i32> = (0..1_000_000).collect();
 
-    //=================================
     // Default chunking (Rayon decides)
-    //=================================
     let start = Instant::now();
     let sum1: i32 = data.par_iter().sum();
     let default_time = start.elapsed();
 
-    //==============================================
     // Custom chunk size (too small - more overhead)
-    //==============================================
     let start = Instant::now();
     let sum2: i32 = data.par_chunks(100).map(|chunk| chunk.iter().sum::<i32>()).sum();
     let small_chunk_time = start.elapsed();
 
-    //=============================
     // Custom chunk size (balanced)
-    //=============================
     let start = Instant::now();
     let sum3: i32 = data.par_chunks(10_000).map(|chunk| chunk.iter().sum::<i32>()).sum();
     let balanced_chunk_time = start.elapsed();
@@ -493,18 +459,14 @@ fn chunk_size_comparison() {
 fn work_splitting_strategies() {
     let data: Vec<i32> = (0..100_000).collect();
 
-    //=================================================
     // Strategy 1: Equal splits (good for uniform work)
-    //=================================================
     let chunk_size = data.len() / rayon::current_num_threads();
     let result1: Vec<i32> = data
         .par_chunks(chunk_size)
         .flat_map(|chunk| chunk.iter().map(|&x| x * x))
         .collect();
 
-    //=================================================
     // Strategy 2: Adaptive (good for non-uniform work)
-    //=================================================
     let result2: Vec<i32> = data.par_iter().map(|&x| x * x).collect();
 
     assert_eq!(result1.len(), result2.len());
@@ -536,25 +498,19 @@ impl Matrix {
         self.data[row * self.cols + col] = value;
     }
 
-    //==================================================================
     // Parallel matrix multiplication with blocking for cache efficiency
-    //==================================================================
     fn multiply_blocked(&self, other: &Matrix, block_size: usize) -> Matrix {
         assert_eq!(self.cols, other.rows);
 
         let mut result = Matrix::new(self.rows, other.cols);
 
-        //================================
         // Partition work by output blocks
-        //================================
         let row_blocks: Vec<usize> = (0..self.rows).step_by(block_size).collect();
         let col_blocks: Vec<usize> = (0..other.cols).step_by(block_size).collect();
 
         row_blocks.par_iter().for_each(|&row_start| {
             for &col_start in &col_blocks {
-                //==============
                 // Process block
-                //==============
                 let row_end = (row_start + block_size).min(self.rows);
                 let col_end = (col_start + block_size).min(other.cols);
 
@@ -594,9 +550,7 @@ fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
         || parallel_merge_sort(right, grain_size),
     );
 
-    //===========================================
     // Merge (in-place merge omitted for brevity)
-    //===========================================
     let mut temp = Vec::with_capacity(arr.len());
     let mut i = 0;
     let mut j = mid;
@@ -630,22 +584,16 @@ fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
 // Pattern 3: Dynamic load balancing
 //==================================
 fn dynamic_load_balancing() {
-    //============================
     // Simulate irregular workload
-    //============================
     let work_items: Vec<usize> = (0..1000).map(|i| i % 100).collect();
 
     let start = Instant::now();
 
-    //========================================================
     // Rayon automatically balances work through work stealing
-    //========================================================
     let results: Vec<usize> = work_items
         .par_iter()
         .map(|&work| {
-            //=======================
             // Simulate variable work
-            //=======================
             let mut sum = 0;
             for _ in 0..work {
                 sum += 1;
@@ -703,7 +651,7 @@ fn main() {
 
 ---
 
-### Recipe 4: Recursive Parallelism
+### Pattern 4: Recursive Parallelism
 
 **Problem**: Parallelize divide-and-conquer algorithms efficiently.
 
@@ -724,9 +672,7 @@ fn parallel_quicksort<T: Ord + Send>(arr: &mut [T]) {
 
     let (left, right) = arr.split_at_mut(pivot_idx);
 
-    //======================
     // Parallelize recursion
-    //======================
     rayon::join(
         || parallel_quicksort(left),
         || parallel_quicksort(&mut right[1..]),
@@ -801,9 +747,7 @@ fn parallel_fib(n: u32) -> u64 {
     }
 
     if n < 20 {
-        //=======================================
         // Sequential threshold to avoid overhead
-        //=======================================
         return fib_sequential(n);
     }
 
@@ -939,7 +883,7 @@ fn main() {
 
 Reduction operations aggregate parallel results into a single value.
 
-### Recipe 5: Parallel Reduction Patterns
+### Pattern 5: Parallel Reduction Patterns
 
 **Problem**: Efficiently combine results from parallel operations.
 
@@ -955,22 +899,16 @@ use std::collections::HashMap;
 fn simple_reductions() {
     let numbers: Vec<i32> = (1..=1_000_000).collect();
 
-    //====
     // Sum
-    //====
     let sum: i32 = numbers.par_iter().sum();
     println!("Sum: {}", sum);
 
-    //========
     // Min/Max
-    //========
     let min = numbers.par_iter().min().unwrap();
     let max = numbers.par_iter().max().unwrap();
     println!("Min: {}, Max: {}", min, max);
 
-    //==================================
     // Product (be careful of overflow!)
-    //==================================
     let small_numbers: Vec<i32> = (1..=10).collect();
     let product: i32 = small_numbers.par_iter().product();
     println!("Product: {}", product);
@@ -982,9 +920,7 @@ fn simple_reductions() {
 fn custom_reduce() {
     let numbers: Vec<i32> = (1..=100).collect();
 
-    //==========================================
     // Custom reduction: concatenate all numbers
-    //==========================================
     let concatenated = numbers
         .par_iter()
         .map(|n| n.to_string())
@@ -992,9 +928,7 @@ fn custom_reduce() {
 
     println!("Concatenated (first 50 chars): {}", &concatenated[..50.min(concatenated.len())]);
 
-    //===============================
     // Find element closest to target
-    //===============================
     let target = 42;
     let closest = numbers
         .par_iter()
@@ -1018,17 +952,13 @@ fn custom_reduce() {
 fn fold_vs_reduce() {
     let numbers: Vec<i32> = (1..=1000).collect();
 
-    //============================================
     // fold: provide identity and combine function
-    //============================================
     let sum_fold = numbers.par_iter().fold(
         || 0, // Identity function
         |acc, &x| acc + x, // Fold function
     ).sum::<i32>(); // Reduce the folded results
 
-    //==================================
     // reduce: simpler but less flexible
-    //==================================
     let sum_reduce = numbers.par_iter().sum::<i32>();
 
     assert_eq!(sum_fold, sum_reduce);
@@ -1041,9 +971,7 @@ fn fold_vs_reduce() {
 fn fold_with_accumulator() {
     let numbers: Vec<i32> = (1..=100).collect();
 
-    //===============================
     // Collect statistics in one pass
-    //===============================
     #[derive(Default)]
     struct Stats {
         count: usize,
@@ -1134,9 +1062,7 @@ fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
 // Real-world: Parallel variance calculation
 //==========================================
 fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
-    //=============================================
     // Two-pass algorithm (more numerically stable)
-    //=============================================
     let mean = numbers.par_iter().sum::<f64>() / numbers.len() as f64;
 
     let variance = numbers
@@ -1230,7 +1156,7 @@ fn main() {
 
 Pipeline parallelism processes data through multiple stages concurrently.
 
-### Recipe 6: Multi-Stage Pipelines
+### Pattern 6: Multi-Stage Pipelines
 
 **Problem**: Process data through multiple transformation stages with different computational costs.
 
@@ -1250,18 +1176,14 @@ fn simple_pipeline() {
     let (stage2_tx, stage2_rx) = mpsc::sync_channel(100);
     let (stage3_tx, stage3_rx) = mpsc::sync_channel(100);
 
-    //=========================
     // Stage 1: Data generation
-    //=========================
     let producer = thread::spawn(move || {
         for i in 0..1000 {
             stage1_tx.send(i).unwrap();
         }
     });
 
-    //==============================
     // Stage 2: Transform (parallel)
-    //==============================
     let stage2 = thread::spawn(move || {
         stage1_rx
             .into_iter()
@@ -1272,9 +1194,7 @@ fn simple_pipeline() {
             });
     });
 
-    //===========================
     // Stage 3: Filter (parallel)
-    //===========================
     let stage3 = thread::spawn(move || {
         stage2_rx
             .into_iter()
@@ -1285,9 +1205,7 @@ fn simple_pipeline() {
             });
     });
 
-    //=========
     // Consumer
-    //=========
     let consumer = thread::spawn(move || {
         let sum: i32 = stage3_rx.into_iter().sum();
         sum
@@ -1317,17 +1235,13 @@ impl ImagePipeline {
     }
 
     fn stage1_decode(data: Vec<u8>) -> Vec<u8> {
-        //==================
         // Simulate decoding
-        //==================
         thread::sleep(Duration::from_micros(100));
         data
     }
 
     fn stage2_enhance(mut data: Vec<u8>) -> Vec<u8> {
-        //=====================
         // Simulate enhancement
-        //=====================
         for pixel in &mut data {
             *pixel = pixel.saturating_add(10);
         }
@@ -1335,9 +1249,7 @@ impl ImagePipeline {
     }
 
     fn stage3_compress(data: Vec<u8>) -> Vec<u8> {
-        //=====================
         // Simulate compression
-        //=====================
         thread::sleep(Duration::from_micros(50));
         data
     }
@@ -1400,24 +1312,18 @@ impl LogPipeline {
 fn multi_stage_parallel() {
     let data: Vec<i32> = (0..10000).collect();
 
-    //=============================================
     // Stage 1: Light processing (high parallelism)
-    //=============================================
     let stage1: Vec<i32> = data
         .par_iter()
         .map(|&x| x + 1)
         .collect();
 
-    //=================================================
     // Stage 2: Heavy processing (moderate parallelism)
-    //=================================================
     let stage2: Vec<i32> = stage1
         .par_chunks(100) // Larger chunks for heavy work
         .flat_map(|chunk| {
             chunk.iter().map(|&x| {
-                //===========================
                 // Simulate heavy computation
-                //===========================
                 let mut result = x;
                 for _ in 0..100 {
                     result = (result * 2) % 1000;
@@ -1427,9 +1333,7 @@ fn multi_stage_parallel() {
         })
         .collect();
 
-    //=====================
     // Stage 3: Aggregation
-    //=====================
     let sum: i32 = stage2.par_iter().sum();
 
     println!("Multi-stage result: {}", sum);
@@ -1444,31 +1348,21 @@ impl EtlPipeline {
     fn run(input_files: Vec<String>) -> Vec<(String, usize)> {
         input_files
             .into_par_iter()
-            //================================
             // Extract: Read files in parallel
-            //================================
             .filter_map(|file| Self::extract(&file))
-            //====================================
             // Transform: Process data in parallel
-            //====================================
             .map(|data| Self::transform(data))
-            //========================
             // Load: Aggregate results
-            //========================
             .collect()
     }
 
     fn extract(file: &str) -> Option<Vec<String>> {
-        //======================
         // Simulate file reading
-        //======================
         Some(vec![format!("data_from_{}", file)])
     }
 
     fn transform(data: Vec<String>) -> (String, usize) {
-        //========================
         // Simulate transformation
-        //========================
         let processed = data
             .par_iter()
             .map(|s| s.to_uppercase())
@@ -1518,7 +1412,7 @@ fn main() {
 
 SIMD (Single Instruction Multiple Data) enables data-level parallelism within a single core.
 
-### Recipe 7: Portable SIMD with std::simd
+### Pattern 7: Portable SIMD with std::simd
 
 **Problem**: Vectorize operations across array elements for maximum throughput.
 
@@ -1542,9 +1436,7 @@ SIMD (Single Instruction Multiple Data) enables data-level parallelism within a 
 // Pattern 1: Manual SIMD-friendly code
 //=====================================
 fn simd_friendly_sum(data: &[f32]) -> f32 {
-    //===========================================================
     // Process 4 elements at a time (compiler can auto-vectorize)
-    //===========================================================
     let chunks = data.chunks_exact(4);
     let remainder = chunks.remainder();
 
@@ -1570,9 +1462,7 @@ fn vector_add(a: &[f32], b: &[f32], result: &mut [f32]) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a.len(), result.len());
 
-    //=================================
     // Compiler can auto-vectorize this
-    //=================================
     for i in 0..a.len() {
         result[i] = a[i] + b[i];
     }
@@ -1581,9 +1471,7 @@ fn vector_add(a: &[f32], b: &[f32], result: &mut [f32]) {
 fn vector_add_parallel(a: &[f32], b: &[f32]) -> Vec<f32> {
     use rayon::prelude::*;
 
-    //====================================
     // Combine SIMD and thread parallelism
-    //====================================
     a.par_iter()
         .zip(b.par_iter())
         .map(|(&x, &y)| x + y)
@@ -1617,9 +1505,7 @@ fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
 // Real-world: Matrix multiplication with SIMD hints
 //==================================================
 fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
-    //=========================
     // Matrix dimensions: n x n
-    //=========================
     assert_eq!(a.len(), n * n);
     assert_eq!(b.len(), n * n);
     assert_eq!(result.len(), n * n);
@@ -1628,9 +1514,7 @@ fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
         for j in 0..n {
             let mut sum = 0.0;
 
-            //============================
             // Inner loop is SIMD-friendly
-            //============================
             for k in 0..n {
                 sum += a[i * n + k] * b[k * n + j];
             }
@@ -1652,9 +1536,7 @@ fn matrix_multiply_parallel_simd(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
         for j in 0..n {
             let mut sum = 0.0;
 
-            //=================================
             // This loop can be auto-vectorized
-            //=================================
             for k in 0..n {
                 sum += a[i * n + k] * b[k * n + j];
             }
@@ -1675,9 +1557,7 @@ fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, b
     for i_block in (0..n).step_by(block_size) {
         for j_block in (0..n).step_by(block_size) {
             for k_block in (0..n).step_by(block_size) {
-                //==============
                 // Process block
-                //==============
                 let i_end = (i_block + block_size).min(n);
                 let j_end = (j_block + block_size).min(n);
                 let k_end = (k_block + block_size).min(n);
@@ -1686,9 +1566,7 @@ fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, b
                     for j in j_block..j_end {
                         let mut sum = result[i * n + j];
 
-                        //============================
                         // Inner loop is SIMD-friendly
-                        //============================
                         for k in k_block..k_end {
                             sum += a[i * n + k] * b[k * n + j];
                         }
@@ -1714,9 +1592,7 @@ fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kerne
         for x in offset..width - offset {
             let mut sum = 0.0;
 
-            //===============================================
             // Convolution kernel (SIMD-friendly inner loops)
-            //===============================================
             for ky in 0..kernel_size {
                 for kx in 0..kernel_size {
                     let img_y = y + ky - offset;
@@ -1741,14 +1617,10 @@ fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kerne
 fn parallel_sum_simd(data: &[f32]) -> f32 {
     use rayon::prelude::*;
 
-    //==========================================
     // Split into chunks for parallel processing
-    //==========================================
     data.par_chunks(1024)
         .map(|chunk| {
-            //==================================
             // Each chunk can be SIMD-vectorized
-            //==================================
             chunk.iter().sum::<f32>()
         })
         .sum()
@@ -1806,7 +1678,7 @@ fn main() {
 
 ---
 
-### Recipe 8: Auto-Vectorization and Hints
+### Pattern 8: Auto-Vectorization and Hints
 
 **Problem**: Help the compiler generate SIMD code effectively.
 
@@ -1819,23 +1691,17 @@ fn main() {
 fn auto_vectorize_examples() {
     let data: Vec<f32> = (0..10000).map(|x| x as f32).collect();
 
-    //===================================
     // Good: Simple map (auto-vectorizes)
-    //===================================
     let doubled: Vec<f32> = data.iter().map(|&x| x * 2.0).collect();
 
-    //====================================
     // Good: Zip and map (auto-vectorizes)
-    //====================================
     let summed: Vec<f32> = data
         .iter()
         .zip(data.iter())
         .map(|(&a, &b)| a + b)
         .collect();
 
-    //=========================================
     // Good: Chunks with fold (auto-vectorizes)
-    //=========================================
     let chunk_sums: Vec<f32> = data
         .chunks(4)
         .map(|chunk| chunk.iter().sum())
@@ -1848,9 +1714,7 @@ fn auto_vectorize_examples() {
 fn chunked_operations(data: &[f32]) -> Vec<f32> {
     let mut result = Vec::with_capacity(data.len());
 
-    //=============================
     // Process in SIMD-width chunks
-    //=============================
     const SIMD_WIDTH: usize = 8; // Typical for AVX
 
     for chunk in data.chunks(SIMD_WIDTH) {
@@ -1874,9 +1738,7 @@ struct PointAoS {
 }
 
 fn process_aos(points: &[PointAoS]) -> Vec<f32> {
-    //=====================================
     // Poor vectorization: scattered access
-    //=====================================
     points.iter().map(|p| p.x + p.y + p.z).collect()
 }
 
@@ -1891,9 +1753,7 @@ struct PointsSoA {
 
 impl PointsSoA {
     fn process(&self) -> Vec<f32> {
-        //======================================
         // Good vectorization: contiguous access
-        //======================================
         self.x
             .iter()
             .zip(self.y.iter())
@@ -1917,9 +1777,7 @@ fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
             let mut rng = rand::thread_rng();
             let mut count = 0;
 
-            //=============================
             // Inner loop can be vectorized
-            //=============================
             for _ in chunk {
                 let x: f32 = rng.gen();
                 let y: f32 = rng.gen();
@@ -1942,9 +1800,7 @@ fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
 fn benchmark_vectorization() {
     let data: Vec<f32> = (0..10_000_000).map(|x| x as f32).collect();
 
-    //=======================
     // Version 1: Simple loop
-    //=======================
     let start = std::time::Instant::now();
     let mut result1 = Vec::with_capacity(data.len());
     for &x in &data {
@@ -1952,16 +1808,12 @@ fn benchmark_vectorization() {
     }
     let time1 = start.elapsed();
 
-    //========================================
     // Version 2: Iterator (likely vectorized)
-    //========================================
     let start = std::time::Instant::now();
     let result2: Vec<f32> = data.iter().map(|&x| x * 2.0 + 1.0).collect();
     let time2 = start.elapsed();
 
-    //==============================================
     // Version 3: Parallel + potential vectorization
-    //==============================================
     use rayon::prelude::*;
     let start = std::time::Instant::now();
     let result3: Vec<f32> = data.par_iter().map(|&x| x * 2.0 + 1.0).collect();

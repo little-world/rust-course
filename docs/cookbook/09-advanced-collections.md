@@ -85,31 +85,23 @@ impl TaskQueue {
             priority: Priority::High,
         };
 
-        //====================================
         // Add to front of high priority queue
-        //====================================
         self.high_priority.push_front(task);
         id
     }
 
     fn dequeue(&mut self) -> Option<Task> {
-        //========================
         // Try high priority first
-        //========================
         if let Some(task) = self.high_priority.pop_front() {
             return Some(task);
         }
 
-        //=====================
         // Then normal priority
-        //=====================
         if let Some(task) = self.normal_priority.pop_front() {
             return Some(task);
         }
 
-        //=====================
         // Finally low priority
-        //=====================
         self.low_priority.pop_front()
     }
 
@@ -121,9 +113,7 @@ impl TaskQueue {
     }
 
     fn remove_by_id(&mut self, id: u64) -> Option<Task> {
-        //=======================================
         // Helper to remove from a specific queue
-        //=======================================
         fn remove_from_queue(queue: &mut VecDeque<Task>, id: u64) -> Option<Task> {
             let pos = queue.iter().position(|t| t.id == id)?;
             queue.remove(pos)
@@ -367,9 +357,7 @@ fn main() {
 
     let mut audio = AudioBuffer::new(0.1, 44100); // 100ms buffer at 44.1kHz
 
-    //===================
     // Simulate sine wave
-    //===================
     for i in 0..4410 {
         let t = i as f32 / 44100.0;
         let sample = (2.0 * std::f32::consts::PI * 440.0 * t).sin(); // 440 Hz
@@ -414,9 +402,7 @@ impl SlidingWindowMax {
     }
 
     fn add(&mut self, index: usize, value: i32) -> Option<i32> {
-        //===============================
         // Remove elements outside window
-        //===============================
         while let Some(&(idx, _)) = self.deque.front() {
             if idx + self.window_size <= index {
                 self.deque.pop_front();
@@ -425,9 +411,7 @@ impl SlidingWindowMax {
             }
         }
 
-        //=====================================
         // Remove elements smaller than current
-        //=====================================
         while let Some(&(_, val)) = self.deque.back() {
             if val <= value {
                 self.deque.pop_back();
@@ -438,9 +422,7 @@ impl SlidingWindowMax {
 
         self.deque.push_back((index, value));
 
-        //=============================
         // Return max if window is full
-        //=============================
         if index >= self.window_size - 1 {
             self.deque.front().map(|(_, val)| *val)
         } else {
@@ -487,9 +469,7 @@ impl StockAnalyzer {
         let mut result = Vec::new();
 
         for (i, &price) in self.prices.iter().enumerate() {
-            //====================
             // Remove old elements
-            //====================
             while let Some(&idx) = deque.front() {
                 if idx + window_size <= i {
                     deque.pop_front();
@@ -498,9 +478,7 @@ impl StockAnalyzer {
                 }
             }
 
-            //==========================
             // Maintain decreasing order
-            //==========================
             while let Some(&idx) = deque.back() {
                 if self.prices[idx] <= price {
                     deque.pop_back();
@@ -532,9 +510,7 @@ impl StockAnalyzer {
                 }
             }
 
-            //============================================
             // Maintain increasing order (opposite of max)
-            //============================================
             while let Some(&idx) = deque.back() {
                 if self.prices[idx] >= price {
                     deque.pop_back();
@@ -623,14 +599,10 @@ struct Task {
 
 impl Ord for Task {
     fn cmp(&self, other: &Self) -> Ordering {
-        //=============================================
         // First compare by priority (higher is better)
-        //=============================================
         match self.priority.cmp(&other.priority) {
             Ordering::Equal => {
-                //=================================================
                 // Then by deadline (earlier is better, so reverse)
-                //=================================================
                 other.deadline.cmp(&self.deadline)
             }
             other => other,
@@ -674,9 +646,7 @@ impl TaskScheduler {
     fn execute_next(&mut self) -> Option<Task> {
         let task = self.heap.pop()?;
 
-        //=========================
         // Check if deadline missed
-        //=========================
         if self.current_time > task.deadline {
             println!(
                 "Warning: Task {} missed deadline (current={}, deadline={})",
@@ -723,14 +693,10 @@ struct Process {
 
 impl Ord for Process {
     fn cmp(&self, other: &Self) -> Ordering {
-        //=======================
         // Highest priority first
-        //=======================
         match self.priority.cmp(&other.priority) {
             Ordering::Equal => {
-                //===============================================
                 // Shortest remaining time first (SRT scheduling)
-                //===============================================
                 other.remaining_time.cmp(&self.remaining_time)
             }
             other => other,
@@ -774,9 +740,7 @@ impl CpuScheduler {
             completed: process.remaining_time == 0,
         };
 
-        //=========================
         // Re-queue if not finished
-        //=========================
         if process.remaining_time > 0 {
             self.ready_queue.push(process);
         }
@@ -890,9 +854,7 @@ struct MergeItem<T> {
 
 impl<T: Ord> Ord for MergeItem<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        //==============================
         // Reverse for min-heap behavior
-        //==============================
         other.value.cmp(&self.value)
     }
 }
@@ -916,9 +878,7 @@ impl<T: Ord + Clone> KWayMerge<T> {
         let mut heap = BinaryHeap::new();
         let mut iters: Vec<_> = lists.into_iter().map(|v| v.into_iter()).collect();
 
-        //==================================================
         // Initialize heap with first element from each list
-        //==================================================
         for (id, iter) in iters.iter_mut().enumerate() {
             if let Some(value) = iter.next() {
                 heap.push(MergeItem {
@@ -933,9 +893,7 @@ impl<T: Ord + Clone> KWayMerge<T> {
         while let Some(item) = heap.pop() {
             result.push(item.value);
 
-            //==================================
             // Get next element from same source
-            //==================================
             if let Some(value) = iters[item.source_id].next() {
                 heap.push(MergeItem {
                     value,
@@ -965,18 +923,14 @@ impl MedianTracker {
     }
 
     fn add(&mut self, num: i32) {
-        //========================
         // Add to appropriate heap
-        //========================
         if self.lower_half.is_empty() || num <= *self.lower_half.peek().unwrap() {
             self.lower_half.push(num);
         } else {
             self.upper_half.push(Reverse(num));
         }
 
-        //=======================================
         // Rebalance: ensure size difference <= 1
-        //=======================================
         if self.lower_half.len() > self.upper_half.len() + 1 {
             if let Some(val) = self.lower_half.pop() {
                 self.upper_half.push(Reverse(val));
@@ -1022,9 +976,7 @@ impl ExternalSorter {
     }
 
     fn sort(&self, data: Vec<i32>) -> Vec<i32> {
-        //=====================
         // Phase 1: Sort chunks
-        //=====================
         let mut chunks: Vec<Vec<i32>> = data
             .chunks(self.chunk_size)
             .map(|chunk| {
@@ -1034,9 +986,7 @@ impl ExternalSorter {
             })
             .collect();
 
-        //=====================
         // Phase 2: K-way merge
-        //=====================
         KWayMerge::merge(chunks)
     }
 }
@@ -1137,9 +1087,7 @@ where
     }
 
     fn top_k(&self) -> Vec<(T, usize)> {
-        //================================
         // Use min-heap to keep only top k
-        //================================
         let mut heap: BinaryHeap<Reverse<FreqItem<&T>>> = BinaryHeap::new();
 
         for (item, &count) in &self.counts {
@@ -1234,9 +1182,7 @@ fn main() {
 
     let mut analyzer = LogAnalyzer::new(3);
 
-    //==============
     // Simulate logs
-    //==============
     let logs = vec![
         LogEntry {
             ip: "192.168.1.1".to_string(),
@@ -1393,18 +1339,14 @@ where
         });
 
         while let Some(State { cost, node }) = heap.pop() {
-            //===============================
             // Skip if we found a better path
-            //===============================
             if let Some(&best) = distances.get(&node) {
                 if cost > best {
                     continue;
                 }
             }
 
-            //================
             // Check neighbors
-            //================
             if let Some(edges) = self.neighbors(&node) {
                 for edge in edges {
                     let next_cost = cost + edge.weight;
@@ -1440,9 +1382,7 @@ where
 
         while let Some(State { cost, node }) = heap.pop() {
             if node == *end {
-                //=================
                 // Reconstruct path
-                //=================
                 let mut path = vec![end.clone()];
                 let mut current = end;
 
@@ -1493,9 +1433,7 @@ fn main() {
 
     let mut map = WeightedGraph::new(false);
 
-    //==========================
     // Cities and distances (km)
-    //==========================
     map.add_edge("SF", "LA", 383);
     map.add_edge("SF", "Portland", 635);
     map.add_edge("LA", "Phoenix", 373);
@@ -1556,9 +1494,7 @@ where
             .or_insert_with(Vec::new)
             .push(to.clone());
 
-        //==========================
         // Ensure 'to' vertex exists
-        //==========================
         self.adjacency.entry(to).or_insert_with(Vec::new);
     }
 
@@ -1566,15 +1502,11 @@ where
         self.adjacency.keys().collect()
     }
 
-    //======================================
     // Kahn's algorithm for topological sort
-    //======================================
     fn topological_sort(&self) -> Result<Vec<T>, String> {
         let mut in_degree: HashMap<T, usize> = HashMap::new();
 
-        //=====================
         // Calculate in-degrees
-        //=====================
         for vertex in self.vertices() {
             in_degree.entry(vertex.clone()).or_insert(0);
         }
@@ -1585,9 +1517,7 @@ where
             }
         }
 
-        //======================================
         // Queue vertices with no incoming edges
-        //======================================
         let mut queue: VecDeque<T> = in_degree
             .iter()
             .filter(|(_, &degree)| degree == 0)
@@ -1599,9 +1529,7 @@ where
         while let Some(vertex) = queue.pop_front() {
             result.push(vertex.clone());
 
-            //===============================
             // Reduce in-degree for neighbors
-            //===============================
             if let Some(edges) = self.adjacency.get(&vertex) {
                 for to in edges {
                     if let Some(degree) = in_degree.get_mut(to) {
@@ -1614,9 +1542,7 @@ where
             }
         }
 
-        //=================
         // Check for cycles
-        //=================
         if result.len() != self.adjacency.len() {
             Err("Graph contains a cycle".to_string())
         } else {
@@ -1624,9 +1550,7 @@ where
         }
     }
 
-    //===========================
     // DFS-based topological sort
-    //===========================
     fn topological_sort_dfs(&self) -> Result<Vec<T>, String> {
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
@@ -1885,9 +1809,7 @@ impl Trie {
             self.collect_words_with_count(node, prefix.to_string(), &mut results);
         }
 
-        //==========================================
         // Sort by count (descending) and take top k
-        //==========================================
         results.sort_by(|a, b| b.1.cmp(&a.1));
         results.truncate(k);
         results
@@ -1953,9 +1875,7 @@ impl SearchAutocomplete {
     }
 
     fn add_search_query(&mut self, query: &str) {
-        //=====================
         // Normalize: lowercase
-        //=====================
         let normalized = query.to_lowercase();
         self.trie.insert_with_count(&normalized, 1);
     }
@@ -1991,9 +1911,7 @@ impl Dictionary {
     fn suggest_corrections(&self, word: &str, max_suggestions: usize) -> Vec<String> {
         let word = word.to_lowercase();
 
-        //==================================
         // Try prefixes of increasing length
-        //==================================
         for len in (1..=word.len()).rev() {
             let prefix = &word[..len];
             let suggestions = self.trie.autocomplete(prefix);
@@ -2054,9 +1972,7 @@ fn main() {
 
     let mut autocomplete = SearchAutocomplete::new();
 
-    //========================
     // Simulate search queries
-    //========================
     autocomplete.add_search_query("rust programming");
     autocomplete.add_search_query("rust tutorial");
     autocomplete.add_search_query("rust tutorial");
@@ -2153,36 +2069,26 @@ impl RadixTree {
 
         let first_char = key.chars().next().unwrap();
 
-        //====================
         // Find matching child
-        //====================
         if let Some(child) = node.children.get_mut(&first_char) {
             let label = &child.edge_label;
             let common_prefix_len = common_prefix_length(key, label);
 
             if common_prefix_len == label.len() {
-                //==========================
                 // Full match: continue down
-                //==========================
                 let remaining = &key[common_prefix_len..];
                 self.insert_helper(child, remaining, value);
             } else {
-                //==========================
                 // Partial match: split node
-                //==========================
                 let old_label = label.clone();
                 let common = &old_label[..common_prefix_len];
                 let old_suffix = &old_label[common_prefix_len..];
                 let new_suffix = &key[common_prefix_len..];
 
-                //=============================
                 // Create new intermediate node
-                //=============================
                 let mut intermediate = Box::new(RadixNode::new(common.to_string()));
 
-                //==================================
                 // Move old child under intermediate
-                //==================================
                 let old_child = node.children.remove(&first_char).unwrap();
                 let old_first = old_suffix.chars().next().unwrap();
 
@@ -2190,9 +2096,7 @@ impl RadixTree {
                 relocated.edge_label = old_suffix.to_string();
                 intermediate.children.insert(old_first, relocated);
 
-                //===============
                 // Add new branch
-                //===============
                 if !new_suffix.is_empty() {
                     let new_first = new_suffix.chars().next().unwrap();
                     let mut new_node = Box::new(RadixNode::new(new_suffix.to_string()));
@@ -2207,9 +2111,7 @@ impl RadixTree {
                 node.children.insert(first_char, intermediate);
             }
         } else {
-            //==============================
             // No matching child: create new
-            //==============================
             let mut new_node = Box::new(RadixNode::new(key.to_string()));
             new_node.is_end = true;
             new_node.value = Some(value);
@@ -2261,9 +2163,7 @@ impl RadixTree {
         results: &mut Vec<String>,
     ) {
         if remaining_prefix.is_empty() {
-            //=================================
             // Collect all keys under this node
-            //=================================
             self.collect_all(node, current_key, results);
             return;
         }
@@ -2281,9 +2181,7 @@ impl RadixTree {
                 let new_remaining = &remaining_prefix[common_len..];
                 self.collect_with_prefix(child, new_remaining, new_key, results);
             } else if common_len == remaining_prefix.len() {
-                //==========================
                 // Prefix matches completely
-                //==========================
                 self.collect_all(child, new_key, results);
             }
         }
@@ -2429,9 +2327,7 @@ impl<T> LockFreeStack<T> {
                 (*new_node).next = head;
             }
 
-            //=================================================
             // Try to swap: if head unchanged, install new_node
-            //=================================================
             if self
                 .head
                 .compare_exchange(head, new_node, Ordering::Release, Ordering::Acquire)
@@ -2453,22 +2349,16 @@ impl<T> LockFreeStack<T> {
             unsafe {
                 let next = (*head).next;
 
-                //===========================
                 // Try to swap head with next
-                //===========================
                 if self
                     .head
                     .compare_exchange(head, next, Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
                     let data = ptr::read(&(*head).data);
-                    //=================================================================
                     // Note: In production, use proper memory reclamation (epoch-based)
-                    //=================================================================
                     // Deallocating here can cause use-after-free in concurrent scenarios
-                    //=======================================================
                     // drop(Box::from_raw(head)); // Commented out for safety
-                    //=======================================================
                     return Some(data);
                 }
             }
@@ -2517,9 +2407,7 @@ fn main() {
 
     let stack = Arc::new(LockFreeStack::new());
 
-    //============================================
     // Spawn multiple threads pushing concurrently
-    //============================================
     let mut handles = vec![];
 
     for thread_id in 0..4 {
@@ -2535,9 +2423,7 @@ fn main() {
         handle.join().unwrap();
     }
 
-    //=================
     // Pop all elements
-    //=================
     let mut count = 0;
     while stack.pop().is_some() {
         count += 1;
@@ -2549,9 +2435,7 @@ fn main() {
 
     let queue = WorkStealingQueue::new();
 
-    //================
     // Producer thread
-    //================
     let producer_queue = queue.clone_handle();
     let producer = thread::spawn(move || {
         for i in 0..1000 {
@@ -2559,9 +2443,7 @@ fn main() {
         }
     });
 
-    //=================
     // Consumer threads
-    //=================
     let mut consumers = vec![];
     for _ in 0..3 {
         let consumer_queue = queue.clone_handle();
@@ -2741,9 +2623,7 @@ fn benchmark_lockfree_vs_mutex() {
     const ITEMS: usize = 100_000;
     const THREADS: usize = 4;
 
-    //================
     // Lock-free queue
-    //================
     println!("Lock-free queue:");
     let start = Instant::now();
     let lockfree_queue = UnboundedWorkQueue::new();
@@ -2784,9 +2664,7 @@ fn benchmark_lockfree_vs_mutex() {
     let lockfree_time = start.elapsed();
     println!("  Time: {:?}", lockfree_time);
 
-    //==================
     // Mutex-based queue
-    //==================
     println!("\nMutex-based queue:");
     let start = Instant::now();
     let mutex_queue = Arc::new(Mutex::new(std::collections::VecDeque::new()));
@@ -2838,9 +2716,7 @@ fn main() {
 
     let queue = UnboundedWorkQueue::new();
 
-    //================
     // Producer thread
-    //================
     let producer = queue.clone_handle();
     let p = thread::spawn(move || {
         for i in 0..1000 {
@@ -2848,9 +2724,7 @@ fn main() {
         }
     });
 
-    //=================
     // Consumer threads
-    //=================
     let mut consumers = vec![];
     for _ in 0..3 {
         let consumer = queue.clone_handle();

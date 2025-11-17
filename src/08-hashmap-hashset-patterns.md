@@ -1,6 +1,64 @@
 # HashMap & HashSet Patterns
 
+
+Entry API Patterns
+
+- Problem: Double hash lookups for check-then-insert; inefficient
+  conditional logic
+- Solution: Use entry() API with or_insert(), or_insert_with(),
+  and_modify()
+- Why It Matters: 2-3x performance improvement; prevents race conditions
+- Use Cases: Word counting, LRU caches, graph adjacency, grouping,
+  aggregation
+
+Custom Hash Functions
+
+- Problem: Case sensitivity issues; composite keys need correct hashing;
+  float NaN issues; SipHash slow for trusted keys
+- Solution: Custom Hash implementations, wrapper newtypes, faster hashers
+  (FxHash/AHash)
+- Why It Matters: 10x speedup with right hasher; enables semantic
+  correctness
+- Use Cases: Case-insensitive keys, composite keys, float coordinates,
+  content-addressable storage
+
+Capacity and Load Factor Optimization
+
+- Problem: No pre-allocation causes ~17 resizes for 100K entries;
+  over-allocation wastes memory
+- Solution: with_capacity(), reserve() before bulk ops, shrink_to_fit()
+  for long-lived maps
+- Why It Matters: 3-10x faster construction; avoids latency spikes from
+  resizes
+- Use Cases: Batch loading, config maps, HFT, embedded systems, caches
+
+Alternative Maps
+
+- Problem: HashMap doesn't preserve order; no range queries; SipHash slow;
+  small map overhead
+- Solution: BTreeMap for sorted/ranges, FxHashMap for speed, IndexMap for
+  order preservation
+- Why It Matters: Wrong choice: 100x slower lookups or 10x slower hashing
+- Use Cases: BTreeMap for sorted/ranges, FxHashMap for trusted keys,
+  IndexMap for ordered output
+
+Concurrent Maps
+
+- Problem: Mutex<HashMap> creates contention bottleneck; 80% time waiting
+  on locks
+- Solution: DashMap for lock-free sharding, RwLock for read-heavy, manual
+  sharding for control
+- Why It Matters: 8 cores → 7x throughput with right approach vs acting
+  like 1 core
+- Use Cases: DashMap for caches/counters, RwLock for read-heavy configs,
+  Arc for immutable
+
+
 This chapter explores advanced patterns and techniques for working with hash-based collections in Rust. We'll cover the Entry API, custom hash functions, performance optimization, alternative map implementations, and concurrent access patterns through practical, real-world examples.
+
+## HashMap Foundations
+
+Rust's `HashMap<K, V>` is a hash table implementation that provides O(1) average-case performance for insertions, deletions, and lookups. It uses a robust hashing algorithm (SipHash 1-3) by default, which protects against hash collision denial-of-service (DoS) attacks. The HashMap automatically manages capacity and resizes when the load factor (ratio of entries to buckets) exceeds approximately 0.875. Keys must implement the `Eq` and `Hash` traits, ensuring that equal keys produce identical hash values—a critical invariant for correctness. Under the hood, HashMap uses open addressing with quadratic probing for collision resolution, storing entries in a contiguous array that enables efficient cache utilization. The collection owns both keys and values, moving them into the map on insertion, and provides flexible borrowing patterns through its API to avoid unnecessary cloning.
 
 ## Table of Contents
 
@@ -14,9 +72,15 @@ This chapter explores advanced patterns and techniques for working with hash-bas
 
 ## Entry API Patterns
 
-The Entry API provides efficient ways to work with HashMap entries, avoiding multiple lookups and enabling complex update patterns.
+**Problem**: Checking if a key exists and then inserting/updating requires two hash lookups—`contains_key()` followed by `insert()` or `get_mut()`. Implementing conditional logic (insert if absent, update if present) with separate operations is inefficient and verbose. Complex update patterns like incrementing counters or appending to values require multiple lookups and awkward Option handling.
 
-### Recipe 1: LRU Cache with Entry API
+**Solution**: Use the Entry API (`map.entry(key)`) which performs one hash lookup and returns an enum: `Occupied` (key exists) or `Vacant` (key absent). Use `.or_insert()` for simple defaults, `.or_insert_with()` for computed defaults, `.and_modify()` for conditional updates. Chain operations for complex patterns. The entry holds a mutable reference to the map slot, enabling efficient in-place updates.
+
+**Why It Matters**: The Entry API reduces hash lookups from 2-3 to 1, improving performance by 2-3x for lookup-heavy operations. Word counting that does `if contains then get_mut else insert` is twice as slow as `entry().or_default()`. LRU caches, frequency counters, and aggregation pipelines all benefit. The API also makes code more idiomatic and prevents race conditions in concurrent scenarios where checking then inserting isn't atomic.
+
+**Use Cases**: Word/frequency counting, LRU caches, graph adjacency lists, grouping operations (group-by), default value initialization, conditional updates (increment counters), aggregation pipelines.
+
+### Pattern 1: LRU Cache with Entry API
 
 **Problem**: Implement a Least Recently Used (LRU) cache that efficiently tracks access order and evicts least recently used items.
 
@@ -46,9 +110,7 @@ where
 
     fn get(&mut self, key: &K) -> Option<&V> {
         if self.map.contains_key(key) {
-            //===================================
             // Move to front (most recently used)
-            //===================================
             self.order.retain(|k| k != key);
             self.order.push_back(key.clone());
             self.map.get(key)
@@ -62,24 +124,16 @@ where
 
         match self.map.entry(key.clone()) {
             Entry::Occupied(mut e) => {
-                //======================
                 // Update existing entry
-                //======================
                 e.insert(value);
-                //==============
                 // Move to front
-                //==============
                 self.order.retain(|k| k != &key);
                 self.order.push_back(key);
             }
             Entry::Vacant(e) => {
-                //===============
                 // Check capacity
-                //===============
                 if self.map.len() >= self.capacity {
-                    //==========================
                     // Evict least recently used
-                    //==========================
                     if let Some(lru_key) = self.order.pop_front() {
                         self.map.remove(&lru_key);
                     }
@@ -107,9 +161,7 @@ fn main() {
 
     assert_eq!(cache.get(&"user:1".to_string()), Some(&"Alice"));
 
-    //===============================================
     // This will evict "user:2" (least recently used)
-    //===============================================
     cache.put("user:4".to_string(), "David");
 
     assert_eq!(cache.get(&"user:2".to_string()), None);
@@ -125,7 +177,7 @@ fn main() {
 
 ---
 
-### Recipe 2: Word Frequency Counter
+### Pattern 2: Word Frequency Counter
 
 **Problem**: Count word frequencies in a large text corpus efficiently, handling case-insensitive matching and Unicode.
 
@@ -154,9 +206,7 @@ impl WordFrequency {
                 .to_lowercase();
 
             if !word.is_empty() {
-                //===============================
                 // Entry API: increment or insert
-                //===============================
                 *self.counts.entry(word).or_insert(0) += 1;
                 self.total_words += 1;
             }
@@ -164,9 +214,7 @@ impl WordFrequency {
     }
 
     fn add_text_batch(&mut self, text: &str) {
-        //=================================================
         // More efficient: collect words first, then update
-        //=================================================
         let mut word_counts = HashMap::new();
 
         for word in text.split_whitespace() {
@@ -179,9 +227,7 @@ impl WordFrequency {
             }
         }
 
-        //=======================
         // Merge into main counts
-        //=======================
         for (word, count) in word_counts {
             *self.counts.entry(word).or_insert(0) += count;
             self.total_words += count;
@@ -237,7 +283,7 @@ fn main() {
 
 ---
 
-### Recipe 3: Graph Adjacency List Construction
+### Pattern 3: Graph Adjacency List Construction
 
 **Problem**: Build an adjacency list representation of a graph efficiently, supporting both directed and undirected edges.
 
@@ -270,9 +316,7 @@ where
     }
 
     fn add_edge(&mut self, from: T, to: T) {
-        //=====================================
         // Use entry API to avoid double lookup
-        //=====================================
         self.adjacency
             .entry(from.clone())
             .or_insert_with(HashSet::new)
@@ -284,9 +328,7 @@ where
                 .or_insert_with(HashSet::new)
                 .insert(from);
         } else {
-            //=========================================================
             // Ensure 'to' node exists even if it has no outgoing edges
-            //=========================================================
             self.adjacency.entry(to).or_insert_with(HashSet::new);
         }
     }
@@ -364,7 +406,7 @@ fn main() {
 
 ---
 
-### Recipe 4: Grouping and Aggregation
+### Pattern 4: Grouping and Aggregation
 
 **Problem**: Group items by a key and perform aggregations (count, sum, average) efficiently.
 
@@ -508,15 +550,11 @@ fn main() {
         },
     ];
 
-    //==================
     // Count by category
-    //==================
     let counts = Aggregator::count_by(sales.clone(), |s| s.category.clone());
     println!("Sales count by category: {:?}", counts);
 
-    //================
     // Sum by category
-    //================
     let totals = Aggregator::sum_by(
         sales.clone(),
         |s| s.category.clone(),
@@ -524,9 +562,7 @@ fn main() {
     );
     println!("Total revenue by category: {:?}", totals);
 
-    //====================
     // Average by category
-    //====================
     let averages = Aggregator::avg_by(
         sales.clone(),
         |s| s.category.clone(),
@@ -534,9 +570,7 @@ fn main() {
     );
     println!("Average sale by category: {:?}", averages);
 
-    //============================
     // Group all sales by category
-    //============================
     let mut groups = GroupBy::new();
     groups.add_all(sales.into_iter().map(|s| (s.category.clone(), s)));
 
@@ -557,9 +591,15 @@ fn main() {
 
 ## Custom Hash Functions
 
-Custom hash functions allow you to use complex types as HashMap keys and optimize hashing for specific use cases.
+**Problem**: Default hashing treats "ABC" and "abc" as different keys—case-insensitive lookups require normalizing every query. Composite keys like `(user_id, session_id)` need to implement Hash correctly to avoid collisions. Floating-point keys are tricky due to NaN != NaN. Default SipHash is cryptographically strong but slow—using it for trusted integer keys wastes 10x performance. Custom types without derived Hash can't be map keys.
 
-### Recipe 5: Case-Insensitive String Keys
+**Solution**: Implement custom Hash for types requiring special equality semantics (case-insensitive strings, approximate float equality). Create wrapper newtypes with custom Hash implementations. Use Hash trait to include only relevant fields (ignore timestamps in equality but not data). For performance, use faster hashers like FxHash or AHash for trusted data. Override `#[derive(Hash)]` behavior when needed by manual implementation.
+
+**Why It Matters**: Custom hashing enables semantically correct maps—case-insensitive user lookups, coordinate-based spatial indexing, content-addressed storage. Performance matters: switching from SipHash to FxHash for integer keys provides 10x speedup in tight loops. Incorrect hashing causes subtle bugs: forgetting to hash a field means equal objects produce different hashes, breaking HashMap invariants and causing item loss.
+
+**Use Cases**: Case-insensitive string keys (usernames, HTTP headers), composite keys (multi-field lookups), floating-point coordinates (with epsilon equality), content-addressable storage, performance-critical maps with trusted integer keys, custom types needing special equality.
+
+### Pattern 5: Case-Insensitive String Keys
 
 **Problem**: Create a HashMap where string keys are case-insensitive ("Hello" and "hello" are the same key).
 
@@ -584,9 +624,7 @@ impl CaseInsensitiveString {
 
 impl Hash for CaseInsensitiveString {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        //===========================
         // Hash the lowercase version
-        //===========================
         for byte in self.0.bytes().map(|b| b.to_ascii_lowercase()) {
             byte.hash(state);
         }
@@ -640,9 +678,7 @@ fn main() {
     headers.insert("content-length", "1234");
     headers.insert("AUTHORIZATION", "Bearer token123");
 
-    //==================================
     // All these work regardless of case
-    //==================================
     assert_eq!(headers.get("content-type"), Some(&"application/json"));
     assert_eq!(headers.get("Content-Length"), Some(&"1234"));
     assert_eq!(headers.get("authorization"), Some(&"Bearer token123"));
@@ -658,7 +694,7 @@ fn main() {
 
 ---
 
-### Recipe 6: Composite Keys and Custom Types
+### Pattern 6: Composite Keys and Custom Types
 
 **Problem**: Use complex composite keys (e.g., (user_id, timestamp, event_type)) efficiently in a HashMap.
 
@@ -740,9 +776,7 @@ impl GridKey {
         Self { x, y }
     }
 
-    //=========================================================
     // Spatial hash: interleave bits of x and y (Z-order curve)
-    //=========================================================
     fn spatial_hash(&self) -> u64 {
         fn interleave(mut x: u32, mut y: u32) -> u64 {
             let mut result = 0u64;
@@ -769,9 +803,7 @@ impl Eq for GridKey {}
 
 impl Hash for GridKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        //=====================================
         // Use spatial hash for better locality
-        //=====================================
         self.spatial_hash().hash(state);
     }
 }
@@ -824,9 +856,7 @@ impl<T> SpatialGrid<T> {
 // Example usage
 //==============
 fn main() {
-    //===============
     // Event tracking
-    //===============
     let mut store = EventStore::new();
 
     let key = EventKey {
@@ -845,9 +875,7 @@ fn main() {
 
     store.record(key, event);
 
-    //=============
     // Spatial grid
-    //=============
     let mut grid = SpatialGrid::new(100);
     grid.insert(150, 250, "Enemy1");
     grid.insert(180, 270, "Enemy2");
@@ -865,7 +893,7 @@ fn main() {
 
 ---
 
-### Recipe 7: Hashing Floating-Point Numbers
+### Pattern 7: Hashing Floating-Point Numbers
 
 **Problem**: Use floating-point coordinates as HashMap keys (floats don't implement `Hash` due to NaN issues).
 
@@ -1008,9 +1036,7 @@ impl<V> ApproximatePointMap<V> {
 
         let mut results = Vec::new();
 
-        //=====================================
         // Check the cell and neighboring cells
-        //=====================================
         for dy in -1..=1 {
             for dx in -1..=1 {
                 let neighbor_key = QuantizedPoint {
@@ -1036,9 +1062,7 @@ impl<V> ApproximatePointMap<V> {
 // Example: GPS coordinate caching
 //================================
 fn main() {
-    //==========================
     // Exact floating-point keys
-    //==========================
     let mut exact_map: HashMap<Point, String> = HashMap::new();
 
     let p1 = Point::new(37.7749, -122.4194); // San Francisco
@@ -1049,17 +1073,13 @@ fn main() {
 
     assert_eq!(exact_map.get(&p1), Some(&"San Francisco".to_string()));
 
-    //===========================================================
     // Approximate lookup (useful for GPS with measurement error)
-    //===========================================================
     let mut approx_map = ApproximatePointMap::new(0.01); // ~1km precision
 
     approx_map.insert(p1, "San Francisco");
     approx_map.insert(p2, "New York");
 
-    //========================
     // Find points within 50km
-    //========================
     let nearby = approx_map.get_nearby(&Point::new(37.78, -122.42), 0.5);
     println!("Nearby cities: {:?}", nearby);
 }
@@ -1074,9 +1094,15 @@ fn main() {
 
 ## Capacity and Load Factor Optimization
 
-Understanding and optimizing HashMap capacity and load factor can significantly improve performance.
+**Problem**: Creating HashMaps without capacity hints causes repeated resizing—each resize rehashes all entries and allocates new backing array. Building a 100K-entry map without pre-allocation triggers ~17 resizes. Over-allocating wastes memory for long-lived maps. Default load factor (0.875) trades memory for speed, but isn't always optimal. Resizing during hot paths causes latency spikes.
 
-### Recipe 8: Pre-Allocated Collections for Batch Processing
+**Solution**: Use `HashMap::with_capacity(n)` when final size is known or estimable. Call `reserve(n)` before bulk insertions. Use `shrink_to_fit()` for long-lived maps after construction to reclaim excess memory. For memory-constrained environments, consider custom load factors or alternative map implementations. Profile resize behavior by monitoring capacity changes.
+
+**Why It Matters**: Pre-allocation improves HashMap construction by 3-10x. Building 1M entries: naive approach causes ~20 resizes rehashing ~2M entries total. Pre-allocated approach: one allocation, zero rehashes. Memory matters too: default HashMap over-allocates ~14% for fast insertion, which is wasteful for read-only maps. Real-time systems must avoid mid-operation resizes that cause millisecond latency spikes.
+
+**Use Cases**: Batch data loading (pre-allocate for dataset size), configuration maps (shrink after loading), high-frequency trading (avoid resize latency), embedded systems (minimize memory overhead), caches (balance memory vs performance), long-lived lookup tables.
+
+### Pattern 8: Pre-Allocated Collections for Batch Processing
 
 **Problem**: Process large datasets efficiently by pre-allocating HashMap capacity to avoid resizing.
 
@@ -1094,31 +1120,23 @@ impl<K, V> BatchProcessor<K, V>
 where
     K: Eq + std::hash::Hash,
 {
-    //============================
     // Pre-allocate for known size
-    //============================
     fn with_capacity(capacity: usize) -> Self {
         Self {
             map: HashMap::with_capacity(capacity),
         }
     }
 
-    //=======================================
     // Estimate capacity based on load factor
-    //=======================================
     fn with_expected_size(expected_size: usize) -> Self {
-        //==============================
         // Default load factor is ~0.875
-        //==============================
         // Allocate extra to avoid resizing
         let capacity = (expected_size as f64 / 0.75).ceil() as usize;
         Self::with_capacity(capacity)
     }
 
     fn process_batch(&mut self, items: Vec<(K, V)>) {
-        //===================================
         // Reserve additional space if needed
-        //===================================
         self.map.reserve(items.len());
 
         for (k, v) in items {
@@ -1145,9 +1163,7 @@ where
 fn benchmark_allocation_strategy() {
     const SIZE: usize = 1_000_000;
 
-    //======================================
     // Strategy 1: No pre-allocation (worst)
-    //======================================
     let start = Instant::now();
     let mut map1 = HashMap::new();
     for i in 0..SIZE {
@@ -1157,9 +1173,7 @@ fn benchmark_allocation_strategy() {
     println!("No pre-allocation: {:?}", duration1);
     println!("Final capacity: {}", map1.capacity());
 
-    //=================================
     // Strategy 2: Exact pre-allocation
-    //=================================
     let start = Instant::now();
     let mut map2 = HashMap::with_capacity(SIZE);
     for i in 0..SIZE {
@@ -1169,9 +1183,7 @@ fn benchmark_allocation_strategy() {
     println!("Exact pre-allocation: {:?}", duration2);
     println!("Final capacity: {}", map2.capacity());
 
-    //=====================================================
     // Strategy 3: Over-allocation (best for future growth)
-    //=====================================================
     let start = Instant::now();
     let mut map3 = HashMap::with_capacity((SIZE as f64 / 0.75) as usize);
     for i in 0..SIZE {
@@ -1207,24 +1219,18 @@ impl LogAggregator {
     }
 
     fn process_logs(&mut self, logs: Vec<LogEntry>) {
-        //========================================
         // Pre-allocate for estimated unique hours
-        //========================================
         let estimated_hours = logs.len() / 1000; // Assume ~1000 logs per hour
         self.entries_by_hour.reserve(estimated_hours);
 
         for log in logs {
-            //===============
             // Group by level
-            //===============
             self.entries_by_level
                 .entry(log.level.clone())
                 .or_insert_with(|| Vec::with_capacity(100))
                 .push(log.clone());
 
-            //==============
             // Group by hour
-            //==============
             let hour = log.timestamp / 3600;
             self.entries_by_hour
                 .entry(hour)
@@ -1280,7 +1286,7 @@ fn main() {
 
 ---
 
-### Recipe 9: Memory-Efficient HashMap Configuration
+### Pattern 9: Memory-Efficient HashMap Configuration
 
 **Problem**: Minimize memory usage for HashMaps while maintaining acceptable performance.
 
@@ -1344,9 +1350,7 @@ fn compare_memory_usage() {
     const ENTRIES: usize = 100_000;
     const UNIQUE_STRINGS: usize = 1_000;
 
-    //======================================
     // Without interning: store full strings
-    //======================================
     let mut without_interning: HashMap<u32, String> = HashMap::with_capacity(ENTRIES);
     let strings: Vec<String> = (0..UNIQUE_STRINGS)
         .map(|i| format!("string_{}", i))
@@ -1359,9 +1363,7 @@ fn compare_memory_usage() {
         );
     }
 
-    //=================================
     // With interning: store string IDs
-    //=================================
     let mut interner = StringInterner::new();
     let mut with_interning: HashMap<u32, u32> = HashMap::with_capacity(ENTRIES);
 
@@ -1408,9 +1410,7 @@ where
         if result.is_some() {
             self.deletions += 1;
 
-            //===================================
             // Shrink if we've deleted many items
-            //===================================
             if self.deletions >= self.shrink_threshold {
                 self.shrink();
             }
@@ -1420,9 +1420,7 @@ where
     }
 
     fn shrink(&mut self) {
-        //===========================
         // Shrink to fit current size
-        //===========================
         self.map.shrink_to_fit();
         self.deletions = 0;
         println!("Shrunk map to capacity: {}", self.map.capacity());
@@ -1448,25 +1446,19 @@ fn main() {
 
     let mut map = SelfOptimizingMap::new();
 
-    //==================
     // Insert many items
-    //==================
     for i in 0..10000 {
         map.insert(i, i * 2);
     }
     println!("After insertions - len: {}, capacity: {}", map.len(), map.capacity());
 
-    //==================
     // Delete most items
-    //==================
     for i in 0..9000 {
         map.remove(&i);
     }
     println!("After deletions - len: {}, capacity: {}", map.len(), map.capacity());
 
-    //=========================
     // String interning example
-    //=========================
     println!("\n=== String Interning ===\n");
     let mut interner = StringInterner::new();
 
@@ -1489,9 +1481,15 @@ fn main() {
 
 ## Alternative Maps
 
-Different map implementations offer trade-offs between performance, ordering, and features.
+**Problem**: HashMap doesn't preserve insertion/sorted order—iterating keys is unpredictable. Range queries (find all keys between X and Y) are O(N) in HashMap. Default SipHash is slow for trusted integer keys—10x slower than simpler hashes. Small maps (< 10 entries) waste memory with HashMap's overhead. Deterministic iteration is needed for reproducible builds or testing.
 
-### Recipe 10: BTreeMap for Ordered Operations
+**Solution**: Use `BTreeMap` for sorted order and O(log N) range queries. Use `FxHashMap` (rustc-hash crate) or `AHashMap` for 2-10x faster hashing with trusted keys. Use `IndexMap` for insertion-order preservation. Use `SmallVec` or arrays for tiny maps. Choose based on: operation patterns (range queries? sorted iteration?), key trust (user input? use SipHash), size (< 10 entries? arrays), and determinism needs.
+
+**Why It Matters**: Wrong map choice kills performance. BTreeMap for random access: O(log N) vs HashMap's O(1) is 100x slower for lookups but enables range queries HashMap can't do. FxHashMap for integer keys: 10x faster than default but vulnerable to DoS with untrusted input. IndexMap preserves order with only 10% overhead vs HashMap. Understanding trade-offs prevents premature optimization and enables right tool for the job.
+
+**Use Cases**: BTreeMap for sorted iteration (timestamps, priority queues), range queries (time ranges, IP ranges), deterministic output. FxHashMap for compiler internals, trusted integer keys, hot paths. IndexMap for ordered JSON output, LRU caches, command-line arguments. Arrays for tiny fixed-size maps (< 5 entries).
+
+### Pattern 10: BTreeMap for Ordered Operations
 
 **Problem**: Need to maintain sorted keys and perform range queries efficiently.
 
@@ -1519,9 +1517,7 @@ impl<V: Clone> TimeSeries<V> {
         self.data.insert(timestamp, value);
     }
 
-    //=============================
     // Get all values in time range
-    //=============================
     fn range(&self, start: u64, end: u64) -> Vec<(u64, V)> {
         self.data
             .range(start..=end)
@@ -1529,9 +1525,7 @@ impl<V: Clone> TimeSeries<V> {
             .collect()
     }
 
-    //==================================
     // Get latest value before timestamp
-    //==================================
     fn get_latest_before(&self, timestamp: u64) -> Option<(u64, V)> {
         self.data
             .range(..timestamp)
@@ -1539,9 +1533,7 @@ impl<V: Clone> TimeSeries<V> {
             .map(|(&k, v)| (k, v.clone()))
     }
 
-    //===================================
     // Get earliest value after timestamp
-    //===================================
     fn get_earliest_after(&self, timestamp: u64) -> Option<(u64, V)> {
         self.data
             .range(timestamp..)
@@ -1549,9 +1541,7 @@ impl<V: Clone> TimeSeries<V> {
             .map(|(&k, v)| (k, v.clone()))
     }
 
-    //===================
     // Get first and last
-    //===================
     fn first(&self) -> Option<(u64, V)> {
         self.data.first_key_value().map(|(&k, v)| (k, v.clone()))
     }
@@ -1560,9 +1550,7 @@ impl<V: Clone> TimeSeries<V> {
         self.data.last_key_value().map(|(&k, v)| (k, v.clone()))
     }
 
-    //=================================
     // Remove old data (data retention)
-    //=================================
     fn remove_before(&mut self, timestamp: u64) -> usize {
         let keys_to_remove: Vec<u64> = self.data
             .range(..timestamp)
@@ -1576,9 +1564,7 @@ impl<V: Clone> TimeSeries<V> {
         count
     }
 
-    //=======================================
     // Downsample: get one value per interval
-    //=======================================
     fn downsample(&self, interval: u64) -> Vec<(u64, V)> {
         let mut result = Vec::new();
         let mut current_bucket = None;
@@ -1613,9 +1599,7 @@ impl Leaderboard {
     }
 
     fn update_score(&mut self, name: String, score: u64) {
-        //=================
         // Remove old score
-        //=================
         if let Some(&old_score) = self.name_to_score.get(&name) {
             if let Some(names) = self.scores.get_mut(&old_score) {
                 names.retain(|n| n != &name);
@@ -1625,9 +1609,7 @@ impl Leaderboard {
             }
         }
 
-        //==============
         // Add new score
-        //==============
         self.scores
             .entry(score)
             .or_insert_with(Vec::new)
@@ -1656,9 +1638,7 @@ impl Leaderboard {
         let mut rank = 1;
         for (&s, names) in self.scores.iter().rev() {
             if s == *score {
-                //================================
                 // Find position within same score
-                //================================
                 if let Some(pos) = names.iter().position(|n| n == name) {
                     return Some(rank + pos);
                 }
@@ -1682,30 +1662,22 @@ fn main() {
 
     let mut temps = TimeSeries::new();
 
-    //============================
     // Insert temperature readings
-    //============================
     temps.insert(1699564800, 20.5); // 12:00
     temps.insert(1699568400, 22.1); // 13:00
     temps.insert(1699572000, 23.8); // 14:00
     temps.insert(1699575600, 24.2); // 15:00
     temps.insert(1699579200, 22.9); // 16:00
 
-    //============
     // Range query
-    //============
     let afternoon = temps.range(1699568400, 1699575600);
     println!("Afternoon temps: {:?}", afternoon);
 
-    //====================
     // Latest before 14:30
-    //====================
     let before_1430 = temps.get_latest_before(1699573800);
     println!("Latest before 14:30: {:?}", before_1430);
 
-    //=====================
     // Downsample to hourly
-    //=====================
     let hourly = temps.downsample(3600);
     println!("Hourly samples: {:?}", hourly);
 
@@ -1721,9 +1693,7 @@ fn main() {
     println!("Top 3: {:?}", leaderboard.top(3));
     println!("Charlie's rank: {:?}", leaderboard.rank("Charlie"));
 
-    //=============
     // Update score
-    //=============
     leaderboard.update_score("Alice".to_string(), 2500);
     println!("After Alice's update - Top 3: {:?}", leaderboard.top(3));
     println!("Alice's new rank: {:?}", leaderboard.rank("Alice"));
@@ -1741,7 +1711,7 @@ fn main() {
 
 ---
 
-### Recipe 11: FxHashMap for Performance
+### Pattern 11: FxHashMap for Performance
 
 **Problem**: Need faster hashing for integer keys or when cryptographic security isn't required.
 
@@ -1761,9 +1731,7 @@ use std::time::Instant;
 fn benchmark_hash_maps() {
     const SIZE: usize = 1_000_000;
 
-    //======================================================
     // Standard HashMap (SipHash - cryptographically secure)
-    //======================================================
     let start = Instant::now();
     let mut std_map: HashMap<u64, u64> = HashMap::with_capacity(SIZE);
     for i in 0..SIZE as u64 {
@@ -1782,9 +1750,7 @@ fn benchmark_hash_maps() {
     println!("  Get: {:?}", std_get);
     println!("  Sum: {}", sum);
 
-    //============================================
     // FxHashMap (FxHash - fast non-cryptographic)
-    //============================================
     let start = Instant::now();
     let mut fx_map: FxHashMap<u64, u64> = FxHashMap::with_capacity_and_hasher(
         SIZE,
@@ -1901,9 +1867,7 @@ impl SymbolTable {
     }
 
     fn lookup(&self, name: &str) -> Option<&SymbolInfo> {
-        //=========================================
         // Search from innermost to outermost scope
-        //=========================================
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
                 return Some(info);
@@ -1968,9 +1932,15 @@ fn main() {
 
 ## Concurrent Maps
 
-For multi-threaded scenarios, specialized concurrent maps provide thread-safe access without manual locking.
+**Problem**: Wrapping HashMap in `Mutex<HashMap<K, V>>` or `RwLock<HashMap<K, V>>` creates contention—all threads block on a single lock even for different keys. High-concurrency servers spend 80% of time waiting on locks. Read-heavy workloads suffer from exclusive writer blocking all readers. Manual fine-grained locking (sharding) is error-prone and complex. Atomic operations can't update HashMap entries atomically.
 
-### Recipe 12: DashMap for Concurrent Access
+**Solution**: Use `DashMap` for lock-free concurrent HashMap with automatic sharding. Use `RwLock<HashMap>` for read-heavy workloads where reads vastly outnumber writes. Implement manual sharding for ultimate control: partition keys across N independent maps each with their own lock. Use `Arc<HashMap>` for immutable shared maps. Choose based on read/write ratio and contention level.
+
+**Why It Matters**: Concurrent map choice determines scalability. `Mutex<HashMap>` caps throughput at single-lock limit regardless of cores—8-core machine acts like 1 core. DashMap enables near-linear scaling with minimal overhead: 8 cores → 7x throughput. RwLock improves read-heavy scenarios but writers still block all readers. Manual sharding provides predictable performance but requires careful key distribution. Wrong choice: multi-core system performs worse than single-threaded.
+
+**Use Cases**: DashMap for high-concurrency caches, session stores, request counters. RwLock for configuration maps (read-heavy), lookup tables. Mutex for low-contention maps, small critical sections. Manual sharding for extreme scale, custom load distribution. Arc for immutable shared state (compiled configs, static lookup).
+
+### Pattern 12: DashMap for Concurrent Access
 
 **Problem**: Multiple threads need to read and write to a shared map concurrently with minimal contention.
 
@@ -2188,9 +2158,7 @@ fn main() {
 
     let cache = ConcurrentCache::new();
 
-    //==============================
     // Spawn multiple writer threads
-    //==============================
     let mut handles = vec![];
     for i in 0..4 {
         let cache_clone = cache.clone_handle();
@@ -2205,18 +2173,14 @@ fn main() {
         }));
     }
 
-    //=================
     // Wait for writers
-    //=================
     for handle in handles {
         handle.join().unwrap();
     }
 
     println!("Cache size after inserts: {}", cache.len());
 
-    //======================
     // Simulate time passing
-    //======================
     thread::sleep(Duration::from_secs(6));
     let removed = cache.remove_expired();
     println!("Removed {} expired entries", removed);
@@ -2226,9 +2190,7 @@ fn main() {
 
     let counter = RequestCounter::new();
 
-    //=============================
     // Simulate concurrent requests
-    //=============================
     let mut handles = vec![];
     for _ in 0..10 {
         let counter_clone = counter.clone_handle();
@@ -2252,15 +2214,11 @@ fn main() {
 
     let tracker = TaskTracker::new();
 
-    //=============
     // Create tasks
-    //=============
     let task_ids: Vec<u64> = (0..10).map(|_| tracker.create_task()).collect();
     println!("Created {} tasks", task_ids.len());
 
-    //=====================
     // Spawn worker threads
-    //=====================
     let mut handles = vec![];
     for _ in 0..3 {
         let tracker_clone = tracker.clone_handle();
@@ -2274,14 +2232,10 @@ fn main() {
                 if let Some(&id) = pending.first() {
                     tracker_clone.update_status(id, TaskStatus::Running);
 
-                    //==============
                     // Simulate work
-                    //==============
                     thread::sleep(Duration::from_millis(100));
 
-                    //==========================
                     // Complete or fail randomly
-                    //==========================
                     if id % 3 == 0 {
                         tracker_clone.update_status(
                             id,
@@ -2313,7 +2267,7 @@ fn main() {
 
 ---
 
-### Recipe 13: Comparison of Concurrent Strategies
+### Pattern 13: Comparison of Concurrent Strategies
 
 **Problem**: Choose the right concurrent map strategy for different scenarios.
 
@@ -2410,9 +2364,7 @@ fn benchmark_dashmap(iterations: usize, threads: usize) -> Duration {
 fn benchmark_read_heavy_dashmap(iterations: usize, threads: usize) -> Duration {
     let map = Arc::new(DashMap::new());
 
-    //=============
     // Pre-populate
-    //=============
     for i in 0..1000 {
         map.insert(i, i * 2);
     }

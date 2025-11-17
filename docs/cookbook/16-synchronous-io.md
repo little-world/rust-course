@@ -53,9 +53,7 @@ use std::io::{self, Read};
 // Use this for: Config files, small documents, known-small inputs
 fn read_to_string(path: &str) -> io::Result<String> {
     std::fs::read_to_string(path)
-    //==================================================
     // Allocates a String big enough for the entire file
-    //==================================================
     // Returns Err if file doesn't exist, isn't readable, or isn't valid UTF-8
 }
 
@@ -65,9 +63,7 @@ fn read_to_string(path: &str) -> io::Result<String> {
 // Use this for: Images, compressed files, any binary format
 fn read_to_bytes(path: &str) -> io::Result<Vec<u8>> {
     std::fs::read(path)
-    //========================================
     // Allocates a Vec<u8> and reads all bytes
-    //========================================
     // Returns Err if file doesn't exist or isn't readable
 }
 
@@ -79,9 +75,7 @@ fn read_with_buffer(path: &str) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut contents = String::new();
 
-    //==================================================================
     // read_to_string reads until EOF, automatically resizing the String
-    //==================================================================
     file.read_to_string(&mut contents)?;
     Ok(contents)
 }
@@ -94,9 +88,7 @@ fn read_exact_bytes(path: &str, n: usize) -> io::Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let mut buffer = vec![0; n];
 
-    //===========================================================
     // read_exact returns Err if fewer than n bytes are available
-    //===========================================================
     // This guarantees you get all n bytes or an error—no partial reads
     file.read_exact(&mut buffer)?;
     Ok(buffer)
@@ -125,13 +117,9 @@ use std::io::{self, Write};
 // Use this for: Writing configuration, saving user data, generating output files
 fn write_string(path: &str, content: &str) -> io::Result<()> {
     std::fs::write(path, content)
-    //=================================
     // Creates file if it doesn't exist
-    //=================================
     // Truncates (erases) existing content
-    //====================================
     // Writes all content in one operation
-    //====================================
 }
 
 //====================
@@ -149,9 +137,7 @@ fn write_bytes(path: &str, content: &[u8]) -> io::Result<()> {
 fn write_with_handle(path: &str, content: &str) -> io::Result<()> {
     let mut file = File::create(path)?;
 
-    //=======================================================
     // write_all ensures all bytes are written or returns Err
-    //=======================================================
     // Partial writes are retried automatically
     file.write_all(content.as_bytes())?;
     Ok(())
@@ -187,61 +173,47 @@ use std::fs::OpenOptions;
 use std::io;
 
 fn advanced_file_opening() -> io::Result<()> {
-    //========================================
     // Read-only mode (default for File::open)
-    //========================================
     // Fails if file doesn't exist
     let file = OpenOptions::new()
         .read(true)
         .open("data.txt")?;
 
-    //=========================================
     // Write-only mode, create if doesn't exist
-    //=========================================
     // This is what File::create() does internally
     let file = OpenOptions::new()
         .write(true)
         .create(true)     // Create if missing
         .open("output.txt")?;
 
-    //===========================================
     // Append mode (write to end, never truncate)
-    //===========================================
     // Essential for log files
     let file = OpenOptions::new()
         .append(true)
         .open("log.txt")?;
 
-    //======================================
     // Truncate existing file to zero length
-    //======================================
     // Dangerous: erases all existing content!
     let file = OpenOptions::new()
         .write(true)
         .truncate(true)
         .open("temp.txt")?;
 
-    //===========================================
     // Create new file, fail if it already exists
-    //===========================================
     // Use this to avoid overwriting important files
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)   // Fail if exists (atomic check-and-create)
         .open("unique.txt")?;
 
-    //================================================
     // Read and write mode (for in-place modification)
-    //================================================
     // Allows seeking and both reading and writing
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .open("data.bin")?;
 
-    //===============================
     // Custom permissions (Unix only)
-    //===============================
     // Set file mode bits (rwxrwxrwx)
     #[cfg(unix)]
     {
@@ -314,9 +286,7 @@ fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     let mut writer = BufWriter::new(file);  // 8 KB buffer by default
 
     for line in lines {
-        //================================================
         // writeln! writes to buffer, not directly to file
-        //================================================
         // Much faster than unbuffered writes
         writeln!(writer, "{}", line)?;
     }
@@ -381,9 +351,7 @@ fn process_large_file(path: &str) -> io::Result<()> {
     for (index, line) in reader.lines().enumerate() {
         let line = line?;  // Handle I/O errors per line
 
-        //==================
         // Process each line
-        //==================
         if line.starts_with('#') {
             continue;  // Skip comments
         }
@@ -402,9 +370,7 @@ fn read_lines_robust(path: &str) -> io::Result<Vec<String>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
-    //=====================================
     // collect() gathers all lines into Vec
-    //=====================================
     // If any line fails to read, the entire operation fails
     reader.lines().collect()
 }
@@ -417,9 +383,7 @@ fn read_line_at_index(path: &str, target: usize) -> io::Result<Option<String>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
-    //===============================
     // nth() skips to the target line
-    //===============================
     // Inefficient: still reads all prior lines, just discards them
     reader.lines()
         .nth(target)
@@ -462,37 +426,25 @@ fn seeking_example(path: &str) -> io::Result<()> {
         .create(true)
         .open(path)?;
 
-    //================
     // Write some data
-    //================
     file.write_all(b"Hello, World!")?;
 
-    //==================
     // Seek to beginning
-    //==================
     file.seek(SeekFrom::Start(0))?;  // Absolute offset from start
 
-    //===================
     // Read first 5 bytes
-    //===================
     let mut buffer = [0; 5];
     file.read_exact(&mut buffer)?;
     println!("First 5 bytes: {:?}", std::str::from_utf8(&buffer)?);  // "Hello"
 
-    //================================
     // Seek to end (returns file size)
-    //================================
     let file_size = file.seek(SeekFrom::End(0))?;
     println!("File size: {}", file_size);  // 13 bytes
 
-    //==================================
     // Seek relative to current position
-    //==================================
     file.seek(SeekFrom::Current(-5))?;  // Back up 5 bytes from end
 
-    //===========================
     // Read from current position
-    //===========================
     let mut buffer = [0; 5];
     file.read_exact(&mut buffer)?;
     println!("Last 5 bytes: {:?}", std::str::from_utf8(&buffer)?);  // "orld!"
@@ -555,9 +507,7 @@ fn file_metadata_example(path: &str) -> io::Result<()> {
     println!("Is symlink: {}", metadata.is_symlink());
     println!("Read-only: {}", metadata.permissions().readonly());
 
-    //===================================================
     // Timestamps (may not be available on all platforms)
-    //===================================================
     if let Ok(modified) = metadata.modified() {
         println!("Modified: {:?}", modified);
     }
@@ -570,9 +520,7 @@ fn file_metadata_example(path: &str) -> io::Result<()> {
         println!("Created: {:?}", created);
     }
 
-    //=======================
     // Unix-specific metadata
-    //=======================
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -629,9 +577,7 @@ use std::path::Path;
 // Returns number of bytes copied
 fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     fs::copy(src, dst)
-    //=================================
     // Copies permissions too (on Unix)
-    //=================================
     // Overwrites destination if it exists
 }
 
@@ -676,9 +622,7 @@ fn copy_file_with_progress(src: &str, dst: &str) -> io::Result<()> {
 // Atomic within same filesystem; cross-filesystem does copy+delete
 fn move_file(src: &str, dst: &str) -> io::Result<()> {
     fs::rename(src, dst)
-    //===============================================
     // Fails if destination exists and is a directory
-    //===============================================
     // Fails if crossing filesystem boundaries (use copy+delete instead)
 }
 
@@ -688,9 +632,7 @@ fn move_file(src: &str, dst: &str) -> io::Result<()> {
 // Changes to one affect the other; both point to same data
 fn create_hard_link(src: &str, dst: &str) -> io::Result<()> {
     fs::hard_link(src, dst)
-    //==================================
     // Only works within same filesystem
-    //==================================
     // Can't hardlink directories (prevents filesystem cycles)
 }
 
@@ -700,13 +642,9 @@ fn create_hard_link(src: &str, dst: &str) -> io::Result<()> {
 #[cfg(unix)]
 fn create_symlink(src: &str, dst: &str) -> io::Result<()> {
     std::os::unix::fs::symlink(src, dst)
-    //===================================
     // Target can be relative or absolute
-    //===================================
     // Target doesn't have to exist (dangling symlink)
-    //=========================
     // Works across filesystems
-    //=========================
 }
 
 //============
@@ -714,9 +652,7 @@ fn create_symlink(src: &str, dst: &str) -> io::Result<()> {
 //============
 fn delete_file(path: &str) -> io::Result<()> {
     fs::remove_file(path)
-    //======================================================
     // Fails if path is a directory (use remove_dir instead)
-    //======================================================
     // Fails if file doesn't exist
 }
 ```
@@ -759,9 +695,7 @@ fn read_line() -> io::Result<String> {
 fn prompt(message: &str) -> io::Result<String> {
     print!("{}", message);
     io::stdout().flush()?;  // CRITICAL: flush before reading
-    //==============================================================
     // Without flush, prompt might not appear until after user input
-    //==============================================================
     read_line()
 }
 
@@ -774,9 +708,7 @@ fn read_lines() -> io::Result<Vec<String>> {
     let reader = stdin.lock();  // Lock for efficient multiple reads
 
     reader.lines().collect()
-    //======================================
     // Returns Err if any line has I/O error
-    //======================================
     // EOF is not an error; returns empty Vec
 }
 
@@ -805,9 +737,7 @@ fn read_until_empty() -> io::Result<Vec<String>> {
 fn read_integer() -> io::Result<i32> {
     let input = prompt("Enter a number: ")?;
 
-    //=================================
     // Convert parse error to I/O error
-    //=================================
     input.parse()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -850,27 +780,19 @@ fn interactive_menu() -> io::Result<()> {
 use std::io::{self, Write};
 
 fn stdout_examples() -> io::Result<()> {
-    //=============================
     // Basic println! (most common)
-    //=============================
     println!("Hello, World!");  // Writes to stdout with newline
 
-    //=========================
     // Write to stdout directly
-    //=========================
     io::stdout().write_all(b"Direct write\n")?;
 
-    //=================================
     // Buffered writing for performance
-    //=================================
     let stdout = io::stdout();
     let mut handle = stdout.lock();  // Lock once for multiple writes
     writeln!(handle, "Buffered write")?;
     handle.flush()?;
 
-    //======================
     // Write without newline
-    //======================
     print!("No newline ");
     io::stdout().flush()?;  // Ensure it appears immediately
     println!("here!");
@@ -879,19 +801,13 @@ fn stdout_examples() -> io::Result<()> {
 }
 
 fn stderr_examples() -> io::Result<()> {
-    //=============================================
     // Write to stderr (for errors and diagnostics)
-    //=============================================
     eprintln!("Error message");  // Like println! but goes to stderr
 
-    //====================
     // Direct stderr write
-    //====================
     io::stderr().write_all(b"Direct error\n")?;
 
-    //================
     // Formatted error
-    //================
     let error_code = 42;
     eprintln!("Error code: {}", error_code);
 
@@ -920,9 +836,7 @@ fn colored_output() {
     println!("\x1b[32mGreen text\x1b[0m");    // Green
     println!("\x1b[33mYellow text\x1b[0m");   // Yellow
     println!("\x1b[1mBold text\x1b[0m");      // Bold
-    //==========================
     // \x1b[0m resets formatting
-    //==========================
 }
 ```
 
@@ -958,9 +872,7 @@ fn efficient_stdout_writing(lines: &[&str]) -> io::Result<()> {
         writeln!(handle, "{}", line)?;  // Many writes, one lock
     }
 
-    //==============================================
     // Lock automatically released when handle drops
-    //==============================================
     Ok(())
 }
 
@@ -1025,14 +937,10 @@ fn redirect_stdout_to_file(path: &str) -> io::Result<()> {
 //===================================
 // Like Unix `tee` command
 fn tee_output(path: &str, message: &str) -> io::Result<()> {
-    //================
     // Write to stdout
-    //================
     println!("{}", message);
 
-    //===================
     // Also write to file
-    //===================
     let mut file = File::create(path)?;
     writeln!(file, "{}", message)?;
 
@@ -1119,29 +1027,21 @@ mod memmap_examples {
     use std::fs::File;
     use std::io::{self, Write};
 
-    //=====================
     // Read-only memory map
-    //=====================
     // Use this for: Large read-only data files, databases
     fn mmap_read(path: &str) -> io::Result<()> {
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
 
-        //================================
         // Access memory like a byte slice
-        //================================
         let data: &[u8] = &mmap[..];
         println!("First 10 bytes: {:?}", &data[..10.min(data.len())]);
 
-        //==============================
         // mmap is unmapped when dropped
-        //==============================
         Ok(())
     }
 
-    //===================
     // Mutable memory map
-    //===================
     // Use this for: In-place file modification, persistent data structures
     fn mmap_write(path: &str) -> io::Result<()> {
         let file = File::options()
@@ -1150,29 +1050,21 @@ mod memmap_examples {
             .create(true)
             .open(path)?;
 
-        //=============================
         // Set file size before mapping
-        //=============================
         file.set_len(1024)?;
 
         let mut mmap = unsafe { MmapMut::map_mut(&file)? };
 
-        //==================================================
         // Write data directly to memory (actually the file)
-        //==================================================
         mmap[0..5].copy_from_slice(b"Hello");
 
-        //==================================
         // Flush to ensure writes reach disk
-        //==================================
         mmap.flush()?;
 
         Ok(())
     }
 
-    //==========================================
     // Anonymous memory map (not backed by file)
-    //==========================================
     // Use this for: Shared memory IPC, large temporary buffers
     fn mmap_anonymous() -> io::Result<()> {
         let mut mmap = MmapMut::map_anon(1024)?;
@@ -1184,17 +1076,13 @@ mod memmap_examples {
         Ok(())
     }
 
-    //================================
     // Large file processing with mmap
-    //================================
     // Use this when: File is too large for RAM but you need random access
     fn process_large_file_mmap(path: &str) -> io::Result<usize> {
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
 
-        //======================================================
         // Count newlines efficiently (CPU-bound, not I/O-bound)
-        //======================================================
         let count = mmap.iter().filter(|&&b| b == b'\n').count();
 
         Ok(count)
@@ -1229,9 +1117,7 @@ use std::path::Path;
 //=================
 fn create_directory(path: &str) -> io::Result<()> {
     fs::create_dir(path)
-    //==============================
     // Fails if parent doesn't exist
-    //==============================
     // Fails if directory already exists
 }
 
@@ -1241,9 +1127,7 @@ fn create_directory(path: &str) -> io::Result<()> {
 // Like mkdir -p in Unix
 fn create_directory_all(path: &str) -> io::Result<()> {
     fs::create_dir_all(path)
-    //=====================================
     // Creates parent directories as needed
-    //=====================================
     // Succeeds if directory already exists
 }
 
@@ -1252,9 +1136,7 @@ fn create_directory_all(path: &str) -> io::Result<()> {
 //=======================
 fn remove_directory(path: &str) -> io::Result<()> {
     fs::remove_dir(path)
-    //================================
     // Fails if directory is not empty
-    //================================
 }
 
 //===============================================
@@ -1262,9 +1144,7 @@ fn remove_directory(path: &str) -> io::Result<()> {
 //===============================================
 fn remove_directory_all(path: &str) -> io::Result<()> {
     fs::remove_dir_all(path)
-    //===============================
     // Recursively deletes everything
-    //===============================
     // Like rm -rf in Unix
 }
 
@@ -1273,9 +1153,7 @@ fn remove_directory_all(path: &str) -> io::Result<()> {
 //=====================
 fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
-    //==================================
     // Returns false for broken symlinks
-    //==================================
 }
 
 //===========================
@@ -1283,9 +1161,7 @@ fn path_exists(path: &str) -> bool {
 //===========================
 fn is_directory(path: &str) -> bool {
     Path::new(path).is_dir()
-    //=================
     // Follows symlinks
-    //=================
 }
 ```
 
@@ -1585,9 +1461,7 @@ fn capture_both_streams() -> io::Result<()> {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    //==========================
     // Read stdout in one thread
-    //==========================
     let stdout_thread = std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
@@ -1597,9 +1471,7 @@ fn capture_both_streams() -> io::Result<()> {
         }
     });
 
-    //==============================
     // Read stderr in another thread
-    //==============================
     let stderr_thread = std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {

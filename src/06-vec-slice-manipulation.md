@@ -1,5 +1,70 @@
 # Chapter 6: Vec & Slice Manipulation
 
+Pattern 1: Capacity Management and Amortization
+
+- Problem: Incremental growth causes repeated reallocations; 100K elements
+  = ~17 reallocations
+- Solution: Pre-allocate with with_capacity(), reserve() before bulk ops,
+  reuse with clear()
+- Why It Matters: 10-100x performance improvement; 1M elements: naive ~20
+  reallocations, pre-allocated = 1
+- Use Cases: Batch processing, query results, temporary buffers in loops,
+  large datasets
+
+Pattern 2: Slice Algorithms
+
+- Problem: Linear search O(N) when binary O(log N) possible; full sort for
+  median wastes time
+- Solution: binary_search, partition_point for O(log N);
+  select_nth_unstable for O(N) median
+- Why It Matters: 1000x difference for 1M elements; median 10-100x faster
+  than full sort
+- Use Cases: Database query optimization, statistics, deduplication,
+  priority queues
+
+Pattern 3: Chunking and Windowing
+
+- Problem: Element-by-element processing slow; overlapping subsequences
+  waste memory
+- Solution: .chunks(n) for batches, .windows(n) for overlapping,
+  .chunks_exact(n) for uniform
+- Why It Matters: 10-50x faster with cache locality; zero allocation for
+  moving statistics
+- Use Cases: Batch processing, signal processing, image tiles, parallel
+  computation
+
+Pattern 4: Zero-Copy Slicing
+
+- Problem: Parsing allocates per field; 1M CSV × 10 fields = 10M
+  allocations
+- Solution: Return borrowed slices, use split(), design structs with
+  multiple slice views
+- Why It Matters: 10-100x faster; 100MB CSV: GB of temps vs constant
+  memory
+- Use Cases: CSV/JSON parsing, protocol parsers, text processing, binary
+  formats
+
+Pattern 5: SIMD Operations
+
+- Problem: Scalar code uses 1 element/instruction when CPUs can do 4-16
+- Solution: Use std::simd or packed_simd2; process SIMD-width chunks with
+  remainder
+- Why It Matters: 4-16x speedups; 1M floats: 1M ops vs 125K ops with
+  8-wide
+- Use Cases: Image/video processing, audio, numerical computing,
+  compression
+
+Pattern 6: Advanced Slice Patterns
+
+- Problem: Removing during iteration complex; mutable access to two parts
+  violates borrow checker
+- Solution: drain() for removal, retain_mut() for in-place filter,
+  split_at_mut() for dual access
+- Why It Matters: In-place compaction avoids O(N²); split_at_mut enables
+  simultaneous work
+- Use Cases: Vector compaction, gap buffers, sorting, parallel processing,
+  efficient removal
+
 ## Overview
 
 Vectors and slices are the workhorses of Rust data processing. `Vec<T>` provides dynamic, heap-allocated arrays with amortized O(1) append operations, while slices (`&[T]`, `&mut [T]`) provide views into contiguous sequences without ownership. Understanding how to efficiently manipulate these types is essential for writing high-performance Rust code.
@@ -51,7 +116,13 @@ v.rotate_left(n)    // Rotate elements left
 
 ## Pattern 1: Capacity Management and Amortization
 
-Proper capacity management is crucial for performance. Pre-allocating with `with_capacity` or `reserve` eliminates reallocations during growth, which can be expensive for large vectors.
+**Problem**: Growing vectors incrementally triggers repeated reallocations—each doubling copies all existing elements. Building a 100K-element vector without pre-allocation causes ~17 reallocations and copies 200K elements total. `Vec::new()` followed by repeated `push()` in loops is a common performance bottleneck. Over-allocating wastes memory for long-lived data structures.
+
+**Solution**: Use `Vec::with_capacity(n)` when size is known upfront. Call `reserve(n)` before bulk operations to pre-allocate space. Reuse vectors with `.clear()` (retains capacity) instead of allocating new ones. Use `shrink_to_fit()` for long-lived vectors where excess capacity wastes memory. Monitor allocation patterns by tracking capacity changes.
+
+**Why It Matters**: Pre-allocation can improve performance by 10-100x for vector construction. A data pipeline building 1M-element results: naive approach does ~20 reallocations copying ~2M elements. Pre-allocated approach: one allocation, zero copies. Memory reuse with `.clear()` eliminates allocation entirely in loops. For real-time systems, avoiding mid-operation reallocations prevents latency spikes.
+
+**Use Cases**: Batch processing (pre-allocate for batch size), collecting query results (reserve based on estimated count), temporary buffers in loops (reuse with clear), building large datasets (with_capacity), long-lived lookup tables (shrink_to_fit after construction).
 
 ```rust
 //=========================================
@@ -212,7 +283,13 @@ fn generate_dataset(n: usize) -> Vec<DataPoint> {
 
 ## Pattern 2: Slice Algorithms
 
-Rust's slice type provides efficient implementations of common algorithms. Understanding when to use each algorithm is key to writing performant code.
+**Problem**: Linear search through large sorted arrays is O(N) when O(log N) binary search is possible. Sorting entire datasets to find median or top-K wastes O(N log N) time. In-place partitioning requires manual index juggling and is error-prone. Removing elements from vectors requires shifting elements repeatedly. Unstable vs stable sort choice impacts performance by 2-3x.
+
+**Solution**: Use `binary_search` and `partition_point` for O(log N) searches on sorted data. Apply `select_nth_unstable` for O(N) median/top-K finding without full sort. Use `sort_unstable` for primitives (faster than stable sort). Leverage `rotate_left/right` for efficient cyclic shifts. Use `dedup` on sorted vectors for O(N) deduplication. Apply `retain` for in-place filtered removal.
+
+**Why It Matters**: Algorithm choice dramatically affects performance. Finding an element: linear search O(N) vs binary search O(log N) is 1000x difference for 1M elements. Finding median: full sort O(N log N) vs `select_nth_unstable` O(N) saves 10-100x. Stable sort uses extra memory and runs 2x slower than unstable sort when ordering of equal elements doesn't matter. These built-in slice methods are highly optimized and tested—don't reimplement them.
+
+**Use Cases**: Database query optimization (binary search on sorted indices), statistics computation (median, percentiles with select_nth), data deduplication (sort + dedup), priority queues (partition by priority), cyclic buffers (rotate operations), filtering with memory constraints (retain vs filter+collect).
 
 ```rust
 //===============================================
@@ -358,7 +435,13 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 ## Pattern 3: Chunking and Windowing
 
-Chunking divides a slice into non-overlapping segments, while windowing creates overlapping views. Both are essential for batch processing and signal processing.
+**Problem**: Processing large datasets element-by-element is slow due to function call overhead and poor cache locality. Batch operations require manual index calculation and are error-prone. Computing moving averages or detecting patterns requires overlapping subsequences—collecting them into vectors wastes memory. Remainder handling after chunking leads to off-by-one errors.
+
+**Solution**: Use `.chunks(n)` for non-overlapping fixed-size batches. Use `.windows(n)` for overlapping subsequences (moving averages, pattern detection). Apply `.chunks_exact(n)` when you need uniform chunks with explicit remainder handling. Use `.chunks_mut(n)` for in-place batch transformations. Leverage `.rchunks(n)` for reverse-order processing. Combine with `.step_by(n)` for strided access.
+
+**Why It Matters**: Chunking improves cache locality—processing 1000-element chunks instead of individual elements can be 10-50x faster. Window operations enable signal processing algorithms (FFT, convolution) without collecting intermediate vectors—zero allocation for moving statistics. Chunks enable trivial parallelization: split data into N chunks, process on N threads. These abstractions prevent index errors that plague manual chunking code.
+
+**Use Cases**: Batch processing (database inserts, API requests), signal processing (moving averages, FFT windows), image processing (tile-based operations), parallel computation (divide work across threads), network packet assembly (fixed-size frames), time-series analysis (rolling statistics).
 
 ```rust
 //===========================
@@ -531,7 +614,13 @@ fn compute_spectrogram(signal: &[f32], window_size: usize, hop_size: usize) -> V
 
 ## Pattern 4: Zero-Copy Slicing
 
-Zero-copy operations avoid allocations by working with views into existing data. This is crucial for high-performance systems where allocation overhead matters.
+**Problem**: Parsing structured data by extracting fields into owned `String`/`Vec` causes allocation for every field—parsing 1M CSV records with 10 fields allocates 10M strings. Returning data from functions forces cloning entire vectors. Protocol parsing allocates separate buffers for headers, payloads, and metadata. These allocations dominate parsing performance.
+
+**Solution**: Return borrowed slices (`&[T]`, `&str`) that reference the original data. Use `split()`, `split_at()`, and range indexing to create views. Design data structures that hold multiple slices into one allocation. Use lifetime parameters to tie slices to source data. Parse in-place by returning references rather than owned copies.
+
+**Why It Matters**: Zero-copy parsing can be 10-100x faster than allocating approach. Parsing a 100MB CSV file: allocating approach needs gigabytes of temporary memory and causes GC pressure. Zero-copy approach uses constant memory and eliminates allocation overhead entirely. Network protocol parsing benefits dramatically—handling 1M requests/second becomes feasible. The borrow checker ensures slices can't outlive data, making this safe.
+
+**Use Cases**: CSV/JSON parsing (return field slices), network protocol parsers (split packets into views), text processing (split without allocation), binary format parsing (frame headers/payloads), configuration file parsing, streaming data processors.
 
 ```rust
 //==========================================
@@ -728,7 +817,13 @@ impl<'a> HttpRequest<'a> {
 
 ## Pattern 5: SIMD Operations
 
-SIMD (Single Instruction, Multiple Data) allows processing multiple values simultaneously. Rust's portable_simd and third-party crates like packed_simd provide SIMD support.
+**Problem**: Processing large arrays element-by-element leaves CPU vector units idle—modern CPUs can process 4-16 elements per instruction but scalar code uses only one. Image processing, audio encoding, numerical computing, and data compression are bottlenecked by sequential processing. Writing SIMD intrinsics directly is platform-specific and unsafe.
+
+**Solution**: Use portable SIMD through `std::simd` (nightly) or crates like `packed_simd2`. Process data in SIMD-width chunks (4/8/16 elements). Use `as_chunks()` or `chunks_exact()` to separate aligned chunks from remainder. Apply SIMD operations (add, multiply, compare) across vector lanes simultaneously. Handle remainder with scalar code.
+
+**Why It Matters**: SIMD provides 4-16x speedups for data-parallel operations. Processing 1M floats: scalar takes 1M operations, SIMD with 8-wide vectors takes 125K operations. Image processing (applying filters, color conversion) becomes 10x faster. Checksum computation, compression, and cryptography all benefit. Rust's portable SIMD compiles to optimal instructions for target CPU without unsafe code, unlike C intrinsics.
+
+**Use Cases**: Image/video processing (filters, transformations), audio processing (effects, encoding), numerical computing (matrix operations, scientific simulations), compression algorithms, checksums and hashing, database query execution, machine learning inference.
 
 ```rust
 //=======================================
@@ -935,7 +1030,13 @@ fn normalize_vectors(vectors: &mut [Vec3]) {
 
 ## Pattern 6: Advanced Slice Patterns
 
-Additional patterns for working with slices in specialized scenarios.
+**Problem**: Removing elements during iteration requires complex index tracking. Transforming vectors in-place while filtering requires multiple passes. Safe mutable access to two separate parts of a slice violates borrow checker rules. Gap buffer operations and split-at-mut patterns need careful manual implementation. Type conversions between slice representations cause unnecessary copies.
+
+**Solution**: Use `drain()` for removing ranges while iterating. Apply `retain_mut()` for in-place filtering with mutation. Use `split_at_mut()` to safely get two mutable sub-slices. Leverage `swap()` and `swap_with_slice()` for in-place rearrangement. Apply `from_raw_parts()` and transmute (unsafe) for zero-cost slice type conversions when layout-compatible. Use `split_array_ref` for compile-time length checking.
+
+**Why It Matters**: These patterns enable complex transformations without temporary allocations. In-place compaction with swap avoids O(N²) repeated deletions. `split_at_mut` lets you work on slice parts simultaneously—impossible with single mutable borrow. Drain enables efficient element removal while processing remaining elements. Understanding these advanced patterns is the difference between elegant solutions and fighting the borrow checker with workarounds.
+
+**Use Cases**: In-place vector compaction, gap buffer implementations, sorting implementations with pivot splitting, parallel processing with split_at_mut, memory-efficient filtering, zero-copy type conversions (e.g., &[u8] to &[u32]), efficient element removal patterns.
 
 ```rust
 //============================================

@@ -1,5 +1,56 @@
 # Chapter 3: Error Handling Architecture
 
+Pattern 1: Error Type Design Principles
+
+- Problem: String errors lose type info; generic errors hide failure modes
+- Solution: Custom error enums with variants per failure mode, using
+  thiserror
+- Why It Matters: Type-safe handling lets callers distinguish timeout vs
+  permission errors
+- Use Cases: Library APIs, complex systems, parsers, validation frameworks
+
+Pattern 2: Error Propagation Strategies
+
+- Problem: Explicit error handling creates nested code; manual
+  transformation is repetitive
+- Solution: Use ? operator, implement From for auto-conversion, choose
+  propagation strategy
+- Why It Matters: Reduces error handling from 5 lines to 1 character;
+  determines UX
+- Use Cases: Mixed error types, batch processing, network retries,
+  fallback operations
+
+Pattern 3: Custom Error Types with Context
+
+- Problem: Generic errors provide no actionable information for debugging
+- Solution: Enrich errors with operation, input, location, timing, and
+  suggestions
+- Why It Matters: Reduces debugging from hours to minutes; enables
+  production diagnosis
+- Use Cases: Parsers with line/column, config validation, databases, file
+  I/O, network
+
+Pattern 4: Recoverable vs Unrecoverable Errors
+
+- Problem: Unclear boundary between recoverable and unrecoverable leads to
+  inconsistency
+- Solution: Result for expected failures, panic! for programmer errors,
+  Option for absence
+- Why It Matters: Catches bugs immediately vs enables graceful degradation
+  appropriately
+- Use Cases: Libraries use Result, apps panic at startup, servers use
+  fallbacks, tests unwrap
+
+Pattern 5: Error Handling in Async Contexts
+
+- Problem: Async introduces timeouts, cancellation, concurrent failures,
+  cascading failures
+- Solution: Timeouts on I/O, try_join_all for concurrency, retry with
+  backoff, circuit breakers
+- Why It Matters: Prevents hanging services, resource leaks, and cascading
+  failures
+- Use Cases: Web servers, microservices, batch processing, real-time
+  systems, streaming
 ## Overview
 
 Error handling is one of Rust's most carefully designed features. Unlike exceptions in languages like Java or Python, Rust uses explicit return types (`Result<T, E>`) to force handling of errors at compile time. This approach eliminates entire classes of bugs: forgotten error checks, unexpected exception propagation, and unclear error boundaries.
@@ -34,7 +85,13 @@ eyre                      // Enhanced anyhow with better reports
 
 ## Pattern 1: Error Type Design Principles
 
-The foundation of good error handling is designing error types that accurately represent your domain's failure modes. Well-designed error types make error handling ergonomic and provide excellent diagnostics.
+**Problem**: String error messages (`Result<T, String>`) lose type information and can't be programmatically inspected. Generic error types (`Box<dyn Error>`) hide what can actually fail, forcing callers to read documentation or source code. Libraries that return overly broad errors prevent callers from handling specific failures differently (retry on timeout, abort on auth failure).
+
+**Solution**: Design custom error enums with variants for each distinct failure mode. Use `thiserror` to derive `Display` and `Error` implementations. Include relevant context in variant fields (file paths, invalid values). Preserve error chains with `#[source]`. Use `#[non_exhaustive]` for public library errors to allow adding variants without breaking compatibility.
+
+**Why It Matters**: Type-safe error handling enables callers to match on specific errors and handle them appropriately. A database library that returns `QueryError::Timeout` vs `QueryError::PermissionDenied` lets callers retry timeouts but not permission errors. Preserving error chains (source errors) enables debugging—you see not just "parse failed" but "parse failed because file read failed because permission denied". Good error types turn runtime debugging sessions into compile-time error handling.
+
+**Use Cases**: Library APIs where callers need to distinguish errors, systems with complex failure modes (databases, network protocols), parsers and compilers (syntax errors with location), validation frameworks (multiple validation failures).
 
 ```rust
 //=========================================
@@ -143,7 +200,9 @@ pub enum DatabaseError {
     NotFound { table: String, id: i64 },
 }
 
-// Mock for example
+//==========================
+// Pattern: Mock for example
+//==========================
 #[derive(Error, Debug)]
 #[error("transaction error")]
 pub struct TransactionError;
@@ -253,7 +312,13 @@ impl HttpErrorBuilder {
 
 ## Pattern 2: Error Propagation Strategies
 
-Error propagation determines how errors flow through your program. The `?` operator is the primary mechanism, but understanding when and how to transform errors is crucial.
+**Problem**: Explicit error handling with `match` and `if let` at every fallible call creates deeply nested code and obscures business logic. Transforming errors manually (wrapping `io::Error` in your `AppError`) is repetitive. Different error handling strategies (fail-fast, collect-all-errors, retry-on-failure) require different propagation patterns but share boilerplate.
+
+**Solution**: Use the `?` operator for concise error propagation—it early-returns `Err` and unwraps `Ok`. Implement `From` trait to enable automatic error conversion with `?`. Use `map_err` for manual transformation when adding context. For collecting multiple errors, use iterators with `collect::<Result<Vec<_>, _>>()` or custom aggregation. For retries, wrap operations in retry combinators.
+
+**Why It Matters**: The `?` operator reduces error handling from 5+ lines per call to a single character, making error paths as readable as success paths. Automatic error conversion via `From` eliminates boilerplate while preserving type safety. Choosing the right propagation strategy determines whether your batch processor stops at the first error or reports all 1000 validation failures at once—critical for user experience.
+
+**Use Cases**: Application code with mixed error types (I/O, parsing, validation), batch processing that needs to collect all errors, network code requiring retries, operations that can fall back to alternatives, data pipelines with lenient error handling.
 
 ```rust
 //========================================
@@ -425,7 +490,13 @@ use itertools::Itertools;
 
 ## Pattern 3: Custom Error Types with Context
 
-Rich error context transforms debugging from guesswork to systematic investigation. Context should include what was attempted, what input was used, and why it failed.
+**Problem**: Generic errors like "parse error" or "database query failed" provide no actionable information. Was it line 47 or line 1832? Which query? What input? Developers waste hours reproducing bugs because errors lack context. Stack traces show *where* the error occurred but not *why* (what data triggered it) or *how* to fix it.
+
+**Solution**: Enrich errors with context at the point of failure using `anyhow::Context` for applications or structured fields in custom error types for libraries. Include: what operation failed, what input caused it, where in the input (line/column for parsers, row for databases), timing information, suggestions for fixing. Use backtraces to capture call stacks. Aggregate multiple failures for batch operations.
+
+**Why It Matters**: "Parse error at line 847, column 23: expected '}', got EOF. Suggestion: check for unclosed braces" points directly to the bug. "Parse error" could be anywhere in a 10,000-line file. Rich context reduces debugging time from hours to minutes. For production systems, detailed errors enable diagnosing issues from logs without reproducing them. Context is the difference between "it's broken" and "user uploaded CSV with BOM byte order mark, parser doesn't handle it".
+
+**Use Cases**: Parsers and compilers (provide line/column and code snippet), configuration validation (suggest valid values), database operations (include query and parameters), file I/O (include paths and operations attempted), network requests (include URL, method, status).
 
 ```rust
 //======================================
@@ -664,7 +735,13 @@ fn validate_item(_item: &Item) -> Result<(), ItemValidationError> {
 
 ## Pattern 4: Recoverable vs Unrecoverable Errors
 
-Not all errors should be recovered. Understanding when to use `Result` versus `panic!` is crucial for correct program behavior.
+**Problem**: Using `Result` for everything forces callers to handle programmer errors (bugs) that should never occur, cluttering code with defensive checks. Using `panic!` for recoverable errors (file not found, network timeout) makes software brittle—crashes instead of graceful degradation. The boundary between "should recover" and "should crash" is often unclear, leading to inconsistent error handling across codebases.
+
+**Solution**: Use `Result` for expected failures that callers should handle (file not found, parse errors, network failures). Use `panic!` for programmer errors and invariant violations (out-of-bounds indexing, assertion failures, contract violations). Use `Option` when absence is a valid state without error context. At startup, fail fast with `?` or `expect()` for required resources. In long-running servers, gracefully degrade or use fallbacks for transient failures.
+
+**Why It Matters**: Using `panic!` for programmer errors catches bugs immediately in development—if an array index is out of bounds, the program crashes with a clear error rather than returning a `Result` that might be ignored. Using `Result` for external failures enables graceful degradation—a web server can return 503 for database timeout instead of crashing. Confusing these leads to either brittle software (crashes on expected failures) or impossible-to-debug issues (continuing execution after invariant violated).
+
+**Use Cases**: Libraries use `Result` (let caller decide), applications can `panic!` at startup for missing config, long-running services use `Result` with fallbacks, embedded systems may `panic!` on OOM, test code uses `unwrap()` liberally, FFI boundaries must catch panics with `catch_unwind`.
 
 ```rust
 //=====================================
@@ -851,7 +928,13 @@ Use `Option` when:
 
 ## Pattern 5: Error Handling in Async Contexts
 
-Async Rust introduces additional complexity for error handling: futures, timeouts, cancellation, and concurrent error aggregation.
+**Problem**: Async operations introduce failure modes absent in synchronous code: timeouts (operation took too long), cancellation (task dropped before completion), concurrent failures (10 out of 100 requests failed), and cascading failures (one service down brings down dependent services). Naive async error handling leads to unbounded waits, resource leaks from cancelled operations, and unclear error reporting when multiple concurrent operations fail.
+
+**Solution**: Wrap all I/O operations in timeouts using `tokio::time::timeout`. Use `try_join!` or `try_join_all` to propagate first error from concurrent operations. Use `select!` for racing operations with fallbacks. Implement retry logic with exponential backoff for transient failures. Use circuit breakers to fail fast when downstream services are unavailable. Make operations cancellation-safe (atomic commits, temp files). Aggregate errors from concurrent operations for batch processing.
+
+**Why It Matters**: Without timeouts, a single slow dependency can hang your entire service—one database query taking 30 seconds blocks all concurrent requests. Without proper cancellation handling, dropped tasks can leave files partially written or transactions uncommitted. Without error aggregation, batch processors report "1 error occurred" when actually 50 items failed—frustrating for users. Async error handling is the difference between a resilient distributed system and one that cascades into total failure.
+
+**Use Cases**: Web servers handling concurrent requests, microservices with service-to-service calls, batch processing with concurrent workers, real-time systems with latency requirements, streaming data pipelines, distributed systems requiring fault tolerance.
 
 ```rust
 use tokio;

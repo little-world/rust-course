@@ -171,9 +171,7 @@ impl<T> Query<T> {
 }
 
 impl<T: Clone> Query<T> {
-    //=============================
     // Only available if T is Clone
-    //=============================
     fn duplicate(&self) -> Self {
         Query {
             data: self.data.clone(),
@@ -182,9 +180,7 @@ impl<T: Clone> Query<T> {
 }
 
 impl<T: serde::Serialize> Query<T> {
-    //=================================
     // Only available if T is Serialize
-    //=================================
     fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(&self.data)
     }
@@ -413,9 +409,7 @@ pub trait Iterator {
 
     fn next(&mut self) -> Option<Self::Item>;
 
-    //=======================================
     // Many provided methods using Self::Item
-    //=======================================
     fn count(self) -> usize where Self: Sized { /* ... */ }
     fn map<B, F>(self, f: F) -> Map<Self, F>
     where
@@ -578,9 +572,7 @@ trait Repository {
 }
 
 trait Item: Serialize {
-    //======================
     // Specific item methods
-    //======================
 }
 ```
 
@@ -596,9 +588,7 @@ use std::any::Any;
 trait Shape: Any {
     fn area(&self) -> f64;
 
-    //================================
     // Provided method for downcasting
-    //================================
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -734,9 +724,7 @@ The `Iterator` trait demonstrates extension traits beautifully:
 use std::collections::HashMap;
 
 trait IteratorExt: Iterator {
-    //========================================
     // Convert iterator of tuples into HashMap
-    //========================================
     fn collect_hashmap<K, V>(self) -> HashMap<K, V>
     where
         Self: Sized + Iterator<Item = (K, V)>,
@@ -745,9 +733,7 @@ trait IteratorExt: Iterator {
         self.collect()
     }
 
-    //===============================
     // Count occurrences of each item
-    //===============================
     fn counts(self) -> HashMap<Self::Item, usize>
     where
         Self: Sized,
@@ -1063,9 +1049,7 @@ fn use_processor<T: Process>(processor: T) -> String {
 fn example() {
     let data = Data { value: "test".to_string() };
 
-    //==========================================
     // All of these work thanks to blanket impls
-    //==========================================
     use_processor(&data);
     use_processor(Box::new(data.clone()));
     use_processor(std::sync::Arc::new(data.clone()));
@@ -1111,9 +1095,7 @@ While not stable, negative trait bounds would allow conditional implementations 
 //===============================
 impl<T: !Copy> Clone for Wrapper<T> {
     fn clone(&self) -> Self {
-        //=======================================
         // Special clone logic for non-Copy types
-        //=======================================
     }
 }
 
@@ -1273,13 +1255,9 @@ fn example() {
         .with_email("alice@example.com".to_string())
         .build();
 
-    //====================================
     // This won't compile (missing email):
-    //====================================
     // UserBuilder::new()
-    //==================================
     //     .with_name("Bob".to_string())
-    //==================================
     //     .build();
 }
 ```

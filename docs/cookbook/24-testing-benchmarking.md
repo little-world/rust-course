@@ -41,25 +41,17 @@ Rust provides several assertion macros for different scenarios:
 ```rust
 #[test]
 fn assertion_examples() {
-    //===============
     // Basic equality
-    //===============
     assert_eq!(5, 2 + 3);
 
-    //===========
     // Inequality
-    //===========
     assert_ne!(5, 6);
 
-    //===================
     // Boolean assertions
-    //===================
     assert!(true);
     assert!(5 > 3, "5 should be greater than 3");
 
-    //======================
     // Custom error messages
-    //======================
     let x = 10;
     assert_eq!(x, 10, "x should be 10, but was {}", x);
 }
@@ -213,9 +205,7 @@ impl TestContext {
 
 impl Drop for TestContext {
     fn drop(&mut self) {
-        //==========================================================
         // Cleanup happens automatically when TestContext is dropped
-        //==========================================================
         let _ = std::fs::remove_dir_all(&self.temp_dir);
     }
 }
@@ -224,17 +214,13 @@ impl Drop for TestContext {
 fn test_with_temp_directory() {
     let ctx = TestContext::new();
 
-    //=============================
     // Use ctx.temp_dir for testing
-    //=============================
     let test_file = ctx.temp_dir.join("test.txt");
     std::fs::write(&test_file, "test content").unwrap();
 
     assert!(test_file.exists());
 
-    //==========================================
     // ctx is dropped here, cleaning up temp_dir
-    //==========================================
 }
 ```
 
@@ -248,9 +234,7 @@ During development, you might want to skip expensive or unfinished tests:
 #[test]
 #[ignore]
 fn expensive_test() {
-    //============================
     // This test takes a long time
-    //============================
     std::thread::sleep(std::time::Duration::from_secs(10));
 }
 
@@ -292,9 +276,7 @@ mod tests {
 
     #[test]
     fn test_internal_helper() {
-        //===========================
         // Can test private functions
-        //===========================
         assert_eq!(internal_helper(5), 10);
     }
 
@@ -358,21 +340,15 @@ proptest! {
     fn test_sort_properties(mut vec: Vec<i32>) {
         let sorted = sort(vec.clone());
 
-        //==============================================
         // Property 1: Output length equals input length
-        //==============================================
         prop_assert_eq!(sorted.len(), vec.len());
 
-        //=============================
         // Property 2: Output is sorted
-        //=============================
         for i in 1..sorted.len() {
             prop_assert!(sorted[i - 1] <= sorted[i]);
         }
 
-        //===================================================
         // Property 3: Output contains same elements as input
-        //===================================================
         vec.sort();
         prop_assert_eq!(sorted, vec);
     }
@@ -473,24 +449,18 @@ proptest! {
     ) {
         let merged = merge_maps(a.clone(), b.clone());
 
-        //======================================================
         // Property 1: All keys from both maps are in the result
-        //======================================================
         for key in a.keys().chain(b.keys()) {
             prop_assert!(merged.contains_key(key));
         }
 
-        //========================================
         // Property 2: Values are summed correctly
-        //========================================
         for key in merged.keys() {
             let expected = a.get(key).unwrap_or(&0) + b.get(key).unwrap_or(&0);
             prop_assert_eq!(merged[key], expected);
         }
 
-        //===============================================
         // Property 3: Merging with empty map is identity
-        //===============================================
         let empty: HashMap<String, i32> = HashMap::new();
         prop_assert_eq!(merge_maps(a.clone(), empty.clone()), a);
     }
@@ -585,9 +555,7 @@ struct SmtpEmailService {
 
 impl EmailService for SmtpEmailService {
     fn send_email(&self, to: &str, subject: &str, body: &str) -> Result<(), String> {
-        //=============================
         // Actually send email via SMTP
-        //=============================
         println!("Sending to {} via {}", to, self.server);
         Ok(())
     }
@@ -632,9 +600,7 @@ struct UserService<E: EmailService> {
 
 impl<E: EmailService> UserService<E> {
     fn register_user(&self, email: &str) -> Result<(), String> {
-        //===========================
         // ... registration logic ...
-        //===========================
 
         self.email_service.send_email(
             email,
@@ -703,9 +669,7 @@ mod tests {
     fn test_with_mock() {
         let mut mock = MockDatabase::new();
 
-        //=================
         // Set expectations
-        //=================
         mock.expect_get_user()
             .with(eq(42))
             .times(1)
@@ -715,17 +679,13 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        //=============
         // Use the mock
-        //=============
         let user = mock.get_user(42).unwrap();
         assert_eq!(user.name, "Alice");
 
         mock.save_user(user).unwrap();
 
-        //=============================================
         // Automatically verifies expectations were met
-        //=============================================
     }
 }
 ```
@@ -741,16 +701,12 @@ Dependency injection makes testing easier by making dependencies explicit:
 // Poor: Hard to test
 //===================
 struct PaymentProcessor {
-    //======================
     // Hard-coded dependency
-    //======================
 }
 
 impl PaymentProcessor {
     fn process_payment(&self, amount: f64) -> Result<(), String> {
-        //============================
         // Directly calls external API
-        //============================
         external_api::charge_card(amount)
     }
 }
@@ -963,9 +919,7 @@ fn test_with_common_utilities() {
     let db = common::setup_test_database();
     let user = common::create_test_user();
 
-    //============================
     // Test using shared utilities
-    //============================
 }
 ```
 
@@ -989,9 +943,7 @@ my_binary/
 // src/lib.rs
 //===========
 pub fn run(args: Args) -> Result<(), Error> {
-    //==================
     // Application logic
-    //==================
 }
 
 //============
@@ -1035,17 +987,13 @@ async fn setup_test_db() -> PgPool {
 
     let pool = PgPool::connect(&database_url).await.unwrap();
 
-    //===============
     // Run migrations
-    //===============
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
         .unwrap();
 
-    //====================
     // Clear existing data
-    //====================
     sqlx::query("TRUNCATE TABLE users, posts CASCADE")
         .execute(&pool)
         .await
@@ -1058,9 +1006,7 @@ async fn setup_test_db() -> PgPool {
 async fn test_user_creation() {
     let pool = setup_test_db().await;
 
-    //==========
     // Test code
-    //==========
     let user = create_user(&pool, "test@example.com").await.unwrap();
     assert_eq!(user.email, "test@example.com");
 }
@@ -1080,9 +1026,7 @@ where
 
     test(tx).await;
 
-    //=============================================
     // Always rollback - test changes never persist
-    //=============================================
     // (Transaction is dropped here, triggering rollback)
 }
 
@@ -1104,9 +1048,7 @@ async fn test_in_transaction() {
         assert_eq!(count.0, 1);
     }).await;
 
-    //====================================================
     // Database is unchanged - transaction was rolled back
-    //====================================================
 }
 ```
 
@@ -1168,14 +1110,10 @@ async fn test_full_server() {
             .unwrap();
     });
 
-    //=========================
     // Wait for server to start
-    //=========================
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //=======================
     // Make real HTTP request
-    //=======================
     let client = reqwest::Client::new();
     let response = client
         .get(&format!("http://{}/", addr))

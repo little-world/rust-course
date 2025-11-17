@@ -318,9 +318,7 @@ struct ReverseScore(u32);
 
 impl Ord for ReverseScore {
     fn cmp(&self, other: &Self) -> Ordering {
-        //=============================
         // Reverse the natural ordering
-        //=============================
         other.0.cmp(&self.0)
     }
 }
@@ -343,9 +341,7 @@ struct FloatWrapper(f64);
 
 impl PartialOrd for FloatWrapper {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        //=================================
         // Returns None for NaN comparisons
-        //=================================
         self.0.partial_cmp(&other.0)
     }
 }
@@ -1309,9 +1305,7 @@ mod tests {
     #[test]
     #[ignore]  // Skip unless --ignored specified
     fn expensive_test() {
-        //====
         // ...
-        //====
     }
 }
 

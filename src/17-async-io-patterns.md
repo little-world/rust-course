@@ -86,9 +86,7 @@ use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 //==================================================================
 async fn read_file(path: &str) -> io::Result<String> {
     tokio::fs::read_to_string(path).await
-    //==========================================================
     // Convenience method: allocates a String, reads entire file
-    //==========================================================
     // Returns Err if file missing, unreadable, or contains invalid UTF-8
 }
 
@@ -98,9 +96,7 @@ async fn read_file(path: &str) -> io::Result<String> {
 // Use this for: Binary files, images, data files, when you need raw bytes
 async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
     tokio::fs::read(path).await
-    //==============================
     // Reads entire file into memory
-    //==============================
     // More efficient than read_to_string for binary data
 }
 
@@ -110,9 +106,7 @@ async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
 // Use this for: Writing config files, logs, generated HTML
 async fn write_file(path: &str, content: &str) -> io::Result<()> {
     tokio::fs::write(path, content).await
-    //==============================================================
     // Convenience method: creates file, writes content, closes file
-    //==============================================================
     // Overwrites existing file! Use append_to_file if you want to append
 }
 
@@ -127,9 +121,7 @@ async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
     let mut file = File::open(path).await?;
     let mut buffer = Vec::new();
 
-    //================================================
     // read_to_end() allocates as needed while reading
-    //================================================
     file.read_to_end(&mut buffer).await?;
     Ok(buffer)
 }
@@ -141,14 +133,10 @@ async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
 async fn write_with_handle(path: &str, data: &[u8]) -> io::Result<()> {
     let mut file = File::create(path).await?;
 
-    //============================================================
     // write_all() ensures all bytes are written (loops if needed)
-    //============================================================
     file.write_all(data).await?;
 
-    //=============================================
     // flush() ensures buffered data reaches the OS
-    //=============================================
     // (Tokio buffers writes internally for efficiency)
     file.flush().await?;
     Ok(())
@@ -179,9 +167,7 @@ async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
 //===================================
 async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     tokio::fs::copy(src, dst).await
-    //=========================================================================
     // Efficiently copies src to dst using OS-level optimizations when possible
-    //=========================================================================
 }
 
 //==============
@@ -189,15 +175,11 @@ async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
 //==============
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    //=========================
     // Read file asynchronously
-    //=========================
     let content = read_file("example.txt").await?;
     println!("File content: {}", content);
 
-    //==========================
     // Write file asynchronously
-    //==========================
     write_file("output.txt", "Hello, async!").await?;
 
     Ok(())
@@ -227,9 +209,7 @@ async fn read_lines(path: &str) -> io::Result<Vec<String>> {
     let mut lines = Vec::new();
 
     let mut line_stream = reader.lines();
-    //========================================================
     // lines() returns a stream that yields one line at a time
-    //========================================================
     // Lines are split on \n or \r\n, with the newline removed
 
     while let Some(line) = line_stream.next_line().await? {
@@ -254,9 +234,7 @@ async fn process_large_file(path: &str) -> io::Result<()> {
     let mut count = 0;
     while let Some(line) = lines.next_line().await? {
         if !line.starts_with('#') {
-            //==========================
             // Process non-comment lines
-            //==========================
             // Each line is processed and dropped before reading the next
             count += 1;
         }
@@ -319,16 +297,12 @@ async fn run_tcp_server(addr: &str) -> io::Result<()> {
     println!("Server listening on {}", addr);
 
     loop {
-        //=============================================
         // accept() awaits the next incoming connection
-        //=============================================
         // Returns (socket, peer_address)
         let (socket, addr) = listener.accept().await?;
         println!("New connection from {}", addr);
 
-        //=================================
         // Spawn a task for each connection
-        //=================================
         // Each task runs independently, allowing concurrent clients
         tokio::spawn(async move {
             if let Err(e) = handle_client(socket).await {
@@ -336,9 +310,7 @@ async fn run_tcp_server(addr: &str) -> io::Result<()> {
             }
         });
     }
-    //=========================================================================
     // Note: This loop never exits. In production, you'd add graceful shutdown.
-    //=========================================================================
 }
 
 //==================================================
@@ -348,22 +320,16 @@ async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
     let mut buffer = [0; 1024];
 
     loop {
-        //===================================
         // read() awaits data from the client
-        //===================================
         // Returns number of bytes read, or 0 on EOF (client disconnected)
         let n = socket.read(&mut buffer).await?;
 
         if n == 0 {
-            //========================================
             // Client closed the connection gracefully
-            //========================================
             return Ok(());
         }
 
-        //=================================
         // Echo the data back to the client
-        //=================================
         // write_all() ensures all bytes are sent (loops if the write is partial)
         socket.write_all(&buffer[..n]).await?;
     }
@@ -374,24 +340,16 @@ async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
 //===========
 // Connect to a server, send a message, read the response
 async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
-    //================================================================
     // connect() performs DNS resolution (if needed) and TCP handshake
-    //================================================================
     let mut stream = TcpStream::connect(addr).await?;
 
-    //=============
     // Send message
-    //=============
     stream.write_all(message.as_bytes()).await?;
 
-    //==============
     // Read response
-    //==============
     let mut buffer = Vec::new();
     stream.read_to_end(&mut buffer).await?;
-    //============================================================
     // Note: read_to_end() reads until EOF, which means the server
-    //============================================================
     // must close the connection after responding
 
     Ok(String::from_utf8_lossy(&buffer).to_string())
@@ -407,17 +365,13 @@ async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
 async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
     let mut buffer = [0; 4096];
 
-    //======================
     // Read the HTTP request
-    //======================
     let n = socket.read(&mut buffer).await?;
 
     let request = String::from_utf8_lossy(&buffer[..n]);
     println!("Request: {}", request);
 
-    //===================
     // Send HTTP response
-    //===================
     // In production, you'd parse the request and route to handlers
     let response = "HTTP/1.1 200 OK\r\n\
                    Content-Type: text/plain\r\n\
@@ -463,20 +417,14 @@ async fn udp_server(addr: &str) -> io::Result<()> {
     let mut buffer = [0; 1024];
 
     loop {
-        //==============================================
         // recv_from() awaits a datagram from any sender
-        //==============================================
         // Returns (bytes_received, sender_address)
         let (len, addr) = socket.recv_from(&mut buffer).await?;
         println!("Received {} bytes from {}", len, addr);
 
-        //=====================================
         // Echo the datagram back to the sender
-        //=====================================
         // UDP doesn't guarantee delivery, so send_to() might succeed
-        //===================================
         // even if the datagram never arrives
-        //===================================
         socket.send_to(&buffer[..len], addr).await?;
     }
 }
@@ -486,19 +434,13 @@ async fn udp_server(addr: &str) -> io::Result<()> {
 //===========
 // Send a datagram and wait for a response
 async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
-    //=========================================================
     // Bind to a random local port (0.0.0.0:0 means "any port")
-    //=========================================================
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-    //========================
     // Send datagram to server
-    //========================
     socket.send_to(message.as_bytes(), server_addr).await?;
 
-    //==================
     // Wait for response
-    //==================
     let mut buffer = [0; 1024];
     let (len, _) = socket.recv_from(&mut buffer).await?;
 
@@ -522,9 +464,7 @@ mod unix_sockets {
     use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
     pub async fn unix_server(path: &str) -> io::Result<()> {
-        //=============================================================
         // Remove old socket file if exists (bind fails if file exists)
-        //=============================================================
         let _ = std::fs::remove_file(path);
 
         let listener = UnixListener::bind(path)?;
@@ -533,9 +473,7 @@ mod unix_sockets {
         loop {
             let (mut socket, _) = listener.accept().await?;
 
-            //=====================================================
             // Spawn task for each connection (same pattern as TCP)
-            //=====================================================
             tokio::spawn(async move {
                 let mut buffer = [0; 1024];
 
@@ -591,17 +529,13 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 async fn buffered_read(path: &str) -> io::Result<()> {
     let file = File::open(path).await?;
 
-    //=================================================================
     // Create BufReader with 8KB buffer (adjust based on your workload)
-    //=================================================================
     let reader = BufReader::with_capacity(8192, file);
     let mut lines = reader.lines();
 
     while let Some(line) = lines.next_line().await? {
         println!("{}", line);
-        //======================================================================
         // Processing each line is fast because BufReader minimizes system calls
-        //======================================================================
     }
 
     Ok(())
@@ -614,22 +548,16 @@ async fn buffered_read(path: &str) -> io::Result<()> {
 async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     let file = File::create(path).await?;
 
-    //==========================================================
     // BufWriter accumulates writes, flushes when buffer is full
-    //==========================================================
     let mut writer = BufWriter::with_capacity(8192, file);
 
     for line in lines {
-        //================================================================
         // These writes don't immediately hit disk—they go to the buffer
-        //================================================================
         writer.write_all(line.as_bytes()).await?;
         writer.write_all(b"\n").await?;
     }
 
-    //=====================================================
     // flush() ensures all buffered data is written to disk
-    //=====================================================
     // Without this, some data might remain in the buffer!
     writer.flush().await?;
     Ok(())
@@ -646,9 +574,7 @@ async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     let mut reader = BufReader::new(src_file);
     let mut writer = BufWriter::new(dst_file);
 
-    //==============================================================================
     // copy() efficiently transfers data, using the buffers to minimize system calls
-    //==============================================================================
     tokio::io::copy(&mut reader, &mut writer).await
 }
 ```
@@ -686,19 +612,13 @@ impl<R: AsyncRead + Unpin> AsyncRead for UppercaseReader<R> {
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        //=======================================================
         // Track how many bytes were in the buffer before reading
-        //=======================================================
         let before_len = buf.filled().len();
 
-        //=============================
         // Delegate to the inner reader
-        //=============================
         match Pin::new(&mut self.inner).poll_read(cx, buf) {
             Poll::Ready(Ok(())) => {
-                //===============================
                 // Uppercase the newly read bytes
-                //===============================
                 let filled = buf.filled_mut();
                 for byte in &mut filled[before_len..] {
                     if byte.is_ascii_lowercase() {
@@ -747,15 +667,11 @@ use tokio::io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 async fn split_stream_example() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
-    //========================================================
     // into_split() divides the stream into independent halves
-    //========================================================
     // The read half can be used in one task, write half in another
     let (read_half, write_half) = stream.into_split();
 
-    //==================
     // Spawn reader task
-    //==================
     let reader_task = tokio::spawn(async move {
         let mut reader = BufReader::new(read_half);
         let mut lines = reader.lines();
@@ -767,9 +683,7 @@ async fn split_stream_example() -> io::Result<()> {
         Ok::<_, io::Error>(())
     });
 
-    //==================
     // Spawn writer task
-    //==================
     let writer_task = tokio::spawn(async move {
         let mut writer = write_half;
 
@@ -780,9 +694,7 @@ async fn split_stream_example() -> io::Result<()> {
         Ok::<_, io::Error>(())
     });
 
-    //================================
     // Wait for both tasks to complete
-    //================================
     reader_task.await??;
     writer_task.await??;
 
@@ -820,21 +732,15 @@ use futures::{SinkExt, StreamExt};
 async fn framed_lines() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
-    //================================================================
     // Framed wraps a stream and codec, providing a Stream of messages
-    //================================================================
     // and a Sink for sending messages
     let mut framed = Framed::new(stream, LinesCodec::new());
 
-    //============================
     // Send lines (Sink interface)
-    //============================
     framed.send("Hello, World!".to_string()).await?;
     framed.send("Another line".to_string()).await?;
 
-    //=================================
     // Receive lines (Stream interface)
-    //=================================
     while let Some(result) = framed.next().await {
         match result {
             Ok(line) => println!("Received: {}", line),
@@ -862,30 +768,22 @@ impl Decoder for LengthPrefixedCodec {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        //============================================
         // Need at least 4 bytes for the length prefix
-        //============================================
         if src.len() < 4 {
             return Ok(None); // Need more data
         }
 
-        //========================================
         // Read the length prefix (big-endian u32)
-        //========================================
         let mut length_bytes = [0u8; 4];
         length_bytes.copy_from_slice(&src[..4]);
         let length = u32::from_be_bytes(length_bytes) as usize;
 
-        //======================================
         // Check if we have the complete message
-        //======================================
         if src.len() < 4 + length {
             return Ok(None); // Need more data
         }
 
-        //========================================
         // We have a complete message—extract it
-        //========================================
         src.advance(4);  // Skip the length prefix
         let data = src.split_to(length).to_vec();
         Ok(Some(data))
@@ -896,15 +794,11 @@ impl Encoder<Vec<u8>> for LengthPrefixedCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Vec<u8>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        //====================
         // Write length prefix
-        //====================
         let length = item.len() as u32;
         dst.put_u32(length);
 
-        //===================
         // Write message data
-        //===================
         dst.put_slice(&item);
         Ok(())
     }
@@ -914,14 +808,10 @@ async fn length_prefixed_example() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
     let mut framed = Framed::new(stream, LengthPrefixedCodec);
 
-    //==================================================
     // Send message (automatically prefixed with length)
-    //==================================================
     framed.send(b"Hello, World!".to_vec()).await?;
 
-    //=====================================================================
     // Receive message (automatically unpacked from length-prefixed format)
-    //=====================================================================
     if let Some(result) = framed.next().await {
         let data = result?;
         println!("Received {} bytes", data.len());
@@ -963,9 +853,7 @@ use tokio::time::{sleep, Duration};
 // send() blocks when the channel is full, providing natural backpressure
 async fn producer_with_backpressure(tx: mpsc::Sender<i32>) {
     for i in 0..100 {
-        //===========================================================
         // send() provides backpressure—blocks when channel is full
-        //===========================================================
         // This ensures we don't overwhelm the consumer
         if let Err(_) = tx.send(i).await {
             println!("Receiver dropped");
@@ -981,9 +869,7 @@ async fn producer_with_backpressure(tx: mpsc::Sender<i32>) {
 async fn consumer(mut rx: mpsc::Receiver<i32>) {
     while let Some(value) = rx.recv().await {
         println!("Processing: {}", value);
-        //=========================
         // Simulate slow processing
-        //=========================
         sleep(Duration::from_millis(100)).await;
     }
 }
@@ -993,9 +879,7 @@ async fn consumer(mut rx: mpsc::Receiver<i32>) {
 //===========================
 // The channel capacity determines how much buffering we allow
 async fn backpressure_example() {
-    //=================================
     // Bounded channel with capacity 10
-    //=================================
     // Producer can get ahead by 10 items, then must wait
     let (tx, rx) = mpsc::channel(10);
 
@@ -1020,9 +904,7 @@ async fn stream_backpressure() {
             println!("Generating: {}", i);
             i
         })
-        //=====================================================
         // buffered(5) means at most 5 futures run concurrently
-        //=====================================================
         // This provides backpressure: we won't start future #6 until one completes
         .buffered(5)
         .for_each(|value| async move {
@@ -1069,17 +951,13 @@ impl RateLimiter {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_reset);
 
-        //===========================
         // Reset counter every second
-        //===========================
         if elapsed >= Duration::from_secs(1) {
             self.last_reset = now;
             self.count = 0;
         }
 
-        //====================================================
         // If we've hit the rate limit, wait until next second
-        //====================================================
         if self.count >= self.max_per_second {
             let wait_time = Duration::from_secs(1) - elapsed;
             sleep(wait_time).await;
@@ -1095,14 +973,10 @@ async fn rate_limited_requests() {
     let mut limiter = RateLimiter::new(10); // 10 requests per second
 
     for i in 0..50 {
-        //==================================================
         // acquire() blocks if we've exceeded the rate limit
-        //==================================================
         limiter.acquire().await;
         println!("Request {}", i);
-        //================
         // Make request...
-        //================
     }
 }
 ```
@@ -1120,35 +994,27 @@ use tokio::sync::Semaphore;
 use std::sync::Arc;
 
 async fn concurrent_with_limit() {
-    //==================================================
     // Semaphore with 5 permits = max 5 concurrent tasks
-    //==================================================
     let semaphore = Arc::new(Semaphore::new(5));
 
     let mut handles = vec![];
 
     for i in 0..20 {
-        //==================================================
         // acquire_owned() waits if no permits are available
-        //==================================================
         let permit = semaphore.clone().acquire_owned().await.unwrap();
 
         let handle = tokio::spawn(async move {
             println!("Task {} started", i);
             sleep(Duration::from_secs(1)).await;
             println!("Task {} completed", i);
-            //===========================================================
             // Permit is dropped here, releasing it back to the semaphore
-            //===========================================================
             drop(permit);
         });
 
         handles.push(handle);
     }
 
-    //===============================
     // Wait for all tasks to complete
-    //===============================
     for handle in handles {
         handle.await.unwrap();
     }
@@ -1180,9 +1046,7 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
     loop {
         let (socket, addr) = listener.accept().await?;
 
-        //======================================================
         // Try to acquire permit (blocks if at connection limit)
-        //======================================================
         let permit = semaphore.clone().acquire_owned().await.unwrap();
 
         println!("New connection from {} ({} slots available)",
@@ -1190,13 +1054,9 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
                  semaphore.available_permits());
 
         tokio::spawn(async move {
-            //==================
             // Handle connection
-            //==================
             let _ = handle_client(socket).await;
-            //===============================================
             // Permit dropped here, freeing a connection slot
-            //===============================================
             drop(permit);
         });
     }
@@ -1230,9 +1090,7 @@ struct Connection {
 
 impl Connection {
     async fn new(id: usize) -> io::Result<Self> {
-        //===============================================================
         // Simulate connection setup (DNS, TCP handshake, authentication)
-        //===============================================================
         sleep(Duration::from_millis(100)).await;
         Ok(Connection { id })
     }
@@ -1253,9 +1111,7 @@ impl SimplePool {
     async fn new(size: usize) -> io::Result<Self> {
         let mut connections = Vec::new();
 
-        //===========================
         // Pre-create all connections
-        //===========================
         for i in 0..size {
             connections.push(Connection::new(i).await?);
         }
@@ -1271,18 +1127,14 @@ impl SimplePool {
             let mut pool = self.connections.lock().await;
 
             if let Some(conn) = pool.pop() {
-                //===============================
                 // Got a connection from the pool
-                //===============================
                 return Ok(PooledConnection {
                     conn: Some(conn),
                     pool: self.connections.clone(),
                 });
             }
 
-            //==========================================
             // No connections available—wait and retry
-            //==========================================
             drop(pool);
             sleep(Duration::from_millis(10)).await;
         }
@@ -1306,9 +1158,7 @@ impl PooledConnection {
 impl Drop for PooledConnection {
     fn drop(&mut self) {
         if let Some(conn) = self.conn.take() {
-            //==========================
             // Return connection to pool
-            //==========================
             let pool = self.pool.clone();
             tokio::spawn(async move {
                 pool.lock().await.push(conn);
@@ -1325,9 +1175,7 @@ async fn use_pool() -> io::Result<()> {
 
     let mut handles = vec![];
 
-    //=============================================
     // Spawn 20 tasks, but only 5 connections exist
-    //=============================================
     // Tasks will wait for connections to become available
     for i in 0..20 {
         let pool = pool.clone();
@@ -1335,9 +1183,7 @@ async fn use_pool() -> io::Result<()> {
             let conn = pool.acquire().await.unwrap();
             let result = conn.execute(&format!("Query {}", i)).await.unwrap();
             println!("{}", result);
-            //===================================================
             // Connection returned to pool when `conn` is dropped
-            //===================================================
         });
         handles.push(handle);
     }
@@ -1376,9 +1222,7 @@ impl Manager for MyManager {
     type Type = MyConnection;
     type Error = io::Error;
 
-    //======================================================
     // Called when the pool needs to create a new connection
-    //======================================================
     async fn create(&self) -> Result<MyConnection, io::Error> {
         let mut id = self.next_id.lock().await;
         let conn = MyConnection { id: *id };
@@ -1387,15 +1231,11 @@ impl Manager for MyManager {
         Ok(conn)
     }
 
-    //=================================================
     // Called when a connection is returned to the pool
-    //=================================================
     // Allows health checks or cleanup before reuse
     async fn recycle(&self, conn: &mut MyConnection) -> RecycleResult<io::Error> {
         println!("Recycling connection {}", conn.id);
-        //============================================================
         // Could perform a health check here (e.g., ping the database)
-        //============================================================
         Ok(())
     }
 }
@@ -1415,15 +1255,11 @@ async fn use_deadpool() -> io::Result<()> {
     for i in 0..20 {
         let pool = pool.clone();
         let handle = tokio::spawn(async move {
-            //=========================================================
             // get() acquires a connection (waits if pool is exhausted)
-            //=========================================================
             let conn = pool.get().await.unwrap();
             println!("Using connection {} for task {}", conn.id, i);
             sleep(Duration::from_millis(100)).await;
-            //=========================================
             // Connection returned to pool when dropped
-            //=========================================
         });
         handles.push(handle);
     }
@@ -1450,9 +1286,7 @@ use reqwest::Client;
 use std::time::Duration;
 
 async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
-    //===============================================
     // reqwest Client has built-in connection pooling
-    //===============================================
     // Multiple requests to the same host reuse TCP connections
     let client = Client::builder()
         .pool_max_idle_per_host(10)  // Keep up to 10 idle connections per host
@@ -1465,9 +1299,7 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..50 {
         let client = client.clone();
         let handle = tokio::spawn(async move {
-            //==========================================================
             // Requests to the same host reuse connections from the pool
-            //==========================================================
             let response = client
                 .get(&format!("https://api.example.com/item/{}", i))
                 .send()
@@ -1503,9 +1335,7 @@ Tokio's `timeout()` function wraps any future and returns an error if it doesn't
 use tokio::time::{timeout, Duration};
 
 async fn with_timeout() -> Result<(), Box<dyn std::error::Error>> {
-    //=========================================================
     // timeout() returns Err if the operation exceeds 5 seconds
-    //=========================================================
     let result = timeout(
         Duration::from_secs(5),
         async_operation(),
@@ -1541,9 +1371,7 @@ async fn timeout_with_fallback() -> String {
     match result {
         Ok(Ok(data)) => data,  // Primary succeeded
         _ => {
-            //===========================================
             // Primary timed out or failed—try fallback
-            //===========================================
             println!("Primary failed, trying fallback");
             fetch_data_from_fallback().await.unwrap_or_default()
         }
@@ -1583,16 +1411,12 @@ async fn cancellable_operation(token: CancellationToken) {
 
     loop {
         tokio::select! {
-            //====================================
             // Check if cancellation was requested
-            //====================================
             _ = token.cancelled() => {
                 println!("Operation cancelled");
                 break;
             }
-            //========
             // Do work
-            //========
             _ = interval.tick() => {
                 println!("Working...");
             }
@@ -1608,14 +1432,10 @@ async fn cancellation_example() {
         cancellable_operation(worker_token).await;
     });
 
-    //=========================
     // Let it run for 5 seconds
-    //=========================
     sleep(Duration::from_secs(5)).await;
 
-    //=====================
     // Cancel the operation
-    //=====================
     token.cancel();
 
     worker.await.unwrap();
@@ -1638,9 +1458,7 @@ async fn race_operations() -> String {
         result = operation_b() => result,
         result = operation_c() => result,
     }
-    //============================================================
     // The other futures are dropped (canceled) when one completes
-    //============================================================
 }
 
 async fn operation_a() -> String {
@@ -1702,9 +1520,7 @@ async fn graceful_shutdown_server() -> io::Result<()> {
 
     println!("Server running. Press Ctrl+C to shutdown.");
 
-    //==============================
     // Spawn shutdown signal handler
-    //==============================
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
@@ -1782,9 +1598,7 @@ async fn timeout_multiple() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         async_task(3),
     ];
 
-    //=======================================
     // Timeout applies to the entire join_all
-    //=======================================
     let result = timeout(
         Duration::from_secs(5),
         join_all(operations),
@@ -1846,9 +1660,7 @@ where
         }
 
         if attempt < max_retries - 1 {
-            //====================================================
             // Exponential backoff: wait longer after each failure
-            //====================================================
             let backoff = Duration::from_millis(100 * 2_u64.pow(attempt as u32));
             sleep(backoff).await;
         }
@@ -1863,9 +1675,7 @@ where
 async fn use_retry() -> Result<(), Box<dyn std::error::Error>> {
     let result = retry_with_timeout(
         || async {
-            //===============================
             // Simulated unreliable operation
-            //===============================
             if rand::random::<f32>() < 0.7 {
                 Err(io::Error::new(io::ErrorKind::Other, "Random failure"))
             } else {
@@ -1889,9 +1699,7 @@ Instead of relative timeouts, you can use absolute deadlines. This is useful whe
 use tokio::time::{sleep, timeout_at, Duration, Instant};
 
 async fn deadline_based_processing() -> io::Result<()> {
-    //=========================================
     // All tasks must complete by this deadline
-    //=========================================
     let deadline = Instant::now() + Duration::from_secs(10);
 
     let tasks = vec![
@@ -1913,9 +1721,7 @@ async fn deadline_based_processing() -> io::Result<()> {
 }
 
 async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
-    //=============================================================
     // timeout_at() uses an absolute deadline instead of a duration
-    //=============================================================
     timeout_at(deadline, async move {
         sleep(Duration::from_secs(id as u64 * 2)).await;
         Ok(format!("Item {} processed", id))

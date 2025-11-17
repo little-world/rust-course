@@ -106,7 +106,15 @@ Locks are:
 
 ## Atomic Ordering Semantics
 
-Atomic Orderings Are not Locks
+**Problem**: CPU reordering and compiler optimizations can break lock-free algorithms—writes may be visible in different order than written. `Relaxed` ordering is fast but provides no guarantees, causing race conditions. `SeqCst` (sequentially consistent) is slow—acts like global lock on all atomics. Wrong ordering causes subtle bugs: ABA problem, data races, lost updates. Memory fence placement is complex and error-prone.
+
+**Solution**: Use `Acquire` for reads that need to see all previous writes. Use `Release` for writes that make previous operations visible. Combine `AcqRel` for read-modify-write. Use `Relaxed` only for counters where ordering doesn't matter. Use `SeqCst` when correctness is unclear or for debugging. Understand happens-before relationships to reason about correctness.
+
+**Why It Matters**: Ordering determines correctness and performance. Wrong ordering: lock-free queue corrupts data, appears to work in tests, fails randomly in production. `Relaxed` is 1-2 cycles, `Acquire`/`Release` is 5-10 cycles, `SeqCst` is 20-50 cycles—10x performance difference. Spinlock with `Release`/`Acquire`: correct and fast. With `Relaxed`: broken. With `SeqCst`: correct but slow. Understanding memory ordering is essential for lock-free programming.
+
+**Use Cases**: Lock-free data structures (queues, stacks, maps), reference counting (Arc), flags and signals, atomic counters, synchronization primitives, wait-free algorithms.
+
+### Atomic Orderings Are not Locks
 
 Locks provide: Mutual exclusion (only one thread in critical section)  
 Atomics provide: Memory visibility ordering (when writes become visible)
@@ -124,7 +132,7 @@ Release semantics: When a thread performs a write operation (like set()), it ens
 | **AcqRel** | Both Acquire + Release                                        | Read-modify-write operations (CAS, fetch_add) |
 | **SeqCst** | Total global order of all operations                          | When you need strongest guarantees |
 
-### Recipe 1: Memory Ordering Fundamentals
+### Pattern 1: Memory Ordering Fundamentals
 
 **Problem**: Understand different memory orderings and their performance/correctness trade-offs.
 
@@ -148,9 +156,7 @@ fn relaxed_ordering_example() {
         let counter = Arc::clone(&counter);
         handles.push(thread::spawn(move || {
             for _ in 0..1000 {
-                //============================================
                 // Relaxed: no synchronization, just atomicity
-                //============================================
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         }));
@@ -160,9 +166,7 @@ fn relaxed_ordering_example() {
         handle.join().unwrap();
     }
 
-    //========================================
     // Final value is guaranteed to be correct
-    //========================================
     // but intermediate values may have appeared in any order
     println!("Counter (Relaxed): {}", counter.load(Ordering::Relaxed));
 }
@@ -178,35 +182,23 @@ fn acquire_release_ordering() {
     let data_clone = Arc::clone(&data);
     let ready_clone = Arc::clone(&ready);
 
-    //=========
     // Producer
-    //=========
     let producer = thread::spawn(move || {
-        //===========
         // Write data
-        //===========
         data_clone.store(42, Ordering::Relaxed);
 
-        //=============================================================
         // Release: all previous writes visible to thread that Acquires
-        //=============================================================
         ready_clone.store(true, Ordering::Release);
     });
 
-    //=========
     // Consumer
-    //=========
     let consumer = thread::spawn(move || {
-        //===========================================
         // Acquire: see all writes before the Release
-        //===========================================
         while !ready.load(Ordering::Acquire) {
             thread::yield_now();
         }
 
-        //=============================
         // Guaranteed to see data == 42
-        //=============================
         let value = data.load(Ordering::Relaxed);
         println!("Consumer sees: {}", value);
         assert_eq!(value, 42);
@@ -251,9 +243,7 @@ fn seq_cst_ordering() {
     t1.join().unwrap();
     t2.join().unwrap();
 
-    //=============================================
     // With SeqCst: cannot have both z1 and z2 true
-    //=============================================
     // Without SeqCst: theoretically possible (hardware reordering)
     let both = z1.load(Ordering::SeqCst) && z2.load(Ordering::SeqCst);
     println!("Both flags set: {} (should be false with SeqCst)", both);
@@ -271,9 +261,7 @@ fn acq_rel_ordering() {
         let counter = Arc::clone(&counter);
         handles.push(thread::spawn(move || {
             for _ in 0..100 {
-                //====================================================
                 // AcqRel: Acts as Acquire for load, Release for store
-                //====================================================
                 counter.fetch_add(1, Ordering::AcqRel);
             }
         }));
@@ -311,9 +299,7 @@ impl Spinlock {
             )
             .is_err()
         {
-            //===========================
             // Hint to CPU we're spinning
-            //===========================
             while self.locked.load(Ordering::Relaxed) {
                 std::hint::spin_loop();
             }
@@ -321,9 +307,7 @@ impl Spinlock {
     }
 
     fn unlock(&self) {
-        //==========================================
         // Release: make all previous writes visible
-        //==========================================
         self.locked.store(false, Ordering::Release);
     }
 }
@@ -348,9 +332,7 @@ impl<T> LazyInit<T> {
     where
         F: FnOnce() -> T,
     {
-        //=================================================================
         // Fast path: already initialized (Acquire ensures we see the data)
-        //=================================================================
         if self.initialized.load(Ordering::Acquire) {
             unsafe { &*(self.data.load(Ordering::Relaxed) as *const T) }
         } else {
@@ -364,9 +346,7 @@ impl<T> LazyInit<T> {
     {
         let ptr = Box::into_raw(Box::new(init()));
 
-        //============================================
         // Try to publish (use SeqCst for correctness)
-        //============================================
         match self.initialized.compare_exchange(
             false,
             true,
@@ -374,16 +354,12 @@ impl<T> LazyInit<T> {
             Ordering::SeqCst,
         ) {
             Ok(_) => {
-                //================
                 // We won the race
-                //================
                 self.data.store(ptr as usize, Ordering::Release);
                 unsafe { &*ptr }
             }
             Err(_) => {
-                //==========================================
                 // Someone else won, clean up our allocation
-                //==========================================
                 unsafe { drop(Box::from_raw(ptr)) };
                 unsafe { &*(self.data.load(Ordering::Acquire) as *const T) }
             }
@@ -440,7 +416,7 @@ fn main() {
 
 
 
-### Recipe 2: Fence Operations
+### Pattern 2: Fence Operations
 
 **Problem**: Establish memory ordering without atomic operations, or strengthen ordering of existing atomics.
 
@@ -459,44 +435,30 @@ fn fence_with_non_atomic() {
     let ready = Arc::new(AtomicBool::new(false));
     let ready_clone = Arc::clone(&ready);
 
-    //=========
     // Producer
-    //=========
     let producer = thread::spawn(move || {
         unsafe {
             let data_ptr = &mut data as *mut u64;
 
-            //======================
             // Write non-atomic data
-            //======================
             *data_ptr = 42;
 
-            //==============================================
             // Fence ensures all previous writes are visible
-            //==============================================
             fence(Ordering::Release);
 
-            //=============
             // Signal ready
-            //=============
             ready_clone.store(true, Ordering::Relaxed);
         }
     });
 
-    //=========
     // Consumer
-    //=========
     thread::sleep(std::time::Duration::from_millis(10));
 
     if ready.load(Ordering::Relaxed) {
-        //=========================================================
         // Fence ensures we see all writes before the Release fence
-        //=========================================================
         fence(Ordering::Acquire);
 
-        //======================
         // Now safe to read data
-        //======================
         println!("Data: {}", data);
     }
 
@@ -512,16 +474,12 @@ fn compiler_fence_example() {
 
     x.store(1, Ordering::Relaxed);
 
-    //==============================================================
     // Prevent compiler from reordering (hardware can still reorder)
-    //==============================================================
     std::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     y.store(2, Ordering::Relaxed);
 
-    //=====================================
     // Ensures compiler sees x=1 before y=2
-    //=====================================
 }
 
 //========================================
@@ -537,9 +495,7 @@ impl DmaBuffer {
     fn write_for_dma(&mut self, data: &[u8]) {
         self.data[..data.len()].copy_from_slice(data);
 
-        //===================================================
         // Ensure all writes complete before signaling device
-        //===================================================
         fence(Ordering::Release);
 
         self.ready.store(true, Ordering::Relaxed);
@@ -550,9 +506,7 @@ impl DmaBuffer {
             return None;
         }
 
-        //================================
         // Ensure we see all device writes
-        //================================
         fence(Ordering::Acquire);
 
         Some(&self.data)
@@ -579,7 +533,7 @@ fn main() {
 
 Compare-and-swap (CAS) is the fundamental building block for lock-free algorithms.
 
-### Recipe 3: CAS Basics and Patterns
+### Pattern 3: CAS Basics and Patterns
 
 **Problem**: Use compare-and-swap to implement lock-free operations correctly.
 
@@ -599,9 +553,7 @@ fn cas_increment(counter: &AtomicUsize) {
         let current = counter.load(Ordering::Relaxed);
         let new_value = current + 1;
 
-        //=====================================================
         // Try to update: succeeds only if value hasn't changed
-        //=====================================================
         if counter
             .compare_exchange_weak(
                 current,
@@ -614,9 +566,7 @@ fn cas_increment(counter: &AtomicUsize) {
             break;
         }
 
-        //==============================================
         // Spurious failure or actual contention - retry
-        //==============================================
     }
 }
 
@@ -626,9 +576,7 @@ fn cas_increment(counter: &AtomicUsize) {
 fn compare_exchange_variants() {
     let value = AtomicUsize::new(0);
 
-    //==========================================================
     // compare_exchange: never spurious failure, use in non-loop
-    //==========================================================
     let result = value.compare_exchange(
         0,
         1,
@@ -637,9 +585,7 @@ fn compare_exchange_variants() {
     );
     assert!(result.is_ok());
 
-    //========================================================
     // compare_exchange_weak: may spuriously fail, use in loop
-    //========================================================
     loop {
         if value
             .compare_exchange_weak(1, 2, Ordering::SeqCst, Ordering::SeqCst)
@@ -695,9 +641,7 @@ impl MaxTracker {
 
         loop {
             if value <= current {
-                //==========================
                 // Already have a larger max
-                //==========================
                 break;
             }
 
@@ -871,7 +815,7 @@ fn main() {
 
 ---
 
-### Recipe 4: ABA Problem and Solutions
+### Pattern 4: ABA Problem and Solutions
 
 **Problem**: Detect and prevent the ABA problem where a value changes from A to B back to A, fooling CAS.
 
@@ -910,17 +854,11 @@ impl<T> NaiveStack<T> {
 
             let next = (*head).next;
 
-            //=========================================================
             // ABA PROBLEM: Between load and CAS, another thread could:
-            //=========================================================
             // 1. Pop this node
-            //===========
             // 2. Free it
-            //===========
             // 3. Push new nodes
-            //=======================================
             // 4. Push this node back (same address!)
-            //=======================================
             // CAS succeeds but we're in trouble!
 
             if self
@@ -1128,7 +1066,7 @@ fn main() {
 1. **Tagged pointers**: Add version counter to pointer
 2. **Double-width CAS**: CAS on (pointer, version) pair
 3. **Epoch-based reclamation**: Defer deletion until safe
-4. **Hazard pointers**: Track active pointers (next recipe)
+4. **Hazard pointers**: Track active pointers (next Pattern)
 
 ---
 
@@ -1136,7 +1074,7 @@ fn main() {
 
 Lock-free data structures enable concurrent access without locks, providing better scalability.
 
-### Recipe 5: Treiber Stack (Lock-Free Stack)
+### Pattern 5: Treiber Stack (Lock-Free Stack)
 
 **Problem**: Implement a lock-free stack that allows concurrent push/pop operations.
 
@@ -1203,13 +1141,9 @@ impl<T> TreiberStack<T> {
                     .is_ok()
                 {
                     let data = ptr::read(&(*head).data);
-                    //=========================================================================
                     // WARNING: This is unsafe! We should use hazard pointers or epoch-based GC
-                    //=========================================================================
                     // For now, we leak the node to avoid use-after-free
-                    //===========================
                     // drop(Box::from_raw(head));
-                    //===========================
                     return Some(data);
                 }
             }
@@ -1263,9 +1197,7 @@ impl<T> WorkStealingDeque<T> {
     }
 
     pub fn pop(&self) -> Option<T> {
-        //======================================================
         // Owner pops from bottom (LIFO - better cache locality)
-        //======================================================
         loop {
             let bottom = self.bottom.load(Ordering::Acquire);
 
@@ -1289,9 +1221,7 @@ impl<T> WorkStealingDeque<T> {
     }
 
     pub fn steal(&self) -> Option<T> {
-        //============================================
         // Thieves steal from top (FIFO - oldest work)
-        //============================================
         loop {
             let top = self.top.load(Ordering::Acquire);
 
@@ -1324,9 +1254,7 @@ fn main() {
     let stack = Arc::new(TreiberStack::new());
     let mut handles = vec![];
 
-    //==========
     // Producers
-    //==========
     for i in 0..5 {
         let stack = Arc::clone(&stack);
         handles.push(thread::spawn(move || {
@@ -1336,9 +1264,7 @@ fn main() {
         }));
     }
 
-    //==========
     // Consumers
-    //==========
     for _ in 0..5 {
         let stack = Arc::clone(&stack);
         handles.push(thread::spawn(move || {
@@ -1360,9 +1286,7 @@ fn main() {
 
     let deque = Arc::new(WorkStealingDeque::new());
 
-    //=============
     // Owner thread
-    //=============
     let owner_deque = Arc::clone(&deque);
     let owner = thread::spawn(move || {
         for i in 0..100 {
@@ -1376,9 +1300,7 @@ fn main() {
         println!("Owner popped: {}", popped);
     });
 
-    //==============
     // Thief threads
-    //==============
     let mut thieves = vec![];
     for id in 0..3 {
         let thief_deque = Arc::clone(&deque);
@@ -1407,7 +1329,7 @@ fn main() {
 
 ---
 
-### Recipe 6: Lock-Free Queue (MPSC)
+### Pattern 6: Lock-Free Queue (MPSC)
 
 **Problem**: Implement a multi-producer single-consumer lock-free queue.
 
@@ -1448,9 +1370,7 @@ impl<T> MpscQueue<T> {
             next: AtomicPtr::new(ptr::null_mut()),
         }));
 
-        //===============
         // Insert at tail
-        //===============
         loop {
             let tail = self.tail.load(Ordering::Acquire);
 
@@ -1458,9 +1378,7 @@ impl<T> MpscQueue<T> {
                 let next = (*tail).next.load(Ordering::Acquire);
 
                 if next.is_null() {
-                    //===============================
                     // Tail is actually the last node
-                    //===============================
                     if (*tail)
                         .next
                         .compare_exchange(
@@ -1471,9 +1389,7 @@ impl<T> MpscQueue<T> {
                         )
                         .is_ok()
                     {
-                        //===============================================
                         // Try to update tail (optional, helps next push)
-                        //===============================================
                         let _ = self.tail.compare_exchange(
                             tail,
                             new_node,
@@ -1483,9 +1399,7 @@ impl<T> MpscQueue<T> {
                         break;
                     }
                 } else {
-                    //====================================
                     // Help other threads by updating tail
-                    //====================================
                     let _ = self.tail.compare_exchange(
                         tail,
                         next,
@@ -1506,19 +1420,13 @@ impl<T> MpscQueue<T> {
                 return None;
             }
 
-            //==================
             // Move head forward
-            //==================
             self.head.store(next, Ordering::Release);
 
-            //============================
             // Take data from old sentinel
-            //============================
             let data = (*next).data.take();
 
-            //=======================================================
             // Drop old sentinel (safe because we're single consumer)
-            //=======================================================
             drop(Box::from_raw(head));
 
             data
@@ -1610,9 +1518,7 @@ fn main() {
 
     let queue = Arc::new(MpscQueue::new());
 
-    //===================
     // Multiple producers
-    //===================
     let mut producers = vec![];
     for i in 0..5 {
         let queue = Arc::clone(&queue);
@@ -1627,9 +1533,7 @@ fn main() {
         p.join().unwrap();
     }
 
-    //================
     // Single consumer
-    //================
     let mut count = 0;
     while queue.pop().is_some() {
         count += 1;
@@ -1641,9 +1545,7 @@ fn main() {
 
     let mut producer_queue = BoundedSpscQueue::new(32);
     let mut consumer_queue = unsafe {
-        //=============================================================
         // This is safe because we ensure only one thread accesses each
-        //=============================================================
         std::ptr::read(&producer_queue as *const _)
     };
 
@@ -1689,7 +1591,7 @@ fn main() {
 
 Hazard pointers solve the memory reclamation problem in lock-free data structures.
 
-### Recipe 7: Hazard Pointer Implementation
+### Pattern 7: Hazard Pointer Implementation
 
 **Problem**: Safely reclaim memory in lock-free structures without use-after-free.
 
@@ -1756,9 +1658,7 @@ impl HazardPointerDomain {
         for (i, hp) in self.hazards.iter().enumerate() {
             let current = hp.get();
             if current.is_null() {
-                //=================================
                 // Try to claim this hazard pointer
-                //=================================
                 if hp
                     .pointer
                     .compare_exchange(
@@ -1791,9 +1691,7 @@ impl HazardPointerDomain {
             deleter,
         }));
 
-        //====================
         // Add to retired list
-        //====================
         loop {
             let head = self.retired.load(Ordering::Acquire);
             unsafe {
@@ -1811,18 +1709,14 @@ impl HazardPointerDomain {
 
         let count = self.retired_count.fetch_add(1, Ordering::Relaxed);
 
-        //========================================
         // Trigger reclamation if too many retired
-        //========================================
         if count > MAX_HAZARDS * 2 {
             self.scan();
         }
     }
 
     fn scan(&self) {
-        //===============================
         // Collect all protected pointers
-        //===============================
         let mut protected = HashSet::new();
         for hp in &self.hazards {
             let ptr = hp.get();
@@ -1831,9 +1725,7 @@ impl HazardPointerDomain {
             }
         }
 
-        //=============================
         // Try to reclaim retired nodes
-        //=============================
         let mut current = self.retired.swap(ptr::null_mut(), Ordering::Acquire);
         let mut kept = Vec::new();
 
@@ -1842,14 +1734,10 @@ impl HazardPointerDomain {
                 let next = (*current).next;
 
                 if protected.contains(&(*current).ptr) {
-                    //=========================
                     // Still protected, keep it
-                    //=========================
                     kept.push(current);
                 } else {
-                    //===============
                     // Safe to delete
-                    //===============
                     ((*current).deleter)((*current).ptr);
                     drop(Box::from_raw(current));
                     self.retired_count.fetch_sub(1, Ordering::Relaxed);
@@ -1859,9 +1747,7 @@ impl HazardPointerDomain {
             }
         }
 
-        //==================
         // Re-add kept nodes
-        //==================
         for node in kept {
             loop {
                 let head = self.retired.load(Ordering::Acquire);
@@ -1935,14 +1821,10 @@ impl<T> SafeStack<T> {
                 return None;
             }
 
-            //===========================
             // Protect head from deletion
-            //===========================
             self.hp_domain.protect(hp_index, head as *mut u8);
 
-            //=======================================
             // Verify head hasn't changed (avoid ABA)
-            //=======================================
             if self.head.load(Ordering::Acquire) != head {
                 continue;
             }
@@ -1957,9 +1839,7 @@ impl<T> SafeStack<T> {
                 {
                     let data = ptr::read(&(*head).data);
 
-                    //===================================
                     // Retire the node for later deletion
-                    //===================================
                     self.hp_domain.retire(head as *mut u8, |ptr| {
                         drop(Box::from_raw(ptr as *mut SafeNode<T>));
                     });
@@ -1981,9 +1861,7 @@ fn main() {
     let stack = std::sync::Arc::new(SafeStack::new());
     let mut handles = vec![];
 
-    //==========
     // Producers
-    //==========
     for i in 0..5 {
         let stack = std::sync::Arc::clone(&stack);
         handles.push(std::thread::spawn(move || {
@@ -1993,9 +1871,7 @@ fn main() {
         }));
     }
 
-    //==========
     // Consumers
-    //==========
     for _ in 0..5 {
         let stack = std::sync::Arc::clone(&stack);
         handles.push(std::thread::spawn(move || {
@@ -2027,7 +1903,7 @@ fn main() {
 
 Seqlock enables optimistic concurrent reads for small, frequently-read data.
 
-### Recipe 8: Seqlock Implementation
+### Pattern 8: Seqlock Implementation
 
 **Problem**: Allow fast, lock-free reads with occasional writes for small data structures.
 
@@ -2052,27 +1928,19 @@ impl<T: Copy> SeqLock<T> {
 
     pub fn read(&self) -> T {
         loop {
-            //==========================================
             // Read sequence number (even = not writing)
-            //==========================================
             let seq1 = self.seq.load(Ordering::Acquire);
 
             if seq1 % 2 == 1 {
-                //=======================
                 // Writer is active, spin
-                //=======================
                 std::hint::spin_loop();
                 continue;
             }
 
-            //==========
             // Read data
-            //==========
             let data = unsafe { *self.data.get() };
 
-            //===============================
             // Verify sequence hasn't changed
-            //===============================
             std::sync::atomic::fence(Ordering::Acquire);
             let seq2 = self.seq.load(Ordering::Acquire);
 
@@ -2080,29 +1948,21 @@ impl<T: Copy> SeqLock<T> {
                 return data;
             }
 
-            //====================================
             // Sequence changed during read, retry
-            //====================================
         }
     }
 
     pub fn write(&self, data: T) {
-        //============================================
         // Increment sequence (makes it odd = writing)
-        //============================================
         let seq = self.seq.fetch_add(1, Ordering::Acquire);
         debug_assert!(seq % 2 == 0, "Concurrent writes detected");
 
-        //===========
         // Write data
-        //===========
         unsafe {
             *self.data.get() = data;
         }
 
-        //===========================================
         // Increment again (makes it even = readable)
-        //===========================================
         self.seq.fetch_add(1, Ordering::Release);
     }
 
@@ -2150,9 +2010,7 @@ fn seqlock_coordinates_example() {
         z: 0.0,
     }));
 
-    //=================================
     // Writer thread (updates position)
-    //=================================
     let writer_pos = Arc::clone(&position);
     let writer = thread::spawn(move || {
         for i in 0..100 {
@@ -2166,9 +2024,7 @@ fn seqlock_coordinates_example() {
         }
     });
 
-    //==========================================
     // Reader threads (read position frequently)
-    //==========================================
     let mut readers = vec![];
     for id in 0..5 {
         let reader_pos = Arc::clone(&position);
@@ -2231,9 +2087,7 @@ fn seqlock_stats_example() {
 
     let stats = Arc::new(SeqLock::new(Stats::new()));
 
-    //==============
     // Writer thread
-    //==============
     let writer_stats = Arc::clone(&stats);
     let writer = thread::spawn(move || {
         for i in 0..1000 {
@@ -2243,9 +2097,7 @@ fn seqlock_stats_example() {
         }
     });
 
-    //===============================
     // Reader threads (monitor stats)
-    //===============================
     let mut readers = vec![];
     for id in 0..3 {
         let reader_stats = Arc::clone(&stats);
@@ -2330,7 +2182,7 @@ fn main() {
 
 ---
 
-### Recipe 9: Advanced Atomic Patterns
+### Pattern 9: Advanced Atomic Patterns
 
 **Problem**: Implement specialized concurrent patterns using atomics.
 
@@ -2442,9 +2294,7 @@ impl AtomicMinMax {
     }
 
     fn update(&self, value: u64) {
-        //===========
         // Update min
-        //===========
         let mut current_min = self.min.load(Ordering::Relaxed);
         while value < current_min {
             match self.min.compare_exchange_weak(
@@ -2458,9 +2308,7 @@ impl AtomicMinMax {
             }
         }
 
-        //===========
         // Update max
-        //===========
         let mut current_max = self.max.load(Ordering::Relaxed);
         while value > current_max {
             match self.max.compare_exchange_weak(
@@ -2516,24 +2364,18 @@ impl OnceFlag {
             Ordering::Acquire,
         ) {
             Ok(_) => {
-                //================
                 // We won the race
-                //================
                 f();
                 self.state.store(COMPLETE, Ordering::Release);
             }
             Err(RUNNING) => {
-                //==============================
                 // Someone else is running, wait
-                //==============================
                 while self.state.load(Ordering::Acquire) == RUNNING {
                     std::hint::spin_loop();
                 }
             }
             Err(COMPLETE) => {
-                //=============
                 // Already done
-                //=============
             }
             _ => unreachable!(),
         }

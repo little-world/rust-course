@@ -127,9 +127,7 @@ fn benchmark(c: &mut Criterion) {
         b.iter(|| process_data(black_box(&data)))
     });
 
-    //==============================
     // Profile individual components
-    //==============================
     c.bench_function("validate", |b| {
         b.iter(|| {
             for item in &data {
@@ -203,9 +201,7 @@ fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
-    //===============
     // Your code here
-    //===============
     run_application();
 }
 ```
@@ -265,18 +261,14 @@ use std::time::Instant;
 fn allocation_benchmark() {
     let iterations = 1_000_000;
 
-    //===========
     // Allocating
-    //===========
     let start = Instant::now();
     for _ in 0..iterations {
         let _v: Vec<i32> = vec![1, 2, 3, 4, 5];
     }
     println!("Allocating: {:?}", start.elapsed());
 
-    //===========
     // Stack only
-    //===========
     let start = Instant::now();
     for _ in 0..iterations {
         let _arr = [1, 2, 3, 4, 5];
@@ -390,14 +382,10 @@ use std::borrow::Cow;
 
 fn process_string(input: &str) -> Cow<str> {
     if input.contains("bad") {
-        //========================
         // Must modify - allocates
-        //========================
         Cow::Owned(input.replace("bad", "good"))
     } else {
-        //=======================================
         // No modification needed - no allocation
-        //=======================================
         Cow::Borrowed(input)
     }
 }
@@ -453,9 +441,7 @@ fn example() {
     let arena = Arena::new();
     let tree = build_tree(&arena);
 
-    //===============================
     // All nodes allocated from arena
-    //===============================
     // Deallocated together when arena drops
 }
 ```
@@ -504,9 +490,7 @@ impl StringInterner {
 fn example() {
     let mut interner = StringInterner::new();
 
-    //============================
     // Same strings map to same ID
-    //============================
     let id1 = interner.intern("hello");
     let id2 = interner.intern("hello");
 
@@ -549,13 +533,9 @@ struct ParticleAoS {
 
 fn update_positions_aos(particles: &mut [ParticleAoS], dt: f32) {
     for p in particles {
-        //=================================
         // Loads entire particle (24 bytes)
-        //=================================
         // But we only need x, y, z (12 bytes)
-        //=======================
         // Wastes cache bandwidth
-        //=======================
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.z += p.vz * dt;
@@ -576,9 +556,7 @@ struct ParticlesSoA {
 
 fn update_positions_soa(particles: &mut ParticlesSoA, dt: f32) {
     for i in 0..particles.x.len() {
-        //================================
         // Loads contiguous x, y, z values
-        //================================
         // Much better cache usage
         particles.x[i] += particles.vx[i] * dt;
         particles.y[i] += particles.vy[i] * dt;
@@ -653,9 +631,7 @@ fn benchmark() {
     let data: Vec<i32> = (0..1_000_000).collect();
     let mut indices: Vec<usize> = (0..data.len()).collect();
 
-    //==========================
     // Shuffle for random access
-    //==========================
     use rand::seq::SliceRandom;
     indices.shuffle(&mut rand::thread_rng());
 
@@ -667,9 +643,7 @@ fn benchmark() {
     let sum2 = random_access(&data, &indices);
     println!("Random: {:?}", start.elapsed());
 
-    //=====================================
     // Random access is often 5-10x slower!
-    //=====================================
 }
 ```
 
@@ -717,17 +691,13 @@ fn compare_hashmaps() {
     let mut std_map = HashMap::new();
     let mut fx_map = FxHashMap::default();
 
-    //=====================================
     // FxHashMap is faster for integer keys
-    //=====================================
     for i in 0..10000 {
         std_map.insert(i, i * 2);
         fx_map.insert(i, i * 2);
     }
 
-    //========================================
     // FxHashMap: ~30% faster for integer keys
-    //========================================
     // But less secure (predictable hashes)
 }
 
@@ -737,25 +707,19 @@ fn compare_hashmaps() {
 fn presized_hashmap() {
     let items = vec![(1, "a"), (2, "b"), (3, "c")];
 
-    //==========================================
     // Bad: Allocates multiple times as it grows
-    //==========================================
     let mut map1 = HashMap::new();
     for (k, v) in &items {
         map1.insert(*k, *v);
     }
 
-    //=====================
     // Good: Allocates once
-    //=====================
     let mut map2 = HashMap::with_capacity(items.len());
     for (k, v) in &items {
         map2.insert(*k, *v);
     }
 
-    //=========================
     // Better: Use FromIterator
-    //=========================
     let map3: HashMap<_, _> = items.iter().copied().collect();
 }
 ```
@@ -772,9 +736,7 @@ use std::time::Instant;
 fn with_unpredictable_branch(data: &[i32]) -> i32 {
     let mut sum = 0;
     for &x in data {
-        //================================
         // Unpredictable - depends on data
-        //================================
         if x % 2 == 0 {
             sum += x;
         }
@@ -785,18 +747,14 @@ fn with_unpredictable_branch(data: &[i32]) -> i32 {
 fn without_branch(data: &[i32]) -> i32 {
     let mut sum = 0;
     for &x in data {
-        //=============================
         // Branchless - uses arithmetic
-        //=============================
         sum += x * (x % 2 == 0) as i32;
     }
     sum
 }
 
 fn benchmark() {
-    //=====================================
     // Random data - unpredictable branches
-    //=====================================
     let random_data: Vec<i32> = (0..1_000_000)
         .map(|_| rand::random::<i32>())
         .collect();
@@ -809,9 +767,7 @@ fn benchmark() {
     let sum2 = without_branch(&random_data);
     println!("Branchless: {:?}", start.elapsed());
 
-    //=============================================
     // Branchless can be 2x faster with random data
-    //=============================================
 }
 ```
 
@@ -1002,9 +958,7 @@ impl<const N: usize> Matrix<N> {
 const IDENTITY_4X4: Matrix<4> = Matrix::identity();
 
 fn example() {
-    //==================================
     // Matrix size known at compile time
-    //==================================
     // Enables better optimization
     let m = Matrix::<3>::zeros();
 }
@@ -1019,9 +973,7 @@ const fn generate_sin_table() -> [f64; 360] {
     let mut table = [0.0; 360];
     let mut i = 0;
     while i < 360 {
-        //===============================================================
         // Simplified - actual sin computation would use series expansion
-        //===============================================================
         table[i] = 0.0;  // Placeholder
         i += 1;
     }
@@ -1086,9 +1038,7 @@ fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("generated.rs");
 
-    //======================
     // Generate lookup table
-    //======================
     let mut code = String::from("const PRIMES: &[u32] = &[\n");
     for i in 2..10000 {
         if is_prime(i) {
@@ -1134,9 +1084,7 @@ const fn const_concat_len(s1: &str, s2: &str) -> usize {
 const HELLO_LEN: usize = const_strlen("Hello, World!");
 
 fn example() {
-    //================================
     // Length computed at compile time
-    //================================
     let mut buffer = [0u8; HELLO_LEN];
 }
 ```
@@ -1206,26 +1154,18 @@ unsafe fn add_arrays_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
     for i in 0..chunks {
         let offset = i * 8;
 
-        //======================
         // Load 8 floats at once
-        //======================
         let a_vec = _mm256_loadu_ps(a.as_ptr().add(offset));
         let b_vec = _mm256_loadu_ps(b.as_ptr().add(offset));
 
-        //================================
         // Add 8 floats in one instruction
-        //================================
         let result_vec = _mm256_add_ps(a_vec, b_vec);
 
-        //=======================
         // Store 8 floats at once
-        //=======================
         _mm256_storeu_ps(result.as_mut_ptr().add(offset), result_vec);
     }
 
-    //=================
     // Handle remainder
-    //=================
     for i in (chunks * 8)..a.len() {
         result[i] = a[i] + b[i];
     }

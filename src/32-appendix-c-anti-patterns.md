@@ -60,9 +60,7 @@ fn transform_data(data: Vec<String>) -> Vec<String> {
 }
 
 fn save_data(data: Vec<String>) {
-    //=================
     // Save to database
-    //=================
 }
 ```
 
@@ -79,19 +77,13 @@ fn save_data(data: Vec<String>) {
 // ✅ CORRECT: Use borrowing appropriately
 //=========================================
 fn process_data(data: Vec<String>) {
-    //============================
     // Borrow for read-only access
-    //============================
     print_data(&data);
 
-    //=====================================================
     // Clone only when you need to modify and keep original
-    //=====================================================
     let transformed = transform_data(&data);
 
-    //=======================================
     // Move ownership when done with original
-    //=======================================
     save_data(data);
 }
 
@@ -106,9 +98,7 @@ fn transform_data(data: &[String]) -> Vec<String> {
 }
 
 fn save_data(data: Vec<String>) {
-    //=================================
     // Takes ownership, no clone needed
-    //=================================
 }
 ```
 
@@ -143,9 +133,7 @@ impl DataProcessor {
 
     fn process(&self, data: &str) {
         self.logger.log("Processing...");
-        //=========================================
         // Uses Rc for simple single-owner scenario
-        //=========================================
     }
 }
 ```
@@ -201,9 +189,7 @@ fn multiple_threads_need_shared_data() {
     let config2 = Arc::clone(&config);
     let handle2 = thread::spawn(move || process_with_config(&config2));
 
-    //========================================
     // Genuine shared ownership across threads
-    //========================================
 }
 ```
 
@@ -363,9 +349,7 @@ impl Manager {
         &self.employee
     }
 
-    //========================================
     // Or delegate specific methods explicitly
-    //========================================
     fn name(&self) -> &str {
         &self.employee.name
     }
@@ -514,9 +498,7 @@ fn process_data(numbers: &[i32]) -> i32 {
         .filter(|&&x| x % 2 == 0)
         .map(|&x| x * 2)
         .sum()
-    //===========================================
     // Zero allocations, single pass through data
-    //===========================================
 }
 
 //===============================================
@@ -551,9 +533,7 @@ fn get_rgb_channels(pixel: u32) -> Vec<u8> {
 }
 
 fn multiply_3x3(a: Vec<Vec<f64>>, b: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
-    //===================================================
     // Matrix multiplication with heap-allocated matrices
-    //===================================================
     // Multiple allocations for 9 numbers!
     unimplemented!()
 }
@@ -589,9 +569,7 @@ fn multiply_3x3(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
         }
     }
     result
-    //=============================
     // All on stack, no allocations
-    //=============================
 }
 
 //========================================
@@ -649,9 +627,7 @@ fn get_status_code(status: &str) -> u16 {
         "error" => 500,
         _ => 500,
     }
-    //==================================================
     // Compiles to jump table or if-chain, no allocation
-    //==================================================
 }
 
 //=====================================
@@ -678,13 +654,9 @@ use std::sync::LazyLock;
 
 static LARGE_CODES: LazyLock<HashMap<&'static str, u16>> = LazyLock::new(|| {
     let mut map = HashMap::new();
-    //=========================
     // Populate with many items
-    //=========================
     for i in 0..1000 {
-        //====
         // ...
-        //====
     }
     map
 });
@@ -744,9 +716,7 @@ fn extract_field<'a>(data: &'a str, field: &str) -> &'a str {
     data.split(',')
         .find(|s| s.starts_with(field))
         .unwrap_or("")
-    //==============================================
     // No allocations at all, returns slice of input
-    //==============================================
 }
 
 //========================================================
@@ -809,9 +779,7 @@ where
     let result = p1.process(data);
     let result = p2.process(&result);
     p3.process(&result)
-    //=======================================
     // All calls inlined, no heap allocations
-    //=======================================
 }
 
 //==================================
@@ -826,9 +794,7 @@ fn process_twice(data: &str, processor: impl Processor) -> String {
 // Only use dyn when you truly need runtime polymorphism
 //======================================================
 fn dynamic_pipeline(processors: Vec<Box<dyn Processor>>, data: &str) -> String {
-    //==============================================
     // Justified: processors unknown at compile time
-    //==============================================
     let mut result = data.to_string();
     for processor in processors {
         result = processor.process(&result);
@@ -859,16 +825,12 @@ struct Cache {
 
 impl Cache {
     fn get_mut_two(&mut self, i: usize, j: usize) -> (&mut String, &mut String) {
-        //==========================================
         // "I know what I'm doing" famous last words
-        //==========================================
         unsafe {
             let ptr = self.data.as_mut_ptr();
             (&mut *ptr.add(i), &mut *ptr.add(j))
         }
-        //====================================
         // What if i == j? Undefined behavior!
-        //====================================
     }
 }
 ```
@@ -892,9 +854,7 @@ impl Cache {
             return None;  // Can't return two mutable refs to same element
         }
 
-        //==================
         // Safe split_at_mut
-        //==================
         if i < j {
             let (left, right) = self.data.split_at_mut(j);
             Some((&mut left[i], &mut right[0]))
@@ -914,9 +874,7 @@ impl Cache {
         assert!(i < self.data.len());
         assert!(j < self.data.len());
 
-        //============================
         // Still use safe split_at_mut
-        //============================
         if i < j {
             let (left, right) = self.data.split_at_mut(j);
             (&mut left[i], &mut right[0])
@@ -1039,13 +997,9 @@ impl Application {
         let config = self.config.borrow();
         let mut users = self.users.borrow_mut();
 
-        //=================================
         // Runtime borrow checking overhead
-        //=================================
         // Can panic if borrowing rules violated
-        //=========================================
         // Hidden mutation through shared reference
-        //=========================================
     }
 }
 ```
@@ -1071,9 +1025,7 @@ struct Application {
 
 impl Application {
     fn process(&mut self) {  // Honest about mutation
-        //=============================
         // Compile-time borrow checking
-        //=============================
         // Clear ownership and mutation
     }
 
@@ -1127,26 +1079,18 @@ fn share_across_threads() {
     let data = Rc::new(RefCell::new(vec![1, 2, 3]));
     let data_clone = Rc::clone(&data);
 
-    //===============================================
     // Compile error: Rc and RefCell aren't Send/Sync
-    //===============================================
     // thread::spawn(move || {
-    //=====================================
     //     data_clone.borrow_mut().push(4);
-    //=====================================
     // });
 
-    //===========================
     // "Fix" with unsafe (WRONG!)
-    //===========================
     let ptr = Rc::into_raw(data_clone);
     thread::spawn(move || {
         unsafe {
             let rc = Rc::from_raw(ptr);
             rc.borrow_mut().push(4);
-            //===============================
             // Data race! Undefined behavior!
-            //===============================
         }
     });
 }
@@ -1310,9 +1254,7 @@ let custom = Color::Rgb(128, 128, 128);
 // ❌ ANTI-PATTERN: Unclear boolean parameters
 //=============================================
 fn connect(host: &str, encrypted: bool, persistent: bool, verbose: bool) {
-    //====
     // ...
-    //====
 }
 
 //=============================
@@ -1355,9 +1297,7 @@ fn connect(
     connection: Connection,
     verbosity: Verbosity,
 ) {
-    //====
     // ...
-    //====
 }
 
 //==========================
@@ -1406,9 +1346,7 @@ impl ConnectionBuilder {
     }
 
     fn connect(self) -> Connection {
-        //====
         // ...
-        //====
         unimplemented!()
     }
 }
@@ -1446,9 +1384,7 @@ impl Database {
 
     pub fn query(&self, sql: &str) -> Vec<u8> {
         self.cache.get(sql).cloned().unwrap_or_else(|| {
-            //========================
             // Actually query database
-            //========================
             vec![]
         })
     }
@@ -1481,9 +1417,7 @@ impl Database {
     }
 
     pub fn query(&mut self, sql: &str) -> Result<Vec<Row>, Error> {
-        //=========================================================
         // Returns proper type, not implementation detail (Vec<u8>)
-        //=========================================================
         if let Some(cached) = self.cache.get(sql) {
             return Ok(deserialize_rows(cached));
         }
@@ -1495,9 +1429,7 @@ impl Database {
         Ok(result)
     }
 
-    //===============
     // Private helper
-    //===============
     fn get_connection_internal(&mut self) -> Result<&mut Connection, Error> {
         self.connection_pool.first_mut()
             .ok_or(Error::NoConnections)
@@ -1505,9 +1437,7 @@ impl Database {
 }
 
 struct Row {
-    //===================
     // Proper abstraction
-    //===================
 }
 
 fn serialize_rows(rows: &[Row]) -> Vec<u8> {
@@ -1548,9 +1478,7 @@ impl User {
 
 fn format_user(user: &User) -> String {
     format!("{} <{}>", user.get_name(), user.get_email())
-    //========================================
     // Two allocations just to borrow the data
-    //========================================
 }
 ```
 
@@ -1577,9 +1505,7 @@ impl User {
 
 fn format_user(user: &User) -> String {
     format!("{} <{}>", user.name(), user.email())
-    //=====================
     // No extra allocations
-    //=====================
 }
 
 //===========================================
@@ -1588,9 +1514,7 @@ fn format_user(user: &User) -> String {
 impl User {
     fn display_name(&self) -> String {
         format!("{} ({})", self.name, self.email)
-        //==================================================
         // Creating new data, ownership transfer makes sense
-        //==================================================
     }
 }
 ```

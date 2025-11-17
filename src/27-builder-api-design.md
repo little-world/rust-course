@@ -25,9 +25,7 @@ fn make_request(
     retry_count: Option<u32>,
     follow_redirects: bool,
 ) -> Request {
-    //====
     // ...
-    //====
 }
 
 //=======================
@@ -273,9 +271,7 @@ impl QueryBuilder {
         }
     }
 
-    //===================================
     // Takes ownership, returns ownership
-    //===================================
     pub fn where_clause(mut self, condition: impl Into<String>) -> Self {
         self.conditions.push(condition.into());
         self
@@ -286,9 +282,7 @@ impl QueryBuilder {
         self
     }
 
-    //================================================
     // Consumes the builder, returns the final product
-    //================================================
     pub fn to_sql(self) -> String {
         let mut sql = format!("SELECT * FROM {}", self.table);
 
@@ -313,9 +307,7 @@ fn example() {
         .to_sql();
 
     println!("{}", query);
-    //==============================================================
     // SELECT * FROM users WHERE age > 18 AND active = true LIMIT 10
-    //==============================================================
 }
 ```
 
@@ -386,9 +378,7 @@ fn example() -> Result<(), String> {
         .body("Hello, Alice!")
         .send()?;
 
-    //==================
     // Reuse the builder
-    //==================
     builder.clear();
     builder
         .to("bob@example.com")
@@ -424,16 +414,12 @@ enum ConnectionState {
 
 impl Connection {
     fn send(&mut self, data: &[u8]) -> Result<(), String> {
-        //============================
         // Must check state at runtime
-        //============================
         if !matches!(self.state, ConnectionState::Connected) {
             return Err("Not connected".to_string());
         }
 
-        //=============
         // Send data...
-        //=============
         Ok(())
     }
 }
@@ -469,9 +455,7 @@ impl Connection<Disconnected> {
     }
 
     fn connect(self, addr: &str) -> Result<Connection<Connected>, String> {
-        //===================
         // Attempt connection
-        //===================
         let socket = TcpStream::connect(addr)
             .map_err(|e| e.to_string())?;
 
@@ -484,9 +468,7 @@ impl Connection<Disconnected> {
 
 impl Connection<Connected> {
     fn send(&mut self, data: &[u8]) -> Result<(), String> {
-        //=============================================================
         // No state check needed - compiler guarantees we're connected!
-        //=============================================================
         self.socket
             .as_mut()
             .unwrap()
@@ -503,9 +485,7 @@ impl Connection<Connected> {
 }
 
 impl Connection<Closed> {
-    //========================================================
     // No methods - can't do anything with a closed connection
-    //========================================================
 }
 
 use std::net::TcpStream;
@@ -514,9 +494,7 @@ use std::io::Write;
 fn example() -> Result<(), String> {
     let conn = Connection::new();
 
-    //====================================================
     // conn.send(b"data"); // Compile error! Not connected
-    //====================================================
 
     let mut conn = conn.connect("127.0.0.1:8080")?;
 
@@ -524,9 +502,7 @@ fn example() -> Result<(), String> {
 
     let conn = conn.close();
 
-    //===========================================================
     // conn.send(b"data"); // Compile error! Connection is closed
-    //===========================================================
 
     Ok(())
 }
@@ -621,22 +597,14 @@ fn example() {
         .age(30)
         .build();
 
-    //====================================
     // This won't compile - missing email:
-    //====================================
     // let user = UserBuilder::new()
-    //=================
     //     .name("Bob")
-    //=================
     //     .build();
 
-    //================================================
     // This won't compile - wrong order (no name yet):
-    //================================================
     // let user = UserBuilder::new()
-    //==================================
     //     .email("charlie@example.com")
-    //==================================
     //     .build();
 }
 ```
@@ -667,9 +635,7 @@ impl Protocol<Handshake> {
 
     fn send_hello(mut self) -> Result<Protocol<Active>, String> {
         self.buffer.extend_from_slice(b"HELLO");
-        //===============
         // Send buffer...
-        //===============
         Ok(Protocol {
             buffer: Vec::new(),
             _state: PhantomData,
@@ -680,9 +646,7 @@ impl Protocol<Handshake> {
 impl Protocol<Active> {
     fn send_data(&mut self, data: &[u8]) -> Result<(), String> {
         self.buffer.extend_from_slice(data);
-        //===============
         // Send buffer...
-        //===============
         Ok(())
     }
 
@@ -697,9 +661,7 @@ impl Protocol<Active> {
 impl Protocol<Terminating> {
     fn send_goodbye(mut self) -> Result<(), String> {
         self.buffer.extend_from_slice(b"GOODBYE");
-        //===============
         // Send buffer...
-        //===============
         Ok(())
     }
 }
@@ -767,9 +729,7 @@ fn example() {
     let content = "line 1\nline 2\nline 3";
     let doc = Document::new(content);
 
-    //===================================================
     // doc.get_line(0); // Compile error - not parsed yet
-    //===================================================
 
     let doc = doc.parse();
 
@@ -873,9 +833,7 @@ fn example() {
         .build();
 
     println!("{}", query);
-    //==========================================================================================
     // SELECT id, name, email FROM users WHERE age > 18 AND active = true ORDER BY name LIMIT 10
-    //==========================================================================================
 }
 ```
 
@@ -1246,9 +1204,7 @@ fn example() {
 
     let strings = vec!["apple", "banana", "cherry"];
     println!("Max string: {:?}", strings.find_max()); // Some("cherry")
-    //=================================================================
     // strings.sum_all(); // Compile error - &str doesn't implement Sum
-    //=================================================================
 }
 ```
 
@@ -1303,9 +1259,7 @@ mod private {
 pub trait Operation: private::Sealed {
     fn execute(&self);
 
-    //==================================================
     // Can add this later without breaking compatibility
-    //==================================================
     fn validate(&self) -> bool {
         true // Default implementation
     }
@@ -1342,9 +1296,7 @@ pub trait DataSource: sealed::Sealed {
 
     fn fetch(&self) -> Vec<Self::Item>;
 
-    //======================================
     // Added in v2.0 - not a breaking change
-    //======================================
     fn count(&self) -> usize {
         self.fetch().len()
     }
@@ -1468,9 +1420,7 @@ impl Numeric for f64 {
 }
 
 fn compute<T: Numeric>(value: T) -> T {
-    //======================================================
     // Can add methods to Numeric without breaking this code
-    //======================================================
     value
 }
 ```

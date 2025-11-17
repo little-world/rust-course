@@ -46,9 +46,7 @@ where
 
     fn get(&mut self, key: &K) -> Option<&V> {
         if self.map.contains_key(key) {
-            //===================================
             // Move to front (most recently used)
-            //===================================
             self.order.retain(|k| k != key);
             self.order.push_back(key.clone());
             self.map.get(key)
@@ -62,24 +60,16 @@ where
 
         match self.map.entry(key.clone()) {
             Entry::Occupied(mut e) => {
-                //======================
                 // Update existing entry
-                //======================
                 e.insert(value);
-                //==============
                 // Move to front
-                //==============
                 self.order.retain(|k| k != &key);
                 self.order.push_back(key);
             }
             Entry::Vacant(e) => {
-                //===============
                 // Check capacity
-                //===============
                 if self.map.len() >= self.capacity {
-                    //==========================
                     // Evict least recently used
-                    //==========================
                     if let Some(lru_key) = self.order.pop_front() {
                         self.map.remove(&lru_key);
                     }
@@ -107,9 +97,7 @@ fn main() {
 
     assert_eq!(cache.get(&"user:1".to_string()), Some(&"Alice"));
 
-    //===============================================
     // This will evict "user:2" (least recently used)
-    //===============================================
     cache.put("user:4".to_string(), "David");
 
     assert_eq!(cache.get(&"user:2".to_string()), None);
@@ -154,9 +142,7 @@ impl WordFrequency {
                 .to_lowercase();
 
             if !word.is_empty() {
-                //===============================
                 // Entry API: increment or insert
-                //===============================
                 *self.counts.entry(word).or_insert(0) += 1;
                 self.total_words += 1;
             }
@@ -164,9 +150,7 @@ impl WordFrequency {
     }
 
     fn add_text_batch(&mut self, text: &str) {
-        //=================================================
         // More efficient: collect words first, then update
-        //=================================================
         let mut word_counts = HashMap::new();
 
         for word in text.split_whitespace() {
@@ -179,9 +163,7 @@ impl WordFrequency {
             }
         }
 
-        //=======================
         // Merge into main counts
-        //=======================
         for (word, count) in word_counts {
             *self.counts.entry(word).or_insert(0) += count;
             self.total_words += count;
@@ -270,9 +252,7 @@ where
     }
 
     fn add_edge(&mut self, from: T, to: T) {
-        //=====================================
         // Use entry API to avoid double lookup
-        //=====================================
         self.adjacency
             .entry(from.clone())
             .or_insert_with(HashSet::new)
@@ -284,9 +264,7 @@ where
                 .or_insert_with(HashSet::new)
                 .insert(from);
         } else {
-            //=========================================================
             // Ensure 'to' node exists even if it has no outgoing edges
-            //=========================================================
             self.adjacency.entry(to).or_insert_with(HashSet::new);
         }
     }
@@ -508,15 +486,11 @@ fn main() {
         },
     ];
 
-    //==================
     // Count by category
-    //==================
     let counts = Aggregator::count_by(sales.clone(), |s| s.category.clone());
     println!("Sales count by category: {:?}", counts);
 
-    //================
     // Sum by category
-    //================
     let totals = Aggregator::sum_by(
         sales.clone(),
         |s| s.category.clone(),
@@ -524,9 +498,7 @@ fn main() {
     );
     println!("Total revenue by category: {:?}", totals);
 
-    //====================
     // Average by category
-    //====================
     let averages = Aggregator::avg_by(
         sales.clone(),
         |s| s.category.clone(),
@@ -534,9 +506,7 @@ fn main() {
     );
     println!("Average sale by category: {:?}", averages);
 
-    //============================
     // Group all sales by category
-    //============================
     let mut groups = GroupBy::new();
     groups.add_all(sales.into_iter().map(|s| (s.category.clone(), s)));
 
@@ -584,9 +554,7 @@ impl CaseInsensitiveString {
 
 impl Hash for CaseInsensitiveString {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        //===========================
         // Hash the lowercase version
-        //===========================
         for byte in self.0.bytes().map(|b| b.to_ascii_lowercase()) {
             byte.hash(state);
         }
@@ -640,9 +608,7 @@ fn main() {
     headers.insert("content-length", "1234");
     headers.insert("AUTHORIZATION", "Bearer token123");
 
-    //==================================
     // All these work regardless of case
-    //==================================
     assert_eq!(headers.get("content-type"), Some(&"application/json"));
     assert_eq!(headers.get("Content-Length"), Some(&"1234"));
     assert_eq!(headers.get("authorization"), Some(&"Bearer token123"));
@@ -740,9 +706,7 @@ impl GridKey {
         Self { x, y }
     }
 
-    //=========================================================
     // Spatial hash: interleave bits of x and y (Z-order curve)
-    //=========================================================
     fn spatial_hash(&self) -> u64 {
         fn interleave(mut x: u32, mut y: u32) -> u64 {
             let mut result = 0u64;
@@ -769,9 +733,7 @@ impl Eq for GridKey {}
 
 impl Hash for GridKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        //=====================================
         // Use spatial hash for better locality
-        //=====================================
         self.spatial_hash().hash(state);
     }
 }
@@ -824,9 +786,7 @@ impl<T> SpatialGrid<T> {
 // Example usage
 //==============
 fn main() {
-    //===============
     // Event tracking
-    //===============
     let mut store = EventStore::new();
 
     let key = EventKey {
@@ -845,9 +805,7 @@ fn main() {
 
     store.record(key, event);
 
-    //=============
     // Spatial grid
-    //=============
     let mut grid = SpatialGrid::new(100);
     grid.insert(150, 250, "Enemy1");
     grid.insert(180, 270, "Enemy2");
@@ -1008,9 +966,7 @@ impl<V> ApproximatePointMap<V> {
 
         let mut results = Vec::new();
 
-        //=====================================
         // Check the cell and neighboring cells
-        //=====================================
         for dy in -1..=1 {
             for dx in -1..=1 {
                 let neighbor_key = QuantizedPoint {
@@ -1036,9 +992,7 @@ impl<V> ApproximatePointMap<V> {
 // Example: GPS coordinate caching
 //================================
 fn main() {
-    //==========================
     // Exact floating-point keys
-    //==========================
     let mut exact_map: HashMap<Point, String> = HashMap::new();
 
     let p1 = Point::new(37.7749, -122.4194); // San Francisco
@@ -1049,17 +1003,13 @@ fn main() {
 
     assert_eq!(exact_map.get(&p1), Some(&"San Francisco".to_string()));
 
-    //===========================================================
     // Approximate lookup (useful for GPS with measurement error)
-    //===========================================================
     let mut approx_map = ApproximatePointMap::new(0.01); // ~1km precision
 
     approx_map.insert(p1, "San Francisco");
     approx_map.insert(p2, "New York");
 
-    //========================
     // Find points within 50km
-    //========================
     let nearby = approx_map.get_nearby(&Point::new(37.78, -122.42), 0.5);
     println!("Nearby cities: {:?}", nearby);
 }
@@ -1094,31 +1044,23 @@ impl<K, V> BatchProcessor<K, V>
 where
     K: Eq + std::hash::Hash,
 {
-    //============================
     // Pre-allocate for known size
-    //============================
     fn with_capacity(capacity: usize) -> Self {
         Self {
             map: HashMap::with_capacity(capacity),
         }
     }
 
-    //=======================================
     // Estimate capacity based on load factor
-    //=======================================
     fn with_expected_size(expected_size: usize) -> Self {
-        //==============================
         // Default load factor is ~0.875
-        //==============================
         // Allocate extra to avoid resizing
         let capacity = (expected_size as f64 / 0.75).ceil() as usize;
         Self::with_capacity(capacity)
     }
 
     fn process_batch(&mut self, items: Vec<(K, V)>) {
-        //===================================
         // Reserve additional space if needed
-        //===================================
         self.map.reserve(items.len());
 
         for (k, v) in items {
@@ -1145,9 +1087,7 @@ where
 fn benchmark_allocation_strategy() {
     const SIZE: usize = 1_000_000;
 
-    //======================================
     // Strategy 1: No pre-allocation (worst)
-    //======================================
     let start = Instant::now();
     let mut map1 = HashMap::new();
     for i in 0..SIZE {
@@ -1157,9 +1097,7 @@ fn benchmark_allocation_strategy() {
     println!("No pre-allocation: {:?}", duration1);
     println!("Final capacity: {}", map1.capacity());
 
-    //=================================
     // Strategy 2: Exact pre-allocation
-    //=================================
     let start = Instant::now();
     let mut map2 = HashMap::with_capacity(SIZE);
     for i in 0..SIZE {
@@ -1169,9 +1107,7 @@ fn benchmark_allocation_strategy() {
     println!("Exact pre-allocation: {:?}", duration2);
     println!("Final capacity: {}", map2.capacity());
 
-    //=====================================================
     // Strategy 3: Over-allocation (best for future growth)
-    //=====================================================
     let start = Instant::now();
     let mut map3 = HashMap::with_capacity((SIZE as f64 / 0.75) as usize);
     for i in 0..SIZE {
@@ -1207,24 +1143,18 @@ impl LogAggregator {
     }
 
     fn process_logs(&mut self, logs: Vec<LogEntry>) {
-        //========================================
         // Pre-allocate for estimated unique hours
-        //========================================
         let estimated_hours = logs.len() / 1000; // Assume ~1000 logs per hour
         self.entries_by_hour.reserve(estimated_hours);
 
         for log in logs {
-            //===============
             // Group by level
-            //===============
             self.entries_by_level
                 .entry(log.level.clone())
                 .or_insert_with(|| Vec::with_capacity(100))
                 .push(log.clone());
 
-            //==============
             // Group by hour
-            //==============
             let hour = log.timestamp / 3600;
             self.entries_by_hour
                 .entry(hour)
@@ -1344,9 +1274,7 @@ fn compare_memory_usage() {
     const ENTRIES: usize = 100_000;
     const UNIQUE_STRINGS: usize = 1_000;
 
-    //======================================
     // Without interning: store full strings
-    //======================================
     let mut without_interning: HashMap<u32, String> = HashMap::with_capacity(ENTRIES);
     let strings: Vec<String> = (0..UNIQUE_STRINGS)
         .map(|i| format!("string_{}", i))
@@ -1359,9 +1287,7 @@ fn compare_memory_usage() {
         );
     }
 
-    //=================================
     // With interning: store string IDs
-    //=================================
     let mut interner = StringInterner::new();
     let mut with_interning: HashMap<u32, u32> = HashMap::with_capacity(ENTRIES);
 
@@ -1408,9 +1334,7 @@ where
         if result.is_some() {
             self.deletions += 1;
 
-            //===================================
             // Shrink if we've deleted many items
-            //===================================
             if self.deletions >= self.shrink_threshold {
                 self.shrink();
             }
@@ -1420,9 +1344,7 @@ where
     }
 
     fn shrink(&mut self) {
-        //===========================
         // Shrink to fit current size
-        //===========================
         self.map.shrink_to_fit();
         self.deletions = 0;
         println!("Shrunk map to capacity: {}", self.map.capacity());
@@ -1448,25 +1370,19 @@ fn main() {
 
     let mut map = SelfOptimizingMap::new();
 
-    //==================
     // Insert many items
-    //==================
     for i in 0..10000 {
         map.insert(i, i * 2);
     }
     println!("After insertions - len: {}, capacity: {}", map.len(), map.capacity());
 
-    //==================
     // Delete most items
-    //==================
     for i in 0..9000 {
         map.remove(&i);
     }
     println!("After deletions - len: {}, capacity: {}", map.len(), map.capacity());
 
-    //=========================
     // String interning example
-    //=========================
     println!("\n=== String Interning ===\n");
     let mut interner = StringInterner::new();
 
@@ -1519,9 +1435,7 @@ impl<V: Clone> TimeSeries<V> {
         self.data.insert(timestamp, value);
     }
 
-    //=============================
     // Get all values in time range
-    //=============================
     fn range(&self, start: u64, end: u64) -> Vec<(u64, V)> {
         self.data
             .range(start..=end)
@@ -1529,9 +1443,7 @@ impl<V: Clone> TimeSeries<V> {
             .collect()
     }
 
-    //==================================
     // Get latest value before timestamp
-    //==================================
     fn get_latest_before(&self, timestamp: u64) -> Option<(u64, V)> {
         self.data
             .range(..timestamp)
@@ -1539,9 +1451,7 @@ impl<V: Clone> TimeSeries<V> {
             .map(|(&k, v)| (k, v.clone()))
     }
 
-    //===================================
     // Get earliest value after timestamp
-    //===================================
     fn get_earliest_after(&self, timestamp: u64) -> Option<(u64, V)> {
         self.data
             .range(timestamp..)
@@ -1549,9 +1459,7 @@ impl<V: Clone> TimeSeries<V> {
             .map(|(&k, v)| (k, v.clone()))
     }
 
-    //===================
     // Get first and last
-    //===================
     fn first(&self) -> Option<(u64, V)> {
         self.data.first_key_value().map(|(&k, v)| (k, v.clone()))
     }
@@ -1560,9 +1468,7 @@ impl<V: Clone> TimeSeries<V> {
         self.data.last_key_value().map(|(&k, v)| (k, v.clone()))
     }
 
-    //=================================
     // Remove old data (data retention)
-    //=================================
     fn remove_before(&mut self, timestamp: u64) -> usize {
         let keys_to_remove: Vec<u64> = self.data
             .range(..timestamp)
@@ -1576,9 +1482,7 @@ impl<V: Clone> TimeSeries<V> {
         count
     }
 
-    //=======================================
     // Downsample: get one value per interval
-    //=======================================
     fn downsample(&self, interval: u64) -> Vec<(u64, V)> {
         let mut result = Vec::new();
         let mut current_bucket = None;
@@ -1613,9 +1517,7 @@ impl Leaderboard {
     }
 
     fn update_score(&mut self, name: String, score: u64) {
-        //=================
         // Remove old score
-        //=================
         if let Some(&old_score) = self.name_to_score.get(&name) {
             if let Some(names) = self.scores.get_mut(&old_score) {
                 names.retain(|n| n != &name);
@@ -1625,9 +1527,7 @@ impl Leaderboard {
             }
         }
 
-        //==============
         // Add new score
-        //==============
         self.scores
             .entry(score)
             .or_insert_with(Vec::new)
@@ -1656,9 +1556,7 @@ impl Leaderboard {
         let mut rank = 1;
         for (&s, names) in self.scores.iter().rev() {
             if s == *score {
-                //================================
                 // Find position within same score
-                //================================
                 if let Some(pos) = names.iter().position(|n| n == name) {
                     return Some(rank + pos);
                 }
@@ -1682,30 +1580,22 @@ fn main() {
 
     let mut temps = TimeSeries::new();
 
-    //============================
     // Insert temperature readings
-    //============================
     temps.insert(1699564800, 20.5); // 12:00
     temps.insert(1699568400, 22.1); // 13:00
     temps.insert(1699572000, 23.8); // 14:00
     temps.insert(1699575600, 24.2); // 15:00
     temps.insert(1699579200, 22.9); // 16:00
 
-    //============
     // Range query
-    //============
     let afternoon = temps.range(1699568400, 1699575600);
     println!("Afternoon temps: {:?}", afternoon);
 
-    //====================
     // Latest before 14:30
-    //====================
     let before_1430 = temps.get_latest_before(1699573800);
     println!("Latest before 14:30: {:?}", before_1430);
 
-    //=====================
     // Downsample to hourly
-    //=====================
     let hourly = temps.downsample(3600);
     println!("Hourly samples: {:?}", hourly);
 
@@ -1721,9 +1611,7 @@ fn main() {
     println!("Top 3: {:?}", leaderboard.top(3));
     println!("Charlie's rank: {:?}", leaderboard.rank("Charlie"));
 
-    //=============
     // Update score
-    //=============
     leaderboard.update_score("Alice".to_string(), 2500);
     println!("After Alice's update - Top 3: {:?}", leaderboard.top(3));
     println!("Alice's new rank: {:?}", leaderboard.rank("Alice"));
@@ -1761,9 +1649,7 @@ use std::time::Instant;
 fn benchmark_hash_maps() {
     const SIZE: usize = 1_000_000;
 
-    //======================================================
     // Standard HashMap (SipHash - cryptographically secure)
-    //======================================================
     let start = Instant::now();
     let mut std_map: HashMap<u64, u64> = HashMap::with_capacity(SIZE);
     for i in 0..SIZE as u64 {
@@ -1782,9 +1668,7 @@ fn benchmark_hash_maps() {
     println!("  Get: {:?}", std_get);
     println!("  Sum: {}", sum);
 
-    //============================================
     // FxHashMap (FxHash - fast non-cryptographic)
-    //============================================
     let start = Instant::now();
     let mut fx_map: FxHashMap<u64, u64> = FxHashMap::with_capacity_and_hasher(
         SIZE,
@@ -1901,9 +1785,7 @@ impl SymbolTable {
     }
 
     fn lookup(&self, name: &str) -> Option<&SymbolInfo> {
-        //=========================================
         // Search from innermost to outermost scope
-        //=========================================
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
                 return Some(info);
@@ -2188,9 +2070,7 @@ fn main() {
 
     let cache = ConcurrentCache::new();
 
-    //==============================
     // Spawn multiple writer threads
-    //==============================
     let mut handles = vec![];
     for i in 0..4 {
         let cache_clone = cache.clone_handle();
@@ -2205,18 +2085,14 @@ fn main() {
         }));
     }
 
-    //=================
     // Wait for writers
-    //=================
     for handle in handles {
         handle.join().unwrap();
     }
 
     println!("Cache size after inserts: {}", cache.len());
 
-    //======================
     // Simulate time passing
-    //======================
     thread::sleep(Duration::from_secs(6));
     let removed = cache.remove_expired();
     println!("Removed {} expired entries", removed);
@@ -2226,9 +2102,7 @@ fn main() {
 
     let counter = RequestCounter::new();
 
-    //=============================
     // Simulate concurrent requests
-    //=============================
     let mut handles = vec![];
     for _ in 0..10 {
         let counter_clone = counter.clone_handle();
@@ -2252,15 +2126,11 @@ fn main() {
 
     let tracker = TaskTracker::new();
 
-    //=============
     // Create tasks
-    //=============
     let task_ids: Vec<u64> = (0..10).map(|_| tracker.create_task()).collect();
     println!("Created {} tasks", task_ids.len());
 
-    //=====================
     // Spawn worker threads
-    //=====================
     let mut handles = vec![];
     for _ in 0..3 {
         let tracker_clone = tracker.clone_handle();
@@ -2274,14 +2144,10 @@ fn main() {
                 if let Some(&id) = pending.first() {
                     tracker_clone.update_status(id, TaskStatus::Running);
 
-                    //==============
                     // Simulate work
-                    //==============
                     thread::sleep(Duration::from_millis(100));
 
-                    //==========================
                     // Complete or fail randomly
-                    //==========================
                     if id % 3 == 0 {
                         tracker_clone.update_status(
                             id,
@@ -2410,9 +2276,7 @@ fn benchmark_dashmap(iterations: usize, threads: usize) -> Duration {
 fn benchmark_read_heavy_dashmap(iterations: usize, threads: usize) -> Duration {
     let map = Arc::new(DashMap::new());
 
-    //=============
     // Pre-populate
-    //=============
     for i in 0..1000 {
         map.insert(i, i * 2);
     }

@@ -939,9 +939,7 @@ fn parallel_sort(mut data: Vec<i32>) -> Vec<i32> {
 fn parallel_chunk_processing(data: &[u8], chunk_size: usize) -> Vec<u32> {
     data.par_chunks(chunk_size)
         .map(|chunk| {
-            //================================
             // Expensive computation per chunk
-            //================================
             chunk.iter().map(|&b| b as u32).sum()
         })
         .collect()

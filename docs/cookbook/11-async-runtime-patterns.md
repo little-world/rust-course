@@ -42,9 +42,7 @@ use std::time::Duration;
 // Pattern 1: Basic future composition with map
 //=============================================
 async fn fetch_user_name(user_id: u64) -> Result<String, String> {
-    //==================
     // Simulate API call
-    //==================
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     if user_id == 0 {
@@ -55,9 +53,7 @@ async fn fetch_user_name(user_id: u64) -> Result<String, String> {
 }
 
 async fn get_user_name_uppercase(user_id: u64) -> Result<String, String> {
-    //====================
     // Map over the result
-    //====================
     fetch_user_name(user_id)
         .await
         .map(|name| name.to_uppercase())
@@ -119,9 +115,7 @@ async fn complex_operation() -> Result<String, AppError> {
     let data2 = fetch_json_data("https://api.example.com/data2")
         .await?;
 
-    //=====================
     // Process both results
-    //=====================
     Ok(format!("Combined: {:?} and {:?}", data1, data2))
 }
 
@@ -309,9 +303,7 @@ async fn cancellation_safe_write(data: String) -> Result<(), std::io::Error> {
 
     let mut file = File::create("output.txt").await?;
 
-    //=========================================
     // Write atomically - either all or nothing
-    //=========================================
     file.write_all(data.as_bytes()).await?;
     file.sync_all().await?;
 
@@ -377,14 +369,10 @@ use std::time::Duration;
 // Pattern 1: Creating streams
 //============================
 async fn create_streams() {
-    //==============
     // From iterator
-    //==============
     let s = stream::iter(vec![1, 2, 3, 4, 5]);
 
-    //=============
     // From channel
-    //=============
     let (tx, rx) = tokio::sync::mpsc::channel(10);
     tokio::spawn(async move {
         for i in 0..5 {
@@ -393,9 +381,7 @@ async fn create_streams() {
     });
     let s = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-    //================
     // Interval stream
-    //================
     let s = stream::StreamExt::take(
         tokio_stream::wrappers::IntervalStream::new(
             tokio::time::interval(Duration::from_millis(100))
@@ -469,9 +455,7 @@ async fn rate_limited_requests(urls: Vec<String>) {
             async move {
                 let _permit = permit.acquire().await.unwrap();
                 println!("Fetching: {}", url);
-                //=================
                 // Simulate request
-                //=================
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 format!("Response from {}", url)
             }
@@ -495,9 +479,7 @@ where
 
     for (i, batch) in batches.enumerate() {
         println!("Processing batch {}: {} items", i, batch.len());
-        //==============
         // Process batch
-        //==============
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -679,9 +661,7 @@ async fn database_query_stream(query: String) -> impl Stream<Item = Row> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
     tokio::spawn(async move {
-        //=======================================
         // Simulate database query returning rows
-        //=======================================
         for i in 0..10 {
             tokio::time::sleep(Duration::from_millis(10)).await;
             let row = Row {
@@ -808,9 +788,7 @@ async fn structured_concurrency() {
         });
     }
 
-    //===================
     // Wait for all tasks
-    //===================
     while let Some(result) = set.join_next().await {
         match result {
             Ok(value) => println!("Got: {}", value),
@@ -1085,22 +1063,16 @@ impl CircuitBreaker {
                 return Err(E::from("Circuit breaker is open".to_string()));
             }
             CircuitState::HalfOpen => {
-                //===============
                 // Try to recover
-                //===============
             }
             CircuitState::Closed => {
-                //=================
                 // Normal operation
-                //=================
             }
         }
 
         match operation().await {
             Ok(result) => {
-                //===============
                 // Reset failures
-                //===============
                 *self.failures.lock().await = 0;
                 if matches!(state, CircuitState::HalfOpen) {
                     *self.state.lock().await = CircuitState::Closed;
@@ -1115,9 +1087,7 @@ impl CircuitBreaker {
                     println!("Circuit breaker opened due to {} failures", failures);
                     *self.state.lock().await = CircuitState::Open;
 
-                    //=================================
                     // Schedule transition to half-open
-                    //=================================
                     let state = Arc::clone(&self.state);
                     let timeout = self.timeout;
                     tokio::spawn(async move {
@@ -1279,9 +1249,7 @@ async fn select_loop() {
     let (tx1, mut rx1) = mpsc::channel::<i32>(10);
     let (tx2, mut rx2) = mpsc::channel::<String>(10);
 
-    //================
     // Spawn producers
-    //================
     tokio::spawn(async move {
         for i in 0..5 {
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1329,9 +1297,7 @@ async fn biased_select() {
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    //========================================
     // Biased: always checks branches in order
-    //========================================
     tokio::select! {
         biased;
 
@@ -1377,9 +1343,7 @@ async fn server_with_shutdown() {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     let (request_tx, mut request_rx) = mpsc::channel::<String>(10);
 
-    //===========================
     // Simulate incoming requests
-    //===========================
     let request_tx_clone = request_tx.clone();
     tokio::spawn(async move {
         for i in 0..10 {
@@ -1390,17 +1354,13 @@ async fn server_with_shutdown() {
         }
     });
 
-    //=================================
     // Simulate shutdown after 1 second
-    //=================================
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
         shutdown_tx.send(()).await.unwrap();
     });
 
-    //============
     // Server loop
-    //============
     loop {
         tokio::select! {
             Some(req) = request_rx.recv() => {
@@ -1427,9 +1387,7 @@ async fn select_with_default() {
         tx.send(42).await.unwrap();
     });
 
-    //===========================
     // Try to receive immediately
-    //===========================
     tokio::select! {
         Some(value) = rx.recv() => {
             println!("Got value: {}", value);
@@ -1441,9 +1399,7 @@ async fn select_with_default() {
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    //======================
     // Try again after delay
-    //======================
     tokio::select! {
         Some(value) = rx.recv() => {
             println!("Got value: {}", value);
@@ -1620,9 +1576,7 @@ impl RateLimiter {
     fn new(capacity: usize, refill_amount: usize, refill_interval: Duration) -> Self {
         let semaphore = Arc::new(Semaphore::new(capacity));
 
-        //============
         // Refill task
-        //============
         let sem = Arc::clone(&semaphore);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(refill_interval);
@@ -1803,14 +1757,10 @@ fn custom_runtime_example() {
 // Pattern 4: Blocking operations
 //===============================
 async fn handle_blocking_operations() {
-    //==============================
     // Bad: blocks the async runtime
-    //==============================
     // std::thread::sleep(Duration::from_secs(1));
 
-    //=================================================
     // Good: run blocking code on dedicated thread pool
-    //=================================================
     let result = tokio::task::spawn_blocking(|| {
         std::thread::sleep(Duration::from_secs(1));
         "Blocking operation complete"
@@ -1871,9 +1821,7 @@ async fn mixed_workload() {
             println!("CPU task {}", i);
             std::thread::sleep(Duration::from_millis(100));
 
-            //============================
             // Simulate CPU-intensive work
-            //============================
             let _ = (0..1_000_000).sum::<u64>();
         }
     });
@@ -2079,9 +2027,7 @@ async fn runtime_independent_function() -> i32 {
 }
 
 fn interop_example() {
-    //==========================
     // Can run with any executor
-    //==========================
     let result = block_on(async {
         let (a, b) = join(
             runtime_independent_function(),

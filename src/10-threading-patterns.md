@@ -1,5 +1,62 @@
 # Threading Patterns
 
+
+Thread Spawn and Join Patterns
+
+- Problem: Sequential processing wastes cores; ownership transfer tricky;
+  outliving parent causes use-after-free
+- Solution: thread::spawn() with move closures; .join() for results;
+  scoped threads for stack borrowing
+- Why It Matters: 8x speedup with 8 cores; ownership prevents data races;
+  explicit panic handling
+- Use Cases: Parallel computation, background tasks, concurrent I/O,
+  producer-consumer, fork-join
+
+Thread Pools and Work Stealing
+
+- Problem: Per-task thread creation overhead; too many threads cause
+  thrashing; load imbalance
+- Solution: Pre-spawn N threads, reuse for tasks; work-stealing for
+  dynamic balance
+- Why It Matters: Eliminate per-task overhead; Rayon provides near-linear
+  scaling for irregular workloads
+- Use Cases: Web servers, batch processing, recursive algorithms,
+  background jobs, build systems
+
+Message Passing with Channels
+
+- Problem: Shared mutable state requires locks; coordination complex;
+  broadcast tricky; no backpressure
+- Solution: Channels for message passing; bounded for backpressure;
+  ownership transfer prevents races
+- Why It Matters: No locks = no deadlocks; pipeline architectures clear;
+  automatic backpressure
+- Use Cases: Producer-consumer, actor systems, event-driven, pub-sub,
+  background workers, streaming
+
+Shared State with Arc/Mutex
+
+- Problem: Can't share owned data; Rc not thread-safe; channels add
+  overhead for random access
+- Solution: Arc for shared ownership; Mutex/RwLock for synchronization;
+  Arc<Mutex> pattern
+- Why It Matters: Impossible to create data races at compile time; memory
+  safety without GC
+- Use Cases: Shared caches, connection pools, config, counters, rate
+  limiters, singletons
+
+Barrier and Condvar Patterns
+
+- Problem: Checkpoint synchronization; busy-waiting wastes CPU; polling
+  inefficient; phase coordination
+- Solution: Barrier for N-thread sync points; Condvar for efficient
+  conditional waiting
+- Why It Matters: Phased algorithms elegant; eliminates busy-waiting;
+  efficient blocking vs polling
+- Use Cases: Phased algorithms, producer-consumer blocking, event
+  notification, simulations, testing
+
+
 This chapter explores concurrent programming patterns in Rust using threads. We'll cover thread lifecycle management, parallel work distribution, message passing, shared state synchronization, and coordination primitives through practical, production-ready examples.
 
 ## Table of Contents
@@ -14,9 +71,15 @@ This chapter explores concurrent programming patterns in Rust using threads. We'
 
 ## Thread Spawn and Join Patterns
 
-Thread spawning is the foundation of parallel execution in Rust. Understanding spawn, join, and scoped threads is essential for safe concurrent programming.
+**Problem**: Sequential processing leaves CPU cores idle—single-threaded program uses 12.5% of 8-core machine. Moving data between threads requires ownership transfer, but closures capture by reference. Joining threads to collect results requires explicit handle management. Spawned threads can outlive their parent, causing use-after-free if they borrow stack data. Thread creation overhead (1-2 microseconds) dominates for small tasks.
 
-### Recipe 1: Basic Thread Spawning and Data Transfer
+**Solution**: Use `thread::spawn()` with move closures to transfer ownership. Call `.join()` on JoinHandle to collect results and propagate panics. Use scoped threads (`thread::scope`) to safely borrow stack data with compiler-verified lifetimes. Pass data via channels or shared Arc for communication. For fine-grained tasks, use thread pools instead of spawning per-task.
+
+**Why It Matters**: Threads enable true parallelism—8 cores processing independent work yields 8x speedup. Rust's ownership prevents data races at compile time: can't accidentally share mutable data. Join handles force explicit error handling—panics in threads don't silently disappear. Scoped threads eliminate lifetime annotation gymnastics for stack borrowing. Understanding spawn patterns is foundational for all concurrent programming.
+
+**Use Cases**: Parallel computation (image processing, simulations), background tasks (logging, metrics), concurrent I/O (network requests, file processing), producer-consumer patterns, fork-join parallelism, task spawning in servers.
+
+### Pattern 1: Basic Thread Spawning and Data Transfer
 
 **Problem**: Execute multiple independent tasks in parallel and collect their results safely.
 
@@ -32,18 +95,14 @@ use std::time::Duration;
 fn spawn_with_owned_data() {
     let data = vec![1, 2, 3, 4, 5];
 
-    //======================
     // Move data into thread
-    //======================
     let handle = thread::spawn(move || {
         let sum: i32 = data.iter().sum();
         println!("Sum calculated by thread: {}", sum);
         sum
     });
 
-    //===============================
     // Wait for thread and get result
-    //===============================
     let result = handle.join().unwrap();
     println!("Result from thread: {}", result);
 }
@@ -54,9 +113,7 @@ fn spawn_with_owned_data() {
 fn parallel_computations() {
     let numbers = vec![1, 2, 3, 4, 5];
 
-    //================================
     // Clone data for multiple threads
-    //================================
     let numbers_clone1 = numbers.clone();
     let numbers_clone2 = numbers.clone();
 
@@ -79,9 +136,7 @@ fn parallel_computations() {
 //======================================
 fn thread_with_error_handling() {
     let handle = thread::spawn(|| {
-        //=====================================
         // Simulate computation that might fail
-        //=====================================
         if rand::random::<bool>() {
             Ok(42)
         } else {
@@ -196,7 +251,7 @@ fn main() {
 
 ---
 
-### Recipe 2: Scoped Threads for Borrowing
+### Pattern 2: Scoped Threads for Borrowing
 
 **Problem**: Spawn threads that borrow data from the parent scope without requiring `'static` lifetime.
 
@@ -228,28 +283,20 @@ fn scoped_threads_borrowing() {
     let mut data = vec![1, 2, 3, 4, 5];
 
     thread::scope(|s| {
-        //====================================
         // Spawn thread that borrows immutably
-        //====================================
         s.spawn(|| {
             println!("Sum: {}", data.iter().sum::<i32>());
         });
 
-        //============================================
         // Spawn another thread that borrows immutably
-        //============================================
         s.spawn(|| {
             println!("Product: {}", data.iter().product::<i32>());
         });
 
-        //===================================
         // Both threads can read concurrently
-        //===================================
     }); // All scoped threads join here automatically
 
-    //===========================
     // After scope, we can mutate
-    //===========================
     data.push(6);
     println!("Extended data: {:?}", data);
 }
@@ -299,9 +346,7 @@ impl Matrix {
     {
         thread::scope(|s| {
             for row in &mut self.data {
-                //=============================================
                 // Borrow each row mutably in different threads
-                //=============================================
                 s.spawn(|| {
                     operation(row);
                 });
@@ -384,7 +429,7 @@ fn main() {
 
 ---
 
-### Recipe 3: Thread Pool Pattern (Manual Implementation)
+### Pattern 3: Thread Pool Pattern (Manual Implementation)
 
 **Problem**: Reuse threads for multiple tasks to avoid the overhead of repeated thread creation.
 
@@ -492,23 +537,17 @@ use std::time::Duration;
 fn simulate_http_server() {
     let pool = ThreadPool::new(4);
 
-    //===========================
     // Simulate incoming requests
-    //===========================
     for request_id in 0..10 {
         pool.execute(move || {
             println!("Handling request {}", request_id);
-            //==============
             // Simulate work
-            //==============
             thread::sleep(Duration::from_millis(500));
             println!("Request {} completed", request_id);
         });
     }
 
-    //=====================================================
     // Pool will wait for all jobs to complete when dropped
-    //=====================================================
 }
 
 //==================================
@@ -528,9 +567,7 @@ impl BatchProcessor {
     fn process_batch(&self, items: Vec<i32>) {
         for item in items {
             self.pool.execute(move || {
-                //===============================
                 // Simulate expensive computation
-                //===============================
                 let result = item * item;
                 println!("Processed {}: result = {}", item, result);
             });
@@ -546,9 +583,7 @@ fn main() {
     let processor = BatchProcessor::new(3);
     processor.process_batch(vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
-    //================================
     // Wait for processing to complete
-    //================================
     thread::sleep(Duration::from_secs(2));
 }
 ```
@@ -563,9 +598,15 @@ fn main() {
 
 ## Thread Pools and Work Stealing
 
-Work stealing enables dynamic load balancing across threads, improving throughput for irregular workloads.
+**Problem**: Spawning thread per task causes overhead—creating 10K threads for 10K small tasks wastes 10-20ms just on thread creation. Too many threads cause thrashing as OS context switches thousands of times per second. Static work division leaves some threads idle while others overloaded (load imbalance). Managing thread count manually is error-prone—too few underutilizes cores, too many wastes memory.
 
-### Recipe 4: Rayon for Data Parallelism
+**Solution**: Use thread pools: pre-spawn N threads (typically = CPU cores) and reuse for tasks. Submit tasks to shared queue, threads pull work as available. Use work-stealing (Rayon, tokio) where idle threads steal from busy threads' queues. Use `rayon::ThreadPoolBuilder` or implement custom pool with channels. Set pool size based on workload: CPU-bound = core count, I/O-bound = higher for parallelism during waits.
+
+**Why It Matters**: Thread pools eliminate per-task overhead—10K tasks on 8-thread pool creates 8 threads once vs 10K thread creations. Work stealing prevents load imbalance: recursive tasks (quicksort, tree traversal) naturally balance as fast threads steal from slow. Web server with thread pool: constant memory (N threads) vs unbounded (1 thread/request). Rayon's work-stealing scheduler provides near-linear scaling for irregular workloads.
+
+**Use Cases**: Web servers (request handling), CPU-bound batch processing (image encoding, data ETL), recursive algorithms (quicksort, tree traversal), background job processing, compile-time parallelism (compiler build systems).
+
+### Pattern 4: Rayon for Data Parallelism
 
 **Problem**: Process large datasets in parallel with automatic work distribution.
 
@@ -583,15 +624,11 @@ use rayon::prelude::*;
 fn parallel_map_reduce() {
     let numbers: Vec<i32> = (1..=1_000_000).collect();
 
-    //=============
     // Parallel sum
-    //=============
     let sum: i32 = numbers.par_iter().sum();
     println!("Sum: {}", sum);
 
-    //=============
     // Parallel map
-    //=============
     let squares: Vec<i32> = numbers
         .par_iter()
         .map(|&x| x * x)
@@ -599,9 +636,7 @@ fn parallel_map_reduce() {
 
     println!("First 10 squares: {:?}", &squares[..10]);
 
-    //================
     // Parallel filter
-    //================
     let evens: Vec<i32> = numbers
         .par_iter()
         .filter(|&&x| x % 2 == 0)
@@ -617,9 +652,7 @@ fn parallel_map_reduce() {
 fn parallel_sorting() {
     let mut data: Vec<i32> = (0..1_000_000).rev().collect();
 
-    //========================================================
     // Parallel sort (faster than sequential for large arrays)
-    //========================================================
     data.par_sort();
 
     println!("Sorted data (first 10): {:?}", &data[..10]);
@@ -705,9 +738,7 @@ struct LogEntry {
 }
 
 fn analyze_logs_parallel(logs: Vec<LogEntry>) -> HashMap<String, usize> {
-    //============================
     // Parallel group-by and count
-    //============================
     logs.par_iter()
         .fold(
             || HashMap::new(),
@@ -733,9 +764,7 @@ fn analyze_logs_parallel(logs: Vec<LogEntry>) -> HashMap<String, usize> {
 fn parallel_custom_reduce() {
     let numbers: Vec<i32> = (1..=100).collect();
 
-    //=============================
     // Find min and max in parallel
-    //=============================
     let (min, max) = numbers
         .par_iter()
         .fold(
@@ -792,7 +821,7 @@ fn main() {
 
 ---
 
-### Recipe 5: Custom Work Stealing Queue
+### Pattern 5: Custom Work Stealing Queue
 
 **Problem**: Implement work stealing for task-based parallelism with dynamic load balancing.
 
@@ -820,16 +849,12 @@ where
         let mut queues = Vec::new();
         let mut workers = Vec::new();
 
-        //===============================
         // Create a queue for each worker
-        //===============================
         for _ in 0..num_threads {
             queues.push(Arc::new(Mutex::new(VecDeque::new())));
         }
 
-        //==============
         // Spawn workers
-        //==============
         for i in 0..num_threads {
             let my_queue = Arc::clone(&queues[i]);
             let steal_queues: Vec<_> = queues
@@ -843,9 +868,7 @@ where
 
             let worker = thread::spawn(move || {
                 loop {
-                    //===============================
                     // Try to get work from own queue
-                    //===============================
                     let task = {
                         let mut queue = my_queue.lock().unwrap();
                         queue.pop_front()
@@ -856,9 +879,7 @@ where
                         continue;
                     }
 
-                    //===============================
                     // Try to steal from other queues
-                    //===============================
                     let mut stolen = false;
                     for steal_queue in &steal_queues {
                         let task = {
@@ -874,9 +895,7 @@ where
                     }
 
                     if !stolen {
-                        //=================================
                         // No work available, sleep briefly
-                        //=================================
                         thread::sleep(Duration::from_micros(100));
                     }
                 }
@@ -912,16 +931,12 @@ fn fibonacci_work_stealing() {
         results_clone.lock().unwrap().push((n, fib));
     });
 
-    //=============
     // Submit tasks
-    //=============
     for i in 1..=20 {
         pool.submit(i, i as usize);
     }
 
-    //====================
     // Let workers process
-    //====================
     thread::sleep(Duration::from_secs(2));
 }
 
@@ -948,9 +963,15 @@ fn main() {
 
 ## Message Passing with Channels
 
-Channels enable safe communication between threads following "share memory by communicating" philosophy.
+**Problem**: Shared mutable state requires locks, causing contention and complexity. `Arc<Mutex<T>>` for every communication point is verbose and error-prone—forget lock or hold too long = deadlock/contention. Coordinating multiple threads with shared state leads to race conditions. Broadcasting updates to multiple consumers with shared memory requires careful synchronization. Backpressure (slowing producers when consumers lag) needs manual implementation.
 
-### Recipe 6: MPSC Channel Patterns
+**Solution**: Use channels (`std::sync::mpsc` or `crossbeam::channel`) for message passing between threads. Producers send, consumers receive—no shared mutable state. Use bounded channels for backpressure (send blocks when full). Use `select!` for multiplexing multiple channels. Use broadcast channels for one-to-many communication. Channels transfer ownership, preventing data races by design.
+
+**Why It Matters**: Channels eliminate entire categories of concurrency bugs. No locks = no deadlocks. Ownership transfer = no data races. Pipeline architectures (stage 1 → stage 2 → stage 3) with channels are clear and composable. Actor model systems (Actix, async channels) rely on message passing. Bounded channels provide backpressure automatically—fast producer can't overwhelm slow consumer. Go's philosophy "share memory by communicating" proves itself in practice.
+
+**Use Cases**: Producer-consumer pipelines, actor systems, event-driven architectures, pub-sub systems, background workers (logging, metrics), stream processing, request/response patterns, distributed systems communication.
+
+### Pattern 6: MPSC Channel Patterns
 
 **Problem**: Coordinate multiple producer threads sending data to a single consumer.
 
@@ -967,9 +988,7 @@ use std::time::Duration;
 fn basic_mpsc() {
     let (tx, rx) = mpsc::channel();
 
-    //===============
     // Spawn producer
-    //===============
     thread::spawn(move || {
         for i in 0..5 {
             tx.send(i).unwrap();
@@ -977,9 +996,7 @@ fn basic_mpsc() {
         }
     });
 
-    //=========
     // Consumer
-    //=========
     for received in rx {
         println!("Received: {}", received);
     }
@@ -1002,14 +1019,10 @@ fn multiple_producers() {
         });
     }
 
-    //=====================
     // Drop original sender
-    //=====================
     drop(tx);
 
-    //=====================
     // Receive all messages
-    //=====================
     for received in rx {
         println!("{}", received);
     }
@@ -1057,9 +1070,7 @@ fn data_pipeline() {
     let (processed_tx, processed_rx) = mpsc::channel::<ProcessedData>();
     let (enriched_tx, enriched_rx) = mpsc::channel::<EnrichedData>();
 
-    //========================
     // Stage 1: Data ingestion
-    //========================
     thread::spawn(move || {
         for i in 0..5 {
             let data = RawData(format!("data_{}", i));
@@ -1069,9 +1080,7 @@ fn data_pipeline() {
         }
     });
 
-    //====================
     // Stage 2: Processing
-    //====================
     thread::spawn(move || {
         for raw in raw_rx {
             let processed = ProcessedData {
@@ -1084,9 +1093,7 @@ fn data_pipeline() {
         }
     });
 
-    //====================
     // Stage 3: Enrichment
-    //====================
     thread::spawn(move || {
         for data in processed_rx {
             let enriched = EnrichedData {
@@ -1101,9 +1108,7 @@ fn data_pipeline() {
         }
     });
 
-    //================
     // Stage 4: Output
-    //================
     for result in enriched_rx {
         println!("Final output: {:?}", result);
     }
@@ -1116,18 +1121,14 @@ fn fan_out_fan_in() {
     let (input_tx, input_rx) = mpsc::channel::<i32>();
     let (output_tx, output_rx) = mpsc::channel::<i32>();
 
-    //================
     // Input generator
-    //================
     thread::spawn(move || {
         for i in 0..20 {
             input_tx.send(i).unwrap();
         }
     });
 
-    //==========================
     // Fan-out: Multiple workers
-    //==========================
     let num_workers = 4;
     for _ in 0..num_workers {
         let input_rx = input_rx.clone();
@@ -1135,9 +1136,7 @@ fn fan_out_fan_in() {
 
         thread::spawn(move || {
             for value in input_rx {
-                //==============
                 // Simulate work
-                //==============
                 thread::sleep(Duration::from_millis(10));
                 let result = value * value;
                 output_tx.send(result).unwrap();
@@ -1148,9 +1147,7 @@ fn fan_out_fan_in() {
     drop(input_rx); // Close input channel
     drop(output_tx); // Close output channel
 
-    //========================
     // Fan-in: Collect results
-    //========================
     let results: Vec<i32> = output_rx.iter().collect();
     println!("Collected {} results", results.len());
     println!("First 10: {:?}", &results[..10.min(results.len())]);
@@ -1182,7 +1179,7 @@ fn main() {
 
 ---
 
-### Recipe 7: Crossbeam Channels for Advanced Patterns
+### Pattern 7: Crossbeam Channels for Advanced Patterns
 
 **Problem**: Implement complex communication patterns with bounded channels, selection, and timeouts.
 
@@ -1202,9 +1199,7 @@ use std::time::Duration;
 fn bounded_channel_backpressure() {
     let (tx, rx) = bounded(3);
 
-    //==============
     // Fast producer
-    //==============
     let producer = thread::spawn(move || {
         for i in 0..10 {
             println!("Trying to send {}", i);
@@ -1213,9 +1208,7 @@ fn bounded_channel_backpressure() {
         }
     });
 
-    //==============
     // Slow consumer
-    //==============
     let consumer = thread::spawn(move || {
         for value in rx {
             println!("Received {}", value);
@@ -1244,17 +1237,13 @@ fn channel_selection() {
         tx2.send("from channel 2").unwrap();
     });
 
-    //================================
     // Select whichever is ready first
-    //================================
     select! {
         recv(rx1) -> msg => println!("Received: {:?}", msg),
         recv(rx2) -> msg => println!("Received: {:?}", msg),
     }
 
-    //===============================
     // Can select again for the other
-    //===============================
     select! {
         recv(rx1) -> msg => println!("Received: {:?}", msg),
         recv(rx2) -> msg => println!("Received: {:?}", msg),
@@ -1332,23 +1321,17 @@ fn actor_pattern() {
         actor.run();
     });
 
-    //=======================
     // Send messages to actor
-    //=======================
     tx.send(ActorMessage::Process("Hello ".to_string())).unwrap();
     tx.send(ActorMessage::Process("World!".to_string())).unwrap();
 
-    //============
     // Query state
-    //============
     let (reply_tx, reply_rx) = unbounded();
     tx.send(ActorMessage::GetState(reply_tx)).unwrap();
     let state = reply_rx.recv().unwrap();
     println!("Actor state: {}", state);
 
-    //=========
     // Shutdown
-    //=========
     tx.send(ActorMessage::Shutdown).unwrap();
     actor_handle.join().unwrap();
 }
@@ -1370,9 +1353,7 @@ struct Response {
 fn request_response_pattern() {
     let (req_tx, req_rx) = unbounded::<Request>();
 
-    //=======
     // Server
-    //=======
     thread::spawn(move || {
         for request in req_rx {
             let response = Response {
@@ -1383,9 +1364,7 @@ fn request_response_pattern() {
         }
     });
 
-    //========
     // Clients
-    //========
     for i in 0..5 {
         let req_tx = req_tx.clone();
         thread::spawn(move || {
@@ -1433,9 +1412,15 @@ fn main() {
 
 ## Shared State with Arc/Mutex
 
-Shared state enables multiple threads to safely access and modify common data.
+**Problem**: Threads can't share owned data—ownership transfers to first thread. Borrowing across threads violates lifetime rules—thread could outlive data. Need multiple threads reading/writing shared counters, caches, or configuration. Channels add overhead when all threads need random access to same data structure. Reference counting (`Rc`) isn't thread-safe. Manual synchronization with raw pointers is unsafe and error-prone.
 
-### Recipe 8: Arc and Mutex Fundamentals
+**Solution**: Use `Arc<T>` (Atomic Reference Counting) for shared ownership across threads. Wrap mutable data in `Mutex<T>` or `RwLock<T>` for synchronized access. Combine as `Arc<Mutex<T>>` for shared mutable state. Clone Arc to share across threads—clones point to same data. Lock mutex to access, automatically unlocks when guard drops. Use RwLock for read-heavy workloads (multiple readers OR one writer).
+
+**Why It Matters**: Arc+Mutex enables safe shared mutable state—impossible to create data races at compile time. Web server with shared connection pool: Arc lets threads share pool, Mutex synchronizes access. Shared cache with Arc<RwLock>: readers don't block each other, only writers block. Memory safety without garbage collection: Arc refcount drops data when last reference gone. Alternative to channels when random access needed or copying data is expensive.
+
+**Use Cases**: Shared caches, connection pools, configuration state, request counters, rate limiters, shared data structures (maps, sets), thread-safe singletons, metrics collection.
+
+### Pattern 8: Arc and Mutex Fundamentals
 
 **Problem**: Share mutable state across threads safely with atomic reference counting and mutual exclusion.
 
@@ -1484,9 +1469,7 @@ fn lock_guard_scope() {
             vec.push(4);
         } // Lock released here
 
-        //=======================
         // Can acquire lock again
-        //=======================
         let vec = data_clone.lock().unwrap();
         println!("Thread sees: {:?}", *vec);
     })
@@ -1512,9 +1495,7 @@ fn try_lock_pattern() {
 
     thread::sleep(Duration::from_millis(100));
 
-    //=====================================
     // Try to acquire lock without blocking
-    //=====================================
     match data.try_lock() {
         Ok(mut num) => {
             *num += 1;
@@ -1565,9 +1546,7 @@ fn shared_cache_example() {
     let cache = Cache::new();
     let mut handles = vec![];
 
-    //===============
     // Writer threads
-    //===============
     for i in 0..3 {
         let cache = cache.clone_handle();
         handles.push(thread::spawn(move || {
@@ -1575,9 +1554,7 @@ fn shared_cache_example() {
         }));
     }
 
-    //===============
     // Reader threads
-    //===============
     for i in 0..3 {
         let cache = cache.clone_handle();
         handles.push(thread::spawn(move || {
@@ -1679,7 +1656,7 @@ fn main() {
 
 ---
 
-### Recipe 9: RwLock for Read-Heavy Workloads
+### Pattern 9: RwLock for Read-Heavy Workloads
 
 **Problem**: Allow multiple concurrent readers while ensuring exclusive write access.
 
@@ -1698,9 +1675,7 @@ fn rwlock_basic() {
     let data = Arc::new(RwLock::new(vec![1, 2, 3]));
     let mut handles = vec![];
 
-    //==============
     // Spawn readers
-    //==============
     for i in 0..5 {
         let data = Arc::clone(&data);
         handles.push(thread::spawn(move || {
@@ -1710,9 +1685,7 @@ fn rwlock_basic() {
         }));
     }
 
-    //=============
     // Spawn writer
-    //=============
     let data_clone = Arc::clone(&data);
     handles.push(thread::spawn(move || {
         thread::sleep(Duration::from_millis(50));
@@ -1777,9 +1750,7 @@ fn benchmark_rwlock_vs_mutex() {
     const READERS: usize = 10;
     const OPERATIONS: usize = 10000;
 
-    //================
     // Test with Mutex
-    //================
     println!("Testing with Mutex:");
     let mutex_data = Arc::new(std::sync::Mutex::new(0));
     let start = Instant::now();
@@ -1802,9 +1773,7 @@ fn benchmark_rwlock_vs_mutex() {
     let mutex_time = start.elapsed();
     println!("  Time: {:?}", mutex_time);
 
-    //=================
     // Test with RwLock
-    //=================
     println!("\nTesting with RwLock:");
     let rwlock_data = Arc::new(RwLock::new(0));
     let start = Instant::now();
@@ -1880,9 +1849,7 @@ impl Database {
 fn database_example() {
     let db = Database::new();
 
-    //=============
     // Initial data
-    //=============
     db.transaction(|data| {
         data.insert("user:1".to_string(), "Alice".to_string());
         data.insert("user:2".to_string(), "Bob".to_string());
@@ -1890,9 +1857,7 @@ fn database_example() {
 
     let mut handles = vec![];
 
-    //=============
     // Many readers
-    //=============
     for i in 1..=10 {
         let db = db.clone_handle();
         handles.push(thread::spawn(move || {
@@ -1902,9 +1867,7 @@ fn database_example() {
         }));
     }
 
-    //==================
     // Occasional writer
-    //==================
     let db_clone = db.clone_handle();
     handles.push(thread::spawn(move || {
         thread::sleep(Duration::from_millis(50));
@@ -1942,9 +1905,15 @@ fn main() {
 
 ## Barrier and Condvar Patterns
 
-Synchronization primitives enable coordinating thread execution at specific points.
+**Problem**: Threads need to synchronize at checkpoints—all must reach initialization phase before processing begins. Busy-waiting (loop checking bool) wastes CPU. Sleeping wastes time with coarse-grained waits. Producer-consumer with fixed-size buffer needs conditional waiting: producer waits when full, consumer waits when empty. Polling for condition changes is inefficient. Phase-based algorithms require all threads to complete phase N before any start phase N+1.
 
-### Recipe 10: Barrier for Phased Computation
+**Solution**: Use `Barrier` for synchronization points where N threads must arrive before any continue—resets automatically for reuse. Use `Condvar` (condition variable) with Mutex for efficient conditional waiting: thread blocks until notified, no busy-waiting. Producer calls `notify_one()`/`notify_all()` to wake waiters. Use wait loops with predicate to handle spurious wakeups. Combine with Arc for sharing across threads.
+
+**Why It Matters**: Barriers enable phased parallel algorithms elegantly—simulations where each iteration depends on previous, parallel matrix operations requiring synchronization. Condvar eliminates busy-waiting: CPU usage drops from 100% spinning to 0% blocked. Producer-consumer with condvar scales to millions of items—efficient blocking instead of polling. Real-time systems use these for precise synchronization between threads. MapReduce-style patterns rely on barriers for reduce phase coordination.
+
+**Use Cases**: Phased algorithms (iterative solvers, game loops with sync points), producer-consumer with blocking, event notification (task completion, state changes), thread pool coordination (wait for all workers), parallel simulations (lockstep synchronization), parallel testing (start all threads simultaneously).
+
+### Pattern 10: Barrier for Phased Computation
 
 **Problem**: Synchronize multiple threads at specific points, ensuring all threads reach a barrier before any proceed.
 
@@ -1990,23 +1959,17 @@ fn multi_phase_computation() {
     for id in 0..num_threads {
         let barrier = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
-            //====================
             // Phase 1: Initialize
-            //====================
             println!("Thread {} initializing", id);
             thread::sleep(Duration::from_millis(50));
             barrier.wait();
 
-            //=================
             // Phase 2: Process
-            //=================
             println!("Thread {} processing", id);
             thread::sleep(Duration::from_millis(50));
             barrier.wait();
 
-            //==================
             // Phase 3: Finalize
-            //==================
             println!("Thread {} finalizing", id);
             thread::sleep(Duration::from_millis(50));
             barrier.wait();
@@ -2059,16 +2022,12 @@ fn parallel_simulation() {
                 .collect();
 
             for t in 0..timesteps {
-                //=================
                 // Update particles
-                //=================
                 for particle in &mut particles {
                     particle.update(0.1);
                 }
 
-                //===============================================
                 // Wait for all threads to complete this timestep
-                //===============================================
                 barrier.wait();
 
                 if thread_id == 0 {
@@ -2115,9 +2074,7 @@ fn parallel_matrix_multiply() {
 
             println!("Thread {} computing rows {}-{}", thread_id, start_row, end_row);
 
-            //======================
             // Compute assigned rows
-            //======================
             let mut local_result = vec![vec![0.0; SIZE]; end_row - start_row];
 
             for i in 0..(end_row - start_row) {
@@ -2128,18 +2085,14 @@ fn parallel_matrix_multiply() {
                 }
             }
 
-            //==============
             // Write results
-            //==============
             let mut c = c.lock().unwrap();
             for i in 0..(end_row - start_row) {
                 c[start_row + i] = local_result[i].clone();
             }
             drop(c);
 
-            //=====================
             // Wait for all threads
-            //=====================
             barrier.wait();
 
             if thread_id == 0 {
@@ -2176,7 +2129,7 @@ fn main() {
 
 ---
 
-### Recipe 11: Condvar for Complex Synchronization
+### Pattern 11: Condvar for Complex Synchronization
 
 **Problem**: Wait for a condition to become true, enabling efficient thread coordination beyond simple barriers.
 
@@ -2195,9 +2148,7 @@ fn producer_consumer_condvar() {
     let queue = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
     let (queue_clone, queue_clone2) = (Arc::clone(&queue), Arc::clone(&queue));
 
-    //=========
     // Producer
-    //=========
     let producer = thread::spawn(move || {
         for i in 0..5 {
             thread::sleep(Duration::from_millis(100));
@@ -2210,18 +2161,14 @@ fn producer_consumer_condvar() {
         }
     });
 
-    //=========
     // Consumer
-    //=========
     let consumer = thread::spawn(move || {
         let (lock, cvar) = &*queue_clone2;
 
         for _ in 0..5 {
             let mut q = lock.lock().unwrap();
 
-            //==============================
             // Wait until queue is non-empty
-            //==============================
             while q.is_empty() {
                 q = cvar.wait(q).unwrap();
             }
@@ -2253,9 +2200,7 @@ fn condvar_with_timeout() {
     let (lock, cvar) = &*pair;
     let mut ready = lock.lock().unwrap();
 
-    //========================
     // Wait for up to 1 second
-    //========================
     let result = cvar
         .wait_timeout_while(ready, Duration::from_secs(1), |&mut ready| !ready)
         .unwrap();
@@ -2290,9 +2235,7 @@ impl<T> BoundedQueue<T> {
     fn push(&self, item: T) {
         let mut queue = self.queue.lock().unwrap();
 
-        //=============================
         // Wait until queue is not full
-        //=============================
         while queue.len() >= self.capacity {
             queue = self.not_full.wait(queue).unwrap();
         }
@@ -2304,9 +2247,7 @@ impl<T> BoundedQueue<T> {
     fn pop(&self) -> T {
         let mut queue = self.queue.lock().unwrap();
 
-        //==============================
         // Wait until queue is not empty
-        //==============================
         while queue.is_empty() {
             queue = self.not_empty.wait(queue).unwrap();
         }
@@ -2339,9 +2280,7 @@ impl<T> BoundedQueue<T> {
 fn bounded_queue_example() {
     let queue = Arc::new(BoundedQueue::new(3));
 
-    //==============
     // Fast producer
-    //==============
     let queue_clone = Arc::clone(&queue);
     let producer = thread::spawn(move || {
         for i in 0..10 {
@@ -2351,9 +2290,7 @@ fn bounded_queue_example() {
         }
     });
 
-    //==============
     // Slow consumer
-    //==============
     let queue_clone = Arc::clone(&queue);
     let consumer = thread::spawn(move || {
         for _ in 0..10 {
@@ -2391,9 +2328,7 @@ impl WorkerPool {
                     let (lock, cvar) = &*queue;
                     let mut q = lock.lock().unwrap();
 
-                    //==========================
                     // Wait for work or shutdown
-                    //==========================
                     while q.is_empty() && !*shutdown.lock().unwrap() {
                         q = cvar.wait(q).unwrap();
                     }

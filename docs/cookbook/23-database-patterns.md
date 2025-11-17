@@ -72,15 +72,11 @@ fn create_pool(database_url: &str) -> Result<PostgresPool, Box<dyn Error>> {
 
 /// Example: Using the pool
 async fn fetch_user(pool: &PostgresPool, user_id: i32) -> Result<String, Box<dyn Error>> {
-    //===============================
     // Get a connection from the pool
-    //===============================
     // This blocks if all connections are in use, until one becomes available
     let mut conn = pool.get()?;
 
-    //===================
     // Use the connection
-    //===================
     let row = conn.query_one(
         "SELECT username FROM users WHERE id = $1",
         &[&user_id],
@@ -88,18 +84,14 @@ async fn fetch_user(pool: &PostgresPool, user_id: i32) -> Result<String, Box<dyn
 
     let username: String = row.get(0);
 
-    //================================================================
     // Connection automatically returns to pool when `conn` is dropped
-    //================================================================
     Ok(username)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let pool = create_pool("postgresql://user:pass@localhost/mydb")?;
 
-    //================================================
     // The pool can be cloned cheaply (Arc internally)
-    //================================================
     // and shared across threads
     let pool_clone = pool.clone();
 
@@ -107,9 +99,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         fetch_user(&pool_clone, 42)
     });
 
-    //===========================================
     // Both threads can use the pool concurrently
-    //===========================================
     let username = fetch_user(&pool, 42)?;
     println!("User: {}", username);
 
@@ -131,42 +121,28 @@ use std::time::Duration;
 
 fn configure_pool_detailed(manager: PostgresConnectionManager<NoTls>) -> PostgresPool {
     Pool::builder()
-        //========================================
         // Maximum number of connections to create
-        //========================================
         // Higher = more concurrent requests, but more database load
         .max_size(20)
 
-        //=====================================
         // Minimum idle connections to maintain
-        //=====================================
         // Higher = faster response for bursts, but more idle resources
         .min_idle(Some(5))
 
-        //====================================================
         // How long to wait for a connection before timing out
-        //====================================================
         // Too low = errors during load spikes
-        //==============================================
         // Too high = slow responses when pool exhausted
-        //==============================================
         .connection_timeout(Duration::from_secs(10))
 
-        //====================================================
         // Test connections before use to ensure they're alive
-        //====================================================
         // Adds overhead but prevents using dead connections
         .test_on_check_out(true)
 
-        //======================================================
         // How long a connection can be idle before being closed
-        //======================================================
         // Prevents accumulating stale connections
         .idle_timeout(Some(Duration::from_secs(300)))
 
-        //==========================================================
         // Maximum lifetime of a connection before forced recreation
-        //==========================================================
         // Ensures connections don't grow stale over time
         .max_lifetime(Some(Duration::from_secs(1800)))
 
@@ -229,24 +205,18 @@ fn create_async_pool() -> Result<Pool, Box<dyn Error>> {
 
 /// Fetch user asynchronously
 async fn fetch_user_async(pool: &Pool, user_id: i32) -> Result<String, Box<dyn Error>> {
-    //==============================
     // Get connection asynchronously
-    //==============================
     // This awaits instead of blocking
     let client = pool.get().await?;
 
-    //==============
     // Execute query
-    //==============
     let row = client
         .query_one("SELECT username FROM users WHERE id = $1", &[&user_id])
         .await?;
 
     let username: String = row.get(0);
 
-    //===================================
     // Connection returns to pool on drop
-    //===================================
     Ok(username)
 }
 
@@ -254,9 +224,7 @@ async fn fetch_user_async(pool: &Pool, user_id: i32) -> Result<String, Box<dyn E
 async fn main() -> Result<(), Box<dyn Error>> {
     let pool = create_async_pool()?;
 
-    //===============================================
     // Can handle many concurrent queries efficiently
-    //===============================================
     let tasks = (1..=100).map(|id| {
         let pool = pool.clone();
         tokio::spawn(async move {
@@ -264,9 +232,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     });
 
-    //=====================
     // Wait for all queries
-    //=====================
     let results = futures::future::join_all(tasks).await;
 
     println!("Completed {} queries", results.len());
@@ -292,16 +258,12 @@ async fn monitor_pool_health(pool: &Pool) {
     println!("  Size: {}", status.size);
     println!("  Max size: {}", status.max_size);
 
-    //===========================
     // Alert if pool is exhausted
-    //===========================
     if status.available == 0 {
         eprintln!("WARNING: Connection pool exhausted!");
     }
 
-    //==================================================
     // Alert if pool is mostly idle (might be oversized)
-    //==================================================
     if status.available > status.max_size * 3 / 4 {
         eprintln!("INFO: Pool mostly idle, consider reducing size");
     }
@@ -311,14 +273,10 @@ async fn monitor_pool_health(pool: &Pool) {
 async fn shutdown_pool(pool: Pool) {
     println!("Shutting down pool...");
 
-    //===============
     // Close the pool
-    //===============
     pool.close();
 
-    //=======================================
     // Give active connections time to finish
-    //=======================================
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     println!("Pool shutdown complete");
@@ -342,22 +300,16 @@ Consider this common pattern:
 async fn fetch_user_unsafe(pool: &Pool, user_id: i32) -> Result<User, Error> {
     let client = pool.get().await?;
 
-    //==================================================
     // Typo in column name won't be caught until runtime
-    //==================================================
     let row = client.query_one(
         "SELECT usrname, email FROM users WHERE id = $1",
         &[&user_id],
     ).await?;
 
-    //============================================
     // Type mismatch won't be caught until runtime
-    //============================================
     let username: i32 = row.get(0); // Should be String!
 
-    //====
     // ...
-    //====
 }
 ```
 
@@ -384,25 +336,17 @@ struct User {
 }
 
 async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
-    //=====================================
     // SQLx has built-in connection pooling
-    //=====================================
     PgPool::connect(database_url).await
 }
 
 /// Compile-time verified query
 async fn fetch_user(pool: &PgPool, user_id: i32) -> Result<User, sqlx::Error> {
-    //===================================================
     // The query! macro verifies this SQL at compile time
-    //===================================================
     // It checks:
-    //======================
     // - SQL syntax is valid
-    //======================
     // - Table and columns exist
-    //========================
     // - Parameter types match
-    //========================
     // - Return types match
     let user = sqlx::query_as!(
         User,
@@ -470,9 +414,7 @@ async fn search_users(
     email_filter: Option<&str>,
     limit: i64,
 ) -> Result<Vec<User>, sqlx::Error> {
-    //=================================
     // QueryBuilder for dynamic queries
-    //=================================
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         "SELECT id, username, email, created_at FROM users WHERE 1=1"
     );
@@ -654,14 +596,10 @@ async fn transfer_money(
     to_account: i32,
     amount: f64,
 ) -> Result<(), sqlx::Error> {
-    //====================
     // Start a transaction
-    //====================
     let mut tx: Transaction<Postgres> = pool.begin().await?;
 
-    //===================
     // Debit from account
-    //===================
     sqlx::query!(
         "UPDATE accounts SET balance = balance - $1 WHERE id = $2",
         amount,
@@ -670,9 +608,7 @@ async fn transfer_money(
     .execute(&mut *tx)
     .await?;
 
-    //==================
     // Credit to account
-    //==================
     sqlx::query!(
         "UPDATE accounts SET balance = balance + $1 WHERE id = $2",
         amount,
@@ -681,9 +617,7 @@ async fn transfer_money(
     .execute(&mut *tx)
     .await?;
 
-    //=======================
     // Commit the transaction
-    //=======================
     // If we return early (error), the transaction auto-rollbacks on drop
     tx.commit().await?;
 
@@ -703,41 +637,29 @@ use sqlx::{PgPool, Postgres, Transaction};
 async fn complex_operation(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    //============
     // Operation 1
-    //============
     sqlx::query!("INSERT INTO logs (message) VALUES ('Starting')")
         .execute(&mut *tx)
         .await?;
 
-    //==========================================
     // Create a savepoint for nested transaction
-    //==========================================
     let mut savepoint = tx.begin().await?;
 
-    //======================
     // Try a risky operation
-    //======================
     match risky_operation(&mut savepoint).await {
         Ok(_) => {
-            //===============================
             // Success - commit the savepoint
-            //===============================
             savepoint.commit().await?;
         }
         Err(e) => {
-            //======================================
             // Failure - rollback just the savepoint
-            //======================================
             // The outer transaction continues
             eprintln!("Risky operation failed: {}", e);
             savepoint.rollback().await?;
         }
     }
 
-    //============================================================
     // Operation 2 (happens regardless of risky_operation outcome)
-    //============================================================
     sqlx::query!("INSERT INTO logs (message) VALUES ('Completed')")
         .execute(&mut *tx)
         .await?;
@@ -768,16 +690,12 @@ use sqlx::{PgPool, Postgres};
 async fn set_isolation_level(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    //====================
     // Set isolation level
-    //====================
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await?;
 
-    //===============================================
     // Perform operations with serializable isolation
-    //===============================================
     // This prevents phantom reads and ensures true serializability
 
     tx.commit().await?;
@@ -810,9 +728,7 @@ fn transfer_with_diesel(
     amount: i32,
 ) -> Result<(), Error> {
     conn.transaction(|conn| {
-        //========================================================
         // All operations inside this closure are in a transaction
-        //========================================================
 
         diesel::update(accounts::table.find(from))
             .set(accounts::balance.eq(accounts::balance - amount))
@@ -822,9 +738,7 @@ fn transfer_with_diesel(
             .set(accounts::balance.eq(accounts::balance + amount))
             .execute(conn)?;
 
-        //=====================================
         // Return Ok to commit, Err to rollback
-        //=====================================
         Ok(())
     })
 }
@@ -852,9 +766,7 @@ async fn update_with_optimistic_lock(
     new_content: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        //=======================
         // Fetch current document
-        //=======================
         let doc = sqlx::query_as!(
             Document,
             "SELECT id, content, version FROM documents WHERE id = $1",
@@ -863,9 +775,7 @@ async fn update_with_optimistic_lock(
         .fetch_one(pool)
         .await?;
 
-        //========================================
         // Try to update if version hasn't changed
-        //========================================
         let result = sqlx::query!(
             r#"
             UPDATE documents
@@ -880,15 +790,11 @@ async fn update_with_optimistic_lock(
         .await?;
 
         if result.rows_affected() > 0 {
-            //========================
             // Success - we updated it
-            //========================
             return Ok(());
         }
 
-        //================================
         // Someone else updated it - retry
-        //================================
         println!("Conflict detected, retrying...");
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -952,9 +858,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect("postgresql://user:pass@localhost/mydb")
         .await?;
 
-    //===============
     // Run migrations
-    //===============
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await?;
@@ -1113,14 +1017,10 @@ For complex data migrations, use application code:
 use sqlx::PgPool;
 
 async fn run_data_migration(pool: &PgPool) -> Result<(), sqlx::Error> {
-    //==================
     // Start transaction
-    //==================
     let mut tx = pool.begin().await?;
 
-    //=======================
     // Fetch users in batches
-    //=======================
     let mut offset = 0;
     let batch_size = 1000;
 
@@ -1137,9 +1037,7 @@ async fn run_data_migration(pool: &PgPool) -> Result<(), sqlx::Error> {
             break;
         }
 
-        //==================
         // Process each user
-        //==================
         for (id, email) in users {
             let normalized = email.to_lowercase();
             sqlx::query!(

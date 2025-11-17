@@ -1,5 +1,69 @@
 # Chapter 4: Pattern Matching & Destructuring
 
+Pattern 1: Advanced Match Patterns
+
+- Problem: Unwieldy if-else chains, separate extract-and-test steps, code
+  duplication
+- Solution: Range patterns, @ bindings with guards, or-patterns, deep
+  destructuring
+- Why It Matters: 20 lines of if-else → single match; capture and test in
+  one step
+- Use Cases: Numeric classification, token parsing, request routing, user
+  categorization
+
+Pattern 2: Exhaustiveness and Match Ergonomics
+
+- Problem: Missing cases cause runtime crashes; wildcards hide bugs when
+  adding variants
+- Solution: Leverage exhaustiveness checking, avoid wildcards, use
+  #[non_exhaustive]
+- Why It Matters: Compile-time guarantee all cases handled; safe enum
+  refactoring
+- Use Cases: Evolving state machines, protocol implementations, command
+  parsing
+
+Pattern 3: If-Let Chains and While-Let
+
+- Problem: Verbose single-pattern matches, nested validation creates
+  pyramid of doom
+- Solution: if let for extraction, if-let chains for sequences, let-else
+  for early returns
+- Why It Matters: 60% less boilerplate; eliminates rightward drift;
+  natural validation flow
+- Use Cases: Auth flows, config parsing, queue processing, stream parsing
+
+Pattern 4: State Machines with Type-State Pattern
+
+- Problem: Runtime state machines allow invalid method calls; docs don't
+  enforce order
+- Solution: Zero-sized state types, methods consume self, invalid
+  transitions don't compile
+- Why It Matters: Impossible to express invalid transitions; stronger than
+  testing
+- Use Cases: Network connections, file handles, transactions, builders,
+  protocols
+
+Pattern 5: Enum-Driven Architecture
+
+- Problem: OOP command patterns verbose; scattered business logic; untyped
+  events
+- Solution: Operations/events/states as enums; centralized behavior via
+  match
+- Why It Matters: Centralized exhaustive behavior; can't forget to handle
+  cases; 10x less code
+- Use Cases: CQRS, API design, message passing, workflows, parser ASTs
+
+Pattern 6: Destructuring in Practice
+
+- Problem: Verbose field extraction, unclear intent, manual array
+  indexing, ownership issues
+- Solution: Destructure in bindings/parameters, .. to ignore, ref for
+  borrowing
+- Why It Matters: 20 lines → 2 lines; intent explicit; signature-level
+  documentation
+- Use Cases: Function params, nested data, iterators, ownership control,
+  arrays
+
 ## Overview
 
 Pattern matching is one of Rust's most powerful features, enabling you to write clear, exhaustive, and efficient code for handling complex data structures. Unlike simple switch statements in other languages, Rust's pattern matching provides deep destructuring, guards, bindings, and compile-time exhaustiveness checking.
@@ -56,7 +120,13 @@ match ch {
 
 ## Pattern 1: Advanced Match Patterns
 
-Match patterns support guards, range patterns, bindings, and complex destructuring that enable expressive and efficient code.
+**Problem**: Simple if-else chains for numeric ranges become unwieldy (checking temperature ranges requires 8+ nested conditions). Extracting and testing values simultaneously requires separate steps (check status code, then extract it). Multiple similar conditions duplicate code. Complex boolean logic in guards becomes unreadable.
+
+**Solution**: Use range patterns (`1..=10`) for concise numeric matching. Combine `@` bindings with guards to capture values while testing conditions (`x @ 100..=200 if expensive(x)`). Use or-patterns (`'a' | 'e' | 'i'`) to avoid duplication. Nest destructuring deeply to extract data directly in match arms.
+
+**Why It Matters**: Range patterns reduce 20 lines of if-else to a single clear match expression. The `@` binding eliminates temporary variables—capture and test in one step. Guards let you incorporate arbitrary logic without sacrificing pattern matching's exhaustiveness checking. This makes complex classification logic (temperature ranges, HTTP status codes, user categories) both readable and provably complete.
+
+**Use Cases**: Numeric classification (temperature ranges, HTTP status codes, port numbers), token parsing (keywords, operators, literals), request routing (method + path combinations), user categorization (age/premium/activity), validation with capture (valid ranges that you need to use).
 
 ```rust
 //====================================
@@ -166,7 +236,13 @@ fn parse_token(input: &str) -> Token {
 
 ## Pattern 2: Exhaustiveness and Match Ergonomics
 
-Rust enforces exhaustiveness checking at compile time, ensuring all possible cases are handled. This prevents entire classes of runtime errors.
+**Problem**: Missing cases in switch statements cause runtime errors in C/Java (forgot to handle new enum variant? Production crash). Wildcards (`_`) hide bugs when new variants are added—code compiles but silently handles new cases incorrectly. Reference handling requires manual dereferencing, cluttering code with `*` and `&`.
+
+**Solution**: Leverage Rust's exhaustiveness checking—compiler errors if any enum variant is unhandled. Avoid wildcards in application code; list all variants explicitly so adding new ones breaks compilation at update sites. Use `#[non_exhaustive]` on public library enums to allow future additions. Let match ergonomics auto-dereference references (`&Option<T>` matches as `Option<&T>` automatically).
+
+**Why It Matters**: Exhaustiveness checking catches bugs at compile time that would be production outages in other languages. When you add a new `DatabaseState` variant, the compiler forces you to update every match—no forgotten edge cases. This is transformative for evolving codebases: refactoring enums is safe because the compiler finds every place that needs updating. Match ergonomics eliminates 50% of reference-handling boilerplate.
+
+**Use Cases**: State machines that evolve (adding states breaks compilation where needed), protocol implementations (version handling), command parsing (ensure all commands handled), API error types (exhaustive error handling), event systems (all events processed).
 
 ```rust
 //================================================
@@ -293,7 +369,13 @@ impl DatabaseState {
 
 ## Pattern 3: If-Let Chains and While-Let
 
-If-let and while-let provide ergonomic syntax for matching single patterns without the verbosity of full match expressions.
+**Problem**: Full `match` expressions for single-pattern checks are verbose (matching `Some` requires 5 lines when you only care about the success case). Nested if-let for validation sequences creates rightward drift (3-4 levels deep). Early returns with `match` require awkward pattern: match then return in `None` arm. Consuming iterators with `while` + pattern match is boilerplate-heavy.
+
+**Solution**: Use `if let` for single-pattern extraction without else cases. Use if-let chains (Rust 1.65+) to combine multiple conditions without nesting (`if let Some(x) = opt && x > 0`). Use let-else for early returns with inverted logic (`let Some(x) = opt else { return }`). Use `while let` to consume iterators or stateful types until exhaustion.
+
+**Why It Matters**: If-let reduces boilerplate by 60% compared to match for simple checks. If-let chains eliminate the "pyramid of doom" from nested validation—5 levels of indentation become one line. Let-else makes validation sequences read naturally: "ensure this condition, otherwise bail". While-let is the idiomatic way to drain queues, process streams, and implement state machines. These constructs make Rust feel high-level without sacrificing safety.
+
+**Use Cases**: Authentication flows (check header, extract token, validate claims), configuration parsing (layered validation), queue processing (drain until empty), stream parsing (read until EOF), optional chaining (navigate nested Options/Results), guard clauses in functions.
 
 ```rust
 //========================================
@@ -425,7 +507,13 @@ fn extract_nested_better(data: Option<Result<Vec<String>, Error>>) {
 
 ## Pattern 4: State Machines with Type-State Pattern
 
-Encode state transitions in the type system to prevent invalid state transitions at compile time.
+**Problem**: Runtime state machines (enum-based) allow calling methods in wrong states—`connection.send()` when disconnected compiles but fails at runtime. Documentation says "call connect() before send()" but nothing enforces it. State transition bugs cause security issues (sending unencrypted data), data corruption (writing to closed files), and crashes (using released resources).
+
+**Solution**: Encode states as zero-sized types and parameterize structs by state (`Connection<Disconnected>` vs `Connection<Connected>`). Methods that change state consume `self` and return new state type (`fn connect(self) -> Connection<Connected>`). Invalid transitions don't compile—`Connection<Connected>::connect()` doesn't exist. Use PhantomData to track state at zero runtime cost.
+
+**Why It Matters**: Type-state pattern makes invalid state transitions impossible to express, not just incorrect. You cannot call `send()` on a disconnected connection—the method simply doesn't exist for that type. Builders can enforce "URL is required" at compile time by making `build()` only available after `url()` is called. This is stronger than any amount of testing: if it compiles, state transitions are valid. The typestate pattern has caught real bugs in TLS implementations and database libraries.
+
+**Use Cases**: Network connections (TCP state machine, TLS handshake), file handles (open/closed states), database transactions (begin/commit/rollback), builder patterns (required fields), protocol implementations (HTTP request lifecycle), resource lifecycle (allocated/initialized/released).
 
 ```rust
 //=====================================================
@@ -650,7 +738,13 @@ impl RequestBuilder<HasUrl> {
 
 ## Pattern 5: Enum-Driven Architecture
 
-Design entire subsystems around enums to make illegal states unrepresentable and encode business logic in the type system.
+**Problem**: Object-oriented command patterns require classes, inheritance, and dynamic dispatch for each operation. API responses mix success/error states in ways that force runtime checking. Event sourcing with string-based events loses type safety. Message passing with untyped channels causes deserialization errors. Business logic scattered across services makes behavior changes require hunting through code.
+
+**Solution**: Model operations, events, and states as enums with associated data. Use match expressions to implement behavior—all cases in one place. Commands become `enum Command { Create {...}, Update {...} }` with centralized `execute()`. Events are typed enums that aggregate `apply()` to rebuild state. API responses use enums for explicit success/partial/error variants. Message channels carry typed enum payloads.
+
+**Why It Matters**: Enum-driven architecture centralizes behavior and makes it exhaustive. Adding a new command means adding one enum variant—the match expression in `execute()` fails to compile until you handle it. This is transformative for maintainability: you can't forget to handle a command because the compiler forces it. Event sourcing with typed enums prevents "replay failed because event format changed". Command pattern without OOP boilerplate is 10x less code. Enum dispatch is faster than vtables.
+
+**Use Cases**: CQRS systems (commands and events as enums), API design (explicit response variants), message-passing systems (typed message enums), workflow engines (pipeline steps as enums), parser ASTs (expression trees), protocol state machines (request/response variants).
 
 ```rust
 //====================================
@@ -966,7 +1060,13 @@ impl Workflow {
 
 ## Pattern 6: Destructuring in Practice
 
-Advanced destructuring techniques for working with complex data structures efficiently.
+**Problem**: Extracting fields from nested structures requires verbose intermediate variables (`let x = point.x; let y = point.y;`). Renaming for clarity creates extra bindings. Ignoring irrelevant fields isn't explicit. Array pattern matching requires manual indexing and length checks. Ownership issues arise when destructuring moves values you meant to borrow.
+
+**Solution**: Destructure directly in let bindings, function parameters, and match arms. Use `..` to explicitly ignore remaining fields. Rename during destructure (`User { id: user_id, .. }`). Match array patterns with `[first, middle @ .., last]` syntax. Control ownership with `ref`/`ref mut` patterns to borrow instead of move. Combine destructuring with guards for conditional extraction.
+
+**Why It Matters**: Destructuring eliminates intermediate variables—20 lines of field extraction become 2 lines. It makes intent explicit: `let User { age, .. }` says "I only care about age". Function parameters that destructure (`fn format((x, y): (i32, i32))`) document what data is used at the signature level. Slice destructuring with `@..` enables head/tail operations without manual indexing. This is about writing code that reads like specifications.
+
+**Use Cases**: Function parameters (destructure tuples/structs inline), nested data extraction (JSON parsing, config objects), iterator processing (for loops with tuple destructuring), ownership control (ref patterns prevent moves), array/slice operations (head/tail, pattern length checking), expression trees (recursive destructuring in parsers).
 
 ```rust
 //============================================

@@ -60,9 +60,7 @@ impl HttpClient {
         follow_redirects: bool,
         compression: bool,
     ) -> Self {
-        //====
         // ...
-        //====
     }
 }
 
@@ -436,9 +434,7 @@ struct Config {
 impl TemplateEngine {
     fn new() -> Self {
         let mut templates = HashMap::new();
-        //=========================
         // Expensive initialization
-        //=========================
         templates.insert("header".to_string(), load_template("header.html"));
         templates.insert("footer".to_string(), load_template("footer.html"));
 
@@ -459,9 +455,7 @@ impl TemplateEngine {
 }
 
 fn load_template(_name: &str) -> String {
-    //====================
     // Expensive operation
-    //====================
     String::from("template content")
 }
 
@@ -487,13 +481,9 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 struct SharedData {
-    //=================================
     // Shallow clone: reference counted
-    //=================================
     cache: Rc<Vec<u8>>,
-    //==============================
     // Deep clone: clones the String
-    //==============================
     user_id: String,
 }
 
@@ -820,9 +810,7 @@ impl VideoConverter {
         }
     }
 
-    //===============================
     // Simple API for common use case
-    //===============================
     fn convert_to_mp4(&self, filename: &str) -> String {
         self.codec.configure();
         let video_data = self.decoder.decode(filename);
@@ -1354,9 +1342,7 @@ impl CommandHistory {
 
     fn execute(&mut self, mut command: Box<dyn Command>) {
         command.execute();
-        //============================
         // Discard any undone commands
-        //============================
         self.history.truncate(self.current);
         self.history.push(command);
         self.current += 1;
@@ -1668,9 +1654,7 @@ fn producer(tx: mpsc::Sender<i32>) {
         tx.send(i).unwrap();
         thread::sleep(Duration::from_millis(100));
     }
-    //==================================
     // Channel closes when tx is dropped
-    //==================================
 }
 
 //=========
@@ -1764,14 +1748,10 @@ fn parallel_sum(data: &[i32]) -> i32 {
     const THRESHOLD: usize = 100;
 
     if data.len() <= THRESHOLD {
-        //==========================
         // Base case: sequential sum
-        //==========================
         data.iter().sum()
     } else {
-        //============================
         // Fork: split into two halves
-        //============================
         let mid = data.len() / 2;
         let (left, right) = data.split_at(mid);
 
@@ -1781,9 +1761,7 @@ fn parallel_sum(data: &[i32]) -> i32 {
         let right_sum = parallel_sum(right);
         let left_sum = handle.join().unwrap();
 
-        //======================
         // Join: combine results
-        //======================
         left_sum + right_sum
     }
 }
@@ -1818,9 +1796,7 @@ fn quicksort<T: Ord + Send>(mut data: Vec<T>) -> Vec<T> {
         .into_par_iter()  // Parallel partition
         .partition(|x| x < &pivot);
 
-    //=========================
     // Parallel recursive calls
-    //=========================
     let (sorted_less, sorted_greater) = rayon::join(
         || quicksort(less),
         || quicksort(greater),
@@ -1978,9 +1954,7 @@ use tokio;
 use std::time::Duration;
 
 async fn fetch_user(id: u64) -> String {
-    //==========================
     // Simulated async operation
-    //==========================
     tokio::time::sleep(Duration::from_millis(100)).await;
     format!("User {}", id)
 }
@@ -1994,9 +1968,7 @@ async fn fetch_posts(user: &str) -> Vec<String> {
 }
 
 async fn display_user_data(id: u64) {
-    //============================
     // Sequential async operations
-    //============================
     let user = fetch_user(id).await;
     println!("Fetched: {}", user);
 
@@ -2018,9 +1990,7 @@ async fn main() {
 use tokio;
 
 async fn parallel_fetch() {
-    //=========================
     // Wait for all to complete
-    //=========================
     let (user1, user2, user3) = tokio::join!(
         fetch_user(1),
         fetch_user(2),

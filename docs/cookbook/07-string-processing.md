@@ -40,13 +40,9 @@ fn string_example() {
     s.push_str(", World!");
     println!("{}", s);
 
-    //==========
     // Use when:
-    //==========
     // - Need to own the string
-    //===============================
     // - Building strings dynamically
-    //===============================
     // - Returning strings from functions
 }
 
@@ -56,13 +52,9 @@ fn string_example() {
 fn str_slice_example(s: &str) {
     println!("Length: {}", s.len());
 
-    //==========
     // Use when:
-    //==========
     // - Read-only access needed
-    //======================================
     // - Function parameters (most flexible)
-    //======================================
     // - String literals
 }
 
@@ -87,13 +79,9 @@ fn os_string_example() {
         println!("{:?} = {:?}", key, value);
     }
 
-    //==========
     // Use when:
-    //==========
     // - Dealing with file system
-    //========================
     // - Environment variables
-    //========================
     // - FFI with OS APIs
 }
 
@@ -107,38 +95,26 @@ fn path_example() {
     println!("Parent: {:?}", path.parent());
     println!("File name: {:?}", path.file_name());
 
-    //===============
     // Building paths
-    //===============
     let mut path_buf = PathBuf::from("/tmp");
     path_buf.push("subdir");
     path_buf.push("file.txt");
 
-    //==========
     // Use when:
-    //==========
     // - Working with file paths
-    //===================================
     // - Cross-platform path manipulation
-    //===================================
 }
 
 fn main() {
-    //=============================
     // Demonstrate type conversions
-    //=============================
     let string = String::from("Hello");
     let str_slice: &str = &string;  // String -> &str (deref coercion)
     let cow: Cow<str> = Cow::Borrowed(str_slice);
 
-    //=================
     // String from &str
-    //=================
     let owned: String = str_slice.to_string();
 
-    //=================
     // Path conversions
-    //=================
     let path = Path::new("file.txt");
     let os_str: &OsStr = path.as_os_str();
 
@@ -254,9 +230,7 @@ impl HtmlBuilder {
 }
 
 fn main() {
-    //=======================
     // Simple string building
-    //=======================
     let mut sb = StringBuilder::with_capacity(100);
     sb.append("Hello")
       .append(", ")
@@ -264,9 +238,7 @@ fn main() {
       .append("!");
     println!("{}", sb.as_str());
 
-    //==============
     // HTML building
-    //==============
     let mut html = HtmlBuilder::new();
     html.open_tag("html")
         .open_tag("body")
@@ -313,23 +285,17 @@ impl<'a> LineParser<'a> {
         LineParser { data }
     }
 
-    //===============================================
     // Returns iterator over lines without allocation
-    //===============================================
     fn lines(&self) -> impl Iterator<Item = &'a str> {
         self.data.lines()
     }
 
-    //======================================
     // Split by delimiter without allocation
-    //======================================
     fn split(&self, delimiter: &str) -> impl Iterator<Item = &'a str> {
         self.data.split(delimiter)
     }
 
-    //=======================
     // Extract field by index
-    //=======================
     fn field(&self, line: &'a str, index: usize) -> Option<&'a str> {
         line.split(',').nth(index)
     }
@@ -354,9 +320,7 @@ impl<'a> CsvParser<'a> {
             .collect()
     }
 
-    //=========================================
     // Process without intermediate allocations
-    //=========================================
     fn process<F>(&self, mut f: F)
     where
         F: FnMut(&[&str]),
@@ -410,18 +374,14 @@ fn main() {
         println!("{:?}", row);
     }
 
-    //=====================
     // Zero-copy processing
-    //=====================
     parser.process(|fields| {
         if fields.len() >= 2 {
             println!("Name: {}, Age: {}", fields[0], fields[1]);
         }
     });
 
-    //====================
     // String view example
-    //====================
     let text = "Hello, World!";
     if let Some(view) = StringView::new(text, 0, 5) {
         println!("View: {}", view.as_str());
@@ -471,9 +431,7 @@ fn normalize_whitespace(s: &str) -> Cow<str> {
         return Cow::Borrowed(s);
     }
 
-    //========================
     // Build normalized string
-    //========================
     let mut result = String::with_capacity(s.len());
     let mut prev_was_space = false;
 
@@ -550,33 +508,25 @@ fn to_lowercase_if_needed(s: &str) -> Cow<str> {
 }
 
 fn main() {
-    //=========================
     // Whitespace normalization
-    //=========================
     let s1 = "hello world";
     let s2 = "hello  world";  // Extra space
 
     println!("s1: {:?}", normalize_whitespace(s1));  // Borrowed
     println!("s2: {:?}", normalize_whitespace(s2));  // Owned
 
-    //==============
     // HTML escaping
-    //==============
     let safe = "Hello World";
     let unsafe_text = "Hello <b>World</b>";
 
     println!("Safe: {:?}", escape_html(safe));      // Borrowed
     println!("Unsafe: {:?}", escape_html(unsafe_text));  // Owned
 
-    //========================
     // Prefix/suffix stripping
-    //========================
     println!("{:?}", strip_affixes("hello", "", ""));        // Borrowed
     println!("{:?}", strip_affixes("[hello]", "[", "]"));   // Owned
 
-    //===================
     // Case normalization
-    //===================
     println!("{:?}", to_lowercase_if_needed("hello"));     // Borrowed
     println!("{:?}", to_lowercase_if_needed("Hello"));     // Owned
 }
@@ -652,16 +602,12 @@ impl<'a> Utf8Validator<'a> {
 
         let first = self.data[pos];
 
-        //========================
         // 1-byte sequence (ASCII)
-        //========================
         if first < 0x80 {
             return Ok((first as char, pos + 1));
         }
 
-        //================
         // 2-byte sequence
-        //================
         if first & 0xE0 == 0xC0 {
             if pos + 1 >= self.data.len() {
                 return Err(pos);
@@ -677,9 +623,7 @@ impl<'a> Utf8Validator<'a> {
             return Ok((char::from_u32(ch).ok_or(pos)?, pos + 2));
         }
 
-        //================
         // 3-byte sequence
-        //================
         if first & 0xF0 == 0xE0 {
             if pos + 2 >= self.data.len() {
                 return Err(pos);
@@ -698,9 +642,7 @@ impl<'a> Utf8Validator<'a> {
             return Ok((char::from_u32(ch).ok_or(pos)?, pos + 3));
         }
 
-        //================
         // 4-byte sequence
-        //================
         if first & 0xF8 == 0xF0 {
             if pos + 3 >= self.data.len() {
                 return Err(pos);
@@ -752,16 +694,12 @@ struct Utf8Error {
 }
 
 fn main() {
-    //============
     // Valid UTF-8
-    //============
     let valid = "Hello, 世界!".as_bytes();
     let validator = Utf8Validator::new(valid);
     assert!(validator.validate().is_ok());
 
-    //==============
     // Invalid UTF-8
-    //==============
     let invalid = &[0xFF, 0xFE, 0xFD];
     let validator = Utf8Validator::new(invalid);
     match validator.validate() {
@@ -769,9 +707,7 @@ fn main() {
         Err(e) => println!("Invalid UTF-8 at position {}", e.valid_up_to),
     }
 
-    //=================
     // Lossy conversion
-    //=================
     let lossy = validate_utf8_lossy(invalid);
     println!("Lossy: {}", lossy);
 }
@@ -800,9 +736,7 @@ fn analyze_string(s: &str) {
     println!("String: {:?}", s);
     println!("Byte length: {}", s.len());
 
-    //===============
     // Byte iteration
-    //===============
     println!("\nBytes:");
     for (i, byte) in s.bytes().enumerate() {
         print!("{:02X} ", byte);
@@ -812,17 +746,13 @@ fn analyze_string(s: &str) {
     }
     println!();
 
-    //=================================
     // Character (code point) iteration
-    //=================================
     println!("\nCharacters (code points):");
     for (i, ch) in s.chars().enumerate() {
         println!("{}: '{}' (U+{:04X})", i, ch, ch as u32);
     }
 
-    //=================================================================
     // Grapheme cluster iteration (requires unicode-segmentation crate)
-    //=================================================================
     println!("\nGrapheme clusters:");
     for (i, grapheme) in s.graphemes(true).enumerate() {
         println!("{}: '{}'", i, grapheme);
@@ -838,9 +768,7 @@ fn analyze_string(s: &str) {
 fn display_width(s: &str) -> usize {
     s.chars().map(|c| {
         let cp = c as u32;
-        //========================================
         // Simplified: full-width chars count as 2
-        //========================================
         if (0x1100..=0x115F).contains(&cp)     // Hangul Jamo
             || (0x2E80..=0x9FFF).contains(&cp)  // CJK
             || (0xAC00..=0xD7AF).contains(&cp)  // Hangul Syllables
@@ -881,41 +809,29 @@ fn reverse_graphemes(s: &str) -> String {
 }
 
 fn main() {
-    //=============
     // Simple ASCII
-    //=============
     analyze_string("Hello");
     println!("\n{}", "=".repeat(50));
 
-    //=================
     // Multi-byte UTF-8
-    //=================
     analyze_string("Héllo");
     println!("\n{}", "=".repeat(50));
 
-    //====================
     // Emoji with modifier
-    //====================
     analyze_string("👨‍👩‍👧‍👦");  // Family emoji
     println!("\n{}", "=".repeat(50));
 
-    //============
     // Korean text
-    //============
     let korean = "안녕하세요";
     println!("Korean: {}", korean);
     println!("Display width: {}", display_width(korean));
 
-    //===========
     // Truncation
-    //===========
     let text = "Hello, 世界! 👋";
     println!("\nOriginal: {}", text);
     println!("Truncated (5 chars): {}", truncate_at_char(text, 5));
 
-    //=========
     // Reversal
-    //=========
     let text = "café";
     println!("\nOriginal: {}", text);
     println!("Reversed: {}", reverse_graphemes(text));
@@ -1103,9 +1019,7 @@ impl Lexer {
     }
 
     fn handle_operator(&mut self, ch: char) -> Option<Token> {
-        //=============================================
         // Multi-char operators: ==, !=, <=, >=, &&, ||
-        //=============================================
         let two_char = format!("{}{}", self.current_token, ch);
         if matches!(two_char.as_str(), "==" | "!=" | "<=" | ">=" | "&&" | "||") {
             self.current_token = two_char;
@@ -1152,9 +1066,7 @@ fn main() {
                 return x + 10;
             }
         }
-        //==================
         // This is a comment
-        //==================
     "#;
 
     let mut lexer = Lexer::new(code);
@@ -1396,9 +1308,7 @@ impl GapBuffer {
         }
     }
 
-    //=======================================
     // Insert character at cursor (gap_start)
-    //=======================================
     fn insert(&mut self, ch: char) {
         if self.gap_start == self.gap_end {
             self.grow();
@@ -1408,9 +1318,7 @@ impl GapBuffer {
         self.gap_start += 1;
     }
 
-    //===============================
     // Delete character before cursor
-    //===============================
     fn delete_backward(&mut self) -> Option<char> {
         if self.gap_start == 0 {
             return None;
@@ -1420,9 +1328,7 @@ impl GapBuffer {
         Some(self.buffer[self.gap_start])
     }
 
-    //==============================
     // Delete character after cursor
-    //==============================
     fn delete_forward(&mut self) -> Option<char> {
         if self.gap_end == self.buffer.len() {
             return None;
@@ -1433,9 +1339,7 @@ impl GapBuffer {
         Some(ch)
     }
 
-    //=================
     // Move cursor left
-    //=================
     fn move_left(&mut self) {
         if self.gap_start > 0 {
             self.gap_start -= 1;
@@ -1444,9 +1348,7 @@ impl GapBuffer {
         }
     }
 
-    //==================
     // Move cursor right
-    //==================
     fn move_right(&mut self) {
         if self.gap_end < self.buffer.len() {
             self.buffer[self.gap_start] = self.buffer[self.gap_end];
@@ -1455,9 +1357,7 @@ impl GapBuffer {
         }
     }
 
-    //========================
     // Move cursor to position
-    //========================
     fn move_to(&mut self, pos: usize) {
         let current_pos = self.gap_start;
 
@@ -1476,14 +1376,10 @@ impl GapBuffer {
         let new_capacity = self.buffer.len() * 2;
         let additional = new_capacity - self.buffer.len();
 
-        //==============
         // Extend buffer
-        //==============
         self.buffer.resize(new_capacity, '\0');
 
-        //==============================
         // Move content after gap to end
-        //==============================
         let content_after_gap = self.buffer.len() - self.gap_end - additional;
         for i in (0..content_after_gap).rev() {
             self.buffer[new_capacity - 1 - i] = self.buffer[self.gap_end + i];
@@ -1521,9 +1417,7 @@ fn main() {
     println!("Initial: {}", gb.to_string());
     println!("Cursor at: {}", gb.cursor_position());
 
-    //====================================
     // Move to position 5 (before "World")
-    //====================================
     gb.move_to(6);
     gb.delete_backward();  // Delete space
     gb.insert(',');
@@ -1531,9 +1425,7 @@ fn main() {
 
     println!("After edit: {}", gb.to_string());
 
-    //====================
     // Insert at beginning
-    //====================
     gb.move_to(0);
     gb.insert('>');
     gb.insert(' ');
@@ -1590,26 +1482,20 @@ impl Rope {
         }
     }
 
-    //==========================
     // Insert string at position
-    //==========================
     fn insert(&mut self, pos: usize, text: &str) {
         let (left, right) = self.split(pos);
         *self = Rope::concat(Rope::concat(left, Rope::from_str(text)), right);
     }
 
-    //=============
     // Delete range
-    //=============
     fn delete(&mut self, start: usize, end: usize) {
         let (left, rest) = self.split(start);
         let (_, right) = rest.split(end - start);
         *self = Rope::concat(left, right);
     }
 
-    //=======================
     // Split rope at position
-    //=======================
     fn split(self, pos: usize) -> (Rope, Rope) {
         match self {
             Rope::Leaf(s) => {
@@ -1636,9 +1522,7 @@ impl Rope {
         }
     }
 
-    //==========================
     // Get character at position
-    //==========================
     fn char_at(&self, pos: usize) -> Option<char> {
         match self {
             Rope::Leaf(s) => s.chars().nth(pos),
@@ -1652,9 +1536,7 @@ impl Rope {
         }
     }
 
-    //==================
     // Convert to string
-    //==================
     fn to_string(&self) -> String {
         match self {
             Rope::Leaf(s) => s.clone(),
@@ -1664,13 +1546,9 @@ impl Rope {
         }
     }
 
-    //=========================
     // Rebalance tree if needed
-    //=========================
     fn rebalance(self) -> Self {
-        //=======================================================
         // Simplified rebalancing: collect all leaves and rebuild
-        //=======================================================
         let text = self.to_string();
         if text.len() < 100 {
             return Rope::Leaf(text);
@@ -1686,21 +1564,15 @@ fn main() {
     let mut rope = Rope::from_str("Hello World");
     println!("Initial: {}", rope.to_string());
 
-    //=====================
     // Insert at position 5
-    //=====================
     rope.insert(5, ", Beautiful");
     println!("After insert: {}", rope.to_string());
 
-    //=============
     // Delete range
-    //=============
     rope.delete(5, 16);  // Remove ", Beautiful"
     println!("After delete: {}", rope.to_string());
 
-    //=================
     // Character access
-    //=================
     if let Some(ch) = rope.char_at(0) {
         println!("First char: {}", ch);
     }
@@ -1857,22 +1729,16 @@ impl BoyerMoore {
         while s <= n - m {
             let mut j = m;
 
-            //========================
             // Scan from right to left
-            //========================
             while j > 0 && self.pattern[j - 1] == text[s + j - 1] {
                 j -= 1;
             }
 
             if j == 0 {
-                //============
                 // Match found
-                //============
                 matches.push(s);
 
-                //==============
                 // Shift pattern
-                //==============
                 if s + m < n {
                     let next_char = text[s + m];
                     s += m - self.bad_char.get(&next_char).unwrap_or(&0);
@@ -1880,9 +1746,7 @@ impl BoyerMoore {
                     s += 1;
                 }
             } else {
-                //=================================
                 // Mismatch: use bad character rule
-                //=================================
                 let bad_char = text[s + j - 1];
                 let shift = if let Some(&pos) = self.bad_char.get(&bad_char) {
                     if pos < j - 1 {
@@ -1988,9 +1852,7 @@ fn main() {
     println!("s1 == s3: {}", s1 == s3);  // true
     println!("Unique strings: {}", interner.len());
 
-    //===========================
     // Demonstrate memory savings
-    //===========================
     let tags = vec!["rust", "programming", "rust", "tutorial", "rust"];
     let interned_tags: Vec<_> = tags.iter()
         .map(|&s| interner.intern(s))

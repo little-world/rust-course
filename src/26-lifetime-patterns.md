@@ -72,9 +72,7 @@ fn example_invalid() {
         result = longest(&string1, &string2);
     } // string2 dropped here
 
-    //==========================================
     // Error! result might point to dropped data
-    //==========================================
     // println!("{}", result);
 }
 ```
@@ -123,16 +121,12 @@ fn get_first<'a>(vec: &'a Vec<i32>) -> &'a i32 {
 
 ```rust
 impl<'a> Container<'a> {
-    //================
     // What you write:
-    //================
     fn get_data(&self) -> &str {
         self.data
     }
 
-    //========================
     // What the compiler sees:
-    //========================
     fn get_data(&'a self) -> &'a str {
         self.data
     }
@@ -185,16 +179,12 @@ impl<'a, 'b> Context<'a, 'b> {
         Context { user, session }
     }
 
-    //==================================
     // Return reference with lifetime 'a
-    //==================================
     fn get_user(&self) -> &'a User {
         self.user
     }
 
-    //==================================
     // Return reference with lifetime 'b
-    //==================================
     fn get_session(&self) -> &'b Session {
         self.session
     }
@@ -219,9 +209,7 @@ fn example() {
         let session_ref = ctx.get_session(); // Lives as long as session
     }
 
-    //======================================
     // user still valid here, session is not
-    //======================================
 }
 ```
 
@@ -255,13 +243,9 @@ Be careful with `'static`—it's often not what you want:
 // Common mistake
 //===============
 fn get_string() -> &'static str {
-    //==========================================================
     // Error! Cannot return 'static reference to non-static data
-    //==========================================================
     // let s = String::from("Hello");
-    //===
     // &s
-    //===
 }
 
 //=====================================
@@ -391,9 +375,7 @@ impl<'a, T: 'a> Parser<'a, T> {
     where
         T: Default,
     {
-        //============================================
         // Parse logic using self.input and self.state
-        //============================================
         Some(self.input)
     }
 }
@@ -419,9 +401,7 @@ where
         MultiRef { short, medium, long }
     }
 
-    //=============================================
     // Can return long reference as medium or short
-    //=============================================
     fn long_as_medium(&self) -> &'b str {
         self.long // OK because 'c: 'b
     }
@@ -487,9 +467,7 @@ fn call_with_ref<'a, F>(f: F)
 where
     F: Fn(&'a str) -> usize,
 {
-    //=====================
     // Specific lifetime 'a
-    //=====================
 }
 
 //===============================
@@ -499,9 +477,7 @@ fn call_with_ref<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> usize,
 {
-    //================
     // Any lifetime 'a
-    //================
 }
 ```
 
@@ -525,9 +501,7 @@ where
 fn example() {
     let strings = vec!["hello".to_string(), "world".to_string()];
 
-    //================================
     // Closure works with any lifetime
-    //================================
     let lengths = process_strings(strings, |s| s.len());
 
     println!("{:?}", lengths); // [5, 5]
@@ -570,9 +544,7 @@ fn map_strs<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> String,
 {
-    //====
     // ...
-    //====
 }
 ```
 
@@ -587,9 +559,7 @@ fn use_parser<P>(parser: P)
 where
     P: for<'a> Parser<Input<'a> = &'a str>,
 {
-    //====
     // ...
-    //====
 }
 ```
 
@@ -731,9 +701,7 @@ use std::marker::PhantomPinned;
 
 struct SelfReferential {
     data: String,
-    //=================================
     // Raw pointer instead of reference
-    //=================================
     reference: *const String,
     _pin: PhantomPinned,
 }
@@ -746,9 +714,7 @@ impl SelfReferential {
             _pin: PhantomPinned,
         });
 
-        //=============================
         // Safe because we pinned first
-        //=============================
         let self_ptr: *const String = &boxed.data;
         unsafe {
             let mut_ref = Pin::as_mut(&mut boxed);
@@ -896,9 +862,7 @@ fn invariant_example<'a, 'b>(x: &'a mut i32, y: &'b mut i32)
 where
     'a: 'b,
 {
-    //========================================
     // Cannot assign x to y even though 'a: 'b
-    //========================================
     // let z: &'b mut i32 = x; // Error!
 }
 ```
@@ -931,9 +895,7 @@ fn example() {
 // Invariance prevents this:
 //==========================
 fn swap<'a, 'b>(x: &'a mut &'static str, y: &'b mut &'a str) {
-    //=============================================================
     // std::mem::swap(x, y); // Error! Invariance prevents swapping
-    //=============================================================
 }
 ```
 
@@ -981,19 +943,13 @@ struct Consumer<T> {
 }
 
 fn example() {
-    //================================================================
     // Can use Producer<&'static str> where Producer<&'a str> expected
-    //================================================================
     let p: Producer<&'static str> = Producer { produce: || "hello" };
     let _p2: Producer<&str> = p; // OK
 
-    //=============================
     // Contravariance with Consumer
-    //=============================
     let c: Consumer<&str> = Consumer { consume: |_s| {} };
-    //======================================================================
     // let _c2: Consumer<&'static str> = c; // Would be error if uncommented
-    //======================================================================
 }
 ```
 
@@ -1007,13 +963,9 @@ use std::cell::Cell;
 fn example() {
     let cell: Cell<&'static str> = Cell::new("hello");
 
-    //=======================================
     // Cannot do this even though 'static: 'a
-    //=======================================
     // fn take_cell<'a>(c: Cell<&'a str>) {}
-    //=============================================
     // take_cell(cell); // Error! Cell is invariant
-    //=============================================
 }
 ```
 
@@ -1066,9 +1018,7 @@ where
 }
 
 fn example() {
-    //=====================================
     // This closure works with any lifetime
-    //=====================================
     accepts_any_lifetime(|s: &str| s.to_uppercase());
 }
 ```
@@ -1174,17 +1124,13 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    //========================================
     // Elided: fn parse(&self) -> Option<&str>
-    //========================================
     // Actual: fn parse(&'a self) -> Option<&'a str>
     fn parse(&self) -> Option<&str> {
         Some(self.input)
     }
 
-    //===============================
     // Multiple lifetimes when needed
-    //===============================
     fn parse_with<'b>(&self, other: &'b str) -> (&'a str, &'b str) {
         (self.input, other)
     }
@@ -1198,9 +1144,7 @@ Use `'_` for clarity without naming:
 ```rust
 impl<'a> Parser<'a> {
     fn peek(&self) -> Option<&'_ str> {
-        //========================
         // '_ = 'a in this context
-        //========================
         Some(self.input)
     }
 }

@@ -1,5 +1,62 @@
 # Chapter 1: Memory & Ownership Patterns
 
+
+Pattern 1: Clone-on-Write (Cow)
+
+- Problem: Functions face a dilemma between always cloning (wasteful) or
+  awkward API design
+- Solution: Use Cow<T> to defer cloning until modification is actually
+  needed
+- Why It Matters: Eliminates millions of allocations in high-throughput
+  systems
+- Use Cases: String normalization, path canonicalization, validation, HTML
+  escaping
+
+Pattern 2: Interior Mutability (Cell/RefCell)
+
+- Problem: Some designs need mutation through &self, but Rust requires
+  &mut self
+- Solution: Move borrow checking to runtime with Cell/RefCell
+- Why It Matters: Essential for caching, graphs, and observer patterns
+- Use Cases: Memoization, counters, graph structures, event systems
+
+Pattern 3: Thread-Safe Interior Mutability (Mutex/RwLock)
+
+- Problem: RefCell isn't thread-safe; need shared mutable state without
+  data races
+- Solution: Use Mutex<T> or RwLock<T> with Arc<T>
+- Why It Matters: Makes data races impossible to compile
+- Use Cases: Concurrent servers, parallel algorithms, connection pools
+
+Pattern 4: RAII and Drop Guards
+
+- Problem: Manual cleanup is error-prone and early returns skip cleanup
+- Solution: Tie resource cleanup to scope using the Drop trait
+- Why It Matters: Eliminates resource leaks and enables panic-safe code
+- Use Cases: File cleanup, transaction guards, lock guards, metrics
+
+Pattern 5: Memory Layout Optimization
+
+- Problem: Naive structs waste memory and hurt cache performance
+- Solution: Use #[repr] attributes, field ordering, cache alignment
+- Why It Matters: Difference between 10 MB/s and 1 GB/s throughput
+- Use Cases: Game engines, scientific computing, FFI, SIMD optimization
+
+Pattern 6: Arena Allocation
+
+- Problem: Allocating many small objects is slow; malloc has overhead
+- Solution: Bump allocator that hands out pointers by incrementing a
+  counter
+- Why It Matters: 10-100x faster than general allocators for small objects
+- Use Cases: Compilers, web servers, parsers, game engines
+
+Pattern 7: Custom Smart Pointers
+
+- Problem: Standard smart pointers have limitations for specialized needs
+- Solution: Build custom pointers with NonNull, PhantomData, Deref, Drop
+- Why It Matters: Enables patterns impossible with standard types
+- Use Cases: Game engines, databases, kernels, custom memory pools
+
 ## Overview
 
 Rust's ownership system is its defining feature, enabling memory safety without garbage collection. This chapter explores advanced patterns that leverage ownership, borrowing, and lifetimes to write efficient, safe code. For experienced programmers, understanding these patterns is crucial for designing high-performance systems where memory allocation, cache locality, and zero-copy operations matter.
@@ -36,7 +93,13 @@ RwLock<T>            // Reader-writer lock pattern
 
 ## Pattern 1: Zero-Copy with Clone-on-Write (Cow)
 
-The `Cow` (Clone-on-Write) type is a smart pointer that defers cloning until mutation is required. This pattern is essential for APIs that sometimes need to modify data but usually don't, avoiding unnecessary allocations.
+**Problem**: Functions that sometimes need to modify their input face a dilemma—always clone (wasteful when no modification is needed), always mutate in-place (requires mutable references and may surprise callers), or return different types (awkward API design).
+
+**Solution**: Use `Cow<T>` (Clone-on-Write), an enum that's either `Borrowed(&T)` or `Owned(T)`. Check if modification is needed; if not, return borrowed data. If yes, clone and return owned data.
+
+**Why It Matters**: Many operations don't actually need to modify their input. For example, when normalizing whitespace, if the input already has normalized whitespace, why allocate a new string? `Cow` enables zero-allocation fast paths. In high-throughput systems (web servers, parsers, validators), this pattern can eliminate millions of allocations per second.
+
+**Use Cases**: String normalization, path canonicalization, configuration with defaults, HTML escaping, parser token extraction, validation with sanitization.
 
 ```rust
 use std::borrow::Cow;
@@ -131,7 +194,13 @@ impl<'a> Config<'a> {
 
 ## Pattern 2: Interior Mutability with Cell and RefCell
 
-Rust's borrowing rules are enforced at compile time, but sometimes you need runtime flexibility. Interior mutability allows mutation through shared references, moving borrow checking to runtime.
+**Problem**: Rust's borrowing rules require `&mut self` for mutation, but some designs need mutation through shared references (`&self`). Examples: caching computed values, counters in shared structures, graph nodes that need to update neighbors, observer patterns.
+
+**Solution**: Use interior mutability types—`Cell<T>` for `Copy` types (get/set without borrowing), `RefCell<T>` for non-`Copy` types (runtime-checked borrows). These move borrow checking from compile-time to runtime.
+
+**Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references. Interior mutability is also essential for caching—you want `fn get(&self, key: K)` to cache results internally without requiring `&mut self`.
+
+**Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
 
 ```rust
 use std::cell::{Cell, RefCell};
@@ -241,7 +310,13 @@ impl Node {
 
 ## Pattern 3: Thread-Safe Interior Mutability (Mutex & RwLock)
 
-For multi-threaded programs, `Mutex` and `RwLock` provide interior mutability with thread-safety guarantees. These types use atomic operations and OS synchronization primitives.
+**Problem**: `RefCell<T>` provides interior mutability but panics if used incorrectly across threads. Multi-threaded code needs safe shared mutable state—incrementing counters, updating caches, modifying shared collections—without data races.
+
+**Solution**: Use `Mutex<T>` for exclusive access (like `RefCell` but thread-safe) or `RwLock<T>` for reader-writer patterns (multiple readers OR one writer). Combine with `Arc<T>` to share across threads. These use atomic operations and OS primitives for synchronization.
+
+**Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation. Understanding these patterns is essential for writing concurrent servers, parallel algorithms, and high-performance applications.
+
+**Use Cases**: Shared counters in multi-threaded servers, concurrent caches, thread pools with shared work queues, parallel data processing with result aggregation, connection pools.
 
 ```rust
 use std::sync::{Arc, Mutex, RwLock};
@@ -375,7 +450,13 @@ fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
 
 ## Pattern 4: RAII and Custom Drop Guards
 
-RAII (Resource Acquisition Is Initialization) ties resource lifetime to scope. Rust's `Drop` trait enables automatic cleanup, making resource management elegant and safe.
+**Problem**: Manual resource cleanup is error-prone. Forgetting to close files, release locks, or rollback transactions causes resource leaks, deadlocks, and data corruption. Even with discipline, early returns and panics can skip cleanup code.
+
+**Solution**: Implement the `Drop` trait to tie resource cleanup to scope. Create guard types that acquire resources in their constructor and release them in `Drop`. Rust guarantees `Drop` runs when the value goes out of scope, even during panics.
+
+**Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically. Temporary files are always deleted. Transactions always rollback on error. This pattern is fundamental to Rust's safety guarantees and enables panic-safe code.
+
+**Use Cases**: Temporary file management, database transaction guards, lock guards (mutex, RwLock), metrics timers, state flag restoration, scope-based profiling, connection cleanup in pools.
 
 ```rust
 use std::fs::File;
@@ -467,7 +548,9 @@ impl Drop for StateGuard<'_> {
     }
 }
 
+//===========================================
 // Usage: State restored even if panic occurs
+//===========================================
 fn complex_operation(processing: &mut bool) {
     let _guard = StateGuard::new(processing, true);
     // If this panics, processing is reset to old value
@@ -503,7 +586,9 @@ impl<F: FnOnce()> Drop for ScopeGuard<F> {
     }
 }
 
+//=====================================
 // Usage: Generic cleanup on scope exit
+//=====================================
 fn transactional_update() {
     let _guard = ScopeGuard::new(|| {
         println!("Rolling back transaction");
@@ -535,168 +620,32 @@ fn perform_operations() {}
 
 ## Pattern 5: Memory Layout Optimization
 
-Understanding memory layout is crucial for performance. Cache efficiency, false sharing, and struct padding significantly impact real-world performance.
+**Problem**: Naive struct definitions waste memory through padding and hurt performance via poor cache utilization. False sharing in multi-threaded code can cause 10-100x slowdowns. Struct of Arrays (SoA) vs Array of Structs (AoS) choice dramatically affects loop performance.
 
-### Memory Alignment Fundamentals
+**Solution**: Use `#[repr(C)]` for predictable layout (FFI), `#[repr(align(N))]` for cache alignment, `#[repr(packed)]` to eliminate padding (with care). Order struct fields from largest to smallest alignment. Pad shared data to cache line boundaries (64 bytes). Consider SoA for performance-critical loops.
 
-**Alignment** is the requirement that a value's memory address must be a multiple of its alignment value. Every type in Rust has an alignment requirement, which is a power of 2 (1, 2, 4, 8, 16, etc.).
+**Why It Matters**: Modern CPUs are dominated by memory hierarchy—cache misses cost 100-200 cycles while arithmetic costs 1-4 cycles. A cache miss is 50-100x slower than a cache hit. False sharing (two threads modifying different variables on the same cache line) serializes supposedly-parallel code. Understanding memory layout is the difference between 10 MB/s and 1 GB/s in data processing.
 
-**Why alignment matters:**
-1. **Hardware requirement**: Many CPUs cannot access misaligned data, causing faults
-2. **Performance**: Aligned access is faster (1 cycle vs multiple cycles for misaligned)
-3. **Atomics**: Atomic operations require proper alignment to work correctly
-4. **SIMD**: Vector operations require 16/32/64-byte alignment
-
-**Alignment rules:**
-- `u8`/`i8`/`bool`: 1-byte alignment (can be at any address)
-- `u16`/`i16`: 2-byte alignment (address must be multiple of 2)
-- `u32`/`i32`/`f32`: 4-byte alignment (address must be multiple of 4)
-- `u64`/`i64`/`f64`/pointers: 8-byte alignment (address must be multiple of 8)
-- `u128`/`i128`: 16-byte alignment
-- Structs: alignment = max(alignment of all fields)
-- Arrays: alignment = element alignment
-
-**Padding** is unused space inserted by the compiler to satisfy alignment requirements:
+**Use Cases**: High-frequency trading systems, game engines, scientific computing, embedded systems, FFI with C libraries, SIMD optimization, lock-free data structures.
 
 ```rust
-//==============================================
-// Understanding padding with detailed breakdown
-//==============================================
-
-// Example 1: Padding between fields
-struct Example1 {
-    a: u8,     // Offset 0, size 1, align 1
-    // [padding: 3 bytes inserted here]
-    b: u32,    // Offset 4, size 4, align 4
-    c: u8,     // Offset 8, size 1, align 1
-    // [padding: 3 bytes at end for alignment]
-}
-// Total size: 12 bytes (not 6!)
-// Alignment: 4 (max of field alignments)
-
-// Why 12 bytes?
-// - 'a' at offset 0 (1 byte)
-// - 'b' needs 4-byte alignment, so offset must be multiple of 4
-//   Next valid offset is 4, so 3 padding bytes inserted
-// - 'b' at offset 4 (4 bytes)
-// - 'c' at offset 8 (1 byte)
-// - Struct must be aligned to 4 bytes for array/packing
-//   Size must be multiple of alignment, so 3 padding bytes at end
-
-// Example 2: Optimal field ordering
-struct Example2 {
-    b: u32,    // Offset 0, size 4, align 4
-    a: u8,     // Offset 4, size 1, align 1
-    c: u8,     // Offset 5, size 1, align 1
-    // [padding: 2 bytes at end]
-}
-// Total size: 8 bytes (33% smaller!)
-// Same data, better layout
-
-// Example 3: No padding needed
-struct Example3 {
-    x: u64,    // Offset 0, size 8, align 8
-    y: u32,    // Offset 8, size 4, align 4
-    z: u32,    // Offset 12, size 4, align 4
-}
-// Total size: 16 bytes, perfectly packed
-
-// Example 4: Nested structs
-struct Inner {
-    a: u8,
-    // [3 bytes padding]
-    b: u32,
-}  // size: 8, align: 4
-
-struct Outer {
-    x: u8,
-    // [3 bytes padding]
-    inner: Inner,  // Needs 4-byte alignment
-    y: u8,
-    // [3 bytes padding]
-}  // size: 16, align: 4
-
-//===============================================
-// Inspecting alignment and size at compile time
-//===============================================
-const _: () = {
-    assert!(std::mem::size_of::<Example1>() == 12);
-    assert!(std::mem::align_of::<Example1>() == 4);
-
-    assert!(std::mem::size_of::<Example2>() == 8);
-    assert!(std::mem::align_of::<Example2>() == 4);
-};
-
-// Runtime inspection
-fn inspect_layout<T>() {
-    println!("Size: {} bytes", std::mem::size_of::<T>());
-    println!("Alignment: {} bytes", std::mem::align_of::<T>());
-}
-
 //==========================================
 // Pattern: #[repr(C)] for FFI compatibility
 //==========================================
-// Rust's default representation is undefined and may reorder fields
-// #[repr(C)] guarantees C-compatible layout (no reordering)
-
 #[repr(C)]
 struct Point {
-    x: f64,    // Guaranteed at offset 0
-    y: f64,    // Guaranteed at offset 8
-}
-// Size: 16, align: 8
-// Layout is stable and matches C struct
-
-// Without #[repr(C)], Rust could theoretically reorder fields
-struct NotC {
     x: f64,
     y: f64,
 }
-// Size: 16, align: 8 (happens to match, but not guaranteed)
 
 //==============================================
 // Pattern: #[repr(packed)] to eliminate padding
 //==============================================
-// WARNING: Removes ALL padding, can cause misaligned access
-// Can break on architectures that require alignment
-// References to fields may be UB if misaligned
-
+// WARNING: Can cause misaligned access, use carefully
 #[repr(packed)]
 struct Packed {
-    a: u8,     // Offset 0
-    b: u32,    // Offset 1 (misaligned! normally needs offset 4)
-}
-// Size: 5 bytes, align: 1
-
-// Safer: specify alignment while packing
-#[repr(packed(2))]
-struct PackedAlign2 {
-    a: u8,     // Offset 0
-    b: u32,    // Offset 2 (2-byte aligned, but not 4-byte)
-    c: u8,     // Offset 6
-}
-// Size: 7, align: 2
-
-// Danger: Taking references to packed struct fields
-#[repr(packed)]
-struct DangerousPacked {
     a: u8,
-    b: u64,
-}
-
-fn unsafe_example() {
-    let packed = DangerousPacked { a: 1, b: 2 };
-
-    // ⚠️  UB: Creating reference to misaligned field
-    // let ref_b = &packed.b;  // DON'T DO THIS!
-
-    // ✓ Safe: Read by value
-    let value = packed.b;  // Compiler generates safe unaligned load
-
-    // ✓ Safe: Use ptr::read_unaligned
-    let value = unsafe {
-        std::ptr::addr_of!(packed.b).read_unaligned()
-    };
+    b: u32,  // No padding between a and b
 }
 
 //========================================================
@@ -859,140 +808,29 @@ impl ParticlesSoA {
 
 ## Pattern 6: Arena Allocation
 
-Arena allocators (also called bump allocators or region allocators) provide fast allocation by pre-allocating a large chunk of memory and handing out pointers sequentially. Deallocation happens all at once when the arena is dropped.
+**Problem**: Allocating many small objects with `Box::new()` or `Vec::push()` is slow—each allocation calls into the system allocator (`malloc`), which involves locks and metadata management. Individually freeing objects is even slower. Compilers and parsers allocate millions of AST nodes; web servers create objects per request.
 
-### Arena Allocation Fundamentals
+**Solution**: Arena allocation (bump allocation)—pre-allocate a large memory chunk and hand out pointers by incrementing a position counter. Deallocation is a no-op for individual objects; the entire arena is freed at once when dropped. This reduces allocation from a complex operation to a pointer increment.
 
-**What is an arena allocator?**
-An arena is a memory management strategy that:
-1. Pre-allocates a large contiguous chunk of memory
-2. Satisfies allocation requests by "bumping" a pointer forward
-3. Never frees individual allocations
-4. Frees all allocations at once when the arena is destroyed
+**Why It Matters**: Arena allocation is 10-100x faster than general-purpose allocators for small objects. For compilers, this means parsing is allocation-limited—arena allocation can halve compile times. For web servers handling 10,000 requests/second, per-request arenas eliminate allocation overhead entirely.
 
-**Why use arenas?**
-- **Speed**: 10-100x faster than malloc/free for small objects (just pointer increment)
-- **Cache locality**: Allocated objects are contiguous in memory
-- **No fragmentation**: Linear allocation prevents memory fragmentation
-- **Predictable performance**: No allocation algorithm complexity
-- **Bulk deallocation**: O(1) cleanup regardless of allocation count
-
-**Trade-offs:**
-- Cannot free individual allocations (memory grows monotonically)
-- Holds memory until entire arena is dropped
-- Not suitable for long-lived objects with mixed lifetimes
-- Requires lifetime discipline (arena must outlive all allocations)
-
-**Memory layout:**
-```
-Arena memory chunk:
-┌────────────────────────────────────────────────────────┐
-│ [Obj1][Obj2][padding][Obj3][Obj4]    [free space]      │
-│  ^                                     ^               │
-│  allocated                             bump pointer    │
-└────────────────────────────────────────────────────────┘
-
-Allocation process:
-1. Check if enough space: (position + size) <= capacity
-2. Align position to object's alignment requirement
-3. Return pointer at current position
-4. Bump position forward by object size
-```
-
-### How Alignment Works in Arenas
-
-When allocating, the arena must ensure each object is properly aligned:
-
-```rust
-//==============================================
-// Alignment calculation in detail
-//==============================================
-
-// Example: Allocating u8, then u32
-// Initial state: position = 0
-//
-// Allocate u8 (size=1, align=1):
-//   - position % 1 == 0, no padding needed
-//   - place u8 at offset 0
-//   - position = 0 + 1 = 1
-//
-// Allocate u32 (size=4, align=4):
-//   - position % 4 == 1, needs alignment
-//   - padding = (4 - (1 % 4)) % 4 = 3
-//   - skip 3 bytes, position = 1 + 3 = 4
-//   - place u32 at offset 4 (aligned!)
-//   - position = 4 + 4 = 8
-
-fn calculate_padding(position: usize, align: usize) -> usize {
-    // Formula: padding = (align - (position % align)) % align
-    // This gives the number of bytes to skip to reach next aligned address
-
-    let remainder = position % align;
-    if remainder == 0 {
-        0  // Already aligned
-    } else {
-        align - remainder  // Skip to next alignment boundary
-    }
-}
-
-// Alternative using bit manipulation (faster for power-of-2 alignments)
-fn calculate_padding_fast(position: usize, align: usize) -> usize {
-    // align must be power of 2
-    debug_assert!(align.is_power_of_two());
-    (align - (position & (align - 1))) & (align - 1)
-}
-
-//==============================================
-// Visualizing alignment padding
-//==============================================
-
-/*
-Memory addresses:  0   1   2   3   4   5   6   7   8
-                  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┐
-After u8:         │ X │   │   │   │   │   │   │   │   │
-                  └───┴───┴───┴───┴───┴───┴───┴───┴───┘
-                   ↑
-                   position=1, need align=4 for u32
-
-                  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┐
-Add 3 padding:    │ X │ P │ P │ P │   │   │   │   │   │
-                  └───┴───┴───┴───┴───┴───┴───┴───┴───┘
-                                   ↑
-                                   position=4 (aligned!)
-
-                  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┐
-After u32:        │ X │ P │ P │ P │ Y │ Y │ Y │ Y │   │
-                  └───┴───┴───┴───┴───┴───┴───┴───┴───┘
-                                                   ↑
-                                                   position=8
-*/
-```
-
-### Simple Arena Implementation
+**Use Cases**: Compiler frontends (AST, IR, symbol tables), web server request handlers, game engine frame allocations, graph algorithms with temporary structures, template engines, parsers and lexers.
 
 ```rust
 //================================
 // Pattern: Simple arena allocator
 //================================
 struct Arena {
-    chunks: Vec<Vec<u8>>,  // Previously filled chunks
-    current: Vec<u8>,       // Current allocation chunk
-    position: usize,        // Next allocation offset in current chunk
+    chunks: Vec<Vec<u8>>,
+    current: Vec<u8>,
+    position: usize,
 }
 
 impl Arena {
     fn new() -> Self {
         Arena {
             chunks: Vec::new(),
-            current: vec![0; 4096],  // 4KB initial chunk
-            position: 0,
-        }
-    }
-
-    fn with_capacity(capacity: usize) -> Self {
-        Arena {
-            chunks: Vec::new(),
-            current: vec![0; capacity],
+            current: vec![0; 4096],
             position: 0,
         }
     }
@@ -1001,142 +839,24 @@ impl Arena {
         let size = std::mem::size_of::<T>();
         let align = std::mem::align_of::<T>();
 
-        // Step 1: Calculate padding for alignment
+        // Align position
         let padding = (align - (self.position % align)) % align;
         self.position += padding;
 
-        // Step 2: Check if we need a new chunk
+        // Check if we need a new chunk
         if self.position + size > self.current.len() {
-            // Save current chunk and allocate new one
-            let old = std::mem::replace(
-                &mut self.current,
-                vec![0; self.current.len().max(size * 2)]  // Grow if needed
-            );
+            let old = std::mem::replace(&mut self.current, vec![0; 4096]);
             self.chunks.push(old);
             self.position = 0;
         }
 
-        // Step 3: Get pointer at current position
-        let ptr = &mut self.current[self.position] as *mut u8 as *mut T;
-        self.position += size;
-
-        // Step 4: Write value and return reference
-        unsafe {
-            std::ptr::write(ptr, value);  // Move value into arena
-            &mut *ptr                      // Return mutable reference
-        }
-    }
-
-    // Allocate uninitialized space (useful for buffers)
-    fn alloc_slice<T>(&mut self, len: usize) -> &mut [T] {
-        let size = std::mem::size_of::<T>() * len;
-        let align = std::mem::align_of::<T>();
-
-        let padding = (align - (self.position % align)) % align;
-        self.position += padding;
-
-        if self.position + size > self.current.len() {
-            let old = std::mem::replace(
-                &mut self.current,
-                vec![0; self.current.len().max(size * 2)]
-            );
-            self.chunks.push(old);
-            self.position = 0;
-        }
-
+        // Allocate
         let ptr = &mut self.current[self.position] as *mut u8 as *mut T;
         self.position += size;
 
         unsafe {
-            std::slice::from_raw_parts_mut(ptr, len)
-        }
-    }
-
-    // Reset arena without deallocating (reuse memory)
-    fn reset(&mut self) {
-        self.position = 0;
-        // Keep first chunk, drop others
-        if let Some(chunk) = self.chunks.pop() {
-            self.current = chunk;
-            self.chunks.clear();
-        }
-    }
-
-    // Get statistics
-    fn allocated_bytes(&self) -> usize {
-        let chunk_total: usize = self.chunks.iter().map(|c| c.len()).sum();
-        chunk_total + self.position
-    }
-
-    fn capacity_bytes(&self) -> usize {
-        let chunk_total: usize = self.chunks.iter().map(|c| c.len()).sum();
-        chunk_total + self.current.len()
-    }
-
-    fn wasted_bytes(&self) -> usize {
-        self.capacity_bytes() - self.allocated_bytes()
-    }
-}
-
-// Example usage showing performance characteristics
-fn arena_example() {
-    let mut arena = Arena::new();
-
-    // Allocation is just pointer bumping - extremely fast
-    let x = arena.alloc(42u32);
-    let y = arena.alloc(3.14f64);
-    let z = arena.alloc([1, 2, 3, 4, 5]);
-
-    // All allocations are contiguous in memory
-    println!("x: {:p}, y: {:p}, z: {:p}", x, y, z);
-
-    // Statistics
-    println!("Allocated: {} bytes", arena.allocated_bytes());
-    println!("Capacity: {} bytes", arena.capacity_bytes());
-    println!("Wasted: {} bytes", arena.wasted_bytes());
-
-    // All memory freed at once when arena drops - O(1)
-}
-
-//==============================================
-// Pattern: Arena with Drop support
-//==============================================
-// Problem: Simple arena doesn't call destructors
-// Solution: Track allocated objects and drop them
-
-struct DroppingArena {
-    arena: Arena,
-    drops: Vec<Box<dyn FnOnce()>>,  // Cleanup functions
-}
-
-impl DroppingArena {
-    fn new() -> Self {
-        DroppingArena {
-            arena: Arena::new(),
-            drops: Vec::new(),
-        }
-    }
-
-    fn alloc<T>(&mut self, value: T) -> &mut T {
-        let ptr = self.arena.alloc(value);
-
-        // Register destructor if T needs Drop
-        if std::mem::needs_drop::<T>() {
-            let ptr_copy = ptr as *mut T;
-            self.drops.push(Box::new(move || unsafe {
-                std::ptr::drop_in_place(ptr_copy);
-            }));
-        }
-
-        ptr
-    }
-}
-
-impl Drop for DroppingArena {
-    fn drop(&mut self) {
-        // Call all destructors in reverse order
-        for drop_fn in self.drops.drain(..).rev() {
-            drop_fn();
+            std::ptr::write(ptr, value);
+            &mut *ptr
         }
     }
 }
@@ -1144,16 +864,12 @@ impl Drop for DroppingArena {
 //===================================
 // Use case: AST nodes during parsing
 //===================================
-// Problem: Recursive data structures like ASTs need many small allocations
-// Solution: Arena allocation is perfect - all nodes freed when parsing completes
-
 struct AstArena {
     arena: Arena,
 }
 
 enum Expr<'a> {
     Number(i64),
-    Variable(&'a str),
     Add(&'a Expr<'a>, &'a Expr<'a>),
     Multiply(&'a Expr<'a>, &'a Expr<'a>),
 }
@@ -1167,59 +883,14 @@ impl AstArena {
         self.arena.alloc(Expr::Number(n))
     }
 
-    fn variable(&mut self, name: &str) -> &Expr {
-        // Arena-allocate the string too
-        let name_ref = {
-            let buf = self.arena.alloc_slice(name.len());
-            buf.copy_from_slice(name.as_bytes());
-            unsafe { std::str::from_utf8_unchecked(buf) }
-        };
-        self.arena.alloc(Expr::Variable(name_ref))
-    }
-
     fn add<'a>(&'a mut self, left: &'a Expr, right: &'a Expr) -> &'a Expr<'a> {
         self.arena.alloc(Expr::Add(left, right))
-    }
-
-    fn multiply<'a>(&'a mut self, left: &'a Expr, right: &'a Expr) -> &'a Expr<'a> {
-        self.arena.alloc(Expr::Multiply(left, right))
-    }
-}
-
-// Example: Building an expression tree
-fn parse_example() {
-    let mut arena = AstArena::new();
-
-    // Build: (x + 5) * (y + 3)
-    let x = arena.variable("x");
-    let five = arena.number(5);
-    let y = arena.variable("y");
-    let three = arena.number(3);
-
-    let left = arena.add(x, five);      // x + 5
-    let right = arena.add(y, three);    // y + 3
-    let expr = arena.multiply(left, right);  // (x + 5) * (y + 3)
-
-    evaluate(expr);
-
-    // All memory freed at once when arena drops - no need to traverse tree
-}
-
-fn evaluate(expr: &Expr) -> i64 {
-    match expr {
-        Expr::Number(n) => *n,
-        Expr::Variable(_) => 0, // Stub
-        Expr::Add(l, r) => evaluate(l) + evaluate(r),
-        Expr::Multiply(l, r) => evaluate(l) * evaluate(r),
     }
 }
 
 //============================================
 // Pattern: Typed arena with better ergonomics
 //============================================
-// Using the 'typed-arena' crate for production code
-// This is safer and more convenient than raw arena
-
 use typed_arena::Arena as TypedArena;
 
 struct Parser<'ast> {
@@ -1254,262 +925,45 @@ impl StringArena {
         let owned = self.arena.alloc(s.to_string());
         owned.as_str()
     }
-
-    // Efficient string building with arena
-    fn concat(&self, strings: &[&str]) -> &str {
-        let total_len: usize = strings.iter().map(|s| s.len()).sum();
-        let mut result = String::with_capacity(total_len);
-        for s in strings {
-            result.push_str(s);
-        }
-        self.alloc(&result)
-    }
 }
 
 //===================================================
 // Use case: Request-scoped allocations in web server
 //===================================================
-// Problem: HTTP request processing needs temporary buffers
-// Solution: Per-request arena, freed when request completes
-
 struct RequestContext<'arena> {
     arena: &'arena TypedArena<Vec<u8>>,
-    string_arena: &'arena StringArena,
 }
 
 impl<'arena> RequestContext<'arena> {
     fn allocate_buffer(&self, size: usize) -> &'arena mut Vec<u8> {
         self.arena.alloc(vec![0; size])
     }
-
-    fn parse_header(&self, header: &str) -> &'arena str {
-        // Parse and normalize header, storing in arena
-        let normalized = header.trim().to_lowercase();
-        self.string_arena.alloc(&normalized)
-    }
-}
-
-// Web server example
-fn handle_request() {
-    let arena = TypedArena::new();
-    let string_arena = StringArena::new();
-
-    let ctx = RequestContext {
-        arena: &arena,
-        string_arena: &string_arena,
-    };
-
-    // All allocations during request processing use arena
-    let buffer = ctx.allocate_buffer(4096);
-    let header = ctx.parse_header("Content-Type: application/json");
-
-    process_request(buffer, header);
-
-    // Arena dropped here - all memory freed at once, O(1)
-}
-
-fn process_request(_buffer: &[u8], _header: &str) {
-    // Process the request
-}
-
-//=======================================================
-// Pattern: Thread-local arena for per-thread allocations
-//=======================================================
-use std::cell::RefCell;
-
-thread_local! {
-    static THREAD_ARENA: RefCell<Arena> = RefCell::new(Arena::new());
-}
-
-fn thread_alloc<T>(value: T) -> *mut T {
-    THREAD_ARENA.with(|arena| {
-        let ptr = arena.borrow_mut().alloc(value) as *mut T;
-        ptr
-    })
-}
-
-// Usage: Fast thread-local allocation without global allocator contention
-fn worker_thread() {
-    for _ in 0..1000 {
-        let data = unsafe { &mut *thread_alloc(vec![0u8; 100]) };
-        process_data(data);
-    }
-    // Reset arena at end of batch
-    THREAD_ARENA.with(|arena| arena.borrow_mut().reset());
-}
-
-fn process_data(_data: &mut Vec<u8>) {}
-
-//====================================================
-// Pattern: Double-buffered arena for frame allocations
-//====================================================
-// Common in game engines: alternate between two arenas per frame
-
-struct DoubleBufferedArena {
-    arenas: [Arena; 2],
-    current: usize,
-}
-
-impl DoubleBufferedArena {
-    fn new() -> Self {
-        DoubleBufferedArena {
-            arenas: [Arena::new(), Arena::new()],
-            current: 0,
-        }
-    }
-
-    fn alloc<T>(&mut self, value: T) -> &mut T {
-        self.arenas[self.current].alloc(value)
-    }
-
-    // Call at end of frame
-    fn swap(&mut self) {
-        // Current frame's arena becomes previous
-        // Previous frame's arena is reset and becomes current
-        self.current = 1 - self.current;
-        self.arenas[self.current].reset();
-    }
-
-    fn current(&mut self) -> &mut Arena {
-        &mut self.arenas[self.current]
-    }
-}
-
-// Game loop example
-fn game_loop() {
-    let mut arena = DoubleBufferedArena::new();
-
-    loop {
-        // Frame N uses arena 0
-        let entities = arena.alloc(vec![1, 2, 3]);
-        render_frame(entities);
-
-        // Swap: frame N+1 uses arena 1, arena 0 is reset
-        arena.swap();
-
-        // Frame N+1 allocations don't interfere with frame N data
-        let particles = arena.alloc(vec![4, 5, 6]);
-        update_particles(particles);
-
-        arena.swap();
-    }
-}
-
-fn render_frame(_entities: &[i32]) {}
-fn update_particles(_particles: &[i32]) {}
-
-//=======================================================
-// Performance comparison: Arena vs heap allocation
-//=======================================================
-
-#[cfg(test)]
-mod arena_benchmarks {
-    use super::*;
-
-    // Heap allocation (baseline)
-    fn heap_alloc_many(n: usize) -> Vec<Box<u64>> {
-        let mut vec = Vec::new();
-        for i in 0..n {
-            vec.push(Box::new(i as u64));
-        }
-        vec
-    }
-
-    // Arena allocation
-    fn arena_alloc_many(arena: &mut Arena, n: usize) -> Vec<&mut u64> {
-        let mut vec = Vec::new();
-        for i in 0..n {
-            vec.push(arena.alloc(i as u64));
-        }
-        vec
-    }
-
-    #[test]
-    fn benchmark_comparison() {
-        use std::time::Instant;
-
-        const N: usize = 100_000;
-
-        // Heap allocation benchmark
-        let start = Instant::now();
-        let heap_data = heap_alloc_many(N);
-        let heap_time = start.elapsed();
-        drop(heap_data);
-        let heap_free_time = start.elapsed() - heap_time;
-
-        // Arena allocation benchmark
-        let start = Instant::now();
-        let mut arena = Arena::with_capacity(N * 8);
-        let arena_data = arena_alloc_many(&mut arena, N);
-        let arena_time = start.elapsed();
-        drop(arena_data);
-        drop(arena);
-        let arena_free_time = start.elapsed() - arena_time;
-
-        println!("Heap alloc: {:?}", heap_time);
-        println!("Heap free: {:?}", heap_free_time);
-        println!("Arena alloc: {:?}", arena_time);
-        println!("Arena free: {:?}", arena_free_time);
-
-        // Typical results:
-        // Heap alloc:  ~10ms
-        // Heap free:   ~5ms
-        // Arena alloc: ~0.1ms (100x faster!)
-        // Arena free:  ~0.01ms (500x faster!)
-    }
 }
 ```
-
-### Arena Allocation Summary
 
 **When to use arenas:**
-- **Compiler frontends**: AST nodes, IR, symbol tables - all freed after compilation phase
-- **Request handlers**: Web servers, RPC - per-request arena freed when request completes
-- **Graph algorithms**: Temporary nodes during traversal, freed after algorithm completes
-- **Game engines**: Per-frame allocations, particles, temporary geometry
-- **Parsers**: Token storage, parse trees - bulk deallocation after parsing
-- **Any scenario with bulk deallocation**: If objects have same lifetime, arena is ideal
+- Compiler frontends (AST, IR nodes)
+- Request handlers in servers
+- Graph algorithms with temporary nodes
+- Game engine frame allocations
+- Any scenario with bulk deallocation
 
 **Performance characteristics:**
-- **Allocation**: O(1) - just pointer increment (no allocator overhead)
-- **Deallocation**: O(1) - drop entire arena (vs O(n) for individual frees)
-- **Speed**: 10-100x faster than malloc/free for small objects
-- **Cache locality**: Allocated objects contiguous in memory (better performance)
-- **Memory overhead**: Minimal (vs malloc's per-allocation overhead)
-- **Fragmentation**: None (linear allocation)
-
-**Limitations:**
-- Cannot free individual objects (memory monotonically grows)
-- Not suitable for mixed lifetimes (some objects live longer than others)
-- Requires lifetime discipline (arena must outlive all references)
-- May waste memory if large capacity pre-allocated
-
-**Arena patterns comparison:**
-
-| Pattern | Use Case | Overhead | Safety |
-|---------|----------|----------|--------|
-| Simple bump allocator | Maximum speed, no drops | Minimal | Unsafe API |
-| Typed arena (typed_arena) | Production code | Low | Safe API |
-| Dropping arena | Types needing Drop | Medium | Safe with drops |
-| Thread-local arena | Per-thread scratch space | Low | Thread-safe |
-| Double-buffered arena | Game frame allocations | 2x memory | Safe overlap |
-
-**Real-world performance gains:**
-```
-Scenario: Parsing 10,000 AST nodes
-├─ malloc/free:  850 μs allocation + 420 μs deallocation = 1,270 μs
-└─ Arena:         12 μs allocation +   1 μs deallocation =    13 μs
-   Speedup: 97x faster!
-
-Scenario: HTTP request with 50 temp allocations
-├─ malloc/free:  4.2 μs
-└─ Arena:        0.08 μs
-   Speedup: 52x faster!
-```
+- Allocation: O(1), just increment pointer
+- Deallocation: O(1), drop entire arena
+- 10-100x faster than malloc/free for small objects
+- Better cache locality (allocated objects are contiguous)
+- Cannot free individual objects (trade-off)
 
 ## Pattern 7: Custom Smart Pointers
 
-Sometimes standard smart pointers aren't enough. Understanding how to build custom smart pointers enables specialized memory management strategies.
+**Problem**: Standard smart pointers (`Box`, `Rc`, `Arc`) have limitations—`Rc`/`Arc` use separate heap allocations for refcounts, indices into growing vectors can be invalidated, and some patterns need intrusive reference counting for cache efficiency. Game engines, databases, and kernels need specialized ownership semantics.
+
+**Solution**: Build custom smart pointers using `NonNull<T>`, `PhantomData`, `Deref`, `DerefMut`, and `Drop`. Intrusive reference counting embeds refcounts in the object itself. Generational indices combine indices with generation counters to detect stale references. Copy-on-write wrappers enforce immutability.
+
+**Why It Matters**: Custom smart pointers enable patterns impossible with standard types. Intrusive `Rc` saves one allocation per object (critical for millions of small objects). Generational arenas let you use stable indices instead of pointers, simplifying serialization and debugging. Understanding these techniques is essential for high-performance systems programming.
+
+**Use Cases**: Game engines (entity-component systems with generational indices), database systems (buffer pool management), embedded systems (intrusive data structures for minimal overhead), kernel development, custom memory pools.
 
 ```rust
 use std::ops::{Deref, DerefMut};

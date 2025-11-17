@@ -52,40 +52,16 @@ Creating raw pointers is safe—it's just taking an address. The danger comes wh
 fn raw_pointer_basics() {
     let mut num = 42;
 
-    //============================================
-    // SAFE: Creating raw pointers from references
-    //============================================
-    let r1: *const i32 = &num;        // Immutable raw pointer
     let r2: *mut i32 = &mut num;      // Mutable raw pointer
 
-    //===================================================================
-    // SAFE but DANGEROUS: Creating raw pointers from arbitrary addresses
-    //===================================================================
-    let address = 0x012345usize;
     let r3 = address as *const i32;   // Might point to invalid memory!
 
     unsafe {
-        //===================================
-        // UNSAFE: Dereferencing raw pointers
-        //===================================
-        // We know this is safe because r1 came from a valid reference
         println!("r1 points to: {}", *r1);
 
-        //=============================
-        // Mutating through raw pointer
-        //=============================
-        // Safe because r2 came from &mut num and we're in an unsafe block
         *r2 = 100;
         println!("num is now: {}", num);
 
-        //=============================================
-        // Dereferencing r3 would be UNDEFINED BEHAVIOR
-        //=============================================
-        // That address might not be mapped, might be read-only, etc.
-        //=======================================
-        // println!("{}", *r3);  // DON'T DO THIS
-        //=======================================
-    }
 }
 ```
 
@@ -101,25 +77,13 @@ fn pointer_arithmetic() {
     let ptr: *const i32 = arr.as_ptr();
 
     unsafe {
-        //==========================================
-        // Manual iteration using pointer arithmetic
-        //==========================================
-        // We know this is safe because we stay within array bounds
         for i in 0..arr.len() {
             let element_ptr = ptr.add(i);  // Equivalent to ptr + i * sizeof(i32)
             println!("Element {}: {}", i, *element_ptr);
         }
 
-        //=====================================
-        // Pointer offset using signed integers
-        //=====================================
-        let third = ptr.offset(2);  // Same as ptr.add(2) for positive offsets
         println!("Third element: {}", *third);
 
-        //============================================
-        // NEVER do: ptr.add(100) on a 5-element array
-        //============================================
-        // That's undefined behavior even if you don't dereference!
     }
 }
 ```
@@ -148,10 +112,6 @@ pub struct RawVec<T> {
 impl<T> RawVec<T> {
     /// Creates an empty RawVec with no allocation.
     pub fn new() -> Self {
-        //=====================================================
-        // Safety: Zero-sized types are special-cased elsewhere
-        //=====================================================
-        assert!(std::mem::size_of::<T>() != 0, "Zero-sized types not supported");
         RawVec {
             ptr: std::ptr::null_mut(),  // null_mut() is a safe operation
             cap: 0,
@@ -160,20 +120,8 @@ impl<T> RawVec<T> {
 
     /// Allocates memory for `cap` elements.
     pub fn with_capacity(cap: usize) -> Self {
-        //=========================================================
-        // Calculate memory layout: size and alignment requirements
-        //=========================================================
-        let layout = Layout::array::<T>(cap).unwrap();
 
-        //=====================================
-        // UNSAFE: Calling the global allocator
-        //=====================================
-        let ptr = unsafe { alloc(layout) as *mut T };
 
-        //================================
-        // Always check allocation success
-        //================================
-        if ptr.is_null() {
             panic!("Allocation failed");
         }
 
@@ -186,15 +134,7 @@ impl<T> RawVec<T> {
         let new_layout = Layout::array::<T>(new_cap).unwrap();
 
         let new_ptr = if self.cap == 0 {
-            //=================
-            // First allocation
-            //=================
-            unsafe { alloc(new_layout) }
         } else {
-            //===========================
-            // Reallocate existing memory
-            //===========================
-            let old_layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
                 realloc(
                     self.ptr as *mut u8,  // realloc works with u8 pointers
@@ -226,16 +166,8 @@ impl<T> Drop for RawVec<T> {
         if self.cap != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
-                //======================================================
-                // SAFETY: We allocated this memory with the same layout
-                //======================================================
-                dealloc(self.ptr as *mut u8, layout);
             }
         }
-        //========================================
-        // Note: We DON'T drop any T elements here
-        //========================================
-        // That's the responsibility of the Vec that uses RawVec
     }
 }
 ```
@@ -288,38 +220,14 @@ impl<T> LinkedList<T> {
     }
 
     fn push_back(&mut self, value: T) {
-        //==========================
-        // Allocate node on the heap
-        //==========================
-        let mut node = Box::new(Node::new(value));
 
-        //============================================
-        // Convert Box to raw pointer, then to NonNull
-        //============================================
-        // Box::into_raw transfers ownership to us
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
         unsafe {
-            //=====================================================
-            // SAFETY: node_ptr is valid because we just created it
-            //=====================================================
-            if let Some(mut tail) = self.tail {
-                //============================================
-                // List has existing tail, link it to new node
-                //============================================
-                // SAFETY: tail is valid (maintained as invariant)
                 tail.as_mut().next = Some(node_ptr);
             } else {
-                //======================================
-                // List was empty, new node becomes head
-                //======================================
-                self.head = Some(node_ptr);
             }
 
-            //================================
-            // New node is always the new tail
-            //================================
-            self.tail = Some(node_ptr);
         }
 
         self.len += 1;
@@ -330,21 +238,9 @@ impl<T> Drop for LinkedList<T> {
     fn drop(&mut self) {
         let mut current = self.head;
 
-        //=================================
-        // Walk the list and drop each node
-        //=================================
-        while let Some(node_ptr) = current {
             unsafe {
-                //=================================================
-                // SAFETY: node_ptr came from Box::into_raw earlier
-                //=================================================
-                // Convert back to Box to drop properly
                 let node = Box::from_raw(node_ptr.as_ptr());
                 current = node.next;
-                //========================================
-                // node drops here, calling T's destructor
-                //========================================
-            }
         }
     }
 }
@@ -388,22 +284,10 @@ extern "C" {
 
 fn use_c_functions() {
     unsafe {
-        //=================================
-        // SAFETY: abs has no preconditions
-        //=================================
-        println!("abs(-42) = {}", abs(-42));
 
-        //=======================================================
-        // SAFETY: We're passing a valid null-terminated C string
-        //=======================================================
-        let c_str = b"Hello, C!\0";  // b"..." creates &[u8]
         let len = strlen(c_str.as_ptr() as *const std::os::raw::c_char);
         println!("String length: {}", len);
 
-        //================================================
-        // malloc/free example (normally use Box instead!)
-        //================================================
-        let ptr = malloc(1024);
         if !ptr.is_null() {
             free(ptr);
         }
@@ -429,15 +313,7 @@ use std::os::raw::c_char;
 /// Converts a Rust string to a C-owned string.
 /// Caller must free with free_rust_c_string().
 fn rust_to_c_string(s: &str) -> *mut c_char {
-    //==================================================================
-    // CString::new() checks for internal nulls and adds a trailing null
-    //==================================================================
-    let c_string = CString::new(s).expect("CString creation failed");
 
-    //==============================================
-    // Transfer ownership to C: Rust won't drop this
-    //==============================================
-    c_string.into_raw()
 }
 
 /// Converts a C string to a Rust String (copying data).
@@ -446,15 +322,7 @@ fn rust_to_c_string(s: &str) -> *mut c_char {
 /// - `c_str` must be a valid null-terminated C string
 /// - The memory must remain valid for the duration of this call
 unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
-    //=============================================================
-    // SAFETY: Caller guarantees c_str is valid and null-terminated
-    //=============================================================
-    let c_str = CStr::from_ptr(c_str);
 
-    //================================================
-    // to_string_lossy replaces invalid UTF-8 with �
-    //================================================
-    c_str.to_string_lossy().into_owned()
 }
 
 /// Frees a C string created by rust_to_c_string().
@@ -464,15 +332,7 @@ unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
 /// - `ptr` must not be used after this call (use-after-free)
 unsafe fn free_rust_c_string(ptr: *mut c_char) {
     if !ptr.is_null() {
-        //===============================
-        // Reconstruct CString to drop it
-        //===============================
-        // SAFETY: ptr came from CString::into_raw()
         let _ = CString::from_raw(ptr);
-        //=========================================
-        // CString dropped here, freeing the memory
-        //=========================================
-    }
 }
 
 //==============
@@ -482,21 +342,9 @@ fn c_string_example() {
     let c_str = rust_to_c_string("Hello from Rust");
 
     unsafe {
-        //====================================
-        // SAFETY: We just created this string
-        //====================================
-        println!("C string: {:?}", CStr::from_ptr(c_str));
 
-        //=====================
-        // Convert back to Rust
-        //=====================
-        let rust_str = c_to_rust_string(c_str);
         println!("Back to Rust: {}", rust_str);
 
-        //==================
-        // Free the C string
-        //==================
-        free_rust_c_string(c_str);
     }
 }
 ```
@@ -548,10 +396,6 @@ fn use_c_structs() {
     let point = Point { x: 10, y: 20 };
 
     unsafe {
-        //====================================================
-        // SAFETY: process_point expects a valid Point pointer
-        //====================================================
-        // We're passing a reference to stack-allocated data
         let result = process_point(&point);
         println!("Result: {}", result);
     }
@@ -604,16 +448,8 @@ impl Context {
     ///
     /// Returns Ok(result) on success, Err(message) on failure.
     pub fn do_work(&mut self, data: &str) -> Result<i32, String> {
-        //================================
-        // Convert Rust string to C string
-        //================================
-        let c_data = CString::new(data).map_err(|e| e.to_string())?;
 
         let result = unsafe {
-            //======================================================
-            // SAFETY: self.inner is valid (maintained as invariant)
-            //======================================================
-            // c_data is a valid C string (CString guarantees this)
             context_do_work(self.inner, c_data.as_ptr())
         };
 
@@ -628,10 +464,6 @@ impl Context {
 impl Drop for Context {
     fn drop(&mut self) {
         unsafe {
-            //======================================================
-            // SAFETY: self.inner is valid (maintained as invariant)
-            //======================================================
-            // We only call destroy_context once (Drop called once per value)
             destroy_context(self.inner);
         }
     }
@@ -675,17 +507,9 @@ extern "C" {
 extern "C" fn my_callback(value: c_int) -> c_int {
     println!("Callback called with: {}", value);
     value * 2
-    //=============================================
-    // No panic! across FFI boundaries or UB occurs
-    //=============================================
-}
 
 fn callback_example() {
     unsafe {
-        //===================================================
-        // SAFETY: my_callback matches the expected signature
-        //===================================================
-        register_callback(my_callback);
         trigger_callback(42);
     }
 }
@@ -697,10 +521,6 @@ type CallbackWithData = extern "C" fn(*mut std::os::raw::c_void, c_int) -> c_int
 
 extern "C" fn callback_with_context(user_data: *mut std::os::raw::c_void, value: c_int) -> c_int {
     unsafe {
-        //==============================================
-        // SAFETY: Caller must pass correct pointer type
-        //==============================================
-        // This is why we document what type user_data should be
         let data = &mut *(user_data as *mut i32);
         *data += value;
         *data
@@ -754,24 +574,12 @@ use std::mem::MaybeUninit;
 
 /// Create a large array efficiently without stack overflow.
 fn create_array_uninit() -> [i32; 1000] {
-    //==========================================
-    // Allocate uninitialized array on the stack
-    //==========================================
-    let mut arr: [MaybeUninit<i32>; 1000] = unsafe {
         MaybeUninit::uninit().assume_init()
     };
 
-    //========================
-    // Initialize each element
-    //========================
-    for (i, elem) in arr.iter_mut().enumerate() {
         *elem = MaybeUninit::new(i as i32);
     }
 
-    //=========================================
-    // SAFETY: All elements are now initialized
-    //=========================================
-    unsafe {
         std::mem::transmute(arr)
     }
 }
@@ -780,19 +588,11 @@ fn create_array_uninit() -> [i32; 1000] {
 // Better: Use the newer stabilized API
 //=====================================
 fn create_array_uninit_safe() -> [i32; 1000] {
-    //========================================
-    // uninit_array() is now the preferred way
-    //========================================
-    let mut arr: [MaybeUninit<i32>; 1000] = MaybeUninit::uninit_array();
 
     for (i, elem) in arr.iter_mut().enumerate() {
         elem.write(i as i32);
     }
 
-    //================================================
-    // SAFETY: We initialized all elements via write()
-    //================================================
-    unsafe { MaybeUninit::array_assume_init(arr) }
 }
 ```
 
@@ -818,23 +618,11 @@ fn initialize_complex_struct() -> ComplexStruct {
     let ptr = uninit.as_mut_ptr();
 
     unsafe {
-        //================================================
-        // Initialize fields one by one using addr_of_mut!
-        //================================================
-        // This avoids creating intermediate references to uninitialized data
 
-        //=============================================
-        // SAFETY: ptr points to valid allocated memory
-        //=============================================
-        // We're writing to uninitialized memory, which is fine
         std::ptr::addr_of_mut!((*ptr).field1).write(String::from("hello"));
         std::ptr::addr_of_mut!((*ptr).field2).write(vec![1, 2, 3]);
         std::ptr::addr_of_mut!((*ptr).field3).write(Box::new(42));
 
-        //============================================
-        // All fields initialized, safe to assume_init
-        //============================================
-        // SAFETY: Every field has been written to
         uninit.assume_init()
     }
 }
@@ -854,18 +642,6 @@ use std::mem::MaybeUninit;
 fn undefined_behavior_example() {
     let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
 
-    //================================
-    // ❌ WRONG - Undefined behavior!
-    //================================
-    // The compiler can do ANYTHING if you do this
-    //=============================================
-    // let value = unsafe { uninit.assume_init() };
-    //=============================================
-
-    //==============================
-    // ✅ CORRECT: Initialize first
-    //==============================
-    let mut uninit = MaybeUninit::uninit();
     uninit.write(42);
     let value = unsafe { uninit.assume_init() };
     println!("Value: {}", value);
@@ -898,23 +674,11 @@ fn call_out_parameter_function() -> Option<i32> {
     let mut value = MaybeUninit::uninit();
 
     let result = unsafe {
-        //=========================================================
-        // SAFETY: value is a valid pointer to uninitialized memory
-        //=========================================================
-        // get_value will write to it if it succeeds
         get_value(value.as_mut_ptr())
     };
 
     if result == 0 {
-        //=========================================================
-        // SAFETY: get_value returned success, so it wrote to value
-        //=========================================================
-        Some(unsafe { value.assume_init() })
     } else {
-        //==============================================
-        // Function failed, value is still uninitialized
-        //==============================================
-        None
     }
 }
 ```
@@ -937,34 +701,14 @@ extern "C" {
 }
 
 fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
-    //=====================================================
-    // Create Vec with capacity but no initialized elements
-    //=====================================================
-    let mut buffer: Vec<MaybeUninit<u8>> = Vec::with_capacity(size);
 
     unsafe {
-        //========================================================
-        // Set length without initializing (this is the key trick)
-        //========================================================
-        buffer.set_len(size);
     }
 
     let result = unsafe {
-        //=====================================================
-        // SAFETY: buffer has size elements of allocated memory
-        //=====================================================
-        fill_buffer(buffer.as_mut_ptr() as *mut u8, size)
     };
 
     if result == 0 {
-        //================================================
-        // C function succeeded, buffer is now initialized
-        //================================================
-        let buffer = unsafe {
-            //====================================
-            // SAFETY: fill_buffer wrote all bytes
-            //====================================
-            std::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(buffer)
         };
         Some(buffer)
     } else {
@@ -1001,30 +745,14 @@ The simplest uses: converting between types that have the same size and compatib
 use std::mem;
 
 fn transmute_basics() {
-    //=======================================
-    // Convert u32 to its byte representation
-    //=======================================
-    let a: u32 = 0x12345678;
     let b: [u8; 4] = unsafe { mem::transmute(a) };
     println!("Bytes: {:?}", b);  // Depends on endianness!
 
-    //=========================
-    // Float to its bit pattern
-    //=========================
-    let f: f32 = 1.0;
     let bits: u32 = unsafe { mem::transmute(f) };
     println!("Float bits: 0x{:08x}", bits);
 
-    //=====================================
-    // ✅ BETTER: Use the dedicated method
-    //=====================================
-    let bits_safe = f.to_bits();
     assert_eq!(bits, bits_safe);
 
-    //=======================
-    // Reverse: bits to float
-    //=======================
-    let f2 = f32::from_bits(bits_safe);
     assert_eq!(f, f2);
 }
 ```
@@ -1046,14 +774,6 @@ use std::mem;
 fn transmute_reference_unsafe() {
     let x: &i32 = &42;
 
-    //===================================================
-    // This might work, might crash, might corrupt memory
-    //===================================================
-    // i32 and u32 have the same layout, so this happens to be ok
-    //=======================
-    // But it's a bad pattern
-    //=======================
-    let y: &u32 = unsafe { mem::transmute(x) };
     println!("Transmuted: {}", y);
 }
 
@@ -1093,10 +813,6 @@ use std::slice;
 fn slice_transmute() {
     let data: Vec<u32> = vec![0x12345678, 0x9abcdef0];
 
-    //========================
-    // Convert &[u32] to &[u8]
-    //========================
-    let bytes: &[u8] = unsafe {
         slice::from_raw_parts(
             data.as_ptr() as *const u8,
             data.len() * std::mem::size_of::<u32>(),
@@ -1105,14 +821,6 @@ fn slice_transmute() {
 
     println!("Bytes: {:?}", bytes);
 
-    //===============================================
-    // ✅ SAFER: Use the bytemuck or zerocopy crates
-    //===============================================
-    // They provide checked transmutations at compile-time
-    //==========================
-    // use bytemuck::cast_slice;
-    //==========================
-    // let bytes: &[u8] = cast_slice(&data);
 }
 ```
 
@@ -1135,17 +843,9 @@ enum MyEnum {
 }
 
 fn get_discriminant(e: &MyEnum) -> u8 {
-    //==========================================
-    // ❌ UNSAFE: Reading discriminant directly
-    //==========================================
-    unsafe { *(e as *const MyEnum as *const u8) }
 }
 
 fn enum_discriminant_safe(e: &MyEnum) -> u8 {
-    //======================
-    // ✅ SAFE: Using match
-    //======================
-    match e {
         MyEnum::A => 0,
         MyEnum::B => 1,
         MyEnum::C => 2,
@@ -1175,10 +875,6 @@ union FloatUnion {
 }
 
 fn fast_float_bits(f: f32) -> u32 {
-    //=========================
-    // Union-based type punning
-    //=========================
-    let union = FloatUnion { f };
     unsafe { union.u }  // Reading inactive union field is unsafe
 }
 
@@ -1203,10 +899,6 @@ Some uses of transmute are always wrong. Here are the common mistakes:
 // ❌ WRONG: Extending lifetimes
 //===============================
 fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
-    //==================================================
-    // Creates a dangling reference! Undefined behavior!
-    //==================================================
-    // unsafe { std::mem::transmute(x) }
     x  // Just return the original with its real lifetime
 }
 
@@ -1215,25 +907,13 @@ fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
 //=================================
 fn different_sizes_bad() {
     let x: u32 = 42;
-    //==========================================
-    // Compile error: types have different sizes
-    //==========================================
-    // let y: u64 = unsafe { std::mem::transmute(x) };
 
-    //=============
-    // ✅ CORRECT:
-    //=============
-    let y: u64 = x as u64;
 }
 
 //===============================
 // ❌ WRONG: Changing mutability
 //===============================
 fn change_mutability_bad(x: &i32) -> &mut i32 {
-    //=======================================================
-    // Creates aliased mutable reference! Undefined behavior!
-    //=======================================================
-    // unsafe { std::mem::transmute(x) }
     panic!("Can't safely do this")
 }
 
@@ -1242,14 +922,6 @@ fn change_mutability_bad(x: &i32) -> &mut i32 {
 //=================================
 fn type_confusion_bad() {
     let x: &str = "hello";
-    //================================================
-    // Reinterpreting &str as &[u32] will likely crash
-    //================================================
-    // The pointer might not be aligned for u32
-    //===================================================
-    // let y: &[u32] = unsafe { std::mem::transmute(x) };
-    //===================================================
-}
 ```
 
 **Why these are UB**:
@@ -1300,10 +972,6 @@ impl<T> MyVec<T> {
         }
 
         unsafe {
-            //============================================
-            // SAFETY: We just ensured capacity >= len + 1
-            //============================================
-            // ptr + len is within allocated memory
             ptr::write(self.ptr.add(self.len), value);
         }
 
@@ -1317,10 +985,6 @@ impl<T> MyVec<T> {
         } else {
             self.len -= 1;
             unsafe {
-                //=============================================================
-                // SAFETY: len was > 0, so len - 1 is a valid initialized index
-                //=============================================================
-                // ptr::read transfers ownership without dropping
                 Some(ptr::read(self.ptr.add(self.len)))
             }
         }
@@ -1330,10 +994,6 @@ impl<T> MyVec<T> {
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
             unsafe {
-                //====================================
-                // SAFETY: We just checked index < len
-                //====================================
-                // All elements 0..len are initialized
                 Some(&*self.ptr.add(index))
             }
         } else {
@@ -1370,25 +1030,9 @@ impl<T> MyVec<T> {
 
 impl<T> Drop for MyVec<T> {
     fn drop(&mut self) {
-        //==================
-        // Drop all elements
-        //==================
-        while let Some(_) = self.pop() {
-            //================================================
-            // pop() handles reading and dropping each element
-            //================================================
-        }
 
-        //======================================
-        // Deallocate memory if we allocated any
-        //======================================
-        if self.cap != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
-                //======================================
-                // SAFETY: We allocated with this layout
-                //======================================
-                dealloc(self.ptr as *mut u8, layout);
             }
         }
     }
@@ -1449,18 +1093,10 @@ impl<'a, T> NonEmptySlice<'a, T> {
 
     /// Returns the first element (always exists).
     pub fn first(&self) -> &T {
-        //======================================================
-        // SAFETY: Our invariant guarantees at least one element
-        //======================================================
-        unsafe { self.slice.get_unchecked(0) }
     }
 
     /// Returns the last element (always exists).
     pub fn last(&self) -> &T {
-        //======================================================
-        // SAFETY: Our invariant guarantees at least one element
-        //======================================================
-        unsafe { self.slice.get_unchecked(self.slice.len() - 1) }
     }
 
     pub fn as_slice(&self) -> &[T] {
@@ -1485,14 +1121,6 @@ use std::ptr::NonNull;
 pub struct RawPtr<T> {
     ptr: NonNull<T>,
 
-    //================
-    // PhantomData to:
-    //================
-    // 1. Mark that we "own" a T (affects drop check)
-    //==================================
-    // 2. Make the type covariant over T
-    //==================================
-    // 3. Ensure T: Sized bound is inherited
     _marker: PhantomData<T>,
 }
 
@@ -1517,10 +1145,6 @@ impl<T> RawPtr<T> {
 impl<T> Drop for RawPtr<T> {
     fn drop(&mut self) {
         unsafe {
-            //====================================
-            // SAFETY: ptr came from Box::into_raw
-            //====================================
-            let _ = Box::from_raw(self.ptr.as_ptr());
         }
     }
 }
@@ -1570,14 +1194,6 @@ impl<T> SpinLock<T> {
     /// Returns a guard that provides access to the data
     /// and releases the lock when dropped.
     pub fn lock(&self) -> SpinLockGuard<T> {
-        //===============================
-        // Spin until we acquire the lock
-        //===============================
-        while self.locked.swap(true, Ordering::Acquire) {
-            //================================
-            // Hint to CPU that we're spinning
-            //================================
-            std::hint::spin_loop();
         }
 
         SpinLockGuard { lock: self }
@@ -1588,29 +1204,17 @@ impl<'a, T> std::ops::Deref for SpinLockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        //=======================================================
-        // SAFETY: We hold the lock, preventing concurrent access
-        //=======================================================
-        // The lock invariant ensures only one guard exists
         unsafe { &*self.lock.data.get() }
     }
 }
 
 impl<'a, T> std::ops::DerefMut for SpinLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
-        //============================================================
-        // SAFETY: We hold the lock and have exclusive access to guard
-        //============================================================
-        unsafe { &mut *self.lock.data.get() }
     }
 }
 
 impl<'a, T> Drop for SpinLockGuard<'a, T> {
     fn drop(&mut self) {
-        //=================
-        // Release the lock
-        //=================
-        self.lock.locked.store(false, Ordering::Release);
     }
 }
 
@@ -1659,10 +1263,6 @@ impl<T> TypeStateLock<T, Unlocked> {
 
     /// Locks the data, transitioning to Locked state.
     pub fn lock(self) -> TypeStateLock<T, Locked> {
-        //======================================================
-        // In real implementation, would actually acquire a lock
-        //======================================================
-        TypeStateLock {
             data: self.data,
             _state: PhantomData,
         }
@@ -1695,19 +1295,11 @@ impl<T, State> Drop for TypeStateLock<T, State> {
 fn typestate_example() {
     let lock = TypeStateLock::new(vec![1, 2, 3]);
 
-    //================================
-    // Can't access data when unlocked
-    //================================
-    // lock.access(); // Compile error! No method 'access' on Unlocked
 
     let mut locked = lock.lock();
     locked.access().push(4);  // OK, we're in Locked state
 
     let unlocked = locked.unlock();
-    //===========================================
-    // unlocked.access(); // Compile error again!
-    //===========================================
-}
 ```
 
 **Power of type-state**: Impossible states are unrepresentable. You can't access unlocked data because there's no `access()` method in that state.
@@ -1770,10 +1362,6 @@ mod tests {
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 3);
     }
 
-    //===============================================
-    // Run with Miri for undefined behavior detection
-    //===============================================
-    // cargo +nightly miri test
 
     #[test]
     fn test_thread_safety() {
@@ -1823,25 +1411,13 @@ Keep unsafe code localized. Encapsulate it in small, well-tested functions or ty
 // ❌ BAD: Unsafe spreads throughout the code
 //============================================
 pub fn bad_api(data: *mut u8, len: usize) {
-    //==========================================
-    // Users must handle raw pointers themselves
-    //==========================================
-    // Unsafe infects the entire call chain
 }
 
 //=========================================
 // ✅ GOOD: Unsafe is contained internally
 //=========================================
 pub fn good_api(data: &mut [u8]) {
-    //===================
-    // Public API is safe
-    //===================
-    // Internally might use unsafe, but users don't see it
     unsafe {
-        //======================================
-        // Unsafe operations here, but contained
-        //======================================
-    }
 }
 ```
 
@@ -1970,15 +1546,7 @@ struct Point {
 fn safe_transmute_example() {
     let bytes: [u8; 8] = [0; 8];
 
-    //================================
-    // Compile-time checked transmute!
-    //================================
-    let point: Point = bytemuck::cast(bytes);
 
-    //===========================================================
-    // No unsafe needed, bytemuck verified safety at compile-time
-    //===========================================================
-}
 ```
 
 **Crates that help**:

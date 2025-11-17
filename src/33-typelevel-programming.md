@@ -635,7 +635,7 @@ fn size_check() {
 - ✗ For dynamic properties that change at runtime
 - ✗ When the type complexity outweighs benefits
 
-## Pattern 2: Zero-Cost State Machines
+## Pattern 2: Phantom Types and Zero-Cost State Machines
 
 Phantom types allow you to embed type-level information that exists only at compile time. This enables encoding state machines and protocols in the type system without any runtime overhead.
 
