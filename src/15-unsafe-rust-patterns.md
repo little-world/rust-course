@@ -1,4 +1,61 @@
-# Chapter 15: Unsafe Rust Patterns
+# Unsafe Rust Patterns
+
+Raw Pointer Manipulation
+
+- Problem: Need manual memory management (custom collections); FFI requires raw
+  pointers; borrow checker can't express bidirectional relationships (parent
+  pointers)
+- Solution: Use *const T/*mut T with explicit safety; ptr::add for arithmetic;
+  NonNull for non-null guarantees
+- Why It Matters: Enables custom allocators, zero-copy, intrusive structures;
+  proper pointer arithmetic prevents buffer overruns
+- Use Cases: Linked lists, trees with parent pointers, custom allocators,
+  memory-mapped I/O, FFI
+
+FFI and C Interop
+
+- Problem: Need to call C libraries (OS, drivers, graphics); C has no ownership/
+  lifetimes; string encoding mismatch
+- Solution: extern "C" for declarations; #[repr(C)] for ABI compatibility;
+  CString/CStr for conversions; safe wrappers
+- Why It Matters: Access to C ecosystem (millions of libraries); system
+  programming requires OS calls; zero-cost abstraction
+- Use Cases: OS APIs, database bindings, graphics libraries, embedded drivers,
+  protocol implementation
+
+Uninitialized Memory
+
+- Problem: Initializing large arrays causes stack overflow; reading from I/O
+  into buffers; performance-critical deferred init
+- Solution: Use MaybeUninit<T> for safe uninitialized memory; assume_init()
+  after initialization; out-parameter pattern
+- Why It Matters: Prevents stack overflow (1MB array); zero-cost initialization;
+  safe FFI out-parameters; 2-3x faster bulk init
+- Use Cases: Large stack arrays, reading from sockets/files, FFI out-parameters,
+  performance-critical init, buffer reuse
+
+Transmute and Type Punning
+
+- Problem: Need bit-level reinterpretation; binary protocol parsing; numerical
+  bit tricks; zero-copy conversions
+- Solution: Use transmute sparingly; prefer to_bits/from_bits; unions for type
+  punning; document endianness
+- Why It Matters: Enables zero-copy parsing; numerical optimizations; wrong use
+  = instant UB (lifetime extension, size mismatch)
+- Use Cases: Binary protocol parsing, bit manipulation, numerical computing,
+  zero-copy serialization, enum discrimination
+
+Safe Abstractions Over Unsafe
+
+- Problem: Unsafe code error-prone; invariants hard to maintain; UB from misuse;
+  want safe public API
+- Solution: Encapsulate unsafe in safe types; maintain invariants via type
+  system; document safety contracts; RAII guards
+- Why It Matters: Vec/String/Arc prove pattern works; public API never unsafe;
+  type system prevents misuse; single audit point
+- Use Cases: Custom collections, synchronization primitives, allocators, FFI
+  wrappers, typestate APIs
+
 
 ## Overview
 
@@ -33,6 +90,14 @@ The patterns we'll explore show how to:
 
 ## Raw Pointer Manipulation
 
+**Problem**: Need manual memory management for custom data structures. Borrow checker can't express bidirectional relationships (tree with parent pointers). FFI requires raw pointers for C interop. Performance-critical code needs to bypass bounds checks. Intrusive collections embed pointers in nodes. Hardware access needs fixed memory addresses.
+
+**Solution**: Use raw pointers (`*const T`, `*mut T`) with explicit safety. Creating pointers is safe, dereferencing requires `unsafe`. Use `ptr::add()` for arithmetic, `ptr::write()` for uninitialized memory. `NonNull<T>` for non-null guarantees with null pointer optimization. Document invariants clearly. Separate allocation from initialization.
+
+**Why It Matters**: Enables implementing Vec, LinkedList, HashMap from scratch. Custom allocators power memory pools. Zero-copy I/O needs pointer arithmetic. Tree parent pointers impossible with references alone. Real example: `std::vec::Vec` uses raw pointers for uninitialized capacity, enabling push() without reallocation. Proper pointer arithmetic prevents buffer overruns (common C bug source).
+
+**Use Cases**: Custom collections (linked lists, trees, graphs), custom allocators and memory pools, memory-mapped I/O, FFI with C code, intrusive data structures, zero-copy parsing, hardware drivers.
+
 Raw pointers (`*const T` and `*mut T`) are Rust's unmanaged pointers. Unlike references, they have no borrowing rules, no lifetime tracking, and no automatic dereferencing. They're what you get when you need manual memory management or when interfacing with systems that don't speak Rust's language of ownership.
 
 **When raw pointers are necessary:**
@@ -51,17 +116,17 @@ Creating raw pointers is safe—it's just taking an address. The danger comes wh
 ```rust
 fn raw_pointer_basics() {
     let mut num = 42;
-
-    let r2: *mut i32 = &mut num;      // Mutable raw pointer
-
-    let r3 = address as *const i32;   // Might point to invalid memory!
+    let r1: *const i32 = &num;            // Immutable raw pointer
+    let r2: *mut i32 = &mut num;          // Mutable raw pointer
+    let address = 0x12345usize;
+    let r3 = address as *const i32;       // Might point to invalid memory!
 
     unsafe {
         println!("r1 points to: {}", *r1);
-
         *r2 = 100;
         println!("num is now: {}", num);
-
+        // Dereferencing r3 would be UB - it points to random memory!
+    }
 }
 ```
 
@@ -82,8 +147,10 @@ fn pointer_arithmetic() {
             println!("Element {}: {}", i, *element_ptr);
         }
 
+        let third = ptr.add(2);  // Points to third element
         println!("Third element: {}", *third);
 
+        // ptr.add(10) would be UB - out of bounds!
     }
 }
 ```
@@ -120,8 +187,10 @@ impl<T> RawVec<T> {
 
     /// Allocates memory for `cap` elements.
     pub fn with_capacity(cap: usize) -> Self {
+        let layout = Layout::array::<T>(cap).unwrap();
+        let ptr = unsafe { alloc(layout) as *mut T };
 
-
+        if ptr.is_null() {
             panic!("Allocation failed");
         }
 
@@ -134,13 +203,15 @@ impl<T> RawVec<T> {
         let new_layout = Layout::array::<T>(new_cap).unwrap();
 
         let new_ptr = if self.cap == 0 {
+            unsafe { alloc(new_layout) as *mut T }
         } else {
+            let old_layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
                 realloc(
                     self.ptr as *mut u8,  // realloc works with u8 pointers
                     old_layout,
                     new_layout.size()
-                )
+                ) as *mut T
             }
         };
 
@@ -148,7 +219,7 @@ impl<T> RawVec<T> {
             panic!("Allocation failed");
         }
 
-        self.ptr = new_ptr as *mut T;
+        self.ptr = new_ptr;
         self.cap = new_cap;
     }
 
@@ -166,6 +237,7 @@ impl<T> Drop for RawVec<T> {
         if self.cap != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
+                dealloc(self.ptr as *mut u8, layout);
             }
         }
     }
@@ -220,14 +292,17 @@ impl<T> LinkedList<T> {
     }
 
     fn push_back(&mut self, value: T) {
-
+        let node = Box::new(Node::new(value));
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
         unsafe {
+            if let Some(mut tail) = self.tail {
                 tail.as_mut().next = Some(node_ptr);
             } else {
+                self.head = Some(node_ptr);
             }
 
+            self.tail = Some(node_ptr);
         }
 
         self.len += 1;
@@ -238,9 +313,11 @@ impl<T> Drop for LinkedList<T> {
     fn drop(&mut self) {
         let mut current = self.head;
 
+        while let Some(node_ptr) = current {
             unsafe {
                 let node = Box::from_raw(node_ptr.as_ptr());
                 current = node.next;
+            }
         }
     }
 }
@@ -256,6 +333,14 @@ impl<T> Drop for LinkedList<T> {
 ---
 
 ## FFI Patterns and C Interop
+
+**Problem**: Need to call C libraries (operating system, drivers, databases, graphics). C has no concept of ownership, borrowing, or lifetimes. String encoding mismatch: C uses null-terminated bytes, Rust uses UTF-8 length-prefixed. Memory management unclear: who allocates? who frees? Callback lifetimes unchecked. Struct layout differs between Rust and C.
+
+**Solution**: Use `extern "C"` to declare/export functions with C ABI. `#[repr(C)]` for compatible struct layout. `CString`/`CStr` for string conversions with null termination. Create safe wrappers around unsafe FFI—encapsulate preconditions, use RAII for cleanup. Document ownership transfer explicitly. Use `catch_unwind` for panic safety in callbacks.
+
+**Why It Matters**: Unlocks entire C ecosystem (millions of libraries). System programming requires OS APIs (all C). Zero-cost abstraction: no runtime overhead. Real examples: database drivers (libpq, libsqlite), windowing (SDL2, GLFW), compression (zlib, lz4). Safe wrappers make FFI ergonomic and prevent memory leaks/crashes.
+
+**Use Cases**: OS APIs (filesystem, networking, processes), database bindings (PostgreSQL, MySQL, SQLite), graphics libraries (OpenGL, Vulkan), compression (zlib, lz4), cryptography (OpenSSL), embedded drivers, legacy C code integration.
 
 Foreign Function Interface (FFI) is how Rust talks to C, and by extension, the vast ecosystem of C libraries. This is unavoidable in systems programming—the operating system, graphics drivers, databases, and countless libraries all speak C at their boundaries.
 
@@ -284,10 +369,14 @@ extern "C" {
 
 fn use_c_functions() {
     unsafe {
+        let result = abs(-42);
+        println!("abs(-42) = {}", result);
 
+        let c_str = b"Hello\0";
         let len = strlen(c_str.as_ptr() as *const std::os::raw::c_char);
         println!("String length: {}", len);
 
+        let ptr = malloc(100);
         if !ptr.is_null() {
             free(ptr);
         }
@@ -313,7 +402,8 @@ use std::os::raw::c_char;
 /// Converts a Rust string to a C-owned string.
 /// Caller must free with free_rust_c_string().
 fn rust_to_c_string(s: &str) -> *mut c_char {
-
+    let c_string = CString::new(s).expect("CString::new failed");
+    c_string.into_raw()  // Transfers ownership to caller
 }
 
 /// Converts a C string to a Rust String (copying data).
@@ -322,7 +412,8 @@ fn rust_to_c_string(s: &str) -> *mut c_char {
 /// - `c_str` must be a valid null-terminated C string
 /// - The memory must remain valid for the duration of this call
 unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
-
+    let c_str = CStr::from_ptr(c_str);
+    c_str.to_string_lossy().into_owned()
 }
 
 /// Frees a C string created by rust_to_c_string().
@@ -333,6 +424,7 @@ unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
 unsafe fn free_rust_c_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         let _ = CString::from_raw(ptr);
+    }
 }
 
 //==============
@@ -342,9 +434,9 @@ fn c_string_example() {
     let c_str = rust_to_c_string("Hello from Rust");
 
     unsafe {
-
+        let rust_str = c_to_rust_string(c_str);
         println!("Back to Rust: {}", rust_str);
-
+        free_rust_c_string(c_str);
     }
 }
 ```
@@ -448,6 +540,7 @@ impl Context {
     ///
     /// Returns Ok(result) on success, Err(message) on failure.
     pub fn do_work(&mut self, data: &str) -> Result<i32, String> {
+        let c_data = CString::new(data).map_err(|e| e.to_string())?;
 
         let result = unsafe {
             context_do_work(self.inner, c_data.as_ptr())
@@ -507,9 +600,11 @@ extern "C" {
 extern "C" fn my_callback(value: c_int) -> c_int {
     println!("Callback called with: {}", value);
     value * 2
+}
 
 fn callback_example() {
     unsafe {
+        register_callback(my_callback);
         trigger_callback(42);
     }
 }
@@ -559,6 +654,14 @@ fn callback_with_state_example() {
 
 ## Uninitialized Memory Handling
 
+**Problem**: Large arrays (1MB) on stack cause overflow. Reading from I/O into buffers wastes initialization. Performance-critical code initializes piecemeal. Rust assumes all values initialized—reading uninitialized = UB. FFI out-parameters pass uninitialized pointers. Default initialization expensive for large buffers.
+
+**Solution**: Use `MaybeUninit<T>` to work with possibly-uninitialized memory safely. `MaybeUninit::uninit()` creates uninitialized, `write()` initializes, `assume_init()` asserts initialization. Use `MaybeUninit::uninit_array()` for arrays. `addr_of_mut!` for field pointers without creating references. For FFI: pass `as_mut_ptr()`, check success, then `assume_init()`.
+
+**Why It Matters**: Prevents stack overflow: `[i32; 1_000_000]` crashes, `MaybeUninit` array succeeds. 2-3x faster for bulk initialization—no double-init. Safe FFI out-parameters prevent UB from unchecked C writes. Real example: reading 1MB from socket—sequential init 2ms, MaybeUninit + bulk read 0.1ms (20x faster). Miri catches uninitialized reads immediately.
+
+**Use Cases**: Large stack arrays (>4KB), reading from files/sockets/FFI into buffers, performance-critical initialization, FFI out-parameters, deserializing from binary, reusing buffers without clearing.
+
 Memory starts uninitialized. Creating a `Vec` doesn't fill it with zeros; allocating a buffer doesn't clear it. For performance, you often want to initialize memory piecemeal—read into it from a file, compute values on demand, or skip initialization for data you'll immediately overwrite.
 
 The problem: Rust's safety model assumes all values are initialized. Reading uninitialized memory is instant undefined behavior. Even casting an `i32` from uninitialized memory (without using it) is UB.
@@ -574,12 +677,15 @@ use std::mem::MaybeUninit;
 
 /// Create a large array efficiently without stack overflow.
 fn create_array_uninit() -> [i32; 1000] {
+    let mut arr: [MaybeUninit<i32>; 1000] = unsafe {
         MaybeUninit::uninit().assume_init()
     };
 
+    for (i, elem) in arr.iter_mut().enumerate() {
         *elem = MaybeUninit::new(i as i32);
     }
 
+    unsafe {
         std::mem::transmute(arr)
     }
 }
@@ -588,11 +694,13 @@ fn create_array_uninit() -> [i32; 1000] {
 // Better: Use the newer stabilized API
 //=====================================
 fn create_array_uninit_safe() -> [i32; 1000] {
+    let mut arr = MaybeUninit::uninit_array::<1000>();
 
     for (i, elem) in arr.iter_mut().enumerate() {
         elem.write(i as i32);
     }
 
+    unsafe { MaybeUninit::array_assume_init(arr) }
 }
 ```
 
@@ -618,7 +726,7 @@ fn initialize_complex_struct() -> ComplexStruct {
     let ptr = uninit.as_mut_ptr();
 
     unsafe {
-
+        // SAFETY: Using addr_of_mut! to get field pointers without creating references
         std::ptr::addr_of_mut!((*ptr).field1).write(String::from("hello"));
         std::ptr::addr_of_mut!((*ptr).field2).write(vec![1, 2, 3]);
         std::ptr::addr_of_mut!((*ptr).field3).write(Box::new(42));
@@ -640,11 +748,19 @@ Let's be crystal clear: reading uninitialized memory is undefined behavior. The 
 use std::mem::MaybeUninit;
 
 fn undefined_behavior_example() {
-    let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
+    let mut uninit: MaybeUninit<i32> = MaybeUninit::uninit();
 
+    // ✅ SAFE: Writing to uninitialized memory
     uninit.write(42);
     let value = unsafe { uninit.assume_init() };
     println!("Value: {}", value);
+}
+
+fn actual_undefined_behavior() {
+    let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
+
+    // ❌ UB: Reading uninitialized memory!
+    // let value = unsafe { uninit.assume_init() };  // DON'T DO THIS
 }
 ```
 
@@ -678,7 +794,9 @@ fn call_out_parameter_function() -> Option<i32> {
     };
 
     if result == 0 {
+        Some(unsafe { value.assume_init() })
     } else {
+        None
     }
 }
 ```
@@ -701,14 +819,19 @@ extern "C" {
 }
 
 fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
+    let mut buffer: Vec<MaybeUninit<u8>> = Vec::with_capacity(size);
 
     unsafe {
+        buffer.set_len(size);  // Set length without initializing
     }
 
     let result = unsafe {
+        fill_buffer(buffer.as_mut_ptr() as *mut u8, size)
     };
 
     if result == 0 {
+        let buffer = unsafe {
+            std::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(buffer)
         };
         Some(buffer)
     } else {
@@ -724,6 +847,14 @@ fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
 ---
 
 ## Transmute and Type Punning
+
+**Problem**: Need bit-level reinterpretation for binary protocols. Numerical code needs bit manipulation (float bits). Zero-copy serialization requires type reinterpretation. Endianness conversion for network protocols. Enum discrimination for low-level code. Want to avoid copying data.
+
+**Solution**: Use `transmute` sparingly—most dangerous function in Rust. Prefer safe alternatives: `to_bits()`/`from_bits()` for floats, `as` casts for integers, pointer casts for references. Document why transmute is correct and can't be avoided. Check sizes match (compile-time). Use unions for type punning when bit-compatible. `bytemuck` crate for safe verified transmutes.
+
+**Why It Matters**: Wrong transmute = instant UB (lifetime extension, size mismatch, invalid values). Proper use enables zero-copy parsing (10x faster). Binary protocol parsing requires reinterpreting bytes. Real examples: `f32::to_bits()` uses transmute internally (safe). Extending lifetimes with transmute corrupts memory silently. Size mismatch caught at compile-time. Bytemuck prevents 90% of transmute bugs via traits.
+
+**Use Cases**: Binary protocol parsing (network, file formats), bit manipulation in numerical code, zero-copy serialization/deserialization, converting between types with identical layout, enum discrimination, hardware register access.
 
 `std::mem::transmute` is the most dangerous function in Rust. It reinterprets bytes from one type as another, no questions asked. Get it wrong and you invoke undefined behavior. Use it only when necessary and document why it's correct.
 
@@ -745,14 +876,19 @@ The simplest uses: converting between types that have the same size and compatib
 use std::mem;
 
 fn transmute_basics() {
+    let a: u32 = 0x12345678;
     let b: [u8; 4] = unsafe { mem::transmute(a) };
     println!("Bytes: {:?}", b);  // Depends on endianness!
 
+    let f: f32 = 3.14;
     let bits: u32 = unsafe { mem::transmute(f) };
     println!("Float bits: 0x{:08x}", bits);
 
+    // ✅ BETTER: Use safe built-in methods
+    let bits_safe = f.to_bits();
     assert_eq!(bits, bits_safe);
 
+    let f2 = f32::from_bits(bits);
     assert_eq!(f, f2);
 }
 ```
@@ -773,7 +909,7 @@ use std::mem;
 //======================================
 fn transmute_reference_unsafe() {
     let x: &i32 = &42;
-
+    let y: &u32 = unsafe { mem::transmute(x) };
     println!("Transmuted: {}", y);
 }
 
@@ -813,6 +949,7 @@ use std::slice;
 fn slice_transmute() {
     let data: Vec<u32> = vec![0x12345678, 0x9abcdef0];
 
+    let bytes: &[u8] = unsafe {
         slice::from_raw_parts(
             data.as_ptr() as *const u8,
             data.len() * std::mem::size_of::<u32>(),
@@ -821,6 +958,7 @@ fn slice_transmute() {
 
     println!("Bytes: {:?}", bytes);
 
+    // Reverse: bytes to u32 (must ensure alignment!)
 }
 ```
 
@@ -843,9 +981,11 @@ enum MyEnum {
 }
 
 fn get_discriminant(e: &MyEnum) -> u8 {
+    unsafe { *(e as *const MyEnum as *const u8) }
 }
 
 fn enum_discriminant_safe(e: &MyEnum) -> u8 {
+    match e {
         MyEnum::A => 0,
         MyEnum::B => 1,
         MyEnum::C => 2,
@@ -875,6 +1015,7 @@ union FloatUnion {
 }
 
 fn fast_float_bits(f: f32) -> u32 {
+    let union = FloatUnion { f };
     unsafe { union.u }  // Reading inactive union field is unsafe
 }
 
@@ -899,6 +1040,10 @@ Some uses of transmute are always wrong. Here are the common mistakes:
 // ❌ WRONG: Extending lifetimes
 //===============================
 fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
+    unsafe { std::mem::transmute(x) }  // UB: dangling reference
+}
+
+fn extend_lifetime_good<'a>(x: &'a str) -> &'a str {
     x  // Just return the original with its real lifetime
 }
 
@@ -907,13 +1052,16 @@ fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
 //=================================
 fn different_sizes_bad() {
     let x: u32 = 42;
-
+    // Won't compile: size mismatch
+    // let y: u64 = unsafe { std::mem::transmute(x) };
 }
 
 //===============================
 // ❌ WRONG: Changing mutability
 //===============================
 fn change_mutability_bad(x: &i32) -> &mut i32 {
+    // UB: violates aliasing rules
+    // unsafe { std::mem::transmute(x) }
     panic!("Can't safely do this")
 }
 
@@ -922,6 +1070,9 @@ fn change_mutability_bad(x: &i32) -> &mut i32 {
 //=================================
 fn type_confusion_bad() {
     let x: &str = "hello";
+    // UB: str has invariants (valid UTF-8) that might be violated
+    // let y: &[u8] = unsafe { std::mem::transmute(x) };
+}
 ```
 
 **Why these are UB**:
@@ -935,6 +1086,14 @@ fn type_confusion_bad() {
 ---
 
 ## Writing Safe Abstractions Over Unsafe
+
+**Problem**: Unsafe code scattered everywhere is error-prone. Hard to audit and maintain invariants. Users exposed to raw pointers and manual management. Bugs in unsafe code cause UB throughout program. Testing unsafe code difficult. No encapsulation of preconditions.
+
+**Solution**: Build safe types that encapsulate unsafe internals. Public API has no `unsafe`. Maintain invariants via type system (private fields). Use RAII (Drop) for automatic cleanup. PhantomData for variance/drop check. Document safety invariants clearly. Implement Send/Sync when provably safe. Type-state pattern prevents invalid states at compile-time.
+
+**Why It Matters**: Vec/String/Arc/Mutex prove pattern works—millions use them safely. Single audit point instead of scattered unsafe. Type system prevents misuse. Real example: custom Vec with unsafe internals—users can't break invariants (len>cap impossible). SpinLock exposes safe API via RAII guard. Wrong: public `unsafe fn`—callers must uphold contract. Right: private unsafe, safe public API.
+
+**Use Cases**: Custom collections (Vec, HashMap, LinkedList), synchronization primitives (Mutex, RwLock, atomics), custom allocators, FFI wrappers for C libraries, type-state APIs (builder patterns), intrusive data structures.
 
 The goal of unsafe code is not to scatter `unsafe` blocks throughout your codebase. It's to build safe abstractions—types and functions that encapsulate unsafe operations and expose only safe interfaces.
 
@@ -1001,6 +1160,10 @@ impl<T> MyVec<T> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     /// Grows the capacity, doubling it or setting to 1 if currently 0.
     fn grow(&mut self) {
         let new_cap = if self.cap == 0 { 1 } else { self.cap * 2 };
@@ -1030,9 +1193,14 @@ impl<T> MyVec<T> {
 
 impl<T> Drop for MyVec<T> {
     fn drop(&mut self) {
+        // Drop all elements
+        while self.pop().is_some() {}
 
+        // Deallocate memory
+        if self.cap != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
+                dealloc(self.ptr as *mut u8, layout);
             }
         }
     }
@@ -1093,10 +1261,12 @@ impl<'a, T> NonEmptySlice<'a, T> {
 
     /// Returns the first element (always exists).
     pub fn first(&self) -> &T {
+        &self.slice[0]
     }
 
     /// Returns the last element (always exists).
     pub fn last(&self) -> &T {
+        &self.slice[self.slice.len() - 1]
     }
 
     pub fn as_slice(&self) -> &[T] {
@@ -1120,7 +1290,7 @@ use std::ptr::NonNull;
 /// A raw pointer wrapper that tracks ownership.
 pub struct RawPtr<T> {
     ptr: NonNull<T>,
-
+    // PhantomData tells compiler we "own" a T
     _marker: PhantomData<T>,
 }
 
@@ -1145,6 +1315,7 @@ impl<T> RawPtr<T> {
 impl<T> Drop for RawPtr<T> {
     fn drop(&mut self) {
         unsafe {
+            drop(Box::from_raw(self.ptr.as_ptr()));
         }
     }
 }
@@ -1194,6 +1365,8 @@ impl<T> SpinLock<T> {
     /// Returns a guard that provides access to the data
     /// and releases the lock when dropped.
     pub fn lock(&self) -> SpinLockGuard<T> {
+        while self.locked.swap(true, Ordering::Acquire) {
+            std::hint::spin_loop();
         }
 
         SpinLockGuard { lock: self }
@@ -1210,11 +1383,13 @@ impl<'a, T> std::ops::Deref for SpinLockGuard<'a, T> {
 
 impl<'a, T> std::ops::DerefMut for SpinLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.lock.data.get() }
     }
 }
 
 impl<'a, T> Drop for SpinLockGuard<'a, T> {
     fn drop(&mut self) {
+        self.lock.locked.store(false, Ordering::Release);
     }
 }
 
@@ -1263,6 +1438,7 @@ impl<T> TypeStateLock<T, Unlocked> {
 
     /// Locks the data, transitioning to Locked state.
     pub fn lock(self) -> TypeStateLock<T, Locked> {
+        TypeStateLock {
             data: self.data,
             _state: PhantomData,
         }
@@ -1295,11 +1471,14 @@ impl<T, State> Drop for TypeStateLock<T, State> {
 fn typestate_example() {
     let lock = TypeStateLock::new(vec![1, 2, 3]);
 
+    // Can't access unlocked data - no access() method!
 
     let mut locked = lock.lock();
     locked.access().push(4);  // OK, we're in Locked state
 
     let unlocked = locked.unlock();
+    // Can't access again - back to Unlocked state
+}
 ```
 
 **Power of type-state**: Impossible states are unrepresentable. You can't access unlocked data because there's no `access()` method in that state.
@@ -1411,6 +1590,7 @@ Keep unsafe code localized. Encapsulate it in small, well-tested functions or ty
 // ❌ BAD: Unsafe spreads throughout the code
 //============================================
 pub fn bad_api(data: *mut u8, len: usize) {
+    // Users must pass raw pointers
 }
 
 //=========================================
@@ -1418,6 +1598,8 @@ pub fn bad_api(data: *mut u8, len: usize) {
 //=========================================
 pub fn good_api(data: &mut [u8]) {
     unsafe {
+        // Unsafe code is hidden from users
+    }
 }
 ```
 
@@ -1519,17 +1701,12 @@ Before writing unsafe code, check if a safe solution exists.
 // Instead of raw pointers, consider:
 //===================================
 // - std::pin::Pin for self-referential structs
-//==================================================================================
+// - std::rc::Rc or std::sync::Arc for shared ownership
 // - std::cell::UnsafeCell for interior mutability (still unsafe, but more targeted)
-//==================================================================================
 // - std::sync::atomic for lock-free operations
-//===============================================
 // - ouroboros crate for self-referential structs
-//===============================================
 // - bytemuck crate for safe transmutes (compile-time checks)
-//===================================================
 // - zerocopy crate for zero-copy parsing with safety
-//===================================================
 
 //======================================
 // Example: Safe transmute with bytemuck
@@ -1545,8 +1722,8 @@ struct Point {
 
 fn safe_transmute_example() {
     let bytes: [u8; 8] = [0; 8];
-
-
+    let point: Point = bytemuck::cast(bytes);  // Compile-time verified safe
+}
 ```
 
 **Crates that help**:

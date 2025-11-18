@@ -1,10 +1,56 @@
-# 20. Procedural Macros
+# Procedural Macros
 
-## Overview and Setup
+Derive Macros
 
-Procedural macros must be defined in a separate crate with `proc-macro = true` in `Cargo.toml`.
+- Problem: Auto-implementing traits tedious (Debug, Serialize, Clone for 50 types); manual impls forget fields; code generation limited in macro_rules!
+- Solution: #[derive(MyTrait)] with proc_macro_derive; parse struct with syn; generate impl with quote; full AST access; TokenStream → parse → manipulate → generate
+- Why It Matters: Powers serde, clap, derive ecosystem; type-safe codegen; adds fields → derive updates automatically; impossible with declarative macros
+- Use Cases: serde Serialize/Deserialize, Clone/Debug derives, builder patterns, ORM derives (Diesel), clap command parsing, validation derives
 
-### Project Structure
+Attribute Macros
+
+- Problem: Need to modify/wrap functions; add tracing/logging; inject code before/after; declarative macros can't modify items; aspect-oriented programming in Rust
+- Solution: #[my_attr] attribute macros; receive item + attr args; modify function/struct/impl; wrap with additional code; full AST manipulation
+- Why It Matters: tokio::main wraps async fn; tracing instruments functions; route macros (actix-web); test frameworks; non-invasive code injection
+- Use Cases: tokio::test/main (async runtime), tracing::instrument (logging), actix-web routes, test fixtures, memoization, error handling wrappers
+
+Function-like Macros
+
+- Problem: Custom syntax beyond derive/attribute; sql! needs full syntax parsing; html! templates; declarative macros limited; need complex parsing
+- Solution: my_macro!(...) function-like proc macros; full parsing control; syn::parse for custom syntax; build DSLs; return arbitrary code
+- Why It Matters: Enables complex DSLs—sql! with type checking, html! templates; more flexible than macro_rules!; full compiler integration
+- Use Cases: SQL DSLs (type-safe queries), HTML templates, config DSLs, query builders, compile-time regex, format string validation
+
+Token Stream Manipulation
+
+- Problem: Need fine-grained token control; syn too high-level; custom parsing; build syntax not in syn; low-level macro construction
+- Solution: Direct TokenStream manipulation; proc_macro2::TokenTree; syn::parse for custom types; manual token construction; Punctuated for lists
+- Why It Matters: Maximum flexibility—handle any syntax; syn doesn't support your grammar; custom DSL syntax; performance-critical parsing
+- Use Cases: Custom DSL parsers, performance-critical macros, syntax not in syn, advanced derive scenarios, macro composition
+
+Macro Helper Crates (syn, quote)
+
+- Problem: Parsing TokenStream manually tedious; constructing code error-prone; quote interpolation complex; field iteration boilerplate
+- Solution: syn parses Rust syntax to AST; quote! generates code with interpolation; proc_macro2 for testing; darling for derive helpers
+- Why It Matters: syn eliminates 90% parsing code; quote! readable codegen (#field_name interpolation); darling handles attributes; essential tooling
+- Use Cases: All proc macros (syn+quote standard), derive macros (darling), testing (proc_macro2), attribute parsing, custom derives
+
+
+This chapter covers procedural macros—full Rust functions that manipulate TokenStreams. Three types: derive (#[derive(Trait)]), attribute (#[my_attr]), function-like (sql!). Must be separate crate. Use syn to parse, quote to generate. Powers serde, tokio, clap ecosystem.
+
+## Table of Contents
+
+1. [Derive Macros](#pattern-1-derive-macros)
+2. [Attribute Macros](#pattern-2-attribute-macros)
+3. [Function-like Macros](#pattern-3-function-like-macros)
+4. [Token Stream Manipulation](#pattern-4-token-stream-manipulation)
+5. [Macro Helper Crates (syn, quote)](#pattern-5-macro-helper-crates-syn-quote)
+
+---
+
+## Setup
+
+Procedural macros require separate crate with `proc-macro = true`:
 
 ```toml
 # Cargo.toml for the main crate
@@ -26,9 +72,21 @@ quote = "1.0"
 proc-macro2 = "1.0"
 ```
 
-## Derive Macros
+---
 
-### Basic Derive Macro
+## Pattern 1: Derive Macros
+
+**Problem**: Auto-implementing traits for many types tedious—manual Debug impl for 50 structs, forget to add new fields. Serde needs Serialize/Deserialize for every type—manual impls error-prone. Builder pattern requires repetitive setter methods. Clone/PartialEq boilerplate. Declarative macros can't inspect struct fields or types. Need full AST access to generate correct impls.
+
+**Solution**: Write proc_macro_derive function that receives TokenStream (struct definition). Parse with syn::parse into DeriveInput (AST). Inspect struct name, fields, generics. Generate trait impl using quote! macro. Return TokenStream. Compiler inserts generated impl. Can add helper attributes (#[my_attr(skip)]) for configuration. Works with structs, enums, unions.
+
+**Why It Matters**: Powers entire derive ecosystem—serde, clap, thiserror all use proc_macro_derive. Type-safe codegen: inspects actual struct definition. Adding field automatically updates generated impl—no manual sync. Impossible with declarative macros (no AST access). Essential for library ergonomics: users just #[derive(Trait)]. One derive impl → thousands of types.
+
+**Use Cases**: serde Serialize/Deserialize (JSON/binary), Clone/Debug/PartialEq derives, builder patterns (derive_builder crate), ORM models (Diesel, SeaORM), command-line parsers (clap), error types (thiserror), validation (validator), getters/setters.
+
+### Basic Derive Pattern
+
+**Problem**: Create simple derive macro for custom trait.
 
 ```rust
 //=====================
@@ -393,9 +451,19 @@ fn main() {
 }
 ```
 
-## Attribute Macros
+## Pattern 2: Attribute Macros
 
-### Basic Attribute Macro
+**Problem**: Need to modify/wrap functions without changing their code—add timing, logging, tracing. Want aspect-oriented programming (cross-cutting concerns). tokio::main converts fn main() to async runtime setup. Can't add code before/after function with derive macros. Need to inject behavior non-invasively. Web frameworks need route registration (#[get("/users")]).
+
+**Solution**: Write proc_macro_attribute function receiving two TokenStreams: attribute args and item being annotated. Parse item (function, struct, impl) with syn. Modify/wrap with additional code. Use quote! to generate enhanced version. Return modified TokenStream. Can parse attribute parameters. Works on functions, structs, impls, modules.
+
+**Why It Matters**: Enables tokio::main and tokio::test (essential for async). tracing::instrument adds automatic logging (non-invasive observability). actix-web/axum route macros register handlers. Test frameworks use attributes for fixtures. Aspect-oriented: logging, metrics, caching without touching business logic. Critical for framework ergonomics.
+
+**Use Cases**: tokio::main/test (async runtime), tracing::instrument (automatic logging), web framework routes (actix, axum, rocket), test fixtures, memoization/caching, error handling wrappers, performance timing, authorization checks.
+
+### Attribute Macro Pattern
+
+**Problem**: Wrap function with timing/logging without modifying its body.
 
 ```rust
 use proc_macro::TokenStream;
@@ -596,9 +664,19 @@ fn main() {
 }
 ```
 
-## Function-like Macros
+## Pattern 3: Function-like Macros
 
-### Basic Function-like Macro
+**Problem**: Need custom syntax beyond derive/attribute—sql! needs full SQL parsing with compile-time checking. html! templates require complex syntax. Declarative macro_rules! limited (no lookahead, clunky parsing). Want my_macro!(custom syntax here) with arbitrary grammar. Configuration DSLs need validation at compile-time.
+
+**Solution**: Write proc_macro function receiving TokenStream. Implement syn::parse::Parse for custom syntax structs. Parse with syn::parse_macro_input. Build arbitrary DSL. Use quote! to generate output code. Return TokenStream. Full parsing control—can implement any grammar. More flexible than macro_rules! with better error messages.
+
+**Why It Matters**: Enables sophisticated DSLs—sqlx::query! validates SQL against database schema at compile-time. html! macros (yew, maud) provide type-safe templates. More flexible than declarative macros (full parsing control). Better errors: point to exact syntax issues. Essential for complex domain-specific syntax. Compile-time validation catches bugs early.
+
+**Use Cases**: SQL DSLs (sqlx, diesel—type-checked queries), HTML templates (yew html!, maud), configuration DSLs, query builders, compile-time regex validation, format string checking, JSON literals with validation, embedded language DSLs.
+
+### Function-like Macro Pattern
+
+**Problem**: Create SQL-like macro with custom parsing.
 
 ```rust
 use proc_macro::TokenStream;
@@ -799,9 +877,19 @@ pub fn routes(input: TokenStream) -> TokenStream {
 }
 ```
 
-## Token Stream Manipulation
+## Pattern 4: Token Stream Manipulation
 
-### Working with TokenStream Directly
+**Problem**: Need fine-grained token control beyond syn's abstractions. syn doesn't support your custom syntax. Want to manipulate tokens directly (reverse, filter, transform). Performance-critical: syn parsing overhead matters. Building syntax tree manually. Need access to token spacing/delimiters.
+
+**Solution**: Work with TokenStream and TokenTree directly. Iterate tokens, match on TokenTree variants (Group, Ident, Punct, Literal). Use proc_macro2 for testable code. Manually construct tokens. syn::parse for custom Parse impls. Punctuated for comma-separated lists. Direct token manipulation gives maximum control.
+
+**Why It Matters**: Maximum flexibility—handle any syntax, even invalid Rust. Performance: direct token manipulation faster than full syn parse. When syn doesn't fit (custom DSL syntax, token games). Low-level building block for advanced macros. Essential for macro composition (macro calling macro). Learning tool: understand token representation.
+
+**Use Cases**: Custom DSL parsers (syntax not in syn), performance-critical macros (skip syn overhead), advanced derive scenarios, token filters/transformers, macro composition, debugging token structure, embedded language parsers.
+
+### Direct TokenStream Pattern
+
+**Problem**: Manipulate tokens directly without syn parsing.
 
 ```rust
 use proc_macro::{TokenStream, TokenTree, Delimiter, Group, Punct, Spacing};
@@ -911,9 +999,19 @@ pub fn with_span(input: TokenStream) -> TokenStream {
 }
 ```
 
-## Macro Helper Crates (syn, quote)
+## Pattern 5: Macro Helper Crates (syn, quote)
 
-### Using syn for Parsing
+**Problem**: Parsing TokenStream manually is tedious—80% of macro is parsing boilerplate. Generating code with string concatenation error-prone (unbalanced braces, hygiene bugs). Testing proc macros requires separate crate. Attribute parsing repetitive. Iterating struct fields common but verbose. Need readable codegen with interpolation.
+
+**Solution**: Use syn to parse TokenStream into AST (DeriveInput, ItemFn, etc.). quote! macro generates code with #{interpolation}. proc_macro2 for testable macros (works outside proc-macro crate). darling for declarative attribute parsing. Punctuated<T, P> for comma-separated lists. syn handles all Rust syntax—you work with typed AST.
+
+**Why It Matters**: syn eliminates 90% of parsing code—DeriveInput has all struct info. quote! readable: quote! { impl #name { fn #method } } vs string building. Essential tooling: virtually all proc macros use syn+quote. darling reduces attribute boilerplate. proc_macro2 enables unit testing. Without these: writing proc macros impractical. Industry standard tools.
+
+**Use Cases**: All proc macros (syn+quote ubiquitous), derive macros (syn::DeriveInput), attribute parsing (darling), testing macros (proc_macro2), custom parsing (syn::parse::Parse), code generation (quote!), field iteration, type inspection.
+
+### syn Parsing Pattern
+
+**Problem**: Parse Rust syntax from TokenStream into typed AST.
 
 ```rust
 use syn::{
@@ -1310,4 +1408,77 @@ fn test_function_macro() {
 }
 ```
 
-This comprehensive guide covers all essential aspects of procedural macros in Rust, from basic derive macros to advanced token manipulation and the use of helper crates like syn and quote.
+---
+
+## Summary
+
+This chapter covered procedural macros:
+
+1. **Derive Macros**: #[derive(Trait)] auto-implements traits, powers serde/clap, parses struct with syn
+2. **Attribute Macros**: #[my_attr] wraps/modifies items, enables tokio::main, tracing::instrument, web routes
+3. **Function-like Macros**: my_macro!() custom syntax DSLs, SQL/HTML builders, full parsing control
+4. **Token Stream Manipulation**: Direct token access, maximum flexibility, performance-critical macros
+5. **Helper Crates**: syn for parsing, quote! for codegen, darling for attributes, proc_macro2 for testing
+
+**Key Takeaways**:
+- Proc macros are Rust functions that manipulate TokenStreams at compile-time
+- Must be in separate crate with proc-macro = true
+- Three types: derive, attribute, function-like
+- syn parses tokens → AST, quote! generates code
+- Powers entire ecosystem: serde, tokio, clap, diesel, actix-web
+
+**Macro Types Comparison**:
+- **Derive**: Auto-implement traits (#[derive(Serialize)])
+- **Attribute**: Modify items (#[tokio::main], #[get("/users")])
+- **Function-like**: Custom syntax (sql!(), html!())
+
+**Essential Crates**:
+- **syn**: Parse TokenStream to AST (DeriveInput, ItemFn, etc.)
+- **quote**: Generate code with interpolation (quote! { impl #name })
+- **proc_macro2**: Testing (works outside proc-macro crate)
+- **darling**: Declarative attribute parsing (#[my_attr(skip)])
+
+**Common Patterns**:
+- Derive for trait impls: #[derive(Serialize, Clone)]
+- Attribute for wrappers: #[tokio::main], #[tracing::instrument]
+- Function-like for DSLs: sql!("SELECT *"), html! { <div/> }
+
+**When to Use Each Type**:
+- Use **derive** when: Auto-implementing traits (serde, builder)
+- Use **attribute** when: Wrapping/modifying items (async, logging)
+- Use **function-like** when: Custom DSL syntax (SQL, HTML)
+
+**Best Practices**:
+- Always use syn+quote (don't parse manually)
+- Provide clear compile errors
+- Test with proc_macro2 (unit tests)
+- Document with examples
+- Handle edge cases (empty structs, unit enums)
+- Use darling for attribute parsing
+
+**Common Use Cases**:
+- serde: Serialize/Deserialize derives
+- tokio: async runtime setup (#[tokio::main])
+- clap: Command-line parsing derives
+- tracing: Automatic instrumentation
+- Web frameworks: Route registration
+- ORMs: Model derives (Diesel, SeaORM)
+- Builders: Auto-generate builder pattern
+
+**Debugging Tips**:
+- cargo expand shows macro output
+- proc_macro2 enables unit testing
+- eprintln! in macro for debug output
+- Test incrementally—start simple
+- Check syn docs for AST structure
+
+**Setup Requirements**:
+```toml
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc_macro2 = "1"
+```

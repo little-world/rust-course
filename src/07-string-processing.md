@@ -1,10 +1,42 @@
-# Cookbook: String Processing
+# String Processing
 
-> Advanced string manipulation, parsing, and text processing algorithms
+String Type Selection
 
-## String Foundations
+- Problem: Wrong string type causes allocations, API rigidity, platform incompatibility
+- Solution: String for owned, &str for borrowed, Cow for conditional, OsString for platform strings
+- Why It Matters: Type choice determines allocation pattern; wrong choice wastes memory/CPU
+- Use Cases: APIs, cross-platform code, FFI boundaries, path manipulation
 
-Rust distinguishes between `String` (an owned, heap-allocated, growable UTF-8 buffer) and `&str` (a borrowed slice into UTF-8 data). This design enforces memory safety and prevents common bugs like buffer overflows and use-after-free errors. Every `String` guarantees valid UTF-8 encoding, making operations like indexing by byte position potentially unsafe—Rust requires explicit handling of character boundaries through iterators or methods like `.chars()`. Internally, `String` is a `Vec<u8>` with UTF-8 validation, storing three words: a pointer to heap data, length (bytes currently used), and capacity (bytes allocated). String slices (`&str`) are "fat pointers" containing a pointer and length, enabling zero-copy views into existing data. This architecture means string operations fall into three categories: byte-level (fast but requires UTF-8 awareness), character-level (safe but slower due to variable-width encoding), and grapheme-level (most correct for user-perceived characters, requires external crates). The ownership model forces explicit decisions about allocation—methods ending in `_mut` or returning `String` signal potential allocation, while those returning `&str` guarantee zero-copy operations.
+Builder Patterns
+
+- Problem: Loop concatenation causes O(N²) copies; naive building reallocates repeatedly
+- Solution: Pre-allocate capacity; use builder with method chaining; consume with build()
+- Why It Matters: Pre-allocation reduces O(N²) to O(N); builder pattern enables fluent APIs
+- Use Cases: HTML/XML generation, query building, log formatting, template rendering
+
+Zero-Copy Operations
+
+- Problem: Parsing creates owned strings for each field; wastes memory on large files
+- Solution: Use iterator methods (split, lines) that return &str slices; Cow for conditional allocation
+- Why It Matters: 10MB file parsing: allocating = thousands of allocations, slicing = zero allocations
+- Use Cases: CSV parsing, log analysis, config files, large text processing
+
+UTF-8 Handling
+
+- Problem: Invalid UTF-8 from external sources panics; indexing mid-character corrupts text
+- Solution: Validate with from_utf8(); use char_indices() for safe boundaries; graphemes for display
+- Why It Matters: Byte indexing breaks multi-byte chars; grapheme awareness prevents display bugs
+- Use Cases: File I/O, network protocols, text rendering, internationalization
+
+Text Editor Data Structures
+
+- Problem: Vec requires O(N) insertion; multiple cursors need multiple gaps
+- Solution: Gap buffer for single cursor O(1) insert; rope for O(log N) random insert and multiple cursors
+- Why It Matters: Gap buffer: O(1) typing but O(N) random insert; rope: O(log N) everywhere, scales to GB files
+- Use Cases: Gap buffer for simple editors; rope for large files, undo/redo, collaborative editing
+
+
+This chapter explores string processing patterns in Rust: type selection, zero-copy operations, UTF-8 handling, parsing state machines, text editor data structures, and pattern matching algorithms through production-ready examples.
 
 ## Table of Contents
 
@@ -23,17 +55,15 @@ Rust distinguishes between `String` (an owned, heap-allocated, growable UTF-8 bu
 
 ## String Type Overview
 
-Rust's string handling system is more nuanced than many languages, offering multiple string types designed for different use cases. Understanding these types is crucial for writing efficient, safe code. The primary distinction revolves around **ownership** (whether the type owns its data or merely borrows it) and **encoding guarantees** (whether UTF-8 validity is enforced).
+**Problem**: Rust offers multiple string types (String, &str, Cow, OsString, Path), and choosing the wrong one leads to unnecessary allocations, API inflexibility, or platform compatibility issues. Developers face the ownership vs borrowing decision at every string boundary. Platform-specific encodings (UTF-16 on Windows, bytes on Unix) require special handling.
 
-The type system prevents common string-related bugs at compile time: buffer overflows, invalid UTF-8 sequences, and use-after-free errors. However, this safety comes with the requirement to understand which type to use when.
+**Solution**: Use `String` for owned, growable UTF-8 strings when you need to build or modify text. Use `&str` for borrowed string slices—the most flexible function parameter type. Use `Cow<str>` for conditional allocation when sometimes borrowing, sometimes owning. Use `OsString`/`OsStr` at OS boundaries (file paths, environment variables) where UTF-8 isn't guaranteed. Use `Path`/`PathBuf` for cross-platform file system operations with automatic separator handling.
 
-### Pattern 1: Choosing the Right String Type
+**Why It Matters**: Type choice determines allocation patterns and API ergonomics. Functions taking `&str` work with both `String` and `&str` due to deref coercion. `Cow` eliminates allocations when data doesn't change—a web server normalizing millions of already-normalized URLs saves gigabytes. Platform string types prevent panics on non-UTF-8 file names. The memory layout differences matter: `String` is 3 words (pointer + len + capacity), `&str` is 2 words (pointer + len), affecting struct size and cache efficiency.
 
-**Problem**: Rust offers multiple string types, and choosing the wrong one leads to unnecessary allocations, API inflexibility, or platform compatibility issues.
+**Use Cases**: `String` for building strings dynamically, returning from functions, storing in collections. `&str` for function parameters, parsing, zero-copy operations. `Cow<str>` for normalization, escaping, sanitization where input is often already valid. `OsString` for file paths, environment variables, FFI with OS APIs. `Path` for cross-platform path manipulation with extension extraction, parent directory operations.
 
-**Solution**: Select types based on ownership needs, encoding requirements, and platform interoperability.
-
-**When to Use This Pattern**: API design, cross-platform code, performance-critical string handling, FFI boundaries.
+## Pattern 1: String Type Selection
 
 
 ```rust
@@ -156,15 +186,15 @@ The string type hierarchy reflects a fundamental trade-off in systems programmin
 
 ---
 
-### Pattern 2: String Builder Pattern
+## Pattern 2: String Builder Pattern
 
-**Problem**: Concatenating strings in a loop or building complex strings from parts can cause multiple allocations. Using `s = s + "text"` or `s.push_str()` repeatedly may reallocate memory multiple times.
+**Problem**: Concatenating strings in loops creates O(N²) complexity—each `s = s + "text"` allocates a new string and copies all previous content. Building HTML, SQL queries, or templates with repeated `push_str()` causes multiple reallocations when capacity is exceeded. Without knowing final size, `String` grows exponentially (doubling capacity), wasting memory and CPU on copying during growth.
 
-**Solution**: Pre-allocate capacity and use a builder with method chaining for ergonomic, efficient construction.
+**Solution**: Pre-allocate capacity with `String::with_capacity(n)` when approximate size is known. Implement builder pattern with `&mut self` returns for method chaining. Use builder's internal `String` to accumulate content, then consume it with `build(self)` to transfer ownership without copying. For complex builders (HTML, formatted output), wrap `StringBuilder` and add domain-specific methods (tags, formatting).
 
-**Why This Matters**: String concatenation creates a new String on each operation. In a loop with N iterations, naive concatenation triggers O(N²) character copies as each intermediate string is reallocated and copied. Pre-allocation reduces this to O(N).
+**Why This Matters**: Pre-allocation eliminates reallocations—O(N) total time vs O(N) amortized with up to log(N) reallocations. A 10KB HTML document built with 100 appends: pre-allocated uses one 10KB buffer, non-pre-allocated copies ~20KB total (due to exponential growth). Method chaining creates fluent APIs that are both ergonomic and efficient. Builder pattern separates construction complexity from final immutable result.
 
-**Use Case**: Template rendering, HTML generation, log formatting, SQL query building.
+**Use Cases**: HTML/XML generation (builders with tag methods, indentation), SQL query construction (type-safe builder preventing injection), log formatting (structured message building), template rendering (placeholder substitution), configuration file generation, protocol message assembly.
 
 
 ```rust
@@ -307,19 +337,15 @@ Without pre-allocation, `String` uses an exponential growth strategy (doubling c
 
 ## Zero-Copy String Operations
 
-The most efficient memory operation is **no operation at all**. Zero-copy techniques avoid allocating new strings by working with borrowed slices (`&str`) that point into existing data. This is critical for performance-sensitive code: allocation is expensive, and copying large strings can dominate runtime.
+**Problem**: Parsing structured text (CSV, logs, configs) by creating owned `String` for each field wastes memory and CPU. A 10MB log file with 100K lines allocating strings for each line = 100K allocations + copying 10MB of data. Collecting parse results into `Vec<String>` when only processing once doubles memory usage. Manual string slicing with byte indices risks panicking on UTF-8 boundaries.
 
-Rust's ownership system makes zero-copy safe. The borrow checker ensures slices can't outlive the data they point to, preventing use-after-free bugs that plague C programs doing similar optimization.
+**Solution**: Use iterator methods that return `&str` slices borrowing from original data: `split()`, `lines()`, `split_whitespace()`. Pass slices to processing functions instead of collecting into vectors. For conditional modification, use `Cow<str>` to borrow when unchanged, allocate only when needed. Always use `char_indices()` or `is_char_boundary()` before manual slicing to ensure UTF-8 safety.
+
+**Why It Matters**: Zero-copy parsing eliminates allocations entirely—10MB file processing uses 10MB (the file buffer) instead of 20MB (file + owned strings). String slicing is O(1)—just creating a fat pointer (2 words: pointer + length). Iterators are lazy: `split().take(3)` never scans past the 3rd delimiter. For hot paths processing millions of strings per second, avoiding allocation is the difference between 10K req/s and 100K req/s.
+
+**Use Cases**: CSV/TSV parsing (split by delimiter, process fields), log analysis (pattern matching on lines), configuration file parsing (key=value splitting), protocol parsing (header extraction), text search (finding substrings without copying), streaming data processing (process-then-discard pattern).
 
 ### Pattern 3: String Slicing and Splitting
-
-**Problem**: Parsing structured text (CSV, logs, configuration files) by creating owned strings for each field wastes memory and CPU time.
-
-**Solution**: Use iterators that return `&str` slices into the original string. Methods like `split()`, `lines()`, and `split_whitespace()` return iterators over borrowed slices.
-
-**Why This Matters**: Parsing a 10MB log file by allocating strings for each line and field can cause thousands of allocations. Zero-copy parsing borrows from the original buffer, reducing memory usage by orders of magnitude and eliminating allocation overhead.
-
-**Use Case**: Log parsing, CSV processing, configuration file parsing, text analysis on large files.
 
 ```rust
 //==============================
@@ -461,13 +487,13 @@ The `split()` iterator maintains state (current position) and advances through t
 
 ### Pattern 4: Cow for Conditional Allocation
 
-**Problem**: Functions that sometimes need to modify input and sometimes don't face a dilemma: always allocate (wasteful), or return different types (awkward API).
+**Problem**: Functions that sometimes modify input (escape HTML entities, normalize whitespace, strip prefixes) and sometimes don't face an allocation dilemma. Always allocating wastes memory when input is already valid. Returning different types (`Result<&str, String>`) creates awkward APIs. Scanning input twice (check then transform) seems wasteful but is often faster than always allocating.
 
-**Solution**: Return `Cow<str>` (Clone-On-Write). Check if modification is needed first. If not, return `Cow::Borrowed`. If yes, allocate and return `Cow::Owned`.
+**Solution**: Return `Cow<str>` which is either `Borrowed(&str)` or `Owned(String)`. Implement two-phase algorithm: fast-path check if modification needed (scan for special characters, extra whitespace, etc), then return `Cow::Borrowed(input)` for no-op case. Only if modification required, allocate new `String`, transform, and return `Cow::Owned(result)`. Pre-allocate capacity for owned case when size predictable.
 
-**Why This Matters**: Consider a function that normalizes whitespace—if the input has no extra whitespace, why allocate? `Cow` lets you return the original string. For a web server processing millions of URLs, this can eliminate gigabytes of allocations for already-normalized inputs.
+**Why This Matters**: The fast-path check (O(N) scan) is faster than allocation + copy. For already-normalized input (common in production), `Cow` returns immediately with zero allocation. Web server escaping HTML: if 90% of inputs have no special characters, `Cow` eliminates 90% of allocations. URL normalization processing millions of requests: `Cow` saves GB of allocations. Even worst case (modification needed) matches always-allocating performance while best case is 10-100x faster.
 
-**Use Case**: Data normalization, HTML escaping, path canonicalization, validation with sanitization.
+**Use Cases**: HTML escaping (only allocate if <>&"' present), whitespace normalization (only if multiple spaces found), case conversion (only if mixed case), prefix/suffix stripping (only if present), path canonicalization, validation with optional sanitization.
 
 ```rust
 use std::borrow::Cow;
@@ -623,34 +649,15 @@ For high-frequency operations where the input is often already in the desired fo
 
 ## UTF-8 Handling and Validation
 
-UTF-8 is a variable-length encoding where characters take 1-4 bytes. Rust's `String` and `&str` guarantee valid UTF-8, but you often need to handle potentially invalid data from external sources (network, files, FFI).
+**Problem**: UTF-8 is variable-length (1-4 bytes per character), but external data sources don't guarantee validity. Files may have encoding mismatches (Latin-1 labeled as UTF-8), network data can be corrupted, FFI receives arbitrary bytes. Rust's `String`/`&str` guarantee UTF-8, so invalid input causes panics. Indexing by byte position mid-character creates invalid UTF-8. Emoji and combining characters span multiple code points, breaking naive iteration.
 
-Understanding UTF-8's structure is critical for implementing custom validators and for safe string manipulation.
+**Solution**: Validate external data with `str::from_utf8()` for strict errors or `String::from_utf8_lossy()` to replace invalid sequences with �. Implement custom validators understanding UTF-8 structure (first byte determines length, continuation bytes match `10xxxxxx`, detect overlong encodings, reject surrogates). Always use `char_indices()` or `is_char_boundary()` before byte indexing. For display, use `unicode-segmentation` crate's grapheme clusters.
 
-**UTF-8 Encoding Rules**:
-```
-1-byte (ASCII):      0xxxxxxx                    (U+0000 to U+007F)
-2-byte:              110xxxxx 10xxxxxx           (U+0080 to U+07FF)
-3-byte:              1110xxxx 10xxxxxx 10xxxxxx  (U+0800 to U+FFFF)
-4-byte:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx     (U+10000 to U+10FFFF)
-```
+**Why It Matters**: Invalid UTF-8 crashes programs or creates security vulnerabilities (overlong encodings bypass filters). A byte index mid-character panics: "hello"[1..4] is fine, "hëllo"[1..4] panics (ë is 2 bytes). Performance: byte operations are fast but require boundaries awareness; character iteration (`.chars()`) is slower but safe; grapheme iteration (correct for display) is slowest. Understanding levels (bytes < chars < graphemes) prevents bugs in text editing, terminal output, internationalization.
 
-**Validation Requirements**:
-1. First byte determines sequence length
-2. Continuation bytes must match `10xxxxxx` pattern
-3. Shortest encoding required (no overlong sequences)
-4. No encoding of surrogates (U+D800 to U+DFFF)
-5. Maximum code point is U+10FFFF
+**Use Cases**: File I/O from unknown encodings, network protocol parsing, FFI with C strings, data recovery tools, text editors (proper cursor movement), terminal emulators (width calculation), web servers (sanitizing input), internationalization (proper truncation/reversal).
 
 ### Pattern 5: UTF-8 Validation and Repair
-
-**Problem**: Reading text from untrusted sources (files, network, legacy systems) may yield invalid UTF-8 byte sequences, causing panics in Rust's string APIs.
-
-**Solution**: Validate UTF-8 explicitly. Use `from_utf8()` for strict validation, or `from_utf8_lossy()` to replace invalid sequences with U+FFFD (�).
-
-**Why This Matters**: Invalid UTF-8 can indicate corrupted data, encoding mismatches (Latin-1 vs UTF-8), or malicious input. Proper handling prevents crashes and security issues.
-
-**Use Case**: File I/O, network protocols, FFI with C libraries, data recovery.
 
 ```rust
 //======================================================
@@ -857,16 +864,13 @@ The validator implements a state machine that processes bytes sequentially:
 
 ### Pattern 6: Character and Grapheme Iteration
 
-**Problem**: What looks like "one character" to users may be multiple Unicode code points. Emoji like "👨‍👩‍👧‍👦" (family) or "é" (e + combining accent) break naive iteration.
+**Problem**: What users perceive as "one character" isn't what Rust's `.chars()` sees. Emoji like "👨‍👩‍👧‍👦" (family) are multiple code points joined with Zero-Width Joiners. "é" can be one code point (U+00E9) or two (e + combining accent). Terminal display width is wrong if treating all characters as width 1—CJK characters are width 2. Truncating mid-grapheme breaks display. Reversing strings splits composed characters.
 
-**Solution**: Understand three levels of iteration:
-- **Bytes**: Raw UTF-8 bytes (1-4 per code point)
-- **Characters**: Unicode code points (use `.chars()`)
-- **Graphemes**: User-perceived characters (use `unicode-segmentation` crate)
+**Solution**: Understand three iteration levels: bytes (`.bytes()`), characters (`.chars()`), graphemes (`unicode-segmentation::graphemes()`). Use bytes only for serialization/protocols. Use characters for code point processing. Use graphemes for user-facing operations (truncation, width, reversal). For terminal width, implement East Asian Width rules (CJK/emoji = width 2). Always use `char_indices()` for byte positions, never manual indexing.
 
-**Why This Matters**: Truncating at the wrong boundary creates corrupted text. Displaying text requires grapheme-aware width calculation for proper alignment. String reversal must preserve grapheme clusters.
+**Why It Matters**: Byte iteration sees 4 bytes for "👋", char iteration sees 1 code point, grapheme iteration sees 1 user-perceived character. But "👨‍👩‍👧‍👦" is 7 code points (4 emoji + 3 ZWJ), 1 grapheme. Truncating "café" at byte 4 corrupts é (2 bytes). Terminal alignment broken if "Hello世界" treated as 7 width—actually 9 (5 ASCII + 4 for 2 CJK). String reversal preserving graphemes critical for text editors.
 
-**Use Case**: Text rendering, terminal output, string truncation, text editing, internationalization.
+**Use Cases**: Text editors (cursor movement across graphemes), terminal output (width calculation for alignment), string truncation (safe at grapheme boundaries), text reversal (preserve composed characters), search/replace (whole grapheme), length display (user-perceived count not bytes), internationalization.
 
 ```rust
 use unicode_segmentation::UnicodeSegmentation;
@@ -1003,9 +1007,9 @@ fn main() {
 
 ---
 
-## String Parsing State Machines
+## Pattern 5: String Parsing State Machines
 
-### Pattern 7: Lexer with State Machine
+###  Lexer with State Machine
  Tokenize source code or structured text.
  Using Finite state machine lexer
 
@@ -1420,15 +1424,15 @@ fn main() {
 
 ## Text Editor Data Structures
 
-### Pattern 9: Gap Buffer Implementation
+**Problem**: Text editors need fast insertion/deletion at cursor. `Vec<char>` requires O(N) time for insert—all characters after cursor shift. Typing 1000 characters with O(N) insert = 500,000 character copies. Multiple cursors with `Vec` requires multiple copies of the document. Undo/redo with `Vec` copies entire document each operation. Large files (>1MB) make O(N) operations laggy.
 
-**Problem**: Text editors need fast insertion/deletion at the cursor position. Using `Vec<char>` requires O(N) time to insert/delete because all characters after the cursor must shift.
+**Solution**: Use gap buffer for single-cursor editors: maintain "gap" at cursor position, insertion fills gap O(1), cursor movement slides gap O(distance). When gap full, grow buffer (double size). Use rope (binary tree of string fragments) for multi-cursor, large files, or undo/redo: split/concatenate nodes O(log N), structural sharing enables zero-copy undo. Choose based on: gap buffer for simple editors, rope for production features.
 
-**Solution**: Gap buffer—maintain a "gap" (empty space) at the cursor position. Insertion fills the gap (O(1)), and cursor movement slides the gap by copying characters across it.
+**Why It Matters**: Gap buffer: typing is O(1) amortized, but moving cursor across document is O(N) worst case. Rope: all operations O(log N), handles GB files, multiple cursors efficiently, undo/redo via structural sharing (no copying). Real typing: gap buffer perfect—inserts at cursor, occasional local movement. Collaborative editing: rope required—multiple cursors far apart. File viewer scrolling: gap buffer poor (moving gap constantly), rope excellent.
 
-**Why This Matters**: Text editors process thousands of keystrokes per second. O(N) insertion would make typing lag noticeably. Gap buffers provide O(1) insertion at the cursor and O(distance) cursor movement—optimal for the common case of sequential editing.
+**Use Cases**: Gap buffer for simple single-user editors with localized editing, command-line text input, undo buffers for small documents. Rope for modern editors (VS Code, Sublime), large log file viewers, collaborative editing (multiple users), version control diffs, syntax highlighting (parsing unchanged after local edit), mobile text editors (memory constrained).
 
-**Use Case**: Text editors (Emacs, early versions), simple document editing, undo buffers.
+### Gap Buffer Implementation
 
 ```rust
 //======================
@@ -1687,7 +1691,7 @@ Gap buffers excel when edits are localized around a single cursor—exactly the 
 
 ---
 
-### Pattern 10: Rope Data Structure
+### Rope Data Structure
 
 **Problem**: Gap buffers struggle with:
 - Large documents (multi-megabyte files cause O(N) cursor movement)
@@ -1966,17 +1970,15 @@ Undo is just reverting to the old rope reference—no need to "unapply" operatio
 
 ## Pattern Matching Algorithms
 
-String pattern matching is fundamental to text processing: searching source code, filtering logs, finding substrings in documents. Naive algorithms are O(NM) where N is text length and M is pattern length. Advanced algorithms reduce this to O(N+M) by preprocessing the pattern.
+**Problem**: Naive string search is O(NM) where N = text length, M = pattern length. Searching 1GB log file for 100-byte pattern = 10^9 * 100 comparisons worst case. Backtracking in text wastes comparisons—after partial match, naive algorithm restarts from next position. For patterns with repetition ("ABABAC"), backtracks are frequent. Log analysis, genomic search, and intrusion detection require millions of searches.
+
+**Solution**: Use KMP (Knuth-Morris-Pratt) for guaranteed O(N+M) with no text backtracking via preprocessed "failure function". Use Boyer-Moore for practical O(N/M) best case by scanning pattern right-to-left and skipping sections. KMP: build failure table encoding prefix/suffix overlap, resume matching without backtracking. Boyer-Moore: build bad character table, skip when mismatch character not in pattern.
+
+**Why It Matters**: KMP guarantees linear time—1GB file with 1KB pattern: naive = 10^12 ops worst case, KMP = 10^9 ops always. Boyer-Moore often 3-5x faster than KMP in practice (especially long patterns, large alphabets)—grep and text editors use it. For DNA sequences (4-letter alphabet), KMP better. For English text (26+ letters), Boyer-Moore better. Understanding when to use which algorithm critical for performance.
+
+**Use Cases**: Text search in editors (Boyer-Moore for interactive search), genomic analysis (KMP for ATCG sequences), log filtering (pattern matching millions of lines), compiler lexical analysis (token recognition), intrusion detection (packet payload scanning), plagiarism detection (document comparison), virus scanning.
 
 ### Pattern 11: Knuth-Morris-Pratt (KMP) String Search
-
-**Problem**: Naive string search backtracks in the text when a mismatch occurs, leading to O(NM) complexity. For large texts or patterns, this is unacceptable.
-
-**Solution**: Preprocess the pattern to build a "failure function" that tells us where to resume matching after a mismatch, eliminating backtracking in the text.
-
-**Why This Matters**: KMP guarantees O(N+M) performance. When searching genomic sequences (billions of bases) or log files (gigabytes), the difference between O(NM) and O(N+M) is dramatic.
-
-**Use Case**: Text search, DNA sequence matching, compiler lexical analysis, intrusion detection.
 
 ```rust
 //===========================================================
@@ -2119,13 +2121,13 @@ The key insight: each text character is examined at most once. The `j` variable 
 
 ### Pattern 12: Boyer-Moore String Search
 
-**Problem**: KMP scans left-to-right and examines every text character. Can we do better by skipping sections of text?
+**Problem**: KMP scans every text character left-to-right, no skipping possible. Can we do better? When last character of pattern doesn't match, can we skip more than one position? For long patterns in large texts, scanning every character wastes comparisons. English text (26 letters) has more discriminating power than binary data (2 symbols)—can we exploit this?
 
-**Solution**: Boyer-Moore scans the pattern **right-to-left** and uses heuristics to skip large portions of the text when mismatches occur.
+**Solution**: Scan pattern right-to-left (most discriminating character first). Build "bad character table" mapping each character to its rightmost position in pattern. On mismatch at text character `c`: if `c` not in pattern, skip entire pattern width; if `c` in pattern, align it with rightmost occurrence. This enables sublinear best case—skipping M positions when last character never matches.
 
-**Why This Matters**: Boyer-Moore is often 3-5x faster than KMP in practice, especially for long patterns and large alphabets (like English text). It's the basis for `grep` and many text editors' search functions.
+**Why This Matters**: Best case O(N/M)—searching for "PATTERN" (7 chars) in text where "N" never appears skips 7 positions per comparison, examining only N/7 characters! Average case much faster than KMP for long patterns and large alphabets. English text search: Boyer-Moore 3-5x faster than KMP. DNA search (4-letter alphabet): KMP competitive. This is why grep, Vim, and text editors use Boyer-Moore variants.
 
-**Use Case**: Text editors, grep/search tools, bioinformatics, large document processing.
+**Use Cases**: Interactive text search in editors (fast visual feedback), grep/ripgrep tools (searching codebases), plagiarism detection (comparing documents), bioinformatics (protein sequence search has 20-letter alphabet), large document search (legal discovery, log analysis), web page search.
 
 ```rust
 use std::collections::HashMap;
@@ -2286,9 +2288,15 @@ The full Boyer-Moore includes both "bad character" and "good suffix" heuristics.
 
 ## String Interning
 
-### Pattern 13: String Interning Pool
-Reduce memory usage for repeated strings.
-Using String interning with hash map
+**Problem**: Programs with repeated strings waste memory—a web server with 10K sessions storing "logged_in" user state = 10K copies of same string. Compilers store identifiers thousands of times. Comparing strings with `==` is O(N), but pointer comparison is O(1). Cloning strings for shared data is expensive. HashMaps with String keys allocate per entry.
+
+**Solution**: Implement string interning pool using `HashMap<Arc<str>, Arc<str>>` to deduplicate. When interning a string: check if already in pool, return existing `Arc` (cheap clone); if not in pool, insert new `Arc` and return it. All instances of same string share one allocation. Comparison becomes pointer comparison (Arc equality). Cloning is just incrementing refcount.
+
+**Why It Matters**: Memory: 1M instances of "error" = 5MB as separate strings, 5 bytes + overhead as interned. String comparison: O(N) for string equality, O(1) for Arc pointer equality. Allocation: interning "error" 1M times = 1 allocation + 1M Arc clones vs 1M allocations. Perfect for: compiler symbol tables (thousands of identifier copies), configuration keys (repeated across many objects), log tags/levels, network protocol constants.
+
+**Use Cases**: Compiler symbol tables (variable names, type names repeated in AST), configuration systems (keys like "database.host" repeated), logging (level strings "ERROR"/"INFO" everywhere), web frameworks (route paths, session keys), game engines (asset tags, entity names), network protocols (header names, status codes), i18n (translation keys).
+
+### String Interning Pool
 
 ```rust
 use std::collections::HashMap;
@@ -2418,18 +2426,60 @@ if let Some(pos) = s.find("pattern") { }
 
 ## Summary
 
-String processing in Rust requires understanding:
+This chapter covered string processing patterns in Rust:
 
-1. **Type System**: String, &str, Cow, OsString, Path
-2. **Zero-Copy**: Borrowing and slicing without allocation
-3. **UTF-8**: Proper handling of multi-byte characters
-4. **State Machines**: Efficient parsing and lexing
-5. **Data Structures**: Gap buffers and ropes for editing
-6. **Algorithms**: KMP, Boyer-Moore for pattern matching
-7. **Optimization**: Interning for memory efficiency
+1. **String Type Selection**: String (owned), &str (borrowed), Cow (conditional), OsString (platform), Path (filesystem)
+2. **Builder Patterns**: Pre-allocate capacity, method chaining, domain-specific builders for HTML/SQL
+3. **Zero-Copy Operations**: Iterator methods returning &str slices, Cow for conditional allocation
+4. **UTF-8 Handling**: Validation, character boundaries, grapheme clusters for display
+5. **Text Editor Data Structures**: Gap buffers O(1) cursor insert, ropes O(log N) everywhere
+6. **Pattern Matching**: KMP O(N+M) guaranteed, Boyer-Moore O(N/M) best case
+7. **String Interning**: Arc-based deduplication, O(1) comparison, memory savings
 
-**Key Principles**:
-- UTF-8 is default, always check boundaries
-- Borrow when possible, own when necessary
-- Use appropriate data structures for use case
-- Profile before optimizing
+**Key Takeaways**:
+- Type choice determines allocation: &str for parameters, String for owned, Cow for conditional
+- Pre-allocation is O(N) vs O(N) amortized with log(N) reallocations
+- Zero-copy parsing: 10MB file = 10MB memory (not 20MB with owned strings)
+- UTF-8 has three levels: bytes < characters < graphemes (use appropriate level)
+- Gap buffer for simple editors, rope for production features (multi-cursor, undo, large files)
+- KMP for guaranteed linear time, Boyer-Moore 3-5x faster in practice
+- Intern repeated strings: 1M copies of "error" = 5 bytes + overhead vs 5MB
+
+**Performance Guidelines**:
+- String building: pre-allocate capacity when size known or estimable
+- Parsing: use zero-copy iterators (split, lines), collect only when necessary
+- UTF-8: use char_indices() for boundaries, graphemes for display, bytes for protocols
+- Text editing: gap buffer < 1MB, rope > 1MB or multiple cursors
+- Search: Boyer-Moore for interactive (large alphabet), KMP for guaranteed (small alphabet)
+- Comparison: intern if comparing same strings repeatedly
+
+**Common Patterns**:
+```rust
+// Type selection
+fn process(s: &str) { }  // Most flexible parameter
+let owned = s.to_string();  // Convert &str -> String
+let cow = if needs_change { Cow::Owned(modified) } else { Cow::Borrowed(s) };
+
+// Zero-copy parsing
+for line in text.lines() {  // No allocation
+    for field in line.split(',') {  // No allocation
+        process(field);
+    }
+}
+
+// Safe UTF-8 handling
+for (i, ch) in s.char_indices() {  // i is valid boundary
+    let slice = &s[i..];  // Safe
+}
+
+// Builder with capacity
+let mut s = String::with_capacity(estimated_size);
+s.push_str("content");  // O(1) until capacity exhausted
+```
+
+**Safety Notes**:
+- Never index strings with byte positions without checking char boundaries
+- Validate UTF-8 from external sources (from_utf8, from_utf8_lossy)
+- Use grapheme clusters for user-facing operations (truncation, reversal, width)
+- Cow scans input twice (check + build) but faster than always allocating
+- Arc clones are cheap (refcount increment) but not free—benchmark if critical

@@ -1,16 +1,54 @@
-# 27. Builder & API Design
+# Builder & API Design
 
-API design is where your code meets its users. A well-designed API feels natural, guides users toward correct usage, and catches errors at compile time. Rust's type system enables sophisticated API patterns that make invalid states unrepresentable and correct usage obvious.
+Builder Pattern Variations
 
-This chapter explores patterns for building expressive, type-safe APIs in Rust. From builder patterns that construct complex objects to the typestate pattern that encodes state machines in types, we'll see how to leverage Rust's features to create APIs that are both powerful and pleasant to use.
+- Problem: Constructors with many parameters unclear; optional fields confusing; can't enforce required fields at compile-time
+- Solution: Basic builder (mut self), consuming builder (self), non-consuming (&mut self); Result from build() for validation
+- Why It Matters: Self-documenting code; fluent API; compile-time required fields with typestate; defaults for optional fields
+- Use Cases: HTTP requests, database connections, configuration objects, query builders, complex object construction
 
-## Builder Pattern Variations
+Typestate Pattern
 
-The builder pattern addresses a common problem: constructing objects with many optional parameters. Instead of constructors with long parameter lists or many setter methods, builders provide a fluent, chainable interface for configuration.
+- Problem: Invalid state transitions possible; runtime state checks; can't enforce "must call authenticate before query" at compile-time
+- Solution: Different types for different states; state transitions consume old type, return new type; methods only on valid states
+- Why It Matters: Impossible states unrepresentable; compile-time state machine; zero runtime cost; API misuse prevented
+- Use Cases: Database connections (Unauthenticated→Authenticated), file handles (Open/Closed), builders (incomplete→complete), protocols
+
+Method Chaining and Fluent APIs
+
+- Problem: Repeated object references; verbose configuration; unclear operation order; mutation vs consumption unclear
+- Solution: Return Self or &mut Self for chaining; consuming pattern (self) prevents reuse; named parameters via methods
+- Why It Matters: Ergonomic configuration; clear intent; compiler prevents invalid chains; self-documenting
+- Use Cases: Builders, query DSLs, test assertions, configuration, iterators, command patterns
+
+Into/AsRef for Flexible Parameters
+
+- Problem: String vs &str parameters force conversions; accepting only one type limits flexibility; allocations when borrowing sufficient
+- Solution: Use Into<String> for owned parameters, AsRef<str> for borrowed; generic conversions with Into/From traits
+- Why It Matters: Ergonomic APIs accept both owned and borrowed; no forced allocations; caller convenience; zero-cost abstractions
+- Use Cases: String parameters, path parameters, any parameter with multiple valid types, builder methods, flexible APIs
+
+Must-Use Types and Linear Types
+
+- Problem: Ignoring important return values (errors, connections); forgetting to call build(); resource leaks possible
+- Solution: #[must_use] attribute; linear types (must be consumed); typestate prevents partial usage; Result<T, E> must be handled
+- Why It Matters: Compiler warnings for ignored values; prevents resource leaks; enforces API contracts; no silent failures
+- Use Cases: Error handling, builders, resource handles (files, connections), guards (MutexGuard), transaction types
+
+
+This chapter explores API design patterns: builder pattern variations for complex construction, typestate pattern for compile-time state machines, fluent APIs via method chaining, flexible parameters with Into/AsRef, and must-use types to prevent misuse.
+
+## Pattern 1: Builder Pattern Variations
+
+**Problem**: Constructors with many parameters are unclear—which parameter is which in `new(url, method, headers, body, timeout, retry, follow)`? Optional fields represented as Option in constructor still require passing None. Can't enforce required fields at compile-time (forgot to set username). Many combinations of optional parameters = constructor explosion. Defaults for optional fields not obvious. Function signature changes break all callers.
+
+**Solution**: Basic builder: methods take `mut self`, return Self, enable chaining, call build() to construct. Consuming builder: methods take `self`, prevent reuse, ensure single use. Non-consuming builder: methods take `&mut self`, allow reuse. Required fields: Option in builder, build() returns Result validating all set. Typestate builder: different type per state, build() only available when complete. Defaults in builder::new(). Each method self-documents its purpose.
+
+**Why It Matters**: Self-documenting code: `.timeout(30)` clearer than positional parameter. Fluent API improves ergonomics: chain methods, clear intent. Compile-time required fields with typestate: forgot field = compile error not runtime. Defaults obvious: builder::new() shows defaults. Backward compatible: adding optional field doesn't break existing builders. Type safety: wrong order impossible with named methods. Zero cost: builder compiles away.
+
+**Use Cases**: HTTP request builders (method, headers, body, timeout), database connection builders (host, port, credentials, pool size), configuration objects (app config with many optional settings), query builders (SQL construction fluent API), complex object construction (many fields with sensible defaults), test data builders (factories for test objects), CLI argument parsing (command builders), email construction (to, subject, body, attachments).
 
 ### The Problem: Complex Construction
-
-Consider constructing an HTTP request:
 
 ```rust
 //==================================================
@@ -392,11 +430,15 @@ fn example() -> Result<(), String> {
 
 This pattern allows reusing the builder for multiple operations.
 
-## Typestate Pattern
+## Pattern 2: Typestate Pattern
 
-The typestate pattern uses Rust's type system to encode state machines. Different states become different types, making it impossible to call methods inappropriate for the current state. This catches state errors at compile time.
+**Problem**: State machines checked at runtime—"if connected { query() } else { panic!() }"—slow and error-prone. Can't enforce "must authenticate before query" at compile-time. Invalid state transitions possible (query on disconnected connection). Forgot to transition state = runtime panic. State represented as enum requires matching everywhere. Builder allows build() before all required fields set. File operations possible after close().
 
-### The Problem: State Validation
+**Solution**: Different types for different states: `Connection<Connecting>`, `Connection<Connected>`, `Connection<Disconnected>`. State transitions consume old type, return new type: `fn connect(self) -> Connection<Connected>`. Methods only available on appropriate states: only Connected has query(). PhantomData<State> for zero-sized state marker. Typestate builder: Builder<NoFields> → Builder<WithUrl> → Builder<Complete>, build() only on Complete. Compiler enforces state machine.
+
+**Why It Matters**: Impossible states unrepresentable: can't have Connection in invalid state. Compile-time state machine: wrong transition = compile error. Zero runtime cost: PhantomData is 0 bytes, states are compile-time only. API misuse prevented: can't call query() on unauthenticated connection. Self-documenting: Connection<Authenticated> shows state in type. No runtime checks: state verified at compile-time. Exhaustive transitions: all transitions explicit in type signatures.
+
+**Use Cases**: Database connections (Unauthenticated → Authenticated), file handles (Open/Closed states), protocol state machines (HTTP connection states), builder pattern (ensure all fields set), resource lifecycle (Acquired/Released), async operations (Pending/Ready), payment processing (Pending→Authorized→Captured), document workflow (Draft→Review→Published).
 
 Consider a TCP connection:
 
@@ -738,11 +780,15 @@ fn example() {
 }
 ```
 
-## Fluent Interfaces
+## Pattern 3: Method Chaining and Fluent APIs
 
-Fluent interfaces use method chaining to create readable, expression-like code. The goal is code that reads like natural language, making the API intuitive and self-documenting.
+**Problem**: Repeated object references verbose: `builder.set_x(); builder.set_y(); builder.set_z()`. Configuration code unclear—which operations are related? Operation order not obvious from code structure. Mutation vs consumption unclear (does method move value?). Intermediate state exposed between related operations. Can't enforce operation order.
 
-### Basic Fluent Interface
+**Solution**: Return Self or &mut Self for chaining: `builder.x().y().z()`. Consuming pattern (self) prevents reuse, enforces single-use. Non-consuming (&mut self) allows reuse. Named parameters via methods: `.timeout(30)` clearer than positional args. Method names read like sentences: `query().select("*").from("users").where("active")`. Builder ensures all operations complete before use.
+
+**Why It Matters**: Ergonomic configuration: chain methods, no intermediate variables. Clear intent: method names show purpose. Compiler prevents invalid chains: wrong order = type error with typestate. Self-documenting: reads like natural language. Reduced boilerplate: no repeated references. Type safety: methods only available when valid. Fluent APIs guide users to correct usage through API design.
+
+**Use Cases**: Query builders (SQL DSLs), test assertions (expect(x).to_be(y)), configuration objects (builder pattern), iterator combinators (map/filter/collect), command builders (CLI construction), HTTP request builders, async chain operations (then/and_then), reactive programming (Observable methods).
 
 ```rust
 struct QueryBuilder {
@@ -1022,11 +1068,15 @@ fn example() -> Result<(), String> {
 
 Errors short-circuit the pipeline, making error handling natural and composable.
 
-## Extension Traits for Libraries
+## Pattern 4: Into/AsRef for Flexible Parameters
 
-Extension traits add functionality to types you don't own. This is crucial for library design—you can extend standard library types or types from other crates without modifying their source.
+**Problem**: String vs &str parameter dilemma—accepting String forces allocation, accepting &str forces caller to own String. Path vs &Path, Vec vs &[T] same issue. Function parameters inflexible—can't accept both owned and borrowed. Type conversions explicit and verbose. Builder methods require specific types. API forces unnecessary allocations.
 
-### Basic Extension Trait
+**Solution**: Use `impl Into<String>` for parameters needing owned values—accepts String, &str, Cow<str>. Use `impl AsRef<str>` for parameters needing borrowed access—accepts String, &str, any reference. Generic conversions: Into<T>/From<T> for type conversions, AsRef<T> for borrowing. Builder methods use Into for ergonomic chaining. Path parameters: `impl AsRef<Path>` accepts String, &str, PathBuf, &Path. Zero-cost: monomorphization eliminates abstraction overhead.
+
+**Why It Matters**: Ergonomic APIs: accept both owned and borrowed without forcing conversions. No unnecessary allocations: AsRef borrows when possible. Caller convenience: can pass literal strings, owned strings, or references. Zero-cost abstractions: Into/AsRef compile to efficient code. Type flexibility: same function works with many types. Future-proof: new types implementing Into/AsRef work automatically. Less boilerplate: no manual .to_string()/.as_ref() calls.
+
+**Use Cases**: String parameters (impl Into<String> or impl AsRef<str>), path parameters (impl AsRef<Path>), any parameter with owned/borrowed variants, builder methods (ergonomic chaining), generic collection parameters (impl AsRef<[T]>), conversion-heavy APIs, library public interfaces, configuration builders.
 
 ```rust
 trait StringExt {
@@ -1208,13 +1258,15 @@ fn example() {
 }
 ```
 
-## Sealed Trait Pattern
+## Pattern 5: Must-Use Types and Linear Types
 
-The sealed trait pattern prevents external crates from implementing your trait. This is crucial when you want to add methods to a trait without breaking compatibility.
+**Problem**: Ignoring important return values causes bugs—ignored Result hides errors, ignored connection leaks resources. Forgetting to call build() on builder leaves incomplete state. Resource leaks: file handle not closed, mutex guard dropped too early. Silent failures: error ignored, program continues. No warning for unused values. Connection acquired but never used. Transaction started but not committed.
 
-### Why Seal Traits?
+**Solution**: #[must_use] attribute on types/functions generates compiler warnings for unused values. Linear types pattern: value must be consumed exactly once (builders). Typestate prevents partial usage: can only call certain methods in certain states. Result<T, E> automatically #[must_use]. Guards (MutexGuard, file handles) must be assigned. API design: return types require handling. Consuming methods (self) enforce single use.
 
-Without sealing, adding methods to a trait is a breaking change:
+**Why It Matters**: Compiler warnings prevent bugs: unused Result = warning. Resource leak prevention: must handle handles. Enforces API contracts: builder must call build(). No silent failures: errors must be handled. Linear types ensure correctness: value used exactly once. Type system enforces discipline: can't ignore critical values. Production safety: catch mistakes at compile-time.
+
+**Use Cases**: Error handling (Result must be handled), builders (must call build()), resource handles (files, connections must be used/closed), guards (MutexGuard, RwLockGuard), transaction types (must commit or rollback), iterators (must consume or iterator does nothing), async futures (must await), lock guards (must be held for scope).
 
 ```rust
 //==================
@@ -1427,28 +1479,100 @@ fn compute<T: Numeric>(value: T) -> T {
 
 Only your predefined types can implement `Numeric`.
 
-## Conclusion
+## Summary
 
-API design in Rust is about leveraging the type system to create interfaces that are both powerful and safe. The patterns we've explored enable you to build APIs that guide users toward correct usage while catching errors at compile time.
+This chapter covered API design patterns for creating type-safe, ergonomic Rust APIs:
 
-**Key principles:**
+1. **Builder Pattern Variations**: Basic (mut self), consuming (self), non-consuming (&mut self), Result validation
+2. **Typestate Pattern**: Different types per state, transitions consume old/return new, compile-time state machines
+3. **Method Chaining and Fluent APIs**: Return Self/&mut Self, consuming for single-use, reads like natural language
+4. **Into/AsRef for Flexible Parameters**: Accept owned/borrowed via Into<T>/AsRef<T>, zero-cost ergonomics
+5. **Must-Use Types and Linear Types**: #[must_use] warnings, value consumed exactly once, enforces handling
 
-1. **Builder pattern** provides flexible object construction with clear, self-documenting syntax
-2. **Typestate pattern** encodes state machines in types, making invalid states unrepresentable
-3. **Fluent interfaces** create readable, chainable APIs that feel natural to use
-4. **Extension traits** add functionality to external types without modifying them
-5. **Sealed traits** prevent external implementation, enabling non-breaking additions
+**Key Takeaways**:
+- Builder pattern self-documents: `.timeout(30)` clearer than positional parameters
+- Typestate impossible states unrepresentable: can't query() unauthenticated connection
+- Method chaining ergonomic: `builder.x().y().z()` no intermediate variables
+- Into/AsRef flexible: accept String, &str, Cow<str> with one parameter type
+- #[must_use] prevents bugs: unused Result generates warning
 
-**Design guidelines:**
+**API Design Principles**:
+- Self-documenting: method names show intent, types show state
+- Compile-time safety: type errors better than runtime panics
+- Ergonomic: fluent chaining, flexible parameters, sensible defaults
+- Impossible to misuse: wrong usage doesn't compile
+- Future-proof: sealed traits allow non-breaking additions
+- Zero-cost: abstractions compile away
 
-- **Start simple**: Don't use complex patterns until you need them
-- **Consider the caller**: APIs should be intuitive from the user's perspective
-- **Fail at compile time**: Type-level guarantees are better than runtime checks
-- **Document invariants**: Make assumptions explicit, especially with typestate
-- **Think about evolution**: Sealed traits and careful design enable non-breaking changes
+**Pattern Selection**:
+- Use builder for complex construction (many optional parameters)
+- Use typestate for state machines (compile-time state checking)
+- Use method chaining for configuration (fluent, ergonomic)
+- Use Into/AsRef for flexible parameters (owned or borrowed)
+- Use #[must_use] for critical returns (errors, resources)
 
-The best APIs feel like natural extensions of the language. They leverage Rust's strengths—the type system, ownership, and traits—to create interfaces that are impossible to misuse. When you write code using a well-designed API, the compiler guides you toward correct usage. Errors are clear, fixes are obvious, and the code reads like documentation.
+**Common Patterns**:
+```rust
+// Builder pattern (consuming)
+impl RequestBuilder {
+    fn method(mut self, m: String) -> Self {
+        self.method = m;
+        self
+    }
+    fn build(self) -> Request { /* ... */ }
+}
+let req = Request::builder("url").method("POST").build();
 
-As you design APIs, think about your users. What will their code look like? Where might they make mistakes? How can the type system prevent those mistakes? The patterns in this chapter are tools for answering these questions, helping you create APIs that are both delightful to use and impossible to misuse.
+// Typestate pattern
+struct Connection<State> {
+    _state: PhantomData<State>,
+}
+impl Connection<Unauthenticated> {
+    fn authenticate(self) -> Connection<Authenticated> { /* ... */ }
+}
+impl Connection<Authenticated> {
+    fn query(&self) { /* ... */ }
+}
 
-Remember: a great API makes correct code easy to write and incorrect code hard to write. Use Rust's type system to enforce your invariants, and your users will thank you with fewer bugs and clearer code.
+// Fluent API
+query().select("*").from("users").where_clause("active = true").limit(10);
+
+// Into/AsRef parameters
+fn send_message(to: impl Into<String>, body: impl AsRef<str>) {
+    let to = to.into();      // Owned
+    let body = body.as_ref(); // Borrowed
+}
+send_message("alice", "hello");              // &str, &str
+send_message(String::from("bob"), "world");  // String, &str
+
+// Must-use type
+#[must_use = "connection must be used"]
+struct Connection { /* ... */ }
+
+#[must_use = "build must be called"]
+fn builder() -> Builder { /* ... */ }
+```
+
+**Performance Considerations**:
+- Builder: zero runtime cost, compiles to direct construction
+- Typestate: PhantomData is 0 bytes, purely compile-time
+- Method chaining: inlined by compiler, no overhead
+- Into/AsRef: monomorphization eliminates abstraction cost
+- Must-use: compile-time only, no runtime impact
+
+**Anti-Patterns to Avoid**:
+- Too many positional parameters (use builder)
+- Runtime state checks (use typestate)
+- Exposing intermediate builder state (consume builder)
+- Forcing String allocation when &str sufficient (use AsRef)
+- Ignoring Result (use #[must_use])
+- Public mutable fields (use builder/setters)
+- Missing documentation for complex state transitions
+
+**Testing APIs**:
+- Test happy path with builder
+- Test missing required fields (compile error with typestate)
+- Test invalid state transitions (compile error)
+- Test method chaining readability
+- Test parameter flexibility (both owned/borrowed work)
+- Test must-use warnings (should warn if ignored)

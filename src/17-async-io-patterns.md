@@ -1,69 +1,66 @@
-# 17. Async I/O Patterns
+# Async I/O Patterns
 
-## Overview
+Tokio File and Network I/O
 
-Asynchronous I/O represents a fundamental shift in how programs handle input and output operations. While synchronous I/O blocks a thread until data is ready, async I/O allows a single thread to manage thousands of concurrent operations by yielding control whenever an operation would block. This chapter explores Tokio, Rust's most popular async runtime, and the patterns that make high-performance network services possible.
+- Problem: Synchronous I/O blocks threads; 1 thread/connection doesn't scale; 10K connections need 20GB RAM; blocking file I/O stalls network tasks
+- Solution: Tokio async I/O with .await; TcpListener/TcpStream for network; tokio::fs for files; work-stealing scheduler spreads load
+- Why It Matters: Single thread handles 10K connections in 10MB; C10K problem solved; async file I/O won't block network tasks; work-stealing uses all cores
+- Use Cases: Web servers, API gateways, chat servers, websockets, HTTP clients, file servers, concurrent file processing
 
-**The Async I/O Philosophy**
+Buffered Async Streams
 
-Traditional synchronous I/O follows a simple model: when you read from a file or network socket, your thread waits until data arrives. This works beautifully for single-threaded programs or when you have one thread per connection. But when handling thousands of concurrent connections (like a web server), dedicating one OS thread per connection becomes prohibitively expensive—each thread consumes memory for its stack (typically 2MB), and context switching between thousands of threads destroys CPU cache locality.
+- Problem: Byte-by-byte async reads/writes inefficient; need batching; no async equivalent of BufReader; line-by-line async parsing verbose
+- Solution: AsyncBufReadExt with read_line(), lines(); AsyncWriteExt with write_all(); BufReader/BufWriter wrap streams; tokio_util::codec for framing
+- Why It Matters: Buffering reduces syscalls by 100x; lines() yields async iterator; codecs handle framing (length-prefixed, delimited); essential for protocols
+- Use Cases: Line-based protocols (HTTP, SMTP), chat protocols, log streaming, CSV/JSON over network, codec-based protocols, WebSocket framing
 
-Async I/O solves this by allowing a single thread to manage many operations concurrently. When an operation would block (waiting for network data, disk I/O, etc.), the current task yields control back to the runtime, which then runs another task. When the original operation completes (data arrives), the runtime resumes that task. This cooperative multitasking model allows a small number of threads to handle massive concurrency.
+Backpressure Handling
 
-**When to Use Async I/O**
+- Problem: Fast producer overwhelms slow consumer; unbounded queues cause OOM; no flow control between tasks; need to slow upstream when downstream lags
+- Solution: Bounded channels (mpsc with capacity); Semaphore for concurrency limits; buffer_unordered(n) for stream concurrency; rate limiting with governor
+- Why It Matters: Prevents OOM from unbounded growth; fast network reader won't overwhelm slow file writer; graceful degradation under load; critical for production
+- Use Cases: Producer-consumer pipelines, streaming aggregation, rate limiting HTTP clients, connection pooling, download managers, WebSocket servers
 
-Choose async I/O when:
-- Building network servers handling many concurrent connections (web servers, API gateways, chat servers)
-- Making many concurrent outbound requests (web scrapers, API aggregators, microservices)
-- Building real-time systems where latency matters more than raw throughput
-- Working with I/O-bound workloads where tasks spend most time waiting
+Connection Pooling
 
-Stick with synchronous I/O when:
-- Building simple CLI tools or scripts with minimal concurrency
-- Working with CPU-bound workloads (parsing, computation, compression)
-- Interfacing with blocking APIs that don't have async alternatives
-- Prototyping or learning—sync code is simpler to understand
+- Problem: Creating TCP/DB connections expensive (100ms+ handshake); can't scale to 1 connection/request; need connection reuse; must limit concurrent connections
+- Solution: bb8/deadpool for connection pools; configure min/max size; timeouts for acquisition; health checks; recycle connections between requests
+- Why It Matters: Reduces latency 100x (reuse vs new connection); limits concurrent connections; handles connection failures gracefully; essential for databases/HTTP
+- Use Cases: Database connection pools (Postgres, Redis), HTTP client pools, gRPC connection pools, connection-limited APIs, microservices
 
-**The Tokio Runtime**
+Timeout and Cancellation
 
-Tokio is Rust's most mature async runtime, providing:
-- A multi-threaded work-stealing scheduler that balances tasks across CPU cores
-- Async versions of standard I/O primitives (`File`, `TcpStream`, `UdpSocket`)
-- Timers, timeouts, and delays
-- Synchronization primitives (`Mutex`, `Semaphore`, `RwLock`)
-- Utilities for backpressure, cancellation, and graceful shutdown
+- Problem: Async operations can hang forever; need time bounds; must cancel slow operations; resource leaks from stuck tasks; graceful shutdown complex
+- Solution: tokio::time::timeout() wraps futures; select! for cancellation; CancellationToken for coordinated shutdown; drop cancels futures; timeout pattern
+- Why It Matters: Prevents resource leaks from hung operations; timeout HTTP requests fail fast; select! enables responsive cancellation; safe cleanup on shutdown
+- Use Cases: HTTP request timeouts, database query timeouts, graceful shutdown, user cancellation, health checks, circuit breakers, deadline propagation
 
-The runtime uses a work-stealing scheduler: if one thread runs out of tasks, it "steals" tasks from other threads' queues. This ensures CPU cores stay busy and tasks get distributed evenly. The `#[tokio::main]` macro sets up this runtime and makes your `main` function async.
 
-**Key Design Principles**
+This chapter explores async I/O patterns using Tokio—handling thousands of concurrent connections, buffered streams, backpressure, connection pooling, and timeouts. Async I/O allows one thread to manage thousands of operations by yielding when blocked, solving the C10K problem.
 
-1. **Cooperative Multitasking**: Tasks must yield control regularly. A task that never awaits will starve other tasks on the same thread.
+## Table of Contents
 
-2. **Structured Concurrency**: Use `tokio::spawn` to create independent tasks, but prefer combinators like `join!` or `select!` for coordinated concurrency.
-
-3. **Backpressure**: Design systems that can slow down producers when consumers can't keep up. Unbounded queues lead to memory exhaustion.
-
-4. **Cancellation Safety**: Operations should clean up properly when canceled (via timeouts, dropped futures, or explicit cancellation tokens).
-
-Let's explore the patterns that make async I/O powerful and safe.
+1. [Tokio File and Network I/O](#pattern-1-tokio-file-and-network-io)
+2. [Buffered Async Streams](#pattern-2-buffered-async-streams)
+3. [Backpressure Handling](#pattern-3-backpressure-handling)
+4. [Connection Pooling](#pattern-4-connection-pooling)
+5. [Timeout and Cancellation](#pattern-5-timeout-and-cancellation)
 
 ---
 
-## Tokio File and Network I/O
+## Pattern 1: Tokio File and Network I/O
 
-### Basic Async File Operations
+**Problem**: Synchronous I/O blocks threads waiting for data. One thread per connection doesn't scale—10K connections need 20GB RAM (2MB stack each). Context switching between thousands of threads destroys performance. Blocking file operations stall network tasks. CPU-bound tasks mixed with I/O starve either. Need to handle thousands of concurrent connections efficiently.
 
-File I/O in Tokio mirrors the synchronous API from `std::fs`, but every operation returns a future that you must `.await`. Under the hood, Tokio uses a thread pool for file operations (because most operating systems don't provide truly async file I/O APIs). This means file operations still block—just on background threads instead of your async tasks.
+**Solution**: Use Tokio async I/O where operations return futures you `.await`. TcpListener/TcpStream for network accept/read/write. tokio::fs for file operations (uses thread pool). Work-stealing scheduler distributes tasks across cores. Spawn tasks with tokio::spawn for concurrency. Use tokio::task::spawn_blocking for CPU-bound work. Single runtime handles thousands of connections.
 
-**When to use async file I/O:**
-- When you need to perform file operations alongside network I/O without blocking your async runtime
-- When reading/writing many files concurrently (Tokio's thread pool parallelizes the work)
-- When building services that mix file and network operations
+**Why It Matters**: Single thread handles 10K connections in 10MB memory (vs 20GB threaded). Solves C10K problem—web servers serve 10K+ concurrent users. Async file I/O won't block network handlers. Work-stealing keeps all cores busy. Context switch overhead eliminated. Enables web servers, chat servers, API gateways at scale. Without async I/O, 1 thread/connection model fails at high concurrency.
 
-**When synchronous file I/O is better:**
-- For simple scripts or CLI tools where blocking is acceptable
-- When doing sequential file processing with no other concurrent work
-- When every operation is a file operation (no benefit from async)
+**Use Cases**: Web servers (HTTP, HTTPS), API gateways, chat servers, WebSocket servers, game servers, HTTP clients (concurrent requests), file servers (mixing file and network I/O), concurrent file processing, real-time data pipelines.
+
+### Async File Operations
+
+**Problem**: Need to read/write files without blocking async runtime. Concurrent file operations should parallelize.
 
 ```rust
 //=========================
@@ -502,21 +499,19 @@ mod unix_sockets {
 
 ---
 
-## Buffered Async Streams
+## Pattern 2: Buffered Async Streams
+
+**Problem**: Byte-by-byte async reads/writes trigger many syscalls—catastrophically inefficient. Need to batch I/O operations. Parsing line-by-line from network streams requires buffering. No async equivalent of std::io::BufReader. Protocol implementations need framing (where messages start/end). Need to read "lines" from TCP streams efficiently.
+
+**Solution**: Use AsyncBufReadExt trait with read_line(), lines() for text. BufReader wraps async readers (File, TcpStream) with 8KB default buffer. BufWriter batches writes. Use tokio_util::codec for custom framing (length-prefixed, delimited). AsyncWriteExt provides write_all() for full writes. Adjust buffer size with with_capacity() based on workload.
+
+**Why It Matters**: Buffering reduces syscalls by 100x (byte-by-byte → chunked). Reading 1MB file: unbuffered = 1M syscalls, buffered = ~128 syscalls. lines() provides async iterator over lines—essential for protocols. Codecs abstract framing complexity. Without buffering, async I/O slower than sync. Critical for all network protocols (HTTP, WebSocket, custom).
+
+**Use Cases**: Line-based protocols (HTTP headers, SMTP, Redis protocol), chat protocols (newline-delimited), log streaming, CSV/JSON over network, codec-based protocols (protobuf, MessagePack), WebSocket framing, custom protocol parsers.
 
 ### Using BufReader and BufWriter
 
-Buffering is critical for I/O performance. Without buffering, every `read()` or `write()` call becomes a system call, which is expensive (context switch to kernel mode, potential scheduling delay, cache pollution). Buffering amortizes these costs by performing fewer, larger I/O operations.
-
-**The Buffering Trade-off**
-
-- **BufReader**: Reads large chunks from the underlying source, serves bytes from an internal buffer. Dramatically reduces system calls for small reads.
-- **BufWriter**: Accumulates writes in a buffer, flushes to the underlying sink when the buffer is full or `.flush()` is called. Critical for performance when making many small writes.
-
-**When to adjust buffer sizes:**
-- Default buffer size is 8KB, which is good for most workloads
-- Increase buffer size (16KB-64KB) for high-bandwidth sequential I/O
-- Decrease buffer size (1KB-4KB) for low-latency interactive protocols
+**Problem**: Minimize syscalls for async read/write operations with batching.
 
 ```rust
 use tokio::fs::File;
@@ -823,25 +818,19 @@ async fn length_prefixed_example() -> io::Result<()> {
 
 ---
 
-## Backpressure Handling
+## Pattern 3: Backpressure Handling
 
-Backpressure is the mechanism by which a slow consumer signals to a fast producer to slow down. Without backpressure, the producer will overwhelm the consumer, causing unbounded memory growth, dropped messages, or system crashes.
+**Problem**: Fast producer overwhelms slow consumer causing unbounded memory growth. Web scraper fetches faster than parser processes—queue grows until OOM. Network reader floods file writer with data. No flow control between tasks. Unbounded channels cause memory exhaustion. Need to slow upstream when downstream can't keep up. Graceful degradation under load requires limiting concurrency.
 
-**The Backpressure Problem**
+**Solution**: Use bounded mpsc channels with capacity limit—send() blocks when full. Semaphore limits concurrent operations (e.g., max 10 concurrent requests). Stream's buffer_unordered(n) controls concurrency. Rate limiting with governor crate or tokio::time::interval(). Feedback loops where consumer signals capacity. Drop excess load rather than queue indefinitely (shed load).
 
-Imagine a web scraper that fetches pages faster than it can parse them. Without backpressure:
-1. Fetched pages accumulate in an unbounded queue
-2. Memory usage grows without limit
-3. Eventually, the system runs out of memory and crashes
+**Why It Matters**: Prevents OOM from unbounded queues—production systems must bound memory. Fast network source won't overwhelm slow disk sink. Enables graceful degradation: under load, slow down rather than crash. Critical for production: without backpressure, spike in traffic causes OOM. Database connection pools need backpressure to prevent overload. Streaming systems fail without flow control.
 
-With backpressure:
-1. When the queue is full, the producer waits before fetching more pages
-2. Memory usage stays bounded
-3. The system remains stable
+**Use Cases**: Producer-consumer pipelines (network → processing → disk), streaming aggregation (sensor data, logs), rate-limited HTTP clients (respect API limits), connection pools (bound concurrent connections), download managers (limit concurrent downloads), WebSocket servers (per-client backpressure), data pipelines (ETL systems).
 
-### Manual Backpressure with Channels
+### Manual Backpressure with Bounded Channels
 
-Bounded channels provide automatic backpressure: when the channel is full, `send()` blocks until space is available. This naturally slows down producers to match consumer speed.
+**Problem**: Control flow between producer and consumer to prevent memory exhaustion.
 
 ```rust
 use tokio::sync::mpsc;
@@ -1065,20 +1054,19 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
 
 ---
 
-## Connection Pooling
+## Pattern 4: Connection Pooling
 
-Connection pooling reuses expensive resources (database connections, HTTP clients) across multiple operations, amortizing the setup cost and limiting the total number of connections.
+**Problem**: Creating TCP/database connections expensive—100ms+ for TCP handshake + TLS + auth. Can't scale to 1 new connection per request (too slow). Need connection reuse across requests. Databases/APIs limit concurrent connections (Postgres default: 100). Creating 1000 connections for 1000 requests overwhelms server. Connection lifecycle management (idle timeout, health checks) complex.
 
-**Why connection pooling matters:**
-- Establishing a connection is expensive (TCP handshake, TLS negotiation, authentication)
-- Databases and APIs limit the number of concurrent connections
-- Creating a new connection for each request is wastefully slow
+**Solution**: Use bb8 or deadpool crates for production-ready pools. Configure min/max pool size (e.g., 10-50 connections). Set timeouts for connection acquisition. Implement health checks to detect stale connections. Recycle connections between requests. Pool manages lifecycle: creates on-demand, reuses idle, removes unhealthy. Set idle timeout to prevent keeping stale connections.
 
-A connection pool maintains a set of ready-to-use connections. When you need a connection, you acquire one from the pool; when done, you return it to the pool for reuse.
+**Why It Matters**: Reduces latency 100x—reuse (1ms) vs new connection (100ms). Prevents connection exhaustion: pool limits concurrent connections. Handles transient failures: auto-reconnect, health checks. Essential for databases: Postgres/MySQL have connection limits. HTTP clients benefit similarly. Without pooling, high-load services fail (connection limit exceeded). Connection setup dominates latency for small queries.
 
-### Simple Connection Pool
+**Use Cases**: Database connection pools (Postgres, MySQL, Redis), HTTP client connection pools (reqwest with pool), gRPC connection pools, connection-limited APIs (respect limits), microservices (service-to-service), connection-expensive protocols (TLS, SSH).
 
-This is a basic pool implementation to illustrate the concepts. In production, use a mature library like `deadpool` or `bb8`.
+### Connection Pool Pattern
+
+**Problem**: Efficiently manage and reuse database or network connections.
 
 ```rust
 use tokio::sync::Mutex;
@@ -1323,13 +1311,19 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## Timeout and Cancellation
+## Pattern 5: Timeout and Cancellation
 
-Timeouts and cancellation are essential for building reliable systems. Without timeouts, a single slow operation can hang your entire service. Without cancellation, you can't stop long-running work when it's no longer needed.
+**Problem**: Async operations can hang forever without time bounds—network request to unresponsive server blocks indefinitely. Need to cancel slow operations to prevent resource leaks. Stuck tasks accumulate connections until exhaustion. Graceful shutdown requires canceling all tasks. User cancellation (close browser tab) must stop server-side work. Circuit breakers need timeout detection. No timeout means single slow client hangs entire server.
 
-### Basic Timeouts
+**Solution**: Use tokio::time::timeout() to wrap futures with duration limit—returns Err on timeout. select! races multiple futures, enabling cancellation when another completes. CancellationToken for coordinated shutdown across tasks. Dropping a future cancels it automatically (structured concurrency). Timeout pattern: primary with fallback. Per-request timeouts prevent slow requests blocking others.
 
-Tokio's `timeout()` function wraps any future and returns an error if it doesn't complete within the specified duration.
+**Why It Matters**: Prevents resource leaks from hung operations—without timeout, stuck connections never close. HTTP requests must timeout (client disappeared, network partition). Database queries need timeout (prevent long-running queries). Graceful shutdown impossible without cancellation—tasks must stop on SIGTERM. Circuit breakers rely on timeouts to detect failing services. Production systems fail without timeouts—one slow dependency hangs entire service.
+
+**Use Cases**: HTTP request timeouts (prevent hung requests), database query timeouts (prevent slow queries), graceful shutdown (SIGTERM handling), user cancellation (browser closed, request canceled), health checks (must timeout), circuit breakers (timeout = failure signal), deadline propagation (gRPC deadlines), connection idle timeouts.
+
+### Basic Timeout Pattern
+
+**Problem**: Prevent operations from running indefinitely by setting time limits.
 
 ```rust
 use tokio::time::{timeout, Duration};
@@ -1733,4 +1727,41 @@ async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
 
 ---
 
-This comprehensive guide covers all major async I/O patterns in Rust with Tokio. The key to mastering async Rust is understanding when to use async (I/O-bound workloads with high concurrency) versus sync (simple scripts, CPU-bound workloads), and how to handle the fundamental challenges of backpressure, cancellation, and resource pooling. These patterns form the foundation for building scalable, reliable network services.
+## Summary
+
+This chapter covered async I/O patterns using Tokio:
+
+1. **Tokio File and Network I/O**: Async primitives (TcpListener, tokio::fs), work-stealing scheduler, solves C10K problem
+2. **Buffered Async Streams**: AsyncBufReadExt for line-by-line, BufReader/BufWriter, codecs for framing
+3. **Backpressure Handling**: Bounded channels, Semaphore, buffer_unordered(n), prevents OOM
+4. **Connection Pooling**: bb8/deadpool, reduces latency 100x, manages connection lifecycle
+5. **Timeout and Cancellation**: timeout(), select!, CancellationToken, prevents resource leaks
+
+**Key Takeaways**:
+- Async I/O enables single thread to handle 10K+ connections
+- Always use buffering—100x syscall reduction
+- Bounded channels provide automatic backpressure
+- Connection pooling essential for databases/HTTP
+- Timeouts prevent hung operations—critical for production
+- Drop cancels futures automatically (structured concurrency)
+
+**Performance Guidelines**:
+- Async for I/O-bound, sync for CPU-bound
+- Use spawn_blocking for blocking operations
+- Buffer size: 8KB default, adjust for workload
+- Connection pool: 10-50 connections typical
+- Always set timeouts on network operations
+
+**Production Patterns**:
+- Graceful shutdown with CancellationToken
+- Per-request timeouts prevent slow requests blocking others
+- Circuit breakers rely on timeout detection
+- Backpressure prevents OOM under load
+- Health checks detect stale pooled connections
+
+**Common Pitfalls**:
+- Unbounded channels cause OOM
+- No timeout = hung connections accumulate
+- Blocking in async tasks starves others
+- Missing backpressure = memory exhaustion
+- Connection pool without health checks keeps stale connections

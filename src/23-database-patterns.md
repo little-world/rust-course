@@ -1,35 +1,52 @@
-# 23. Database Patterns
+# Database Patterns
 
-Working with databases is a fundamental part of most applications. Whether you're building a web service, desktop application, or data processing pipeline, you'll likely need to store and retrieve data efficiently. Rust's approach to database interaction emphasizes type safety, compile-time correctness, and zero-cost abstractions—bringing the language's safety guarantees to your data layer.
+Connection Pooling
 
-This chapter explores common database patterns in Rust, from connection management to query building, transactions, and schema evolution. We'll examine the trade-offs between different approaches and discuss when to use each pattern.
+- Problem: Creating connections per-request wastes CPU/network; too many connections overwhelm database
+- Solution: r2d2 for sync, deadpool for async; maintain pool of reusable connections; configure size based on workload
+- Why It Matters: Connection setup = TCP handshake + auth; pooling eliminates per-request overhead, 100x faster
+- Use Cases: Web servers, microservices, API backends, data processing pipelines
 
-## Connection Pooling
+Query Builders
 
-Database connections are expensive resources. Establishing a connection involves network handshakes, authentication, and initializing session state. Creating a new connection for every query would devastate performance. Connection pooling solves this by maintaining a pool of reusable connections that can be shared across many operations.
+- Problem: Raw SQL strings have typos caught at runtime; parameter mismatches cause panics; no type safety
+- Solution: SQLx compile-time verification via macros; Diesel full type-safe DSL; mix both based on complexity
+- Why It Matters: Column name typos become compile errors; SQL injection impossible with bound params
+- Use Cases: CRUD operations (Diesel), complex queries (SQLx), analytics (raw SQL), dynamic filters
 
-### Why Connection Pooling Matters
+Transaction Patterns
 
-Consider what happens when your application handles a burst of requests. Without pooling, each request creates a new database connection, performs a query, and closes the connection. This means:
+- Problem: Multi-operation atomicity required; concurrent updates cause lost writes; partial failures corrupt data
+- Solution: Use transaction types enforcing commit/rollback; savepoints for nested operations; optimistic locking for conflicts
+- Why It Matters: ACID guarantees prevent partial updates; type system prevents forgotten commits/rollbacks
+- Use Cases: Money transfers, inventory management, multi-table updates, distributed systems, conflict resolution
 
-- **Network overhead**: TCP handshakes for every query
-- **Authentication overhead**: Credential verification each time
-- **Resource exhaustion**: Too many connections overwhelm the database
-- **Poor latency**: Connection setup time adds to query time
+Migration Strategies
 
-Connection pooling addresses these issues by maintaining a pool of ready-to-use connections. When you need to run a query, you borrow a connection from the pool, use it, and return it. The connection stays alive, ready for the next request.
+- Problem: Schema evolution causes dev/prod drift; manual SQL error-prone; rollbacks difficult; new devs can't setup
+- Solution: Version-controlled migrations; automated up/down scripts; test thoroughly; zero-downtime multi-step deploys
+- Why It Matters: Schema as code = reproducible; migrations are auditable; rollback capability = safety
+- Use Cases: All production databases, CI/CD pipelines, team collaboration, staging/production parity
 
-### Connection Pool Lifecycle
+ORM vs Raw SQL
 
-A connection pool manages connections through several states:
+- Problem: ORMs abstract but limit flexibility; raw SQL powerful but error-prone; neither fits all cases
+- Solution: Diesel for CRUD + type safety; SQLx for complex/database-specific queries; mix based on query complexity
+- Why It Matters: Simple queries benefit from ORM safety; complex queries need SQL power; hybrid approach maximizes both
+- Use Cases: CRUD (ORM), analytics (raw SQL), full-text search (DB-specific), JSON queries (raw), standard operations (ORM)
 
-1. **Idle**: Connection is available in the pool
-2. **In use**: Connection is borrowed by a task
-3. **Validation**: Pool checks if connection is still alive
-4. **Reconnection**: Pool recreates dead connections
-5. **Shutdown**: Pool gracefully closes all connections
 
-Understanding this lifecycle helps you configure pools appropriately for your workload.
+This chapter explores database patterns in Rust: connection pooling for resource management, query builders for type safety, transactions for data integrity, migrations for schema evolution, and choosing between ORM and raw SQL based on specific requirements.
+
+## Pattern 1: Connection Pooling
+
+**Problem**: Creating database connections per-request is expensive—each connection requires TCP 3-way handshake, TLS negotiation, authentication, and session initialization (50-200ms overhead). Without pooling, burst of 1000 requests = 1000 connection creations, overwhelming database with connection overhead. Database has max_connections limit (typically 100-200), and exceeding it causes errors. Connection teardown wastes time closing sockets. Per-request pattern can't reuse prepared statements.
+
+**Solution**: Maintain a pool of pre-established, reusable connections. Use r2d2 for synchronous code (blocking `pool.get()`) or deadpool for async code (awaiting `pool.get().await`). Configure pool size based on workload: max_size controls maximum connections, min_idle keeps connections warm. Connections borrowed via smart pointers that automatically return to pool on drop. Pool validates connections, recreates dead ones, and enforces timeouts. Configure connection_timeout for how long to wait when pool exhausted.
+
+**Why It Matters**: Connection setup overhead: 50-200ms per connection vs <1ms to borrow from pool = 50-200x faster. A web server handling 100 req/s without pooling creates/destroys 100 connections/second = massive overhead. With pooling, 10-20 connections handle 100+ req/s efficiently. Prevents database from being overwhelmed: database with max_connections=100 can't handle 200 simultaneous connection attempts, but can handle 200 requests with 20 pooled connections (multiplexing). Memory efficiency: pooled connections reuse buffers and prepared statements. Automatic retry/validation handles transient network issues.
+
+**Use Cases**: Web servers (Actix, Axum, Rocket), microservices (per-service pool), GraphQL APIs (connection per query), background job processors (workers share pool), serverless functions (global pool across invocations), data pipelines (parallel processing with shared pool), CLI tools with multiple queries, testing frameworks (test isolation with connection pooling).
 
 ### r2d2: The Classic Connection Pool
 
@@ -285,35 +302,15 @@ async fn shutdown_pool(pool: Pool) {
 
 Monitoring helps you tune pool size and detect issues before they impact users.
 
-## Query Builders
+## Pattern 2: Query Builders
 
-Writing SQL as strings is error-prone. Typos, incorrect parameter counts, and type mismatches only appear at runtime. Query builders provide compile-time verification, type safety, and protection against SQL injection.
+**Problem**: Raw SQL as string literals has no compile-time checking—typos in table/column names only discovered at runtime when that code path executes. Type mismatches between SQL types and Rust types cause runtime panics. Wrong parameter count (`$1, $2` but passing 3 values) panics. String concatenation for dynamic queries enables SQL injection. No refactoring safety—renaming columns requires grep'ing all SQL strings. IDE has no autocomplete for columns/tables.
 
-### The Case for Type-Safe Queries
+**Solution**: Use SQLx for compile-time SQL verification—`query!()` macro connects to database during compilation, validates SQL syntax, checks tables/columns exist, verifies parameter types match, and infers return types. For fully type-safe DSL, use Diesel ORM with generated schema.rs providing compile-time column/table verification. For dynamic queries, use QueryBuilder (SQLx) with bound parameters preventing injection. SQLx supports offline mode via `cargo sqlx prepare` for CI/CD without database. Diesel provides automatic joins, database abstraction, and refactoring safety.
 
-Consider this common pattern:
+**Why It Matters**: Compile-time verification eliminates entire class of runtime SQL errors. Typo "usrname" becomes compile error, not production panic. Type safety: attempting `let id: String = row.get(0)` for INT column won't compile. SQL injection impossible with bound parameters—malicious input like `'; DROP TABLE users--` safely escaped. Refactoring safety: renaming column updates Diesel queries automatically. Performance: prepared statements reused, query planning cached. Development speed: IDE autocomplete for columns/tables, catch errors before running code.
 
-```rust
-//==============================
-// Unsafe: Easy to make mistakes
-//==============================
-async fn fetch_user_unsafe(pool: &Pool, user_id: i32) -> Result<User, Error> {
-    let client = pool.get().await?;
-
-    // Typo in column name won't be caught until runtime
-    let row = client.query_one(
-        "SELECT usrname, email FROM users WHERE id = $1",
-        &[&user_id],
-    ).await?;
-
-    // Type mismatch won't be caught until runtime
-    let username: i32 = row.get(0); // Should be String!
-
-    // ...
-}
-```
-
-These errors are frustrating because they only manifest when that code path executes. Query builders prevent this entire class of bugs.
+**Use Cases**: CRUD operations (Diesel's type-safe DSL shines), web APIs (compile-time verification critical), admin dashboards (dynamic filtering with QueryBuilder), reporting (complex SQLx queries), microservices (type safety across team), database migrations (schema changes detected at compile-time), multi-tenant apps (parameter binding prevents injection), GraphQL resolvers (type-safe field resolution).
 
 ### SQLx: The Compile-Time Checked Query Builder
 
@@ -570,20 +567,15 @@ fn fetch_user_pooled(pool: &Pool, user_id: i32) -> QueryResult<User> {
 
 This pattern is common in Diesel applications—the ORM handles queries, while the pool manages connections.
 
-## Transaction Patterns
+## Pattern 3: Transaction Patterns
 
-Transactions are fundamental to data integrity. They ensure that a series of database operations either all succeed or all fail together. Rust's type system can enforce correct transaction usage.
+**Problem**: Multi-step operations need atomicity—money transfer must debit and credit, or neither. Without transactions, failure between steps leaves inconsistent state (money debited but not credited). Concurrent updates cause lost writes—two users updating same row, last write wins, first write lost. Partial failures corrupt data—insert parent succeeds, child insert fails, orphaned data. Reading inconsistent state during updates (dirty reads, phantom reads). Forgetting to commit/rollback leaks resources and locks.
 
-### Understanding ACID Properties
+**Solution**: Use transaction types that enforce commit/rollback via type system. SQLx: `pool.begin()` returns `Transaction<'_, Postgres>` that auto-rolls back on drop unless explicitly committed. Diesel: `conn.transaction(|conn| { ... })` closure-based API commits on Ok, rolls back on Err. For partial rollbacks, use savepoints (nested transactions). For concurrent conflicts, implement optimistic locking with version column—update only if version unchanged, retry on conflict. Set isolation levels (READ COMMITTED, REPEATABLE READ, SERIALIZABLE) based on consistency needs.
 
-Transactions provide ACID guarantees:
+**Why It Matters**: ACID guarantees prevent data corruption—money transfer either completes fully or not at all. Type system prevents forgotten commits: Transaction type must be explicitly committed or automatically rolls back. Prevents lost updates: two users editing same document, version-based locking detects conflict, losing user must retry. Isolation prevents anomalies: REPEATABLE READ ensures consistent reads within transaction. Performance trade-off: higher isolation = more locks = lower concurrency, but stronger guarantees. Savepoints allow partial rollback: outer transaction continues if inner savepoint rolls back.
 
-- **Atomicity**: All operations succeed or all fail
-- **Consistency**: Database moves from one valid state to another
-- **Isolation**: Concurrent transactions don't interfere
-- **Durability**: Committed changes persist
-
-In Rust, we can use the type system to ensure transactions are used correctly.
+**Use Cases**: Financial transactions (transfers, payments, invoicing), inventory management (reserve stock, confirm order atomically), user registration (create user + profile + permissions), order processing (validate, deduct inventory, create shipment), audit logging (operation + log entry atomic), distributed systems (saga pattern with compensating transactions), multi-table updates (referential integrity), concurrent editing (optimistic locking for conflict resolution).
 
 ### Basic Transactions with SQLx
 
@@ -803,19 +795,15 @@ async fn update_with_optimistic_lock(
 
 This pattern avoids database locks while preventing lost updates. It's ideal for long-running operations or distributed systems.
 
-## Migration Strategies
+## Pattern 4: Migration Strategies
 
-As your application evolves, so does your database schema. Migrations manage these changes systematically, ensuring all environments (dev, staging, production) stay in sync.
+**Problem**: Schema evolution without migrations causes chaos—developers manually run SQL scripts, production schema drifts from dev, no audit trail of changes. New team members can't easily setup local database matching production. Rollbacks are manual and error-prone. Schema changes not version controlled alongside code changes. Multiple developers making conflicting schema changes. No way to test schema changes before production. Deploying schema changes requires downtime and coordination.
 
-### Why Migrations Matter
+**Solution**: Version-controlled migrations as code—each migration is timestamped SQL file with up (apply) and down (revert). Use SQLx (`sqlx migrate add`) or Diesel CLI (`diesel migration generate`). Run migrations programmatically on startup or via CLI. Keep migrations small and focused (one logical change per file). Never modify applied migrations—create new migration to fix issues. Test both up and down thoroughly. For zero-downtime, use multi-phase migrations: add nullable column, backfill data, make NOT NULL, drop old column (each phase separately deployable).
 
-Without migrations, schema changes are chaos:
-- Developers manually run SQL scripts
-- Production schema drifts from development
-- Rollbacks are error-prone
-- New team members can't set up databases easily
+**Why It Matters**: Schema as code = reproducible across environments. Git history shows what changed, when, and why. Automated testing: CI runs migrations against test database, catches issues before production. Rollback capability: down migrations enable safe revert if deployment fails. Team coordination: migrations prevent conflicting schema changes (Git merge conflicts surface schema conflicts). New developers: single command (`migrate run`) sets up database. Zero-downtime possible: multi-phase migrations allow deploying schema changes without stopping application. Audit trail: migration history is documentation of schema evolution.
 
-Migrations solve this by treating schema as code—versioned, reproducible, and auditable.
+**Use Cases**: All production databases (mandatory for prod), CI/CD pipelines (automated schema testing), team collaboration (preventing conflicts), staging/production parity (identical schemas), database versioning (track changes over time), rollback scenarios (revert failed deployments), onboarding (new devs setup), blue-green deployments (parallel schema versions).
 
 ### SQLx Migrations
 
@@ -1088,106 +1076,15 @@ ALTER TABLE users DROP COLUMN old_email;
 
 Each step can be deployed independently without downtime.
 
-## ORM vs Raw SQL
+## Pattern 5: ORM vs Raw SQL
 
-The eternal debate: should you use an ORM (Object-Relational Mapper) or write raw SQL? In Rust, this isn't a binary choice—you can mix approaches based on your needs.
+**Problem**: ORMs provide type safety and abstraction but limit flexibility for complex queries—CTEs, window functions, recursive queries difficult or impossible. Raw SQL offers full power but has no compile-time checking, enables SQL injection via string concatenation, no refactoring safety, and database-specific syntax breaks portability. Simple CRUD with raw SQL is verbose and error-prone. Complex analytics with ORM is awkward or impossible. Neither approach fits all query patterns—forced to choose one sacrifices either safety or flexibility.
 
-### The ORM Advantage
+**Solution**: Use hybrid approach based on query complexity. Diesel ORM for standard CRUD operations—type-safe, compile-time checked, automatic joins, refactoring safety, database abstraction. SQLx for complex queries requiring database-specific features—CTEs, window functions, full-text search, JSON operators, recursive queries. SQLx still provides compile-time verification via macros and SQL injection protection via bound parameters. Use QueryBuilder for dynamic filters. Choose per-query, not per-application—same codebase can use both.
 
-ORMs like Diesel provide significant benefits:
+**Why It Matters**: ORM eliminates runtime SQL errors for simple queries—typos become compile errors. Refactoring safety: rename column in Diesel, all queries update automatically. But complex analytics needs SQL power: `ROW_NUMBER() OVER (PARTITION BY)` doesn't map to ORM DSL naturally. Database-specific features (PostgreSQL JSONB operators, full-text search) require raw SQL. Performance: hand-tuned SQL with query hints outperforms ORM-generated SQL for complex cases. Learning curve: team familiar with SQL doesn't need ORM abstraction overhead. Debugging: reading generated SQL easier than ORM DSL for complex queries. Hybrid approach maximizes both: safety for CRUD, power for analytics.
 
-**Type Safety**: Queries are checked at compile time
-
-```rust
-//======================================
-// Diesel - typos caught at compile time
-//======================================
-users.filter(username.eq("alice"))
-
-//=======================================
-// Raw SQL - typos only caught at runtime
-//=======================================
-"SELECT * FROM users WHERE usrname = 'alice'"
-```
-
-**Abstraction**: Database-agnostic code (mostly)
-
-```rust
-//======================================================
-// Same Diesel code works with PostgreSQL, MySQL, SQLite
-//======================================================
-users.filter(created_at.gt(some_date))
-
-//============================
-// Raw SQL varies by database:
-//============================
-// PostgreSQL: created_at > $1
-//======================
-// MySQL: created_at > ?
-//======================
-// SQLite: created_at > ?1
-```
-
-**Automatic Joins**: The ORM handles relationships
-
-```rust
-//===========================
-// Diesel automatically joins
-//===========================
-posts.inner_join(users).select((posts::all_columns, users::username))
-
-//====================================
-// Raw SQL requires manual join syntax
-//====================================
-"SELECT posts.*, users.username FROM posts INNER JOIN users ON posts.user_id = users.id"
-```
-
-**Refactoring Safety**: Column renames update everywhere
-
-```rust
-//==========================================================
-// Rename column in schema, all queries update automatically
-//==========================================================
-diesel migration generate rename_user_email
-```
-
-### The Raw SQL Advantage
-
-Raw SQL offers different strengths:
-
-**Performance**: Direct control over query optimization
-
-```rust
-//=============================================
-// Complex query with CTEs and window functions
-//=============================================
-sqlx::query!(r#"
-    WITH ranked_products AS (
-        SELECT
-            *,
-            ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY sales DESC) as rank
-        FROM products
-    )
-    SELECT * FROM ranked_products WHERE rank <= 10
-"#)
-```
-
-**Flexibility**: Use database-specific features
-
-```rust
-//===================================
-// PostgreSQL-specific JSON operators
-//===================================
-sqlx::query!(r#"
-    SELECT * FROM events
-    WHERE metadata->>'type' = 'purchase'
-    AND (metadata->'amount')::numeric > 100
-"#)
-```
-
-**Learning Curve**: SQL is standard, ORMs are framework-specific
-
-**Debugging**: SQL is what actually runs; easier to debug
+**Use Cases**: CRUD operations (use Diesel: create/read/update/delete users, posts, comments), analytics (use SQLx: aggregations, window functions, complex joins), full-text search (database-specific: PostgreSQL ts_vector, MySQL FULLTEXT), JSON queries (PostgreSQL JSONB operators), reporting dashboards (complex aggregations with CTEs), admin panels (simple CRUD with type safety), data migrations (batch updates with raw SQL), audit logs (simple inserts via ORM).
 
 ### Hybrid Approach
 
@@ -1381,18 +1278,92 @@ pub struct GrowthMetric {
 
 This structure separates concerns: simple operations use type-safe queries, while analytics uses raw SQL for complex aggregations.
 
-## Conclusion
+## Summary
 
-Database programming in Rust offers a unique combination of safety and performance. The patterns we've explored—connection pooling, type-safe queries, transactions, and migrations—form the foundation of reliable data access.
+This chapter covered database patterns for production Rust applications:
 
-**Key takeaways:**
+1. **Connection Pooling**: r2d2 (sync), deadpool (async); reuse connections eliminating 50-200ms overhead
+2. **Query Builders**: SQLx compile-time verification, Diesel type-safe DSL, prevent SQL errors at compile-time
+3. **Transaction Patterns**: ACID guarantees via type system, savepoints, optimistic locking, isolation levels
+4. **Migration Strategies**: Version-controlled schema as code, up/down migrations, zero-downtime deployments
+5. **ORM vs Raw SQL**: Hybrid approach—Diesel for CRUD, SQLx for complex queries, maximize both safety and power
 
-1. **Always use connection pooling** in production—database connections are too expensive to create per-request
-2. **Choose your query builder** based on needs: Diesel for type safety, SQLx for flexibility, or mix both
-3. **Use transactions** for operations that must be atomic—Rust's type system helps enforce correct usage
-4. **Treat schema as code** with migrations—version control your database changes
-5. **Don't dogmatically choose ORM or raw SQL**—use the right tool for each query
+**Key Takeaways**:
+- Connection pooling mandatory for production: 50-200x faster than per-request connections
+- Compile-time SQL verification eliminates runtime errors: typos become compile errors
+- Type system enforces transaction safety: auto-rollback on drop, explicit commit required
+- Migrations as code = reproducible schemas, rollback capability, team coordination
+- Hybrid ORM/SQL approach: type safety for simple queries, SQL power for complex analytics
 
-The Rust database ecosystem is maturing rapidly. Whether you're building a small web service or a large-scale distributed system, these patterns will help you build reliable, maintainable data access layers.
+**Performance Guidelines**:
+- Pool sizing: small apps 5-10, medium 10-20, large 20-50 connections (rarely need >50)
+- Async pooling (deadpool) for high-concurrency: avoids thread blocking, better multiplexing
+- Transaction isolation: READ COMMITTED (default) vs REPEATABLE READ vs SERIALIZABLE (trade-off: consistency vs concurrency)
+- Prepared statements: reused via pooled connections, query planning cached
+- Batch processing: process data migrations in batches (1000-10000 rows) prevents memory exhaustion
 
-Remember: the database is often your application's bottleneck. Good patterns here—proper indexing, efficient queries, and appropriate pooling—have outsized impact on overall performance. Invest time in understanding your database, and Rust's type system will help you maintain that understanding as your application grows.
+**Configuration Examples**:
+```rust
+// Connection pool for web server handling 100 req/s
+Pool::builder()
+    .max_size(20)               // 20 connections handle 100+ req/s
+    .min_idle(Some(5))          // Keep 5 warm for quick response
+    .connection_timeout(Duration::from_secs(5))
+    .test_on_check_out(true)    // Validate before use
+
+// Transaction with optimistic locking
+UPDATE documents
+SET content = $1, version = version + 1
+WHERE id = $2 AND version = $3  // Only update if version unchanged
+
+// Zero-downtime migration (multi-phase)
+// Phase 1: Add nullable column
+ALTER TABLE users ADD COLUMN new_email VARCHAR(320);
+// Phase 2: Backfill data (deploy app handling both)
+UPDATE users SET new_email = old_email WHERE new_email IS NULL;
+// Phase 3: Make NOT NULL
+ALTER TABLE users ALTER COLUMN new_email SET NOT NULL;
+// Phase 4: Drop old column
+ALTER TABLE users DROP COLUMN old_email;
+```
+
+**Common Patterns**:
+```rust
+// Connection pooling with Arc for sharing
+let pool = create_pool().await?;
+let pool_clone = pool.clone();  // Cheap Arc clone
+
+// Compile-time verified query
+let user = sqlx::query_as!(User,
+    "SELECT id, username FROM users WHERE id = $1",
+    user_id
+).fetch_one(&pool).await?;
+
+// Transaction with auto-rollback
+let mut tx = pool.begin().await?;
+query!(...).execute(&mut *tx).await?;
+tx.commit().await?;  // Explicit commit required
+
+// Diesel CRUD
+diesel::insert_into(users::table)
+    .values(&new_user)
+    .get_result(&mut conn)?;
+
+// Dynamic SQLx query
+let mut builder = QueryBuilder::new("SELECT * FROM users WHERE 1=1");
+if let Some(name) = filter {
+    builder.push(" AND username = ").push_bind(name);
+}
+```
+
+**Best Practices**:
+- Monitor pool health: alert if available = 0 (exhausted) or > 75% (oversized)
+- Use transactions for multi-step operations: prevents partial failures
+- Never modify applied migrations: create new migration to fix
+- Test migrations: `run` then `revert` then `redo` before production
+- Keep migrations small: one logical change per file
+- Use savepoints for partial rollback: outer transaction continues if inner fails
+- Implement connection validation: test_on_check_out detects dead connections
+- Configure timeouts: connection_timeout prevents indefinite waiting
+- Batch data migrations: process 1000-10000 rows at a time
+- Use indexes: query performance depends on proper indexing (outside scope of patterns, but critical)

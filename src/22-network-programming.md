@@ -1,20 +1,66 @@
-# 22. Network Programming
+# Network Programming
 
-Network programming is fundamental to building distributed systems, web services, and real-time applications. Rust's async ecosystem, combined with its safety guarantees, makes it an excellent choice for building reliable network applications. This guide explores common network programming patterns in Rust, from low-level TCP/UDP to high-level HTTP and WebSocket protocols.
+TCP Server/Client Patterns
 
-## TCP Server/Client Patterns
+- Problem: Need reliable bidirectional communication; handle multiple concurrent connections; echo server blocks on one client; thread-per-connection doesn't scale
+- Solution: Async TcpListener/TcpStream with tokio; spawn task per connection; BufReader for line-based protocols; graceful shutdown with CancellationToken
+- Why It Matters: TCP foundation for HTTP/SSH/FTP; async handles 10K+ connections; thread-per-connection hits OS limits (~1K threads); essential for servers
+- Use Cases: Chat servers, game servers, database protocols, custom TCP protocols, proxy servers, load balancers, monitoring agents
 
-TCP (Transmission Control Protocol) provides reliable, ordered, and error-checked delivery of data between applications. It's the foundation for most internet protocols including HTTP, SSH, and FTP. Understanding TCP patterns is essential for building robust network applications.
+UDP Patterns
 
-### Understanding TCP Fundamentals
+- Problem: Need low-latency connectionless communication; broadcasting; multicast; TCP overhead too high; no connection setup
+- Solution: UdpSocket::bind() for server, send_to()/recv_from() for datagrams; set_broadcast()/join_multicast() for group communication; handle out-of-order/loss
+- Why It Matters: Lower latency than TCP (no handshake/ack); essential for gaming, VoIP, video streaming; multicast for discovery; DNS uses UDP
+- Use Cases: Gaming (position updates), VoIP, video streaming, DNS queries, service discovery, IoT sensors, time sync (NTP), multicast notifications
 
-TCP establishes a connection between a client and server before exchanging data. This connection-oriented approach ensures that all data arrives in order and without corruption. The server listens on a specific port, accepts incoming connections, and then handles each connection independently—often in a separate task or thread.
+HTTP Client (reqwest)
 
-The basic flow works like this: The server binds to a port and listens for connections. When a client connects, the server accepts the connection, creating a bidirectional stream. Both sides can then read and write data until one side closes the connection.
+- Problem: Need HTTP requests with async; handle cookies/headers/redirects; connection pooling; timeout management; JSON/form data; TLS verification
+- Solution: reqwest::Client with connection pool; async/await API; automatic JSON (de)serialization with serde; cookie_store() for sessions; timeout()
+- Why It Matters: HTTP ubiquitous for APIs; reqwest production-ready (connection pooling, retries); 10x easier than manual HTTP; essential for microservices
+- Use Cases: REST API clients, web scraping, microservice communication, webhook consumers, OAuth flows, file downloads, GraphQL clients, API testing
 
-### Basic Synchronous TCP Server
+HTTP Server (axum, actix-web)
 
-Let's start with a simple synchronous TCP server that echoes back whatever it receives. This example uses the standard library's TCP facilities:
+- Problem: Need HTTP server with routing, middleware, state; handle concurrent requests; parse JSON/forms; websocket upgrade; graceful shutdown
+- Solution: axum Router with handlers; State for shared data; extractors (Json, Query, Path); middleware (auth, logging); tower-http for CORS/compression
+- Why It Matters: Web servers core infrastructure; axum built on tokio (hyper); handles 100K+ req/s; type-safe extractors prevent bugs; ecosystem mature
+- Use Cases: REST APIs, web applications, microservices, GraphQL servers, webhook receivers, admin dashboards, file servers, proxy/gateway
+
+WebSocket Patterns
+
+- Problem: Need full-duplex real-time communication; HTTP request/response inadequate; long-polling wasteful; need bidirectional push; low latency
+- Solution: tokio-tungstenite for WebSocket; split into read/write halves; async message handling; ping/pong for keepalive; graceful close
+- Why It Matters: Real-time apps require bidirectional push; WebSocket persistent connection avoids HTTP overhead; 1 connection vs polling every 100ms
+- Use Cases: Chat applications, live notifications, collaborative editing, stock tickers, gaming, dashboard updates, IoT control, video streaming signaling
+
+
+This chapter covers network programming patterns—TCP/UDP for low-level protocols, HTTP client/server for web services, WebSocket for real-time bidirectional communication. Rust's async ecosystem enables high-performance, concurrent network applications with safety guarantees.
+
+## Table of Contents
+
+1. [TCP Server/Client Patterns](#pattern-1-tcp-serverclient-patterns)
+2. [UDP Patterns](#pattern-2-udp-patterns)
+3. [HTTP Client (reqwest)](#pattern-3-http-client-reqwest)
+4. [HTTP Server (axum, actix-web)](#pattern-4-http-server-axum-actix-web)
+5. [WebSocket Patterns](#pattern-5-websocket-patterns)
+
+---
+
+## Pattern 1: TCP Server/Client Patterns
+
+**Problem**: Need reliable bidirectional communication between client and server. Simple echo server handles one client at time (blocks). Thread-per-connection model doesn't scale—1K threads hits OS limits, each consumes 2MB stack. Need concurrent handling of 10K+ connections. Graceful shutdown complex. Line-based protocols need buffering. Connection errors must be handled gracefully.
+
+**Solution**: Use tokio's async TcpListener and TcpStream. tokio::spawn() spawns task per connection. BufReader for line-based protocols (efficient buffering). select! for graceful shutdown. Connection pooling on client side. Non-blocking I/O allows single thread to handle many connections. CancellationToken coordinates shutdown. Error handling with Result propagation.
+
+**Why It Matters**: TCP foundation for HTTP, SSH, FTP, databases—essential protocol. Async I/O solves C10K problem (10K concurrent connections). Thread-per-connection limited to ~1K clients (stack memory exhaustion). Production servers need 10K+ concurrent connections. Incorrect shutdown causes connection leaks. Buffering critical for performance (avoid byte-by-byte reads).
+
+**Use Cases**: Chat servers (persistent connections per user), game servers (player connections), database protocols (Postgres, Redis), custom TCP protocols, proxy servers, load balancers, monitoring agents, message brokers, SSH servers.
+
+### Async TCP Server Pattern
+
+**Problem**: Handle thousands of concurrent TCP connections efficiently.
 
 ```rust
 use std::net::{TcpListener, TcpStream};
@@ -407,21 +453,19 @@ impl std::ops::DerefMut for PooledConnection {
 }
 ```
 
-## UDP Patterns
+## Pattern 2: UDP Patterns
 
-UDP (User Datagram Protocol) is connectionless and doesn't guarantee delivery or ordering. However, it's much faster and has lower overhead than TCP. UDP is ideal for applications where occasional packet loss is acceptable, such as video streaming, gaming, or DNS queries.
+**Problem**: Need low-latency connectionless communication where packet loss acceptable. TCP handshake/ack overhead too high for real-time data. Broadcasting to multiple receivers simultaneously. Multicast group communication. Service discovery. No connection setup needed—just send datagrams. Message boundaries important (TCP is stream, UDP is messages).
 
-### Understanding UDP Characteristics
+**Solution**: Use tokio::net::UdpSocket. bind() on server. send_to()/recv_from() for datagrams (includes sender address). set_broadcast(true) for broadcast. join_multicast_v4()/v6() for multicast groups. Handle out-of-order delivery and loss at application layer. Fixed-size buffers for receiving. No connection state to manage.
 
-Unlike TCP, UDP doesn't establish connections. You simply send datagrams to an address and port. This means:
-- **No connection overhead**: You can immediately start sending data
-- **No reliability**: Packets may be lost, duplicated, or arrive out of order
-- **Lower latency**: No handshakes or acknowledgments
-- **Message boundaries**: Each send operation creates a discrete datagram
+**Why It Matters**: Lower latency than TCP (no handshake, no acks)—critical for gaming, VoIP. Essential for real-time where latest data > old data (position updates). Multicast for efficient group communication (service discovery). DNS uses UDP (query/response). Connectionless simplifies some protocols. Broadcast for local network discovery. When reliability not needed, UDP more efficient.
 
-These characteristics make UDP perfect for real-time applications where the latest data is more important than historical data.
+**Use Cases**: Gaming (player position/state updates), VoIP (audio packets), video streaming (RTP), DNS queries, service discovery (mDNS, SSDP), IoT sensor data, time synchronization (NTP), multicast notifications, DHCP, TFTP.
 
-### Basic UDP Server
+### UDP Echo Server Pattern
+
+**Problem**: Build simple UDP server that receives and responds to datagrams.
 
 ```rust
 use tokio::net::UdpSocket;
@@ -570,13 +614,19 @@ async fn reliable_udp_request(
 
 This pattern is the basis for protocols like QUIC and helps bridge the gap between UDP's speed and TCP's reliability.
 
-## HTTP Client (reqwest)
+## Pattern 3: HTTP Client (reqwest)
 
-The `reqwest` library is the de facto standard for HTTP clients in Rust. It provides both async and blocking APIs, with support for JSON, cookies, redirects, and more.
+**Problem**: Need to make HTTP requests with async I/O. Handle cookies, headers, redirects automatically. Connection pooling for performance. Timeout management. JSON/form data serialization. TLS certificate verification. OAuth flows. Rate limiting. Retry logic. Progress tracking for large downloads. Authentication schemes.
 
-### Basic HTTP Requests
+**Solution**: Use reqwest::Client with built-in connection pool. Async/await API. Automatic JSON (de)serialization with serde (json() method). cookie_store() for session management. timeout() for request deadlines. Client::builder() for configuration. multipart for file uploads. Middleware for auth/retries. Error handling with Result.
 
-Making HTTP requests with reqwest is straightforward and ergonomic:
+**Why It Matters**: HTTP ubiquitous for APIs—essential for microservices. reqwest production-ready (connection pooling, retries, cookie management). 10x easier than manual HTTP parsing. Connection pooling critical for performance (reuse connections). Async enables concurrent requests. TLS verification prevents MITM attacks. Industry standard crate.
+
+**Use Cases**: REST API clients, web scraping, microservice communication, webhook consumers, OAuth authentication flows, file downloads, GraphQL clients, API testing/monitoring, service health checks, data synchronization.
+
+### Basic HTTP Client Pattern
+
+**Problem**: Make HTTP requests with JSON payloads efficiently.
 
 ```rust
 use reqwest;
@@ -839,17 +889,19 @@ async fn download_file(
 }
 ```
 
-## HTTP Server (axum, actix-web)
+## Pattern 4: HTTP Server (axum, actix-web)
 
-Building HTTP servers in Rust typically involves using one of the major web frameworks. We'll cover both axum (newer, from the Tokio team) and actix-web (mature, high performance).
+**Problem**: Need HTTP server with routing, middleware, shared state. Handle concurrent requests safely. Parse JSON/query/path parameters. Serve static files. WebSocket upgrade. CORS, authentication, logging middleware. Graceful shutdown. Form data handling. Error responses. Type-safe extractors to prevent runtime bugs.
 
-### Why Choose axum?
+**Solution**: Use axum Router for routing. State extractor for shared data (Arc for thread-safety). Extractors (Json<T>, Query<T>, Path<T>) with serde. Middleware tower layers (CORS, compression, logging). axum::serve() for async server. Typed errors with IntoResponse. Extension for request-scoped data. tower-http for common middleware.
 
-axum is built on top of hyper and tower, focusing on type safety and ergonomics. It uses Rust's type system to ensure correctness at compile time. If you value compiler-checked correctness and are already using Tokio, axum is an excellent choice.
+**Why It Matters**: Web servers are core infrastructure—REST APIs, microservices, dashboards. axum built on tokio/hyper (100K+ req/s). Type-safe extractors catch errors at compile-time (wrong JSON schema = compile error). Middleware composable. Production-ready (graceful shutdown, backpressure). Ecosystem mature. Essential for modern web services.
 
-### Basic axum Server
+**Use Cases**: REST APIs, web applications, microservices, GraphQL servers (with async-graphql), webhook receivers, admin dashboards, file upload services, proxy/API gateway, authentication services, monitoring endpoints.
 
-Let's build a simple REST API with axum:
+### axum Server Pattern
+
+**Problem**: Build REST API with routing, JSON, and shared state.
 
 ```rust
 use axum::{
@@ -1166,23 +1218,19 @@ async fn get_user(path: web::Path<u64>) -> impl Responder {
 
 actix-web is slightly more imperative in style compared to axum's declarative approach, but both are excellent choices.
 
-## WebSocket Patterns
+## Pattern 5: WebSocket Patterns
 
-WebSockets provide full-duplex communication between client and server. Unlike HTTP's request-response model, WebSockets allow the server to push data to clients in real-time. This is perfect for chat applications, live updates, multiplayer games, and collaborative editing.
+**Problem**: Need full-duplex real-time bidirectional communication. HTTP request-response inadequate for live updates. Long-polling wasteful (poll every 100ms). Server needs to push to clients without request. Chat, notifications, live dashboards require bidirectional push. Low-latency streaming. Persistent connection more efficient than repeated HTTP requests.
 
-### Understanding WebSockets
+**Solution**: Use tokio-tungstenite for WebSocket (or axum/actix WebSocket support). HTTP upgrade to WebSocket. Split into read/write halves for concurrent send/receive. async message handling. Ping/pong for keepalive (detect dead connections). Graceful close with close frame. Broadcast pattern with tokio::sync::broadcast channel. Per-client state management.
 
-A WebSocket connection starts as an HTTP request with an "Upgrade" header. Once upgraded, the connection stays open and either party can send messages at any time. Messages can be text or binary.
+**Why It Matters**: Real-time applications require bidirectional push—can't rely on polling. WebSocket single persistent connection vs HTTP polling overhead (100 req/s vs 1 connection). Essential for chat, live dashboards, collaborative editing. Lower latency than HTTP polling. Server-initiated push critical for notifications. Efficient for streaming data (stock prices, game state).
 
-The lifecycle looks like this:
-1. Client sends HTTP upgrade request
-2. Server accepts upgrade (or rejects)
-3. Both parties exchange messages freely
-4. Either party can close the connection
+**Use Cases**: Chat applications (real-time messages), live notifications (alerts, updates), collaborative editing (Google Docs-style), stock tickers (price updates), gaming (multiplayer state sync), dashboard updates (metrics, logs), IoT device control, video streaming signaling.
 
-### WebSocket Server with axum
+### WebSocket Broadcast Pattern
 
-Here's a complete WebSocket server that broadcasts messages to all connected clients:
+**Problem**: Broadcast messages from any client to all connected WebSocket clients.
 
 ```rust
 use axum::{
@@ -1452,16 +1500,89 @@ async fn websocket_with_keepalive(mut socket: WebSocket) {
 
 This ensures you detect and clean up dead connections promptly.
 
-## Conclusion
+---
 
-Network programming in Rust offers both safety and performance. The async ecosystem, particularly Tokio, provides excellent primitives for building scalable network applications. Whether you're building low-level TCP servers, HTTP APIs, or real-time WebSocket applications, Rust's type system and ownership model help prevent common networking bugs like race conditions and use-after-free errors.
+## Summary
 
-Key takeaways:
-- **Use async/await** for I/O-bound network code—it's more efficient than threads
-- **TCP is reliable** but has overhead; use it when you need guaranteed delivery
-- **UDP is fast** but unreliable; perfect for real-time applications
-- **reqwest** is the go-to for HTTP clients; it's mature and ergonomic
-- **axum and actix-web** are both excellent server frameworks—choose based on your preferences
-- **WebSockets** enable real-time bidirectional communication; remember to handle disconnections gracefully
+This chapter covered network programming patterns:
 
-As you build network applications, remember that errors are common in networking. Networks are unreliable, clients disconnect unexpectedly, and timeouts happen. Design your applications to handle these gracefully, and you'll build robust systems that users can rely on.
+1. **TCP Server/Client**: Async TcpListener/TcpStream, tokio::spawn per connection, BufReader for protocols
+2. **UDP Patterns**: UdpSocket, send_to/recv_from, broadcast/multicast, connectionless communication
+3. **HTTP Client (reqwest)**: Client with connection pool, JSON serialization, cookies, timeouts, retries
+4. **HTTP Server (axum)**: Router, extractors (Json, Query, Path), middleware, shared State, type-safe
+5. **WebSocket Patterns**: Full-duplex real-time, split read/write, broadcast channel, ping/pong keepalive
+
+**Key Takeaways**:
+- Async I/O solves C10K problem—single thread handles 10K+ connections
+- TCP reliable but higher latency; UDP fast but lossy
+- reqwest industry standard for HTTP clients (connection pooling, retries)
+- axum type-safe extractors prevent runtime bugs (compile-time validation)
+- WebSocket enables server-initiated push (vs HTTP polling overhead)
+
+**Protocol Selection**:
+- **TCP**: Reliable ordered delivery (HTTP, SSH, databases)
+- **UDP**: Low-latency real-time (gaming, VoIP, DNS)
+- **HTTP**: Request-response APIs (REST, microservices)
+- **WebSocket**: Bidirectional real-time (chat, live updates)
+
+**Performance Patterns**:
+- Connection pooling (reqwest Client, database pools)
+- Buffering (BufReader for line protocols)
+- Async spawning (tokio::spawn per connection)
+- Graceful shutdown (CancellationToken)
+- Backpressure (bounded channels)
+
+**Common Patterns**:
+```rust
+// TCP async server
+let listener = TcpListener::bind("127.0.0.1:8080").await?;
+loop {
+    let (stream, _) = listener.accept().await?;
+    tokio::spawn(handle_connection(stream));
+}
+
+// HTTP client
+let client = reqwest::Client::new();
+let response = client.get("https://api.example.com")
+    .timeout(Duration::from_secs(5))
+    .send().await?;
+let data: MyType = response.json().await?;
+
+// axum server
+let app = Router::new()
+    .route("/", get(handler))
+    .with_state(state);
+axum::serve(listener, app).await?;
+```
+
+**Error Handling**:
+- Network errors common—design for failure
+- Timeouts essential (prevent hanging on dead connections)
+- Graceful degradation (retry with backoff)
+- Connection cleanup (tokio::select! for cancellation)
+- Validate input (malicious clients)
+
+**Best Practices**:
+- Always set timeouts on network operations
+- Handle connection errors gracefully
+- Use connection pooling for performance
+- Implement graceful shutdown
+- Buffer I/O operations (avoid byte-by-byte)
+- Validate and sanitize all input
+- Use TLS for sensitive data
+
+**Common Use Cases**:
+- **Chat server**: WebSocket with broadcast channel
+- **REST API**: axum with JSON extractors
+- **Game server**: UDP for position updates + TCP for critical events
+- **Microservices**: reqwest client + axum server
+- **Proxy**: TCP forwarding with tokio
+- **Live dashboard**: WebSocket for real-time metrics
+
+**Tools**:
+- **tokio**: Async runtime, TcpListener/TcpStream/UdpSocket
+- **reqwest**: HTTP client with connection pooling
+- **axum**: HTTP server framework (type-safe, tokio-based)
+- **tokio-tungstenite**: WebSocket implementation
+- **tower**: Middleware for HTTP services
+- **hyper**: Low-level HTTP library (foundation for axum)

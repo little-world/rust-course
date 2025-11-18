@@ -1,116 +1,39 @@
 # Async Runtime Patterns
 
-
 Future Composition
 
-- Problem: Nested .await creates callback hell; verbose manual spawning;
-  sequential when parallel possible
-- Solution: Combinators map(), and_then(); join!/try_join! for concurrent;
-  select! for racing
-- Why It Matters: 3x faster with concurrent execution; eliminates callback
-  hell; ? makes errors concise
-- Use Cases: HTTP batching, database composition, microservice
-  orchestration, retry logic, fan-out/fan-in
+- Problem: Nested .await creates callback hell; verbose manual spawning; sequential when parallel possible
+- Solution: Combinators map(), and_then(); join!/try_join! for concurrent; select! for racing
+- Why It Matters: 3x faster with concurrent execution; eliminates callback hell; ? makes errors concise
+- Use Cases: HTTP batching, database composition, microservice orchestration, retry logic, fan-out/fan-in
 
 Stream Processing
 
-- Problem: Standard iterators block; collecting wastes memory; manual
-  polling verbose; backpressure complex
-- Solution: Stream trait with combinators; .buffered(n) for concurrency;
-  automatic backpressure
-- Why It Matters: Process GB files in constant memory; backpressure
-  prevents overwhelming consumers
-- Use Cases: WebSocket messages, sensor aggregation, log streaming,
-  database results, real-time analytics
+- Problem: Standard iterators block; collecting wastes memory; manual polling verbose; backpressure complex
+- Solution: Stream trait with combinators; .buffered(n) for concurrency; automatic backpressure
+- Why It Matters: Process GB files in constant memory; backpressure prevents overwhelming consumers
+- Use Cases: WebSocket messages, sensor aggregation, log streaming, database results, real-time analytics
 
 Async/Await Patterns
 
-- Problem: Manual polling complex; combinator chains unreadable;
-  cancellation unsafe; Send bounds tricky
-- Solution: async fn with .await; spawn_blocking() for blocking;
-  cancellation-safe design
-- Why It Matters: Transforms spaghetti to readable code; Send bounds catch
-  issues at compile time
-- Use Cases: Web servers, database clients, HTTP clients, file I/O,
-  microservices, chat servers
+- Problem: Manual polling complex; combinator chains unreadable; cancellation unsafe; Send bounds tricky
+- Solution: async fn with .await; spawn_blocking() for blocking; cancellation-safe design
+- Why It Matters: Transforms spaghetti to readable code; Send bounds catch issues at compile time
+- Use Cases: Web servers, database clients, HTTP clients, file I/O, microservices, chat servers
 
 Select and Timeout Patterns
 
-- Problem: Indefinite waits cause hangs; need first-completion handling;
-  no fallback mechanism
-- Solution: select! for racing; timeout() for bounds; interval() for
-  periodic tasks
-- Why It Matters: Prevents resource leaks; enables responsive UIs;
-  critical for production systems
-- Use Cases: HTTP timeouts, idle connections, health checks, graceful
-  shutdown, rate limiting, circuit breakers
+- Problem: Indefinite waits cause hangs; need first-completion handling; no fallback mechanism
+- Solution: select! for racing; timeout() for bounds; interval() for periodic tasks
+- Why It Matters: Prevents resource leaks; enables responsive UIs; critical for production systems
+- Use Cases: HTTP timeouts, idle connections, health checks, graceful shutdown, rate limiting, circuit breakers
 
 Runtime Comparison
 
-- Problem: Wrong runtime impacts performance and ecosystem; mixing causes
-  conflicts; varied overhead
-- Solution: Tokio for general use; async-std for simplicity; smol for
-  lightweight; embassy for embedded
-- Why It Matters: Determines ecosystem access; memory footprint varies
-  10x; prevents painful switching
-- Use Cases: Tokio for servers, async-std for learning, smol for
-  single-threaded, embassy for embedded
-
-Future Composition
-
-- Problem: Nested .await creates callback hell; verbose manual spawning;
-  sequential when parallel possible
-- Solution: Combinators map(), and_then(); join!/try_join! for concurrent;
-  select! for racing
-- Why It Matters: 3x faster with concurrent execution; eliminates callback
-  hell; ? makes errors concise
-- Use Cases: HTTP batching, database composition, microservice
-  orchestration, retry logic, fan-out/fan-in
-
-Stream Processing
-
-- Problem: Standard iterators block; collecting wastes memory; manual
-  polling verbose; backpressure complex
-- Solution: Stream trait with combinators; .buffered(n) for concurrency;
-  automatic backpressure
-- Why It Matters: Process GB files in constant memory; backpressure
-  prevents overwhelming consumers
-- Use Cases: WebSocket messages, sensor aggregation, log streaming,
-  database results, real-time analytics
-
-Async/Await Patterns
-
-- Problem: Manual polling complex; combinator chains unreadable;
-  cancellation unsafe; Send bounds tricky
-- Solution: async fn with .await; spawn_blocking() for blocking;
-  cancellation-safe design
-- Why It Matters: Transforms spaghetti to readable code; Send bounds catch
-  issues at compile time
-- Use Cases: Web servers, database clients, HTTP clients, file I/O,
-  microservices, chat servers
-
-Select and Timeout Patterns
-
-- Problem: Indefinite waits cause hangs; need first-completion handling;
-  no fallback mechanism
-- Solution: select! for racing; timeout() for bounds; interval() for
-  periodic tasks
-- Why It Matters: Prevents resource leaks; enables responsive UIs;
-  critical for production systems
-- Use Cases: HTTP timeouts, idle connections, health checks, graceful
-  shutdown, rate limiting, circuit breakers
-
-Runtime Comparison
-
-- Problem: Wrong runtime impacts performance and ecosystem; mixing causes
-  conflicts; varied overhead
-- Solution: Tokio for general use; async-std for simplicity; smol for
-  lightweight; embassy for embedded
-- Why It Matters: Determines ecosystem access; memory footprint varies
-  10x; prevents painful switching
-- Use Cases: Tokio for servers, async-std for learning, smol for
-  single-threaded, embassy for embedded
-
+- Problem: Wrong runtime impacts performance and ecosystem; mixing causes conflicts; varied overhead
+- Solution: Tokio for general use; async-std for simplicity; smol for lightweight; embassy for embedded
+- Why It Matters: Determines ecosystem access; memory footprint varies 10x; prevents painful switching
+- Use Cases: Tokio for servers, async-std for learning, smol for single-threaded, embassy for embedded
 
 
 This chapter explores asynchronous programming patterns in Rust using async/await and async runtimes. We'll cover future composition, stream processing, concurrency patterns, timeout handling, and runtime comparisons through practical, production-ready examples.
@@ -142,17 +65,11 @@ This chapter explores asynchronous programming patterns in Rust using async/awai
 **Solution**:
 
 ```rust
-//=========================
 // Note: Add to Cargo.toml:
-//=========================
 // tokio = { version = "1.35", features = ["full"] }
-//=================
 // reqwest = "0.11"
-//=================
 // serde = { version = "1.0", features = ["derive"] }
-//===================
 // serde_json = "1.0"
-//===================
 
 use tokio;
 use std::time::Duration;
