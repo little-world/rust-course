@@ -36,10 +36,10 @@
 - Use Cases: HTTP request timeouts, database query timeouts, graceful shutdown, user cancellation, health checks, circuit breakers, deadline propagation
 
 
-[Tokio File IO Foundations](#tokio-file-io-foundations)
+[Tokio File IO Cheat Sheet](#tokio-file-io-cheat-sheet)
 - a long list of useful functions
 
-[Tokio Network IO Foundations](#tokio-network-io-foundations)
+[Tokio Network IO Cheat Sheet](#tokio-network-io-cheat-sheet)
 - a long list of useful functions
 
 ## Overview
@@ -1680,7 +1680,7 @@ This chapter covered async I/O patterns using Tokio:
 - Connection pool without health checks keeps stale connections
 
 
-## Tokio File IO Foundations
+## Tokio File IO Cheat Sheet
 
 ```rust
 // ===== TOKIO FILE I/O =====
@@ -1822,7 +1822,7 @@ loop {
 
 
 ```
-## Tokio Network IO Foundations
+## Tokio Network IO Cheat Sheet
 ```rust
 // ===== TOKIO NETWORK I/O =====
 use tokio::net::{TcpListener, TcpStream, UdpSocket, UnixListener, UnixStream};

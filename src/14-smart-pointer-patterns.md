@@ -42,6 +42,8 @@
 - Use Cases: LRU caches, kernel data structures, high-performance queues,
   embedded systems, memory-constrained systems
 
+[Smart Pointer Cheat Sheet](#smart-pointer-cheat-sheet)
+- some common functions
 
 ## Overview
 This chapter explores smart pointer patterns in Rust, covering heap allocation with Box, reference counting with Rc/Arc, preventing memory leaks with Weak references, implementing custom smart pointers, intrusive data structures, and optimization techniques. We'll cover practical, production-ready examples for managing complex ownership scenarios.
@@ -1961,7 +1963,7 @@ This chapter covered smart pointer patterns in Rust:
 - Weak prevents dangling pointers
 
 
-## Smart Pointer Foundations
+## Smart Pointer Cheat Sheet
 
 ```rust
 // Box<T> - Heap allocation

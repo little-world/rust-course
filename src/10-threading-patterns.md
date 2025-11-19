@@ -56,6 +56,8 @@
 - Use Cases: Phased algorithms, producer-consumer blocking, event
   notification, simulations, testing
 
+[Threading Cheat Sheet](#threading-cheat-sheet)
+- common **threading** functions
 
 ## Overview
 This chapter explores concurrent programming patterns in Rust using threads. We'll cover thread lifecycle management, parallel work distribution, message passing, shared state synchronization, and coordination primitives through practical, production-ready examples.
@@ -2410,7 +2412,7 @@ This chapter covered essential threading patterns in Rust:
 - No deadlocks from forgetting to unlock
 
 
-## Threading Foundations
+## Threading Cheat Sheet
 ```rust
 // Thread creation
 thread::spawn(|| { /* code */ })                    // Spawn new thread, returns JoinHandle

@@ -35,6 +35,8 @@
 - Why It Matters: Determines ecosystem access; memory footprint varies 10x; prevents painful switching
 - Use Cases: Tokio for servers, async-std for learning, smol for single-threaded, embassy for embedded
 
+[Tokio Cheat Sheet](#tokio-cheat-sheet)
+ - common **tokio** functions
 
 # Overview
 This chapter explores asynchronous programming patterns in Rust using async/await and async runtimes. We'll cover future composition, stream processing, concurrency patterns, timeout handling, and runtime comparisons through practical, production-ready examples.
@@ -2158,7 +2160,7 @@ This chapter covered async runtime patterns in Rust:
 - No data races (enforced by type system)
 - Borrow checker prevents use-after-free
 
-## Tokio Foundations
+## Tokio Cheat Sheet
 ```rust
 // Runtime creation
 #[tokio::main]

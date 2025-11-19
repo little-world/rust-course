@@ -55,6 +55,8 @@
 - Use Cases: Coordinates, statistics, sensor data, game state, network
   metrics, configuration
 
+[Atomic Cheat Sheet](#atomic-cheat-sheet)
+  - common **atomic** functions
 
 ## Overview
 
@@ -2582,7 +2584,7 @@ This chapter covered atomic operations and lock-free programming:
 - Raw pointers in lock-free structures require unsafe
 - Use existing libraries (crossbeam) when possible
 
-## Atomic Foundation
+## Atomic Cheat Sheet
 ```rust
 // Atomic types
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};

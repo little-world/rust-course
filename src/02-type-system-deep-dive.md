@@ -48,6 +48,9 @@
 - Use Cases: Iterators (associated), conversions (generic), mixed
   approaches
 
+[Type System Cheat Sheet](#type-system-cheat-sheets)
+- list of **types** 
+
 ## Overview
 
 Rust's type system is one of the most sophisticated in any mainstream programming language. It combines the expressiveness of ML-family languages with zero-cost abstractions, enabling you to encode invariants at the type level that would otherwise require runtime checks or extensive documentation.
@@ -1388,3 +1391,407 @@ struct SimpleCounter { count: usize }
 8. **Type system is your friend**: Move validation to compile time
 
 Rust's type system enables you to encode invariants that would be runtime checks (or bugs) in other languages. The patterns in this chapter show how to leverage the type system to write code that's simultaneously safer and faster than traditional approaches.
+
+## Type System Cheat Sheets
+```rust
+// ===== PRIMITIVE TYPES =====
+// Signed integers
+let x: i8 = 127;                                    // -128 to 127
+let x: i16 = 32_767;                                // -32,768 to 32,767
+let x: i32 = 2_147_483_647;                         // -2^31 to 2^31-1 (default int)
+let x: i64 = 9_223_372_036_854_775_807;             // -2^63 to 2^63-1
+let x: i128 = 170_141_183_460_469_231_731;          // -2^127 to 2^127-1
+let x: isize = 100;                                 // Pointer-sized (32 or 64 bit)
+
+// Unsigned integers
+let x: u8 = 255;                                    // 0 to 255
+let x: u16 = 65_535;                                // 0 to 65,535
+let x: u32 = 4_294_967_295;                         // 0 to 2^32-1
+let x: u64 = 18_446_744_073_709_551_615;            // 0 to 2^64-1
+let x: u128 = 340_282_366_920_938_463_463;          // 0 to 2^128-1
+let x: usize = 100;                                 // Pointer-sized (32 or 64 bit)
+
+// Floating point
+let x: f32 = 3.14;                                  // 32-bit float
+let x: f64 = 3.14159265359;                         // 64-bit float (default float)
+
+// Boolean
+let x: bool = true;                                 // true or false
+
+// Character
+let x: char = 'a';                                  // Unicode scalar value (4 bytes)
+
+// Unit type
+let x: () = ();                                     // Empty tuple, zero-sized
+
+// Never type
+fn diverges() -> ! {                                // Never returns
+    panic!("This function never returns");
+}
+
+// ===== COMPOUND TYPES =====
+// Tuples
+let tuple: (i32, f64, char) = (42, 3.14, 'x');
+let (x, y, z) = tuple;                              // Destructuring
+let first = tuple.0;                                // Access by index
+let unit: () = ();                                  // Unit/empty tuple
+
+// Arrays (fixed size)
+let arr: [i32; 5] = [1, 2, 3, 4, 5];               // Fixed length array
+let arr: [i32; 3] = [0; 3];                        // [0, 0, 0]
+let first = arr[0];                                 // Index access
+let slice = &arr[1..3];                            // Slice: &[i32]
+
+// Slices (dynamically sized view)
+let s: &[i32] = &[1, 2, 3, 4];                     // Immutable slice
+let s: &mut [i32] = &mut [1, 2, 3];                // Mutable slice
+s.len()                                             // Length
+s[0]                                                // Index access
+
+// Strings
+let s: &str = "hello";                             // String slice (immutable)
+let s: String = String::from("hello");             // Owned string
+let s: &String = &String::from("hello");           // Reference to String
+let bytes: &[u8] = b"hello";                       // Byte string slice
+
+// ===== REFERENCE TYPES =====
+// References
+let x = 5;
+let r: &i32 = &x;                                  // Immutable reference
+let r: &mut i32 = &mut x;                          // Mutable reference
+*r = 10;                                           // Dereference to modify
+
+// Raw pointers
+let x = 5;
+let r: *const i32 = &x as *const i32;              // Const raw pointer
+let r: *mut i32 = &mut x as *mut i32;              // Mutable raw pointer
+unsafe { *r }                                       // Dereference (unsafe)
+
+// ===== STRUCT TYPES =====
+// Named struct
+struct Point {
+    x: i32,
+    y: i32,
+}
+let p = Point { x: 10, y: 20 };
+let x = p.x;
+
+// Tuple struct
+struct Color(u8, u8, u8);
+let color = Color(255, 0, 0);
+let red = color.0;
+
+// Unit struct (zero-sized)
+struct Marker;
+let m = Marker;
+
+// Generic struct
+struct Container<T> {
+    value: T,
+}
+let c = Container { value: 42 };
+
+// Struct with lifetime
+struct Borrowed<'a> {
+    data: &'a str,
+}
+
+// Struct with multiple generics
+struct Pair<T, U> {
+    first: T,
+    second: U,
+}
+
+// ===== ENUM TYPES =====
+// Simple enum
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+let dir = Direction::North;
+
+// Enum with data
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(u8, u8, u8),
+}
+let msg = Message::Write(String::from("hello"));
+
+// Generic enum
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// Enum with methods
+impl Direction {
+    fn is_horizontal(&self) -> bool {
+        matches!(self, Direction::East | Direction::West)
+    }
+}
+
+// ===== TYPE ALIASES =====
+type Kilometers = i32;                              // Type alias
+type Result<T> = std::result::Result<T, std::io::Error>; // Alias with generics
+type Thunk = Box<dyn Fn() + Send + 'static>;       // Complex type alias
+
+// ===== FUNCTION TYPES =====
+// Function pointers
+fn add(x: i32, y: i32) -> i32 { x + y }
+let f: fn(i32, i32) -> i32 = add;                  // Function pointer type
+f(1, 2);
+
+// Function that takes function pointer
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    f(x)
+}
+
+// ===== CLOSURE TYPES =====
+// Closures have unique anonymous types
+let closure = |x: i32| x + 1;                      // Type inferred
+let closure: Box<dyn Fn(i32) -> i32> = Box::new(|x| x + 1); // Trait object
+
+// Closure traits
+Fn(Args) -> Output                                  // Immutable borrow
+FnMut(Args) -> Output                              // Mutable borrow
+FnOnce(Args) -> Output                             // Takes ownership
+
+// ===== TRAIT OBJECTS =====
+// Dynamic dispatch
+trait Animal {
+    fn speak(&self);
+}
+
+let dog: Box<dyn Animal> = Box::new(Dog);          // Trait object (heap)
+let cat: &dyn Animal = &Cat;                       // Trait object (stack)
+let animals: Vec<Box<dyn Animal>> = vec![          // Collection of trait objects
+    Box::new(Dog),
+    Box::new(Cat),
+];
+
+// Trait object with lifetime
+let obj: &'a dyn Trait = &value;
+
+// Trait object with Send + Sync
+let obj: Box<dyn Trait + Send + Sync> = Box::new(value);
+
+// ===== GENERIC TYPES =====
+// Generic function
+fn largest<T: PartialOrd>(list: &[T]) -> &T {
+    // implementation
+}
+
+// Multiple generic parameters
+fn mix<T, U>(t: T, u: U) -> (T, U) {
+    (t, u)
+}
+
+// Generic with trait bounds
+fn print<T: Display>(value: T) {
+    println!("{}", value);
+}
+
+// Multiple trait bounds
+fn process<T: Clone + Debug>(value: T) { }
+fn process<T>(value: T) where T: Clone + Debug { } // Where clause
+
+// ===== ASSOCIATED TYPES =====
+trait Iterator {
+    type Item;                                      // Associated type
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+impl Iterator for Counter {
+    type Item = u32;
+    fn next(&mut self) -> Option<Self::Item> {
+        // implementation
+    }
+}
+
+// ===== LIFETIME ANNOTATIONS =====
+// Explicit lifetimes
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() { x } else { y }
+}
+
+// Multiple lifetimes
+fn first<'a, 'b>(x: &'a str, y: &'b str) -> &'a str {
+    x
+}
+
+// Lifetime in struct
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+// Static lifetime
+let s: &'static str = "I have a static lifetime";
+
+// Lifetime bounds
+fn reference<'a, T>(value: &'a T) -> &'a T 
+where
+    T: 'a,
+{
+    value
+}
+
+// ===== PHANTOM TYPES =====
+use std::marker::PhantomData;
+
+struct PhantomTuple<A, B>(A, PhantomData<B>);      // B is phantom
+struct PhantomStruct<A, B> {
+    first: A,
+    phantom: PhantomData<B>,
+}
+
+// ===== MARKER TRAITS =====
+// Copy - bitwise copyable
+#[derive(Copy, Clone)]
+struct Point { x: i32, y: i32 }
+
+// Send - safe to send between threads
+// Sync - safe to share between threads
+// Sized - has known size at compile time
+// Unpin - can be moved after pinning
+
+fn send_trait<T: Send>(value: T) { }
+fn sync_trait<T: Sync>(value: &T) { }
+fn sized_trait<T: Sized>(value: T) { }
+fn maybe_sized_trait<T: ?Sized>(value: &T) { }    // May not be sized
+
+// ===== CONST GENERICS =====
+// Array with const generic length
+struct ArrayWrapper<T, const N: usize> {
+    array: [T; N],
+}
+
+fn print_array<T: Debug, const N: usize>(arr: [T; N]) {
+    println!("{:?}", arr);
+}
+
+// ===== TYPE BOUNDS =====
+// Trait bound
+fn notify<T: Display>(item: T) { }
+
+// Multiple bounds
+fn compare<T: PartialOrd + Copy>(a: T, b: T) -> bool {
+    a > b
+}
+
+// Where clause
+fn complex<T, U>(t: T, u: U) -> i32
+where
+    T: Display + Clone,
+    U: Clone + Debug,
+{
+    // implementation
+}
+
+// Lifetime bound
+fn print_ref<'a, T>(value: &'a T)
+where
+    T: Display + 'a,
+{
+    println!("{}", value);
+}
+
+// ===== NEWTYPE PATTERN =====
+struct Meters(u32);                                 // Newtype
+struct Millimeters(u32);
+
+// ===== UNSIZED TYPES (DST) =====
+// Dynamically sized types
+let s: &str = "hello";                             // str is unsized
+let slice: &[i32] = &[1, 2, 3];                    // [i32] is unsized
+let trait_obj: &dyn Trait = &value;                // dyn Trait is unsized
+
+// Sized trait bound (implicit for most generics)
+fn generic<T: Sized>(t: T) { }                     // T must be sized
+fn maybe_unsized<T: ?Sized>(t: &T) { }            // T may be unsized
+
+// ===== TYPE INFERENCE =====
+let x = 5;                                          // i32 inferred
+let x: i32 = 5;                                    // Explicit type
+let x = 5_i32;                                     // Type suffix
+let v = vec![1, 2, 3];                             // Vec<i32> inferred
+
+// Turbofish syntax
+let v = Vec::<i32>::new();                         // Explicit type parameter
+let n = "42".parse::<i32>().unwrap();              // Turbofish with parse
+
+// ===== IMPL TRAIT =====
+// Return impl trait
+fn returns_closure() -> impl Fn(i32) -> i32 {
+    |x| x + 1
+}
+
+// Argument impl trait
+fn takes_printable(item: impl Display) {
+    println!("{}", item);
+}
+
+// ===== TYPE COERCION =====
+// Deref coercion
+let s = String::from("hello");
+let s_ref: &str = &s;                              // String -> &str
+
+// Pointer coercion
+let x = 5;
+let r: &i32 = &x;
+let r: *const i32 = &x;                            // &i32 -> *const i32
+
+// Unsized coercion
+let arr = [1, 2, 3, 4, 5];
+let slice: &[i32] = &arr;                          // [i32; 5] -> &[i32]
+
+// ===== SMART POINTER TYPES =====
+Box<T>                                              // Heap allocation
+Rc<T>                                               // Reference counted
+Arc<T>                                              // Atomic reference counted
+Cell<T>                                             // Interior mutability (Copy)
+RefCell<T>                                          // Interior mutability (runtime checks)
+Mutex<T>                                            // Thread-safe interior mutability
+RwLock<T>                                           // Reader-writer lock
+Cow<'a, B>                                         // Clone-on-write
+Pin<P>                                              // Prevent moving
+
+// ===== ZERO-SIZED TYPES =====
+struct ZeroSized;                                   // Unit struct
+let _: () = ();                                     // Unit type
+struct Phantom<T>(PhantomData<T>);                 // PhantomData
+
+// ===== TYPE SYSTEM PATTERNS =====
+// Typestate pattern
+struct Locked;
+struct Unlocked;
+struct Door<State> {
+    state: PhantomData<State>,
+}
+
+impl Door<Locked> {
+    fn unlock(self) -> Door<Unlocked> { /* ... */ }
+}
+
+impl Door<Unlocked> {
+    fn lock(self) -> Door<Locked> { /* ... */ }
+}
+
+// Builder pattern with types
+struct BuilderEmpty;
+struct BuilderWithName { name: String }
+
+// Sealed trait pattern
+mod sealed {
+    pub trait Sealed {}
+}
+pub trait MyTrait: sealed::Sealed {}
+```

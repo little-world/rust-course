@@ -36,8 +36,8 @@
 - Use Cases: Large file processing (GB logs, DB dumps), streaming APIs (server-sent events), incremental parsing, log aggregation, ETL pipelines
 
 
-[Serde Foundations](#serde-foundations)
- - a long list of useful serde functions
+[Serde Cheat Sheet](#serde-cheat-sheet)
+ - common **serde** functions
 
 # Overview
 This chapter covers serialization patterns using serde—converting Rust types to/from JSON, binary formats, config files. Serde provides zero-cost abstraction: types separated from formats, derive macros generate optimal code, switch formats by changing one line.
@@ -1824,7 +1824,7 @@ This chapter covered serialization patterns using serde:
 - Not versioning schemas → breaking changes painful
 - Choosing wrong format (JSON for everything) → performance problems
 
-## Serde Foundations
+## Serde Cheat Sheet
 
 ```rust
 use serde::{Serialize, Deserialize, Serializer, Deserializer};

@@ -55,6 +55,9 @@
 - Use Cases: Matrix operations, image convolution, dot products, scientific
   computing, signal processing
 
+[Rayon Cheat Sheet](#rayon-cheat-sheet)
+  - common **rayon** functions
+
 
 # Overview 
 This chapter explores parallel algorithm patterns using Rust's ecosystem, focusing on data parallelism with Rayon, work partitioning strategies, parallel reduction patterns, pipeline parallelism, and SIMD vectorization. We'll cover practical, production-ready examples for maximizing CPU utilization.
@@ -1970,7 +1973,7 @@ This chapter covered parallel algorithm patterns in Rust:
 - Not profiling actual performance
 
 
-## Rayon Foundations
+## Rayon Cheat Sheet
 ```rust
 // Basic parallel iterators
 use rayon::prelude::*;

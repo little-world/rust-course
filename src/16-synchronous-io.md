@@ -43,10 +43,10 @@
 - Why It Matters: Integration with system tools; pipelines compose programs; proper stream handling prevents deadlocks
 - Use Cases: Build scripts (run compilers), testing (run programs), automation, Unix pipelines, subprocess orchestration
 
-[File IO Foundations](#file-io-foundations)   
+[File IO Cheat Sheet](#file-io-cheat-sheet)   
 - A long list of useful functions  
 
-[Command Foundations](#command-foundations)    
+[Command Cheat Sheet](#command-cheat-sheet)    
 - A long list of useful functions
 
 # Overview
@@ -1012,7 +1012,7 @@ This chapter covered synchronous I/O patterns:
 - Mmap: O(1) random access vs O(N) seek+read
 - Directory walk: O(N) with proper caching
 
-## File IO Foundations
+## File IO Cheat Sheet
 ```rust
 use std::fs;
 use std::io::{self, Read, Write, BufRead, BufReader, BufWriter, Seek, SeekFrom};
@@ -1268,7 +1268,7 @@ file.write_all(&42u32.to_le_bytes())?;             // Write little-endian u32
 ```
 
 
-## Command Foundations
+## Command Cheat Sheet
 
 ```rust
 use std::process::{Command, Stdio, Child, ExitStatus, Output};
