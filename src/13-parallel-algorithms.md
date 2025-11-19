@@ -1,6 +1,6 @@
 # Parallel Algorithms
 
-Rayon Parallel Iterators
+[Rayon Parallel Iterators](#pattern-1-rayon-patterns)
 
 - Problem: Sequential operations waste multi-core CPU; manual threading is
   complex and error-prone
@@ -11,7 +11,7 @@ Rayon Parallel Iterators
 - Use Cases: Image processing, data validation, log parsing, batch
   transformations, map-reduce operations
 
-Work Partitioning Strategies
+[Work Partitioning Strategies](#pattern-2-work-partitioning-strategies)
 
 - Problem: Poor partitioning causes load imbalance (idle cores) or excessive
   overhead (tiny tasks)
@@ -22,7 +22,7 @@ Work Partitioning Strategies
 - Use Cases: Matrix operations, sorting algorithms, irregular workloads,
   divide-and-conquer, cache-friendly computation
 
-Parallel Reduce and Fold
+[Parallel Reduce and Fold](#pattern-3-parallel-reduce-and-fold)
 
 - Problem: Aggregating parallel results requires associative operations; custom
   accumulators are complex
@@ -33,7 +33,7 @@ Parallel Reduce and Fold
 - Use Cases: Statistics computation, histograms, word counting, aggregations,
   variance calculation, merging results
 
-Pipeline Parallelism
+[Pipeline Parallelism](#pattern-4-pipeline-parallelism)
 
 - Problem: Multi-stage processing bottlenecked by slowest stage; poor CPU
   utilization in pipelines
@@ -44,7 +44,7 @@ Pipeline Parallelism
 - Use Cases: ETL pipelines, image/video processing, log analysis, data
   transformation chains, streaming data
 
-SIMD Vectorization
+[SIMD Vectorization](#pattern-5-simd-parallelism)
 
 - Problem: Single-core performance limited; scalar operations waste CPU vector
   units (4-8x throughput)
@@ -56,19 +56,12 @@ SIMD Vectorization
   computing, signal processing
 
 
+# Overview 
 This chapter explores parallel algorithm patterns using Rust's ecosystem, focusing on data parallelism with Rayon, work partitioning strategies, parallel reduction patterns, pipeline parallelism, and SIMD vectorization. We'll cover practical, production-ready examples for maximizing CPU utilization.
 
-## Table of Contents
 
-1. [Rayon Patterns](#rayon-patterns)
-2. [Work Partitioning Strategies](#work-partitioning-strategies)
-3. [Parallel Reduce and Fold](#parallel-reduce-and-fold)
-4. [Pipeline Parallelism](#pipeline-parallelism)
-5. [SIMD Parallelism](#simd-parallelism)
 
----
-
-## Rayon Patterns
+## Pattern 1: Rayon Patterns
 
 **Problem**: Sequential code wastes modern multi-core CPUs—a 4-core CPU runs sequential code at 25% utilization. Manual threading with std::thread is complex: need to partition data, spawn threads, collect results, handle errors, avoid data races. Locks introduce contention and deadlocks. Thread pools require careful management. Want parallelism without the pain.
 
@@ -78,13 +71,10 @@ This chapter explores parallel algorithm patterns using Rust's ecosystem, focusi
 
 **Use Cases**: Image processing (grayscale, filters, resizing), data validation (emails, phone numbers, formats), log parsing and analysis, batch data transformations, scientific computing, map-reduce operations, any embarrassingly parallel workload.
 
-Rayon provides data parallelism through work-stealing and parallel iterators, making it easy to parallelize sequential code.
 
-### Pattern 1: Parallel Iterator Basics
+### Example: Parallel Iterator Basics
 
-**Problem**: Convert sequential operations to parallel execution with minimal code changes.
-
-**Solution**:
+Convert sequential operations to parallel execution with minimal code changes.
 
 ```rust
 //=========================
@@ -293,11 +283,9 @@ fn main() {
 
 ---
 
-### Pattern 2: par_bridge for Dynamic Sources
+### Example: par_bridge for Dynamic Sources
 
-**Problem**: Parallelize iterators that don't implement `ParallelIterator` directly, or process items as they arrive.
-
-**Solution**:
+Parallelize iterators that don't implement `ParallelIterator` directly, or process items as they arrive.
 
 ```rust
 use rayon::prelude::*;
@@ -474,7 +462,7 @@ fn main() {
 
 ---
 
-## Work Partitioning Strategies
+## Pattern 2: Work Partitioning Strategies
 
 **Problem**: Bad work partitioning kills parallel performance. Too-small chunks (100 items) cause overhead—thread spawn/join costs dominate. Too-large chunks (100K items) cause load imbalance—one thread still working while others idle. Static partitioning fails with irregular workloads. Cache misses destroy performance when data access isn't local.
 
@@ -484,13 +472,10 @@ fn main() {
 
 **Use Cases**: Matrix operations (multiply, transpose, factorization), sorting algorithms (quicksort, mergesort), divide-and-conquer (tree traversal, expression evaluation), irregular workloads (graph algorithms), cache-sensitive operations (blocked algorithms).
 
-Effective work partitioning is crucial for parallel performance. Different strategies suit different workloads.
 
-### Pattern 3: Chunking and Load Balancing
+### Example: Chunking and Load Balancing
 
-**Problem**: Partition work efficiently across threads to minimize overhead and maximize CPU utilization.
-
-**Solution**:
+Partition work efficiently across threads to minimize overhead and maximize CPU utilization.
 
 ```rust
 use rayon::prelude::*;
@@ -723,11 +708,9 @@ fn main() {
 
 ---
 
-### Pattern 4: Recursive Parallelism
+### Example: Recursive Parallelism
 
-**Problem**: Parallelize divide-and-conquer algorithms efficiently.
-
-**Solution**:
+ Parallelize divide-and-conquer algorithms efficiently.
 
 ```rust
 use rayon::prelude::*;
@@ -951,7 +934,7 @@ fn main() {
 
 ---
 
-## Parallel Reduce and Fold
+## Pattern 3: Parallel Reduce and Fold
 
 **Problem**: Aggregating results from parallel operations is non-trivial. Simple sum/min/max work, but custom aggregations (histograms, statistics, merging maps) require careful design. Must use associative operations for correctness. Non-associative ops give wrong results. Need to combine per-thread accumulators efficiently. Performance suffers with poor reduce strategy.
 
@@ -961,13 +944,9 @@ fn main() {
 
 **Use Cases**: Statistics computation (mean, variance, stddev), histograms and frequency counting, word counting in text processing, aggregating results from parallel operations, merging sorted chunks, custom accumulators (sets, maps).
 
-Reduction operations aggregate parallel results into a single value.
+### Example: Parallel Reduction Patterns
 
-### Pattern 5: Parallel Reduction Patterns
-
-**Problem**: Efficiently combine results from parallel operations.
-
-**Solution**:
+Efficiently combine results from parallel operations.
 
 ```rust
 use rayon::prelude::*;
@@ -1232,7 +1211,7 @@ fn main() {
 
 ---
 
-## Pipeline Parallelism
+## Pattern 4: Pipeline Parallelism
 
 **Problem**: Multi-stage data processing often bottlenecks on slowest stage. Sequential pipeline wastes CPU—decode thread idle while enhance runs. Poor stage balance causes bubbles. Backpressure issues with unbounded buffers causing OOM. Different stages have different computational costs (decode: 10ms, enhance: 50ms, compress: 20ms)—need different parallelism levels.
 
@@ -1242,13 +1221,10 @@ fn main() {
 
 **Use Cases**: ETL (Extract-Transform-Load) data pipelines, image/video processing (decode→enhance→compress), log analysis (parse→enrich→filter→aggregate), data transformation chains, streaming data processing, multi-stage batch jobs.
 
-Pipeline parallelism processes data through multiple stages concurrently.
 
-### Pattern 6: Multi-Stage Pipelines
+### Example: Multi-Stage Pipelines
 
-**Problem**: Process data through multiple transformation stages with different computational costs.
-
-**Solution**:
+Process data through multiple transformation stages with different computational costs.:
 
 ```rust
 use rayon::prelude::*;
@@ -1496,7 +1472,7 @@ fn main() {
 
 ---
 
-## SIMD Parallelism
+## Pattern 5: SIMD Parallelism
 
 **Problem**: CPU vector units (AVX2: 8 floats, AVX-512: 16 floats) sit idle with scalar code. Data-level parallelism untapped—process 1 element when hardware can do 8. Memory bandwidth wasted without vectorization. Auto-vectorization fails with complex code (branches, scattered access). Combining threading and SIMD requires careful data layout.
 
@@ -1506,27 +1482,17 @@ fn main() {
 
 **Use Cases**: Matrix operations (multiply, transpose, dot product), image processing (convolution, filters), signal processing (FFT, filters), scientific computing (numerical methods), vector arithmetic, statistical computations.
 
-SIMD (Single Instruction Multiple Data) enables data-level parallelism within a single core.
 
-### Pattern 7: Portable SIMD with std::simd
+### Example: Portable SIMD with std::simd
 
-**Problem**: Vectorize operations across array elements for maximum throughput.
-
-**Solution**:
+Vectorize operations across array elements for maximum throughput.
 
 ```rust
-//============================
 // Note: Requires nightly Rust
-//============================
 // Add to Cargo.toml:
-//===============
 // [dependencies]
-//===============
 // packed_simd = "0.3"
-
-//====================================================
 // For stable Rust, we'll use a portable SIMD approach
-//====================================================
 
 //=====================================
 // Pattern 1: Manual SIMD-friendly code
@@ -1774,11 +1740,9 @@ fn main() {
 
 ---
 
-### Pattern 8: Auto-Vectorization and Hints
+### Example: Auto-Vectorization and Hints
 
-**Problem**: Help the compiler generate SIMD code effectively.
-
-**Solution**:
+Help the compiler generate SIMD code effectively.
 
 ```rust
 //=================================================
@@ -2004,3 +1968,112 @@ This chapter covered parallel algorithm patterns in Rust:
 - Sequential bottlenecks (Amdahl's law)
 - Ignoring memory bandwidth limits
 - Not profiling actual performance
+
+
+## Rayon Foundations
+```rust
+// Basic parallel iterators
+use rayon::prelude::*;
+
+// Parallel iteration
+vec.par_iter()                                       // Parallel immutable iterator
+vec.par_iter_mut()                                   // Parallel mutable iterator
+vec.into_par_iter()                                  // Parallel consuming iterator
+(0..n).into_par_iter()                              // Parallel range iterator
+
+// Map operations
+vec.par_iter().map(|x| x * 2).collect()             // Parallel map
+vec.par_iter_mut().for_each(|x| *x *= 2)           // Parallel mutation
+vec.par_iter().map_with(init, |state, x| work)     // Map with thread-local state
+vec.par_iter().map_init(|| init, |state, x| work)  // Map with lazy init state
+
+// Filter operations
+vec.par_iter().filter(|x| condition).collect()      // Parallel filter
+vec.par_iter().filter_map(|x| option).collect()     // Filter and map
+
+// Reduce operations
+vec.par_iter().sum::<i32>()                         // Parallel sum
+vec.par_iter().product::<i32>()                     // Parallel product
+vec.par_iter().min()                                 // Parallel min
+vec.par_iter().max()                                 // Parallel max
+vec.par_iter().reduce(|| init, |a, b| combine)      // Custom reduce
+vec.par_iter().reduce_with(|a, b| combine)          // Reduce without identity
+
+// Fold operations
+vec.par_iter().fold(|| init, |acc, x| update)       // Parallel fold with init
+    .reduce(|| init, |a, b| combine)                 // Combine fold results
+vec.par_iter().fold_with(init, |acc, x| update)     // Fold with cloned init
+
+// Find operations
+vec.par_iter().find_any(|x| condition)              // Find any matching (non-deterministic)
+vec.par_iter().find_first(|x| condition)            // Find first matching (deterministic)
+vec.par_iter().find_last(|x| condition)             // Find last matching
+vec.par_iter().position_any(|x| condition)          // Find position of any match
+vec.par_iter().position_first(|x| condition)        // Find position of first match
+
+// Boolean operations
+vec.par_iter().all(|x| condition)                   // Check if all match
+vec.par_iter().any(|x| condition)                   // Check if any match
+
+// Count operations
+vec.par_iter().count()                               // Count elements
+vec.par_iter().filter(|x| cond).count()             // Count matching
+
+// Collect operations
+vec.par_iter().collect::<Vec<_>>()                  // Collect into Vec
+vec.par_iter().collect::<HashSet<_>>()              // Collect into HashSet
+vec.par_iter().unzip::<_, _, Vec<_>, Vec<_>>()      // Unzip into two collections
+
+// Partition operations
+vec.par_iter().partition::<Vec<_>, _>(|x| cond)     // Partition into two Vecs
+vec.par_iter().partition_map(|x| either)            // Partition with mapping
+
+// Chunking
+vec.par_chunks(size)                                 // Parallel iteration over chunks
+vec.par_chunks_mut(size)                            // Parallel mutable chunks
+vec.par_windows(size)                               // Parallel sliding windows
+
+// Sorting
+vec.par_sort()                                       // Parallel sort (unstable)
+vec.par_sort_unstable()                             // Parallel unstable sort
+vec.par_sort_by(|a, b| a.cmp(b))                    // Sort with comparator
+vec.par_sort_by_key(|x| x.field)                    // Sort by key function
+
+// Split operations
+vec.par_split(|x| condition)                        // Split by predicate
+vec.par_split_mut(|x| condition)                    // Split mutably
+
+// Enumerate
+vec.par_iter().enumerate()                          // Parallel enumerate (index, item)
+
+// Zip
+vec1.par_iter().zip(vec2.par_iter())               // Parallel zip
+
+// Chain
+iter1.par_chain(iter2)                              // Chain two parallel iterators
+
+// Flat map
+vec.par_iter().flat_map(|x| inner_iter)            // Parallel flat map
+vec.par_iter().flat_map_iter(|x| sequential_iter)  // Flat map with sequential inner
+
+// Interleave
+iter1.par_interleave(iter2)                         // Interleave two iterators
+
+// Take/skip
+vec.par_iter().take_any(n)                          // Take n elements (non-deterministic)
+vec.par_iter().skip_any(n)                          // Skip n elements (non-deterministic)
+
+// Update
+vec.par_iter().update(|x| *x *= 2)                 // Update in place
+
+// Inspect
+vec.par_iter().inspect(|x| println!("{}", x))      // Inspect elements
+
+// Cloned/copied
+vec.par_iter().cloned()                             // Clone elements
+vec.par_iter().copied()                             // Copy elements
+
+// While operations
+vec.par_iter().take_any_while(|x| cond)            // Take while condition
+vec.par_iter().skip_any_while(|x| cond)            // Skip while condition
+```

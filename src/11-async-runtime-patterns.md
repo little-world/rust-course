@@ -1,34 +1,34 @@
 # Async Runtime Patterns
 
-Future Composition
+[Future Composition](#future-composition)
 
 - Problem: Nested .await creates callback hell; verbose manual spawning; sequential when parallel possible
 - Solution: Combinators map(), and_then(); join!/try_join! for concurrent; select! for racing
 - Why It Matters: 3x faster with concurrent execution; eliminates callback hell; ? makes errors concise
 - Use Cases: HTTP batching, database composition, microservice orchestration, retry logic, fan-out/fan-in
 
-Stream Processing
+[Stream Processing](#stream-processing)
 
 - Problem: Standard iterators block; collecting wastes memory; manual polling verbose; backpressure complex
 - Solution: Stream trait with combinators; .buffered(n) for concurrency; automatic backpressure
 - Why It Matters: Process GB files in constant memory; backpressure prevents overwhelming consumers
 - Use Cases: WebSocket messages, sensor aggregation, log streaming, database results, real-time analytics
 
-Async/Await Patterns
+[Async/Await Patterns](#async-await-patterns)
 
 - Problem: Manual polling complex; combinator chains unreadable; cancellation unsafe; Send bounds tricky
 - Solution: async fn with .await; spawn_blocking() for blocking; cancellation-safe design
 - Why It Matters: Transforms spaghetti to readable code; Send bounds catch issues at compile time
 - Use Cases: Web servers, database clients, HTTP clients, file I/O, microservices, chat servers
 
-Select and Timeout Patterns
+[Select and Timeout Patterns](#select-and-timeout-patterns)
 
 - Problem: Indefinite waits cause hangs; need first-completion handling; no fallback mechanism
 - Solution: select! for racing; timeout() for bounds; interval() for periodic tasks
 - Why It Matters: Prevents resource leaks; enables responsive UIs; critical for production systems
 - Use Cases: HTTP timeouts, idle connections, health checks, graceful shutdown, rate limiting, circuit breakers
 
-Runtime Comparison
+[Runtime Comparison](#runtime-comparison)
 
 - Problem: Wrong runtime impacts performance and ecosystem; mixing causes conflicts; varied overhead
 - Solution: Tokio for general use; async-std for simplicity; smol for lightweight; embassy for embedded
@@ -36,19 +36,12 @@ Runtime Comparison
 - Use Cases: Tokio for servers, async-std for learning, smol for single-threaded, embassy for embedded
 
 
+# Overview
 This chapter explores asynchronous programming patterns in Rust using async/await and async runtimes. We'll cover future composition, stream processing, concurrency patterns, timeout handling, and runtime comparisons through practical, production-ready examples.
 
-## Table of Contents
 
-1. [Future Composition](#future-composition)
-2. [Stream Processing](#stream-processing)
-3. [Async/Await Patterns](#asyncawait-patterns)
-4. [Select and Timeout Patterns](#select-and-timeout-patterns)
-5. [Runtime Comparison](#runtime-comparison)
 
----
-
-## Future Composition
+## Pattern 1: Future Composition
 
 **Problem**: Chaining async operations with nested `.await` calls creates deeply nested code (callback hell). Running multiple async operations concurrently with manual spawning is verbose. Error handling across async boundaries requires repetitive `match` statements. Sequential operations when some could run in parallel wastes time. Transforming future results requires awkward combinator chains or intermediate variables.
 
@@ -58,11 +51,9 @@ This chapter explores asynchronous programming patterns in Rust using async/awai
 
 **Use Cases**: HTTP request batching (parallel API calls), database query composition (dependent queries), microservice orchestration, retry logic with fallbacks, concurrent file operations, fan-out/fan-in patterns.
 
-### Pattern 1: Future Combinators and Error Handling
+### Example: Future Combinators and Error Handling
 
-**Problem**: Compose multiple async operations, handle errors gracefully, and transform results without nested callbacks.
-
-**Solution**:
+Compose multiple async operations, handle errors gracefully, and transform results without nested callbacks.
 
 ```rust
 // Note: Add to Cargo.toml:
@@ -224,11 +215,9 @@ async fn main() {
 
 ---
 
-### Pattern 2: Concurrent Future Execution
+### Example: Concurrent Future Execution
 
-**Problem**: Execute multiple independent futures concurrently to improve throughput.
-
-**Solution**:
+Execute multiple independent futures concurrently to improve throughput.
 
 ```rust
 use tokio;
@@ -386,7 +375,7 @@ async fn main() {
 
 ---
 
-## Stream Processing
+## Pattern 2: Stream Processing
 
 **Problem**: Processing infinite or unbounded sequences (websocket messages, sensor data, log streams) with standard iterators blocks thread. Collecting entire stream into Vec before processing wastes memory for large datasets. Manual polling with `while let` and channels is verbose. Backpressure (slowing producer when consumer lags) needs careful implementation. Chaining transformations on async sequences requires custom boilerplate.
 
@@ -396,11 +385,9 @@ async fn main() {
 
 **Use Cases**: WebSocket message processing, sensor data aggregation, log file streaming, database query result streaming, event sourcing, pub-sub systems, real-time analytics, infinite data sources.
 
-### Pattern 3: Stream Combinators
+### Example: Stream Combinators
 
-**Problem**: Process async sequences of data with transformations, filtering, and aggregation.
-
-**Solution**:
+ Process async sequences of data with transformations, filtering, and aggregation.
 
 ```rust
 use tokio;
@@ -572,11 +559,9 @@ async fn main() {
 
 ---
 
-### Pattern 4: Stream from Async Generators
+### Example: Stream from Async Generators
 
-**Problem**: Create custom async streams from various sources like WebSockets, file watching, or event sources.
-
-**Solution**:
+Create custom async streams from various sources like WebSockets, file watching, or event sources.
 
 ```rust
 use tokio;
@@ -780,7 +765,7 @@ async fn main() {
 
 ---
 
-## Async/Await Patterns
+## Pattern 3: Async/Await Patterns
 
 **Problem**: Manual future polling with `.poll()` is complex and error-prone. Combinator chains (`.and_then().map()`) become unreadable for complex logic. Async closures aren't stabilized, limiting functional patterns. Cancellation safety—dropped futures may leave resources in inconsistent state. Mixing sync and async code requires careful runtime management. Send bounds cause lifetime issues with spawned tasks.
 
@@ -790,11 +775,9 @@ async fn main() {
 
 **Use Cases**: Web servers (async request handlers), database clients (async queries), HTTP clients (async requests), file I/O (async read/write), microservices (async RPC), chat servers, real-time systems.
 
-### Pattern 5: Task Spawning and Structured Concurrency
+### Example: Task Spawning and Structured Concurrency
 
-**Problem**: Spawn concurrent tasks, manage their lifecycle, and coordinate their completion.
-
-**Solution**:
+Spawn concurrent tasks, manage their lifecycle, and coordinate their completion.
 
 ```rust
 use tokio;
@@ -1010,11 +993,9 @@ async fn main() {
 
 ---
 
-### Pattern 6: Error Handling and Recovery
+### Example: Error Handling and Recovery
 
-**Problem**: Handle errors in async code, implement retry logic, and provide fallback mechanisms.
-
-**Solution**:
+Handle errors in async code, implement retry logic, and provide fallback mechanisms.
 
 ```rust
 use tokio;
@@ -1246,9 +1227,9 @@ async fn main() {
 - **Fallback**: Default value on error
 - **Bulkhead**: Limit concurrent requests
 
----
 
-## Select and Timeout Patterns
+
+## Pattern 4: Select and Timeout Patterns
 
 **Problem**: Waiting indefinitely for async operations causes hangs—network request that never responds blocks forever. Need to handle whichever of multiple operations completes first (user input vs network response). Graceful degradation requires fallbacks when primary fails. Periodic operations (heartbeats, polling) require scheduling. Multiple concurrent events need priority handling—urgent messages before routine.
 
@@ -1258,11 +1239,10 @@ async fn main() {
 
 **Use Cases**: HTTP clients (request timeouts), connection management (idle timeouts), health checks (periodic pings), graceful shutdown (timeout on cleanup), rate limiting (interval-based), user cancellation (input vs background work), circuit breakers.
 
-### Pattern 7: Select Patterns
+### Example: Select Patterns
 
-**Problem**: Wait on multiple async operations and react to whichever completes first.
+Wait on multiple async operations and react to whichever completes first.
 
-**Solution**:
 
 ```rust
 use tokio;
@@ -1495,11 +1475,9 @@ async fn main() {
 
 ---
 
-### Pattern 8: Timeout and Deadline Patterns
+### Example: Timeout and Deadline Patterns
 
-**Problem**: Enforce time limits on async operations to prevent indefinite blocking.
-
-**Solution**:
+Enforce time limits on async operations to prevent indefinite blocking.
 
 ```rust
 use tokio;
@@ -1728,7 +1706,7 @@ async fn main() {
 
 ---
 
-## Runtime Comparison
+## Pattern 5: Runtime Comparison
 
 **Problem**: Choosing wrong async runtime impacts performance, features, and maintainability. Tokio dominates ecosystem but isn't always best choice. Single-threaded vs multi-threaded runtimes have different characteristics. No-std embedded systems can't use Tokio. Mixing runtimes in dependencies causes conflicts. Runtime overhead varies: some add microseconds, others nearly zero. Feature sets differ: timer resolution, I/O drivers, task spawning, metrics.
 
@@ -1738,11 +1716,9 @@ async fn main() {
 
 **Use Cases**: Tokio for web servers, databases, general applications. async-std for learning, simpler projects. smol for single-threaded, minimal overhead. embassy for embedded systems, bare-metal. Runtime-agnostic libraries for maximum compatibility.
 
-### Pattern 9: Tokio Runtime Features
+### Example: Tokio Runtime Features
 
-**Problem**: Understand Tokio's features and how to configure them for different workloads.
-
-**Solution**:
+Understand Tokio's features and how to configure them for different workloads.
 
 ```rust
 use tokio;
@@ -1924,11 +1900,9 @@ fn main() {
 
 ---
 
-### Pattern 10: Runtime Comparison and Interop
+### Example: Runtime Comparison and Interop
 
-**Problem**: Compare Tokio and async-std, understand trade-offs, and enable interoperability.
-
-**Solution**:
+ Compare Tokio and async-std, understand trade-offs, and enable interoperability.
 
 ```rust
 //==============
@@ -2183,3 +2157,208 @@ This chapter covered async runtime patterns in Rust:
 - Cancellation is cooperative
 - No data races (enforced by type system)
 - Borrow checker prevents use-after-free
+
+## Tokio Foundations
+```rust
+// Runtime creation
+#[tokio::main]
+async fn main() { }                                  // Default runtime (multi-thread)
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() { }                                  // Single-threaded runtime
+
+#[tokio::main(worker_threads = 4)]
+async fn main() { }                                  // Custom thread count
+
+Runtime::new().unwrap()                              // Manual runtime creation
+Builder::new_multi_thread().build().unwrap()         // Builder pattern
+
+// Basic async/await
+async fn my_function() -> Result<T, E> { }          // Define async function
+my_function().await                                  // Call and await
+my_function().await?                                 // Await and propagate error
+
+// Task spawning
+tokio::spawn(async { /* code */ })                  // Spawn task, returns JoinHandle
+tokio::spawn(async move { /* code */ })             // Move ownership into task
+handle.await                                         // Wait for task completion
+handle.await.unwrap()                                // Wait and unwrap result
+handle.abort()                                       // Cancel task
+
+// Blocking operations
+tokio::task::spawn_blocking(|| { /* sync code */ }) // Run blocking code in thread pool
+tokio::task::block_in_place(|| { /* sync code */ }) // Block current worker thread
+
+// Task management
+tokio::task::yield_now().await                       // Yield to scheduler
+tokio::task::spawn_local(async { /* code */ })      // Spawn on LocalSet (not Send)
+
+// Sleeping & timing
+tokio::time::sleep(Duration::from_secs(1)).await    // Async sleep
+tokio::time::sleep_until(instant).await              // Sleep until specific time
+tokio::time::interval(duration)                      // Create ticker
+let mut interval = tokio::time::interval(Duration::from_secs(1));
+interval.tick().await                                // Wait for next tick
+
+// Timeout
+tokio::time::timeout(duration, future).await         // Timeout future, returns Result
+tokio::time::timeout_at(instant, future).await       // Timeout at instant
+
+// Channels (async)
+let (tx, rx) = mpsc::channel(capacity)              // Bounded MPSC channel
+let (tx, rx) = mpsc::unbounded_channel()            // Unbounded MPSC channel
+tx.send(value).await                                 // Send, async, returns Result
+rx.recv().await                                      // Receive, returns Option<T>
+tx.try_send(value)                                   // Non-blocking send
+rx.try_recv()                                        // Non-blocking receive
+
+let (tx, rx) = oneshot::channel()                   // One-shot channel
+tx.send(value)                                       // Send once (not async)
+rx.await                                             // Receive once
+
+let (tx, rx) = broadcast::channel(capacity)         // Broadcast channel
+tx.send(value)                                       // Send to all receivers
+rx.recv().await                                      // Receive broadcast message
+
+let (tx, rx) = watch::channel(initial)              // Watch channel (shared state)
+tx.send(value)                                       // Update watched value
+rx.borrow()                                          // Read current value
+rx.changed().await                                   // Wait for change
+
+// Synchronization primitives
+let mutex = Mutex::new(data)                         // Async Mutex
+let guard = mutex.lock().await                       // Lock asynchronously
+let guard = mutex.try_lock()                         // Try lock (non-async)
+
+let rw = RwLock::new(data)                          // Async RwLock
+let read = rw.read().await                           // Read lock
+let write = rw.write().await                         // Write lock
+
+let semaphore = Semaphore::new(n)                    // Semaphore with n permits
+let permit = semaphore.acquire().await.unwrap()      // Acquire permit
+let permit = semaphore.try_acquire()                 // Try acquire (non-async)
+semaphore.add_permits(n)                             // Add permits
+
+let barrier = Barrier::new(n)                        // Async barrier
+barrier.wait().await                                 // Wait for n tasks
+
+let notify = Notify::new()                           // Async notification
+notify.notified().await                              // Wait for notification
+notify.notify_one()                                  // Notify one waiter
+notify.notify_waiters()                              // Notify all waiters
+
+// Select (wait on multiple futures)
+tokio::select! {
+    result1 = future1 => { /* handle */ },
+    result2 = future2 => { /* handle */ },
+    else => { /* no future ready */ }
+}
+
+// Join (wait for all)
+tokio::join!(future1, future2, future3)             // Wait for all, return tuple
+let (r1, r2) = tokio::join!(f1, f2);
+
+// Try join (wait for all, propagate errors)
+tokio::try_join!(future1, future2)                  // Return Result of tuple
+
+// Pin & unpin
+futures::pin_mut!(future)                            // Pin to stack
+Box::pin(future)                                     // Pin to heap
+
+// Stream operations (requires tokio-stream crate)
+use tokio_stream::StreamExt;
+stream.next().await                                  // Get next item
+stream.collect::<Vec<_>>().await                    // Collect all items
+stream.for_each(|item| async { /* work */ }).await // Process each item
+stream.map(|x| x * 2)                               // Transform items
+stream.filter(|x| future_returns_bool)              // Filter items
+stream.take(n)                                       // Take first n items
+stream.skip(n)                                       // Skip first n items
+
+// File I/O (async)
+use tokio::fs;
+fs::read("file.txt").await                           // Read entire file
+fs::write("file.txt", data).await                    // Write entire file
+fs::read_to_string("file.txt").await                // Read as string
+let file = fs::File::open("file.txt").await         // Open file
+let mut file = fs::File::create("file.txt").await   // Create file
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+file.read_to_end(&mut buf).await                    // Read to buffer
+file.write_all(data).await                           // Write all bytes
+file.read_exact(&mut buf).await                     // Read exact amount
+
+// Network I/O
+use tokio::net::{TcpListener, TcpStream};
+let listener = TcpListener::bind("127.0.0.1:8080").await // Bind TCP listener
+let (socket, addr) = listener.accept().await        // Accept connection
+let stream = TcpStream::connect("127.0.0.1:8080").await // Connect TCP
+
+stream.readable().await                              // Wait until readable
+stream.writable().await                              // Wait until writable
+stream.read(&mut buf).await                          // Read from socket
+stream.write_all(data).await                         // Write to socket
+
+// UDP
+use tokio::net::UdpSocket;
+let socket = UdpSocket::bind("127.0.0.1:8080").await // Bind UDP
+socket.send_to(data, addr).await                     // Send datagram
+socket.recv_from(&mut buf).await                     // Receive datagram
+
+// Process spawning
+use tokio::process::Command;
+let output = Command::new("ls").output().await       // Run and get output
+let child = Command::new("ls").spawn()               // Spawn child process
+child.wait().await                                   // Wait for child
+
+// Signal handling
+use tokio::signal;
+signal::ctrl_c().await                               // Wait for Ctrl+C
+
+// Graceful shutdown pattern
+let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+tokio::select! {
+    _ = server_task => {},
+    _ = shutdown_rx.recv() => {
+        // cleanup
+    }
+}
+
+// Retry pattern with backoff
+use tokio::time::{sleep, Duration};
+let mut retries = 0;
+loop {
+    match operation().await {
+        Ok(result) => break result,
+        Err(e) if retries < 3 => {
+            retries += 1;
+            sleep(Duration::from_secs(2u64.pow(retries))).await;
+        }
+        Err(e) => return Err(e),
+    }
+}
+
+// Common patterns
+let shared = Arc::new(Mutex::new(data));             // Shared async state
+let clone = Arc::clone(&shared);
+tokio::spawn(async move {
+    let mut guard = clone.lock().await;
+    *guard += 1;
+});
+
+// Fan-out pattern (spawn multiple tasks)
+let handles: Vec<_> = (0..10)
+    .map(|i| tokio::spawn(async move { work(i).await }))
+    .collect();
+for handle in handles {
+    handle.await.unwrap();
+}
+
+// Concurrent stream processing
+use futures::stream::{self, StreamExt};
+stream::iter(items)
+    .for_each_concurrent(10, |item| async move {
+        process(item).await;
+    })
+    .await;
+```

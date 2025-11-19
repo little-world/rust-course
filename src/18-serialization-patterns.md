@@ -1,34 +1,34 @@
 # Serialization Patterns
 
-Serde Patterns
+[Serde Patterns](#pattern-1-serde-patterns)
 
 - Problem: Manual serialization tedious for every type/format; forget to update when struct changes; JSON, TOML, MessagePack each need custom code
 - Solution: Derive Serialize/Deserialize; field attributes (rename, skip, default); custom serializers; serde data model separates structure from format
 - Why It Matters: Zero-cost abstraction—fast as hand-written; switch formats (JSON→MessagePack) in one line; compile-time type safety catches mismatches
 - Use Cases: REST APIs (JSON), config files (TOML/YAML), Rust-to-Rust RPC (bincode), cross-language messaging (MessagePack), database storage
 
-Zero-Copy Deserialization
+[Zero-Copy Deserialization](#pattern-2-zero-copy-deserialization)
 
 - Problem: Deserializing allocates (String, Vec)—wasteful when input buffer lives long enough; parsing JSON allocates even for borrowed data
 - Solution: Use &str and &[u8] in structs; #[serde(borrow)] attribute; serde_json::from_slice with lifetime-aware types; zero-copy avoids heap allocation
 - Why It Matters: 10x faster for large inputs (no allocation); constant memory usage; critical for high-throughput parsers (log processing, network protocols)
 - Use Cases: Parsing logs, HTTP request/response parsing, streaming data, embedded systems (limited RAM), zero-allocation parsers
 
-Schema Evolution
+[Schema Evolution](#pattern-3-schema-evolution)
 
 - Problem: API changes break clients; adding fields breaks deserialization; renaming fields incompatible; version migrations painful; backward compatibility hard
 - Solution: #[serde(default)] for new fields; #[serde(rename)] preserves wire format; #[serde(alias)] accepts old names; versioning with tagged unions
 - Why It Matters: Enables gradual rollout—old clients work with new servers; adding fields doesn't break compatibility; refactoring safe (rename internally, keep API)
 - Use Cases: Versioned APIs (v1/v2 coexist), database migrations, config file evolution, backward-compatible protocols, gradual service updates
 
-Binary vs Text Formats
+[Binary vs Text Formats](#pattern-4-binary-vs-text-formats)
 
 - Problem: JSON human-readable but large/slow; bincode compact but Rust-only; need cross-language binary format; size vs compatibility tradeoff
 - Solution: JSON for APIs/humans (readable, debuggable); bincode for Rust↔Rust (smallest, fastest); MessagePack/CBOR for cross-language binary; TOML for configs
 - Why It Matters: JSON 2-5x larger than binary; bincode 10x faster than JSON parse; MessagePack: 60% JSON size, language-agnostic; format choice impacts latency/bandwidth
 - Use Cases: JSON (REST APIs, config), bincode (IPC, caching), MessagePack (microservices), CBOR (IoT, embedded), TOML (simple configs), YAML (complex configs)
 
-Streaming Serialization
+[Streaming Serialization](#pattern-5-streaming-serialization)
 
 - Problem: Serializing GB data exhausts memory; can't load entire dataset; need to process incrementally; parsing large JSON arrays allocates all elements
 - Solution: Stream API with iterators; serialize incrementally; serde_json::Deserializer::from_reader with streaming_iterator; write as you go, not all-at-once
@@ -36,17 +36,13 @@ Streaming Serialization
 - Use Cases: Large file processing (GB logs, DB dumps), streaming APIs (server-sent events), incremental parsing, log aggregation, ETL pipelines
 
 
+[Serde Foundations](#serde-foundations)
+ - a long list of useful serde functions
+
+# Overview
 This chapter covers serialization patterns using serde—converting Rust types to/from JSON, binary formats, config files. Serde provides zero-cost abstraction: types separated from formats, derive macros generate optimal code, switch formats by changing one line.
 
-## Table of Contents
 
-1. [Serde Patterns](#pattern-1-serde-patterns)
-2. [Zero-Copy Deserialization](#pattern-2-zero-copy-deserialization)
-3. [Schema Evolution](#pattern-3-schema-evolution)
-4. [Binary vs Text Formats](#pattern-4-binary-vs-text-formats)
-5. [Streaming Serialization](#pattern-5-streaming-serialization)
-
----
 
 ## Pattern 1: Serde Patterns
 
@@ -58,9 +54,9 @@ This chapter covers serialization patterns using serde—converting Rust types t
 
 **Use Cases**: REST APIs (JSON request/response), config files (TOML, YAML), RPC between Rust services (bincode—fastest), cross-language messaging (MessagePack, CBOR), database storage (serialize structs to JSONB), caching (bincode for speed), logging (structured logs to JSON).
 
-### Basic Derive Pattern
+### Example: Basic Derive Pattern
 
-**Problem**: Add serialization to custom types with minimal code.
+Add serialization to custom types with minimal code.
 
 ```rust
 // Add to Cargo.toml:
@@ -105,7 +101,7 @@ fn basic_serialization() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Field Attributes
+### Example: Field Attributes
 
 Field attributes give you fine-grained control over how individual fields are serialized without writing custom code.
 
@@ -188,7 +184,7 @@ fn field_attributes_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Container Attributes
+### Example: Container Attributes
 
 Container attributes apply to the entire struct or enum, affecting how all fields are handled.
 
@@ -285,7 +281,7 @@ fn enum_serialization() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Custom Serialization Functions
+### Example: Custom Serialization Functions
 
 Sometimes derive attributes aren't enough—you need to transform data during serialization. Custom functions give you precise control.
 
@@ -380,7 +376,7 @@ where
 }
 ```
 
-### Custom Serialize/Deserialize Implementation
+### Example: Custom Serialize/Deserialize Implementation
 
 For complete control, implement `Serialize` and `Deserialize` manually. This is necessary for types with complex invariants or non-standard representations.
 
@@ -509,7 +505,7 @@ impl<'de> Deserialize<'de> for Point {
 }
 ```
 
-### Serializing with State
+### Example: Serializing with State
 
 Sometimes you need to include computed data or context during serialization. Custom `Serialize` implementations make this possible.
 
@@ -581,7 +577,7 @@ impl<'a, T: Serialize> Serialize for SerializeWithContext<'a, T> {
 
 **Use Cases**: Log parsing (borrow from mmap'd file), HTTP request parsing (borrow from socket buffer), streaming data (process without allocating), embedded systems (RAM-constrained), high-throughput parsers (network protocols), zero-allocation servers.
 
-### Zero-Copy Borrowing Pattern
+### Example: Zero-Copy Borrowing Pattern
 
 **Problem**: Deserialize without allocating by borrowing from input buffer.
 
@@ -648,7 +644,7 @@ fn cow_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Using Bytes and ByteBuf
+### Example: Using Bytes and ByteBuf
 
 Binary data benefits even more from zero-copy deserialization. `serde_bytes` provides specialized handling for byte slices.
 
@@ -693,7 +689,7 @@ fn binary_data_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Zero-Copy with bincode
+### Example: Zero-Copy with bincode
 
 Bincode is particularly well-suited for zero-copy deserialization because it's a binary format that doesn't need escape sequences or UTF-8 validation.
 
@@ -733,7 +729,7 @@ fn bincode_zero_copy() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Custom Zero-Copy Deserializer
+### Example: Custom Zero-Copy Deserializer
 
 For advanced cases, implement custom deserializers that borrow from the input.
 
@@ -788,9 +784,9 @@ struct CustomBorrowed<'a> {
 
 **Use Cases**: Versioned REST APIs (v1→v2 migration), database schema migrations (add columns without breaking old code), config file evolution (new options without breaking existing configs), backward-compatible protocols, gradual service updates (rolling deployment), refactoring without API breaks.
 
-### Optional Field Pattern
+### Example: Optional Field Pattern
 
-**Problem**: Add new fields without breaking existing serialized data.
+ Add new fields without breaking existing serialized data.
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -853,7 +849,7 @@ fn schema_evolution_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Versioned Enums
+### Example: Versioned Enums
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -913,7 +909,7 @@ struct MessageV3 {
 }
 ```
 
-### Handling Renamed Fields
+### Example: Handling Renamed Fields
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -951,7 +947,7 @@ fn renamed_fields_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Custom Migration Logic
+### Example: Custom Migration Logic
 
 For complex migrations, implement custom deserialization logic.
 
@@ -1043,9 +1039,9 @@ impl<'de> Deserialize<'de> for MigratableConfig {
 
 **Use Cases**: JSON (REST APIs, web configs, debugging), bincode (Rust microservice IPC, caching, session storage), MessagePack (cross-language RPC, binary APIs), CBOR (IoT protocols, embedded systems), TOML (application configs), YAML (complex configs like Kubernetes), Protocol Buffers (Google services, strict schemas).
 
-### Format Comparison Pattern
+### Example: Format Comparison Pattern
 
-**Problem**: Choose optimal serialization format for use case.
+Choose optimal serialization format for use case.
 
 | Format      | Size | Speed | Human-readable | Interop | Self-describing |
 |-------------|------|-------|----------------|---------|-----------------|
@@ -1056,9 +1052,9 @@ impl<'de> Deserialize<'de> for MigratableConfig {
 | YAML        | Large| Slow  | Yes            | Good    | Yes             |
 | TOML        | Medium| Medium| Yes           | Good    | Yes             |
 
-### JSON Pattern
+### Example: JSON Pattern
 
-**Problem**: Need human-readable format for APIs and configs.
+Need human-readable format for APIs and configs.
 
 **Use JSON when:**
 - Building web APIs (de facto standard)
@@ -1106,7 +1102,7 @@ fn json_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Bincode (Binary Format)
+### Example: Bincode (Binary Format)
 
 Bincode is the most compact binary format for Rust-to-Rust communication. Not self-describing—you must know the exact type to deserialize.
 
@@ -1148,7 +1144,7 @@ fn bincode_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### MessagePack (Binary Format)
+### Example: MessagePack (Binary Format)
 
 MessagePack is a binary format with broad language support. Good balance between size, speed, and interoperability.
 
@@ -1194,7 +1190,7 @@ fn messagepack_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### CBOR (Binary Format)
+### Example: CBOR (Binary Format)
 
 CBOR (Concise Binary Object Representation) is similar to MessagePack but with more features (tags, indefinite-length encoding). Used in IoT and embedded systems.
 
@@ -1234,7 +1230,7 @@ fn cbor_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### YAML (Text Format)
+### Example: YAML (Text Format)
 
 YAML is very human-readable with minimal syntax. Great for config files, but the complex spec makes parsing slow and error-prone.
 
@@ -1279,7 +1275,7 @@ fn yaml_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### TOML (Text Format)
+### Example: TOML (Text Format)
 
 TOML is designed for config files. Minimal, unambiguous syntax. Limited nesting makes it unsuitable for complex data structures.
 
@@ -1347,7 +1343,7 @@ fn toml_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Format Comparison
+### Example: Format Comparison
 
 Benchmark different formats to see the size difference:
 
@@ -1411,9 +1407,8 @@ fn format_comparison() -> Result<(), Box<dyn std::error::Error>> {
 
 **Use Cases**: Large file processing (GB log files, database dumps), streaming APIs (server-sent events, WebSocket messages), incremental parsing (start processing before download completes), log aggregation (process logs as they arrive), ETL pipelines (transform data in stream), real-time analytics (process events as they occur).
 
-### Streaming JSON Pattern
-
-**Problem**: Process large JSON arrays without loading entire array into memory.
+### Example: Streaming JSON Pattern
+Process large JSON arrays without loading entire array into memory.
 
 ```rust
 use serde::Serialize;
@@ -1466,7 +1461,7 @@ fn streaming_array_example() -> io::Result<()> {
 }
 ```
 
-### Streaming to File
+### Example: Streaming to File
 
 JSON Lines (newline-delimited JSON) is perfect for streaming: one JSON object per line.
 
@@ -1509,7 +1504,7 @@ fn stream_to_file(path: &str) -> io::Result<()> {
 }
 ```
 
-### Streaming Deserialization
+### Example: Streaming Deserialization
 
 ```rust
 use serde::Deserialize;
@@ -1549,7 +1544,7 @@ fn stream_from_file(path: &str) -> io::Result<()> {
 }
 ```
 
-### Streaming with serde_json::Deserializer
+### Example: Streaming with serde_json::Deserializer
 
 serde_json provides a streaming deserializer for processing multiple JSON values.
 
@@ -1586,7 +1581,7 @@ fn streaming_deserializer() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Async Streaming with Tokio
+### Example: Async Streaming with Tokio
 
 Combine streaming serialization with async I/O for maximum efficiency.
 
@@ -1643,7 +1638,7 @@ async fn async_stream_read(path: &str) -> tokio::io::Result<()> {
 }
 ```
 
-### Large Dataset Streaming
+### Example: Large Dataset Streaming
 
 For very large datasets, implement custom streaming writers with buffering and periodic flushing.
 
@@ -1719,7 +1714,7 @@ fn stream_large_dataset() -> io::Result<()> {
 }
 ```
 
-### Custom Streaming Format
+### Example: Custom Streaming Format
 
 For maximum efficiency, implement length-prefixed binary streaming.
 
@@ -1828,3 +1823,407 @@ This chapter covered serialization patterns using serde:
 - Loading entire file before parsing → OOM for large files
 - Not versioning schemas → breaking changes painful
 - Choosing wrong format (JSON for everything) → performance problems
+
+## Serde Foundations
+
+```rust
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use serde_json;
+use serde_yaml;
+use toml;
+
+// ===== BASIC DERIVE MACROS =====
+#[derive(Serialize, Deserialize)]                   // Basic serialization
+struct Person {
+    name: String,
+    age: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]     // Common derives
+struct Data {
+    field: String,
+}
+
+// ===== JSON SERIALIZATION =====
+// Serialize to JSON
+let person = Person { name: "Alice".into(), age: 30 };
+let json = serde_json::to_string(&person)?          // Compact JSON string
+let json = serde_json::to_string_pretty(&person)?   // Pretty-printed JSON
+let json = serde_json::to_vec(&person)?             // JSON as Vec<u8>
+let json = serde_json::to_vec_pretty(&person)?      // Pretty Vec<u8>
+serde_json::to_writer(writer, &person)?             // Write to io::Write
+serde_json::to_writer_pretty(writer, &person)?      // Pretty write
+
+// Deserialize from JSON
+let person: Person = serde_json::from_str(json_str)?; // From &str
+let person: Person = serde_json::from_slice(bytes)?;  // From &[u8]
+let person: Person = serde_json::from_reader(reader)?; // From io::Read
+
+// JSON Value (dynamic/untyped)
+use serde_json::Value;
+let v: Value = serde_json::from_str(r#"{"a": 1}"#)?;
+v["a"]                                               // Access by key
+v.get("a")                                           // Safe access, returns Option
+v.as_i64()                                           // Convert to i64
+v.as_str()                                           // Convert to &str
+v.is_object()                                        // Check type
+v.is_array()                                         // Check if array
+v.is_null()                                          // Check if null
+
+// Construct JSON Value
+let v = serde_json::json!({                         // json! macro
+    "name": "Alice",
+    "age": 30,
+    "active": true,
+    "items": [1, 2, 3]
+});
+
+// ===== FIELD ATTRIBUTES =====
+#[derive(Serialize, Deserialize)]
+struct User {
+    #[serde(rename = "userName")]                   // Rename field in serialized form
+    user_name: String,
+    
+    #[serde(skip)]                                  // Skip serialization/deserialization
+    internal: String,
+    
+    #[serde(skip_serializing)]                      // Skip only when serializing
+    password: String,
+    
+    #[serde(skip_deserializing)]                    // Skip only when deserializing
+    computed: String,
+    
+    #[serde(default)]                               // Use Default::default() if missing
+    count: u32,
+    
+    #[serde(default = "default_age")]               // Custom default function
+    age: u32,
+    
+    #[serde(skip_serializing_if = "Option::is_none")] // Skip if None
+    optional: Option<String>,
+    
+    #[serde(skip_serializing_if = "Vec::is_empty")] // Skip if empty
+    tags: Vec<String>,
+    
+    #[serde(flatten)]                               // Flatten nested struct
+    metadata: Metadata,
+    
+    #[serde(with = "custom_serializer")]            // Use custom serializer
+    special: SpecialType,
+    
+    #[serde(serialize_with = "serialize_fn")]       // Custom serialize only
+    #[serde(deserialize_with = "deserialize_fn")]   // Custom deserialize only
+    custom: CustomType,
+}
+
+fn default_age() -> u32 { 18 }
+
+// ===== CONTAINER ATTRIBUTES =====
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]                  // Rename all fields
+struct Config {
+    user_name: String,       // Becomes "userName"
+    api_key: String,         // Becomes "apiKey"
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]                 // snake_case
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]       // SCREAMING_SNAKE_CASE
+#[serde(rename_all = "kebab-case")]                 // kebab-case
+#[serde(rename_all = "PascalCase")]                 // PascalCase
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]                       // Error on unknown fields
+struct Strict {
+    field: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]                              // Tagged enum
+enum Message {
+    Request { id: u32, body: String },
+    Response { id: u32, result: String },
+}
+// Serializes as: {"type": "Request", "id": 1, "body": "..."}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]            // Adjacently tagged
+enum Event {
+    Click(u32),
+    Scroll { x: i32, y: i32 },
+}
+// Serializes as: {"type": "Click", "data": 42}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]                                  // Untagged enum (tries each variant)
+enum Value {
+    Integer(i64),
+    String(String),
+    Array(Vec<Value>),
+}
+
+// ===== ENUM REPRESENTATIONS =====
+#[derive(Serialize, Deserialize)]
+enum Status {
+    Active,                                          // Default: "Active"
+    Inactive,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]                  // Lowercase variants
+enum State {
+    Running,    // "running"
+    Stopped,    // "stopped"
+}
+
+// Enum with data
+#[derive(Serialize, Deserialize)]
+enum Action {
+    Move { x: i32, y: i32 },
+    Click(u32, u32),
+    None,
+}
+
+// ===== CUSTOM SERIALIZATION =====
+// Custom serialize function
+fn serialize_fn<S>(value: &CustomType, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&value.to_string())
+}
+
+// Custom deserialize function
+fn deserialize_fn<'de, D>(deserializer: D) -> Result<CustomType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    CustomType::from_str(&s).map_err(serde::de::Error::custom)
+}
+
+// Implementing Serialize manually
+impl Serialize for MyType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("MyType", 2)?;
+        state.serialize_field("field1", &self.field1)?;
+        state.serialize_field("field2", &self.field2)?;
+        state.end()
+    }
+}
+
+// Implementing Deserialize manually
+impl<'de> Deserialize<'de> for MyType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field { Field1, Field2 }
+        
+        struct MyTypeVisitor;
+        
+        impl<'de> serde::de::Visitor<'de> for MyTypeVisitor {
+            type Value = MyType;
+            
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct MyType")
+            }
+            
+            fn visit_map<V>(self, mut map: V) -> Result<MyType, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut field1 = None;
+                let mut field2 = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Field1 => field1 = Some(map.next_value()?),
+                        Field::Field2 => field2 = Some(map.next_value()?),
+                    }
+                }
+                Ok(MyType {
+                    field1: field1.ok_or_else(|| serde::de::Error::missing_field("field1"))?,
+                    field2: field2.ok_or_else(|| serde::de::Error::missing_field("field2"))?,
+                })
+            }
+        }
+        
+        deserializer.deserialize_struct("MyType", &["field1", "field2"], MyTypeVisitor)
+    }
+}
+
+// ===== YAML SERIALIZATION =====
+let yaml = serde_yaml::to_string(&data)?            // To YAML string
+let yaml = serde_yaml::to_vec(&data)?               // To Vec<u8>
+serde_yaml::to_writer(writer, &data)?               // Write to io::Write
+
+let data: MyStruct = serde_yaml::from_str(yaml)?    // From &str
+let data: MyStruct = serde_yaml::from_slice(bytes)?; // From &[u8]
+let data: MyStruct = serde_yaml::from_reader(reader)?; // From io::Read
+
+// ===== TOML SERIALIZATION =====
+let toml = toml::to_string(&data)?                  // To TOML string
+let toml = toml::to_string_pretty(&data)?           // Pretty TOML
+let toml = toml::to_vec(&data)?                     // To Vec<u8>
+
+let data: MyStruct = toml::from_str(toml)?          // From &str
+let data: MyStruct = toml::from_slice(bytes)?       // From &[u8]
+
+// TOML Value (dynamic)
+use toml::Value;
+let v: Value = toml::from_str(toml_str)?;
+
+// ===== MESSAGEPACK (requires rmp-serde) =====
+use rmp_serde;
+let bytes = rmp_serde::to_vec(&data)?               // To MessagePack
+let data: MyStruct = rmp_serde::from_slice(&bytes)?; // From MessagePack
+
+// ===== BINCODE (binary format) =====
+use bincode;
+let bytes = bincode::serialize(&data)?              // To binary
+let data: MyStruct = bincode::deserialize(&bytes)?  // From binary
+
+// ===== WORKING WITH HASHMAPS =====
+use std::collections::HashMap;
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    #[serde(flatten)]
+    extra: HashMap<String, String>,                  // Capture unknown fields
+}
+
+// ===== LIFETIMES =====
+#[derive(Serialize, Deserialize)]
+struct Borrowed<'a> {
+    #[serde(borrow)]
+    name: &'a str,                                   // Borrow during deserialization
+}
+
+#[derive(Serialize, Deserialize)]
+struct WithCow<'a> {
+    #[serde(borrow)]
+    data: Cow<'a, str>,                              // Cow for efficient borrowing
+}
+
+// ===== COMMON PATTERNS =====
+// Optional fields with defaults
+#[derive(Serialize, Deserialize)]
+struct Settings {
+    #[serde(default = "default_timeout")]
+    timeout: u64,
+    
+    #[serde(default)]
+    verbose: bool,                                   // false if missing
+}
+
+fn default_timeout() -> u64 { 30 }
+
+// Versioning
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "version")]
+enum DataVersion {
+    #[serde(rename = "1")]
+    V1(DataV1),
+    #[serde(rename = "2")]
+    V2(DataV2),
+}
+
+// Remote derive (for external types)
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "SystemTime")]
+struct SystemTimeDef {
+    #[serde(getter = "SystemTime::duration_since")]
+    duration_since_epoch: Duration,
+}
+
+// Serialize map/dict
+use serde::ser::SerializeMap;
+fn serialize_map<S>(map: &MyMap, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+    for (k, v) in map.iter() {
+        map_ser.serialize_entry(k, v)?;
+    }
+    map_ser.end()
+}
+
+// Serialize sequence/array
+use serde::ser::SerializeSeq;
+fn serialize_seq<S>(seq: &MySeq, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut seq_ser = serializer.serialize_seq(Some(seq.len()))?;
+    for item in seq.iter() {
+        seq_ser.serialize_element(item)?;
+    }
+    seq_ser.end()
+}
+
+// Transform during serialization
+#[derive(Serialize)]
+struct Output {
+    #[serde(serialize_with = "to_uppercase")]
+    text: String,
+}
+
+fn to_uppercase<S>(text: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&text.to_uppercase())
+}
+
+// Validate during deserialization
+#[derive(Deserialize)]
+struct Validated {
+    #[serde(deserialize_with = "validate_email")]
+    email: String,
+}
+
+fn validate_email<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    if s.contains('@') {
+        Ok(s)
+    } else {
+        Err(serde::de::Error::custom("invalid email"))
+    }
+}
+
+// Generic serialization
+#[derive(Serialize, Deserialize)]
+struct Wrapper<T> {
+    #[serde(bound = "T: Serialize + Deserialize<'de>")]
+    data: T,
+}
+
+// Serialize/deserialize with pretty JSON
+let json = serde_json::to_string_pretty(&data)?;
+println!("{}", json);
+
+// Partial deserialization (ignore extra fields)
+#[derive(Deserialize)]
+struct Partial {
+    name: String,
+    // Other fields in JSON are ignored
+}
+
+// Collect into HashMap
+let map: HashMap<String, Value> = serde_json::from_str(json)?;
+
+// Merge JSON objects
+let mut base: Value = serde_json::from_str(base_json)?;
+let overlay: Value = serde_json::from_str(overlay_json)?;
+json_patch::merge(&mut base, &overlay);
+```

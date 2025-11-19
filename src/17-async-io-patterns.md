@@ -1,34 +1,34 @@
 # Async I/O Patterns
 
-Tokio File and Network I/O
+[Tokio File and Network I/O](#pattern-1-tokio-file-and-network-io)
 
 - Problem: Synchronous I/O blocks threads; 1 thread/connection doesn't scale; 10K connections need 20GB RAM; blocking file I/O stalls network tasks
 - Solution: Tokio async I/O with .await; TcpListener/TcpStream for network; tokio::fs for files; work-stealing scheduler spreads load
 - Why It Matters: Single thread handles 10K connections in 10MB; C10K problem solved; async file I/O won't block network tasks; work-stealing uses all cores
 - Use Cases: Web servers, API gateways, chat servers, websockets, HTTP clients, file servers, concurrent file processing
 
-Buffered Async Streams
+[Buffered Async Streams](#pattern-2-buffered-async-streams)
 
 - Problem: Byte-by-byte async reads/writes inefficient; need batching; no async equivalent of BufReader; line-by-line async parsing verbose
 - Solution: AsyncBufReadExt with read_line(), lines(); AsyncWriteExt with write_all(); BufReader/BufWriter wrap streams; tokio_util::codec for framing
 - Why It Matters: Buffering reduces syscalls by 100x; lines() yields async iterator; codecs handle framing (length-prefixed, delimited); essential for protocols
 - Use Cases: Line-based protocols (HTTP, SMTP), chat protocols, log streaming, CSV/JSON over network, codec-based protocols, WebSocket framing
 
-Backpressure Handling
+[Backpressure Handling](#pattern-3-backpressure-handling)
 
 - Problem: Fast producer overwhelms slow consumer; unbounded queues cause OOM; no flow control between tasks; need to slow upstream when downstream lags
 - Solution: Bounded channels (mpsc with capacity); Semaphore for concurrency limits; buffer_unordered(n) for stream concurrency; rate limiting with governor
 - Why It Matters: Prevents OOM from unbounded growth; fast network reader won't overwhelm slow file writer; graceful degradation under load; critical for production
 - Use Cases: Producer-consumer pipelines, streaming aggregation, rate limiting HTTP clients, connection pooling, download managers, WebSocket servers
 
-Connection Pooling
+[Connection Pooling](#pattern-4-connection-pooling)
 
 - Problem: Creating TCP/DB connections expensive (100ms+ handshake); can't scale to 1 connection/request; need connection reuse; must limit concurrent connections
 - Solution: bb8/deadpool for connection pools; configure min/max size; timeouts for acquisition; health checks; recycle connections between requests
 - Why It Matters: Reduces latency 100x (reuse vs new connection); limits concurrent connections; handles connection failures gracefully; essential for databases/HTTP
 - Use Cases: Database connection pools (Postgres, Redis), HTTP client pools, gRPC connection pools, connection-limited APIs, microservices
 
-Timeout and Cancellation
+[Timeout and Cancellation](#pattern-5-timeout-and-cancellation)
 
 - Problem: Async operations can hang forever; need time bounds; must cancel slow operations; resource leaks from stuck tasks; graceful shutdown complex
 - Solution: tokio::time::timeout() wraps futures; select! for cancellation; CancellationToken for coordinated shutdown; drop cancels futures; timeout pattern
@@ -36,17 +36,15 @@ Timeout and Cancellation
 - Use Cases: HTTP request timeouts, database query timeouts, graceful shutdown, user cancellation, health checks, circuit breakers, deadline propagation
 
 
+[Tokio File IO Foundations](#tokio-file-io-foundations)
+- a long list of useful functions
+
+[Tokio Network IO Foundations](#tokio-network-io-foundations)
+- a long list of useful functions
+
+## Overview
 This chapter explores async I/O patterns using Tokio—handling thousands of concurrent connections, buffered streams, backpressure, connection pooling, and timeouts. Async I/O allows one thread to manage thousands of operations by yielding when blocked, solving the C10K problem.
 
-## Table of Contents
-
-1. [Tokio File and Network I/O](#pattern-1-tokio-file-and-network-io)
-2. [Buffered Async Streams](#pattern-2-buffered-async-streams)
-3. [Backpressure Handling](#pattern-3-backpressure-handling)
-4. [Connection Pooling](#pattern-4-connection-pooling)
-5. [Timeout and Cancellation](#pattern-5-timeout-and-cancellation)
-
----
 
 ## Pattern 1: Tokio File and Network I/O
 
@@ -58,18 +56,14 @@ This chapter explores async I/O patterns using Tokio—handling thousands of con
 
 **Use Cases**: Web servers (HTTP, HTTPS), API gateways, chat servers, WebSocket servers, game servers, HTTP clients (concurrent requests), file servers (mixing file and network I/O), concurrent file processing, real-time data pipelines.
 
-### Async File Operations
+### Example: Async File Operations
 
-**Problem**: Need to read/write files without blocking async runtime. Concurrent file operations should parallelize.
+Read/write files without blocking async runtime. Concurrent file operations should parallelize.
 
 ```rust
-//=========================
 // Note: Add to Cargo.toml:
-//=========================
 // [dependencies]
-//===============================================
 // tokio = { version = "1", features = ["full"] }
-//===============================================
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
@@ -77,10 +71,6 @@ use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 //===============================
 // Read entire file into a String
 //===============================
-// Use this for: Config files, small text files, HTML templates
-//==================================================================
-// Avoid for: Large files (>100MB), binary data where you need &[u8]
-//==================================================================
 async fn read_file(path: &str) -> io::Result<String> {
     tokio::fs::read_to_string(path).await
     // Convenience method: allocates a String, reads entire file
@@ -90,7 +80,6 @@ async fn read_file(path: &str) -> io::Result<String> {
 //==============================
 // Read entire file into Vec<u8>
 //==============================
-// Use this for: Binary files, images, data files, when you need raw bytes
 async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
     tokio::fs::read(path).await
     // Reads entire file into memory
@@ -100,7 +89,6 @@ async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
 //===================================================
 // Write string to file (overwrites existing content)
 //===================================================
-// Use this for: Writing config files, logs, generated HTML
 async fn write_file(path: &str, content: &str) -> io::Result<()> {
     tokio::fs::write(path, content).await
     // Convenience method: creates file, writes content, closes file
@@ -110,10 +98,6 @@ async fn write_file(path: &str, content: &str) -> io::Result<()> {
 //================================
 // Manual read with buffer control
 //================================
-// Use this when: You need precise control over memory allocation
-//================================================
-// or want to reuse a buffer across multiple reads
-//================================================
 async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
     let mut file = File::open(path).await?;
     let mut buffer = Vec::new();
@@ -126,7 +110,6 @@ async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
 //==================================
 // Manual write with explicit handle
 //==================================
-// Use this when: You need to write multiple chunks or ensure flushing
 async fn write_with_handle(path: &str, data: &[u8]) -> io::Result<()> {
     let mut file = File::create(path).await?;
 
@@ -142,7 +125,6 @@ async fn write_with_handle(path: &str, data: &[u8]) -> io::Result<()> {
 //===============================================
 // Append to existing file (or create if missing)
 //===============================================
-// Use this for: Log files, audit trails, incremental data collection
 async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .append(true)   // Append mode: writes go to end of file
@@ -158,10 +140,6 @@ async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
 //=========================
 // Copy file asynchronously
 //=========================
-// Use this when: Copying large files alongside other async work
-//===================================
-// Returns the number of bytes copied
-//===================================
 async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     tokio::fs::copy(src, dst).await
     // Efficiently copies src to dst using OS-level optimizations when possible
@@ -183,7 +161,7 @@ async fn main() -> io::Result<()> {
 }
 ```
 
-### Async Line Reading
+### Example: Async Line Reading
 
 Reading line-by-line is essential for processing log files, CSV data, and other line-oriented formats. The async version uses `BufReader` to buffer reads efficiently, minimizing system calls.
 
@@ -196,10 +174,6 @@ use tokio::io::{self, AsyncBufReadExt, BufReader};
 //===========================
 // Read all lines into memory
 //===========================
-// Use this for: Small to medium files where you need all lines at once
-//===========================================================================
-// Avoid for: Large files (>1GB) where you should process lines one at a time
-//===========================================================================
 async fn read_lines(path: &str) -> io::Result<Vec<String>> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -218,10 +192,6 @@ async fn read_lines(path: &str) -> io::Result<Vec<String>> {
 
 //============================================================
 // Process large file line by line without loading into memory
-//============================================================
-// Use this for: Log analysis, large CSV files, data processing pipelines
-//============================================================
-// This is memory-efficient: only one line in memory at a time
 //============================================================
 async fn process_large_file(path: &str) -> io::Result<()> {
     let file = File::open(path).await?;
@@ -244,7 +214,6 @@ async fn process_large_file(path: &str) -> io::Result<()> {
 //====================================================
 // Read first N lines (useful for previews or headers)
 //====================================================
-// Use this for: Reading CSV headers, previewing log files, sampling data
 async fn read_first_n_lines(path: &str, n: usize) -> io::Result<Vec<String>> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -263,7 +232,7 @@ async fn read_first_n_lines(path: &str, n: usize) -> io::Result<Vec<String>> {
 }
 ```
 
-### TCP Network I/O
+### Example: TCP Network I/O
 
 TCP (Transmission Control Protocol) provides reliable, ordered, connection-oriented communication. Tokio's TCP implementation is truly async—it uses the OS's non-blocking I/O facilities (epoll on Linux, kqueue on BSD/macOS, IOCP on Windows) to wait for data without blocking threads.
 
@@ -285,10 +254,6 @@ use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 //================
 // TCP Echo Server
 //================
-// This is the canonical async server pattern: accept connections in a loop,
-//=======================================================================
-// spawn a task for each connection. The runtime handles task scheduling.
-//=======================================================================
 async fn run_tcp_server(addr: &str) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     println!("Server listening on {}", addr);
@@ -335,7 +300,6 @@ async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
 //===========
 // TCP Client
 //===========
-// Connect to a server, send a message, read the response
 async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
     // connect() performs DNS resolution (if needed) and TCP handshake
     let mut stream = TcpStream::connect(addr).await?;
@@ -355,10 +319,6 @@ async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
 //========================================
 // HTTP-like request handling (simplified)
 //========================================
-// This demonstrates a more realistic server that reads a request,
-//===================================
-// processes it, and sends a response
-//===================================
 async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
     let mut buffer = [0; 4096];
 
@@ -381,7 +341,7 @@ async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
 }
 ```
 
-### UDP Network I/O
+### Example: UDP Network I/O
 
 UDP (User Datagram Protocol) is connectionless and unreliable—packets may arrive out of order, be duplicated, or be lost entirely. But UDP has advantages: lower latency (no connection setup), simpler protocol, and support for broadcast/multicast.
 
@@ -403,10 +363,6 @@ use tokio::io;
 //================
 // UDP Echo Server
 //================
-// UDP is connectionless, so there's no accept() loop.
-//==============================================================
-// Instead, we receive datagrams from anyone and echo them back.
-//==============================================================
 async fn udp_server(addr: &str) -> io::Result<()> {
     let socket = UdpSocket::bind(addr).await?;
     println!("UDP server listening on {}", addr);
@@ -429,7 +385,6 @@ async fn udp_server(addr: &str) -> io::Result<()> {
 //===========
 // UDP Client
 //===========
-// Send a datagram and wait for a response
 async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
     // Bind to a random local port (0.0.0.0:0 means "any port")
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
@@ -445,7 +400,7 @@ async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
 }
 ```
 
-### Unix Domain Sockets
+### Example: Unix Domain Sockets
 
 Unix domain sockets provide inter-process communication (IPC) on the same machine. They're faster than TCP (no network stack overhead) and support passing file descriptors between processes.
 
@@ -509,9 +464,8 @@ mod unix_sockets {
 
 **Use Cases**: Line-based protocols (HTTP headers, SMTP, Redis protocol), chat protocols (newline-delimited), log streaming, CSV/JSON over network, codec-based protocols (protobuf, MessagePack), WebSocket framing, custom protocol parsers.
 
-### Using BufReader and BufWriter
-
-**Problem**: Minimize syscalls for async read/write operations with batching.
+### Example: Using BufReader and BufWriter
+Minimize syscalls for async read/write operations with batching.
 
 ```rust
 use tokio::fs::File;
@@ -520,7 +474,6 @@ use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 //=========================================
 // Buffered reading with custom buffer size
 //=========================================
-// Use this for: Log files, line-oriented data, any sequential reading
 async fn buffered_read(path: &str) -> io::Result<()> {
     let file = File::open(path).await?;
 
@@ -539,7 +492,6 @@ async fn buffered_read(path: &str) -> io::Result<()> {
 //=========================================
 // Buffered writing with custom buffer size
 //=========================================
-// Use this for: Writing many small chunks (logs, CSV rows, JSON lines)
 async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     let file = File::create(path).await?;
 
@@ -561,7 +513,6 @@ async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
 //====================
 // Copy with buffering
 //====================
-// tokio::io::copy automatically uses buffering for efficiency
 async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     let src_file = File::open(src).await?;
     let dst_file = File::create(dst).await?;
@@ -574,7 +525,7 @@ async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
 }
 ```
 
-### Stream Processing with AsyncRead/AsyncWrite
+### Example: Stream Processing with AsyncRead/AsyncWrite
 
 Implementing custom `AsyncRead` or `AsyncWrite` allows you to transform data as it's read or written. This is useful for encryption, compression, encoding, or protocol framing.
 
@@ -592,11 +543,6 @@ use std::task::{Context, Poll};
 //=========================================
 // Custom async reader that uppercases data
 //=========================================
-// This demonstrates the AsyncRead trait: poll_read() is called
-//==============================================================
-// by the runtime to read data. We delegate to the inner reader,
-//==============================================================
-// then transform the data.
 struct UppercaseReader<R> {
     inner: R,
 }
@@ -644,7 +590,7 @@ async fn use_uppercase_reader() -> io::Result<()> {
 }
 ```
 
-### Stream Splitting and Framing
+### Example: Stream Splitting and Framing
 
 Many protocols benefit from splitting a stream into independent read and write halves. This allows one task to read while another writes, or enables implementing full-duplex protocols where requests and responses flow concurrently.
 
@@ -655,10 +601,6 @@ use tokio::io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 //========================================
 // Split stream into read and write halves
 //========================================
-// This pattern is essential for full-duplex protocols where you
-//====================================
-// need to read and write concurrently
-//====================================
 async fn split_stream_example() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
@@ -697,7 +639,7 @@ async fn split_stream_example() -> io::Result<()> {
 }
 ```
 
-### Using tokio_util::codec for Framing
+### Example: Using tokio_util::codec for Framing
 
 Framing solves a fundamental problem in network protocols: how do you know where one message ends and the next begins? Raw TCP gives you a byte stream with no message boundaries. Codecs provide message framing—they handle splitting the stream into discrete messages and vice versa.
 
@@ -708,9 +650,7 @@ Framing solves a fundamental problem in network protocols: how do you know where
 - **Delimiter-based**: Messages separated by a special byte sequence (like HTTP headers separated by `\r\n\r\n`)
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // tokio-util = { version = "0.7", features = ["codec"] }
 
 use tokio::net::TcpStream;
@@ -720,10 +660,6 @@ use futures::{SinkExt, StreamExt};
 //=====================
 // Line-delimited codec
 //=====================
-// This is the simplest framing: messages are separated by newlines
-//======================================================================
-// Use this for: Text-based protocols, CLI tools, human-readable formats
-//======================================================================
 async fn framed_lines() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
@@ -749,10 +685,6 @@ async fn framed_lines() -> io::Result<()> {
 //==========================================
 // Custom codec for length-prefixed messages
 //==========================================
-// This is the most efficient binary framing: each message is prefixed
-//======================================
-// with a 4-byte length (big-endian u32)
-//======================================
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -828,9 +760,9 @@ async fn length_prefixed_example() -> io::Result<()> {
 
 **Use Cases**: Producer-consumer pipelines (network → processing → disk), streaming aggregation (sensor data, logs), rate-limited HTTP clients (respect API limits), connection pools (bound concurrent connections), download managers (limit concurrent downloads), WebSocket servers (per-client backpressure), data pipelines (ETL systems).
 
-### Manual Backpressure with Bounded Channels
+### Example: Manual Backpressure with Bounded Channels
 
-**Problem**: Control flow between producer and consumer to prevent memory exhaustion.
+Control flow between producer and consumer to prevent memory exhaustion.
 
 ```rust
 use tokio::sync::mpsc;
@@ -839,7 +771,6 @@ use tokio::time::{sleep, Duration};
 //===========================
 // Producer with backpressure
 //===========================
-// send() blocks when the channel is full, providing natural backpressure
 async fn producer_with_backpressure(tx: mpsc::Sender<i32>) {
     for i in 0..100 {
         // send() provides backpressure—blocks when channel is full
@@ -866,7 +797,6 @@ async fn consumer(mut rx: mpsc::Receiver<i32>) {
 //===========================
 // Usage with bounded channel
 //===========================
-// The channel capacity determines how much buffering we allow
 async fn backpressure_example() {
     // Bounded channel with capacity 10
     // Producer can get ahead by 10 items, then must wait
@@ -879,7 +809,7 @@ async fn backpressure_example() {
 }
 ```
 
-### Stream Backpressure with Buffering
+### Example: Stream Backpressure with Buffering
 
 The `buffered()` combinator limits the number of futures executing concurrently, providing backpressure for stream processing.
 
@@ -904,7 +834,7 @@ async fn stream_backpressure() {
 }
 ```
 
-### Rate Limiting
+### Example: Rate Limiting
 
 Rate limiting controls the rate of operations to avoid overwhelming downstream systems or respecting API rate limits.
 
@@ -920,7 +850,6 @@ use tokio::time::{sleep, Duration, Instant};
 //=============================================
 // Simple rate limiter (token bucket algorithm)
 //=============================================
-// Allows up to max_per_second operations per second
 struct RateLimiter {
     max_per_second: u32,
     last_reset: Instant,
@@ -970,7 +899,7 @@ async fn rate_limited_requests() {
 }
 ```
 
-### Semaphore for Concurrency Control
+### Example: Semaphore for Concurrency Control
 
 A semaphore limits the number of concurrent operations. This is essential for controlling resource usage (database connections, file handles, HTTP requests).
 
@@ -1010,7 +939,7 @@ async fn concurrent_with_limit() {
 }
 ```
 
-### Flow Control in Network Servers
+### Example: Flow Control in Network Servers
 
 Limiting concurrent connections prevents resource exhaustion and ensures fair service under load.
 
@@ -1022,10 +951,6 @@ use std::sync::Arc;
 //=================================
 // TCP server with connection limit
 //=================================
-// This pattern prevents the server from accepting more connections
-//===========================================================
-// than it can handle, protecting against resource exhaustion
-//===========================================================
 async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let semaphore = Arc::new(Semaphore::new(max_connections));
@@ -1064,9 +989,9 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
 
 **Use Cases**: Database connection pools (Postgres, MySQL, Redis), HTTP client connection pools (reqwest with pool), gRPC connection pools, connection-limited APIs (respect limits), microservices (service-to-service), connection-expensive protocols (TLS, SSH).
 
-### Connection Pool Pattern
+### Example: Connection Pool Pattern
 
-**Problem**: Efficiently manage and reuse database or network connections.
+ Efficiently manage and reuse database or network connections.
 
 ```rust
 use tokio::sync::Mutex;
@@ -1184,14 +1109,12 @@ async fn use_pool() -> io::Result<()> {
 }
 ```
 
-### Advanced Pool with deadpool
+### Example: Advanced Pool with deadpool
 
 `deadpool` is a production-ready connection pool library with features like connection recycling, timeouts, and health checks.
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // deadpool = "0.10"
 
 use deadpool::managed::{Manager, Pool, RecycleResult};
@@ -1260,14 +1183,12 @@ async fn use_deadpool() -> io::Result<()> {
 }
 ```
 
-### HTTP Client Connection Pool
+### Example: HTTP Client Connection Pool
 
 The `reqwest` HTTP client has built-in connection pooling, which is essential for making many HTTP requests efficiently.
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // reqwest = "0.11"
 
 use reqwest::Client;
@@ -1309,7 +1230,6 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
----
 
 ## Pattern 5: Timeout and Cancellation
 
@@ -1321,9 +1241,9 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
 
 **Use Cases**: HTTP request timeouts (prevent hung requests), database query timeouts (prevent slow queries), graceful shutdown (SIGTERM handling), user cancellation (browser closed, request canceled), health checks (must timeout), circuit breakers (timeout = failure signal), deadline propagation (gRPC deadlines), connection idle timeouts.
 
-### Basic Timeout Pattern
+### Example: Basic Timeout Pattern
 
-**Problem**: Prevent operations from running indefinitely by setting time limits.
+Prevent operations from running indefinitely by setting time limits.
 
 ```rust
 use tokio::time::{timeout, Duration};
@@ -1349,7 +1269,7 @@ async fn async_operation() -> io::Result<String> {
 }
 ```
 
-### Timeout with Fallback
+### Example: Timeout with Fallback
 
 A common pattern is to try a primary operation with a timeout, falling back to an alternative if it fails.
 
@@ -1383,7 +1303,7 @@ async fn fetch_data_from_fallback() -> io::Result<String> {
 }
 ```
 
-### Cancellation with CancellationToken
+### Example: Cancellation with CancellationToken
 
 `CancellationToken` provides a mechanism for coordinated cancellation across multiple tasks. When you cancel the token, all tasks listening to it are notified.
 
@@ -1393,9 +1313,7 @@ async fn fetch_data_from_fallback() -> io::Result<String> {
 - Implementing request cancellation in a server
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // tokio-util = "0.7"
 
 use tokio_util::sync::CancellationToken;
@@ -1436,7 +1354,7 @@ async fn cancellation_example() {
 }
 ```
 
-### Select for Racing Operations
+### Example: Select for Racing Operations
 
 `tokio::select!` runs multiple futures concurrently and returns as soon as one completes. This is useful for implementing timeouts, racing multiple data sources, or handling multiple events.
 
@@ -1473,7 +1391,6 @@ async fn operation_c() -> String {
 //=========================================
 // Biased select (checks branches in order)
 //=========================================
-// Use this when you want to prioritize certain operations
 async fn biased_select() {
     let mut count = 0;
 
@@ -1493,7 +1410,7 @@ async fn biased_select() {
 }
 ```
 
-### Graceful Shutdown
+### Example: Graceful Shutdown
 
 Graceful shutdown ensures that all in-flight requests complete before the server stops, preventing data loss or corrupted state.
 
@@ -1503,9 +1420,7 @@ use tokio::sync::broadcast;
 
 //==================================
 // TCP server with graceful shutdown
-//==================================
 // When Ctrl+C is pressed, the server stops accepting new connections
-//=============================================
 // but waits for existing connections to finish
 //=============================================
 async fn graceful_shutdown_server() -> io::Result<()> {
@@ -1574,7 +1489,7 @@ async fn handle_connection_with_shutdown(
 }
 ```
 
-### Timeout for Multiple Operations
+### Example: Timeout for Multiple Operations
 
 When running multiple operations concurrently, you can apply a timeout to all of them collectively or to each individually.
 
@@ -1623,7 +1538,7 @@ async fn individual_timeouts() -> Vec<Result<String, tokio::time::error::Elapsed
 }
 ```
 
-### Retry with Timeout
+### Example: Retry with Timeout
 
 Combining retries with timeouts creates resilient operations that handle transient failures but don't hang forever.
 
@@ -1685,7 +1600,7 @@ async fn use_retry() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Deadline-based Cancellation
+### Example: Deadline-based Cancellation
 
 Instead of relative timeouts, you can use absolute deadlines. This is useful when multiple operations share a common deadline.
 
@@ -1725,8 +1640,6 @@ async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
 }
 ```
 
----
-
 ## Summary
 
 This chapter covered async I/O patterns using Tokio:
@@ -1765,3 +1678,352 @@ This chapter covered async I/O patterns using Tokio:
 - Blocking in async tasks starves others
 - Missing backpressure = memory exhaustion
 - Connection pool without health checks keeps stale connections
+
+
+## Tokio File IO Foundations
+
+```rust
+// ===== TOKIO FILE I/O =====
+use tokio::fs;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt, AsyncBufReadExt, AsyncSeekExt, BufReader, BufWriter};
+
+// File opening (async)
+fs::File::open("file.txt").await?                    // Open for reading
+fs::File::create("file.txt").await?                  // Create/truncate for writing
+fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .append(true)
+    .open("file.txt")
+    .await?                                          // Custom open options
+
+// Quick read operations (async)
+fs::read("file.txt").await?                         // Read entire file to Vec<u8>
+fs::read_to_string("file.txt").await?               // Read entire file to String
+
+// Quick write operations (async)
+fs::write("file.txt", b"data").await?               // Write bytes to file
+fs::write("file.txt", "text").await?                // Write string to file
+
+// Reading from File (async)
+let mut file = fs::File::open("file.txt").await?;
+let mut buffer = Vec::new();
+file.read_to_end(&mut buffer).await?                // Read all bytes
+let mut buffer = String::new();
+file.read_to_string(&mut buffer).await?             // Read as string
+let mut buffer = [0u8; 1024];
+let n = file.read(&mut buffer).await?               // Read up to buffer size
+file.read_exact(&mut buffer).await?                 // Read exact amount or error
+
+// Writing to File (async)
+let mut file = fs::File::create("file.txt").await?;
+file.write(b"data").await?                          // Write bytes, returns bytes written
+file.write_all(b"data").await?                      // Write all bytes or error
+file.flush().await?                                  // Flush to disk
+
+// Buffered reading (async)
+let file = fs::File::open("file.txt").await?;
+let reader = BufReader::new(file);
+let mut reader = BufReader::with_capacity(size, file); // Custom buffer size
+
+let mut lines = reader.lines();                      // Get lines stream
+while let Some(line) = lines.next_line().await? {
+    println!("{}", line);
+}
+
+reader.read_line(&mut string).await?                // Read one line
+reader.read_until(b'\n', &mut buffer).await?        // Read until delimiter
+
+// Buffered writing (async)
+let file = fs::File::create("file.txt").await?;
+let mut writer = BufWriter::new(file);
+let mut writer = BufWriter::with_capacity(size, file); // Custom buffer size
+
+writer.write_all(b"data").await?                    // Buffered write
+writer.flush().await?                                // Flush buffer to disk
+
+// Seeking (async)
+file.seek(io::SeekFrom::Start(0)).await?            // Seek to byte position from start
+file.seek(io::SeekFrom::End(-10)).await?            // Seek from end
+file.seek(io::SeekFrom::Current(5)).await?          // Seek relative to current
+file.rewind().await?                                 // Seek to start
+let pos = file.stream_position().await?             // Get current position
+
+// Metadata operations (async)
+let metadata = fs::metadata("file.txt").await?      // Get file metadata
+let metadata = file.metadata().await?               // From file handle
+metadata.len()                                       // File size in bytes
+metadata.is_file()                                   // Check if regular file
+metadata.is_dir()                                    // Check if directory
+metadata.is_symlink()                               // Check if symbolic link
+metadata.modified()?                                 // Last modified time
+
+// File operations (async)
+fs::copy("src.txt", "dst.txt").await?               // Copy file, returns bytes copied
+fs::rename("old.txt", "new.txt").await?             // Rename/move file
+fs::remove_file("file.txt").await?                  // Delete file
+fs::hard_link("original.txt", "link.txt").await?   // Create hard link
+fs::symlink("original.txt", "link.txt").await?     // Create symbolic link
+fs::read_link("link.txt").await?                    // Read symlink target
+fs::canonicalize("./file.txt").await?               // Get absolute path
+
+// Directory operations (async)
+fs::create_dir("dir").await?                        // Create single directory
+fs::create_dir_all("path/to/dir").await?           // Create directory and parents
+fs::remove_dir("dir").await?                        // Remove empty directory
+fs::remove_dir_all("dir").await?                    // Remove directory and contents
+
+let mut entries = fs::read_dir("dir").await?;       // Get directory entries stream
+while let Some(entry) = entries.next_entry().await? {
+    println!("{:?}", entry.path());                 // Get full path
+    println!("{:?}", entry.file_name());            // Get file name
+    let metadata = entry.metadata().await?;          // Get metadata
+    let file_type = entry.file_type().await?;       // Get file type
+}
+
+// File synchronization (async)
+file.sync_all().await?                               // Sync data and metadata to disk
+file.sync_data().await?                              // Sync only data to disk
+
+// Set file length (async)
+file.set_len(100).await?                            // Set file size (truncate/extend)
+
+// Permissions (async)
+let perms = metadata.permissions();
+fs::set_permissions("file.txt", perms).await?       // Apply permissions
+
+// Common file patterns (async)
+// Read file line by line
+let file = fs::File::open("file.txt").await?;
+let reader = BufReader::new(file);
+let mut lines = reader.lines();
+while let Some(line) = lines.next_line().await? {
+    // process line
+}
+
+// Write multiple lines
+let file = fs::File::create("file.txt").await?;
+let mut writer = BufWriter::new(file);
+for item in items {
+    writer.write_all(format!("{}\n", item).as_bytes()).await?;
+}
+writer.flush().await?;
+
+// Copy with progress
+let mut src = fs::File::open("src.txt").await?;
+let mut dst = fs::File::create("dst.txt").await?;
+let mut buffer = [0u8; 8192];
+loop {
+    let n = src.read(&mut buffer).await?;
+    if n == 0 { break; }
+    dst.write_all(&buffer[..n]).await?;
+}
+
+
+```
+## Tokio Network IO Foundations
+```rust
+// ===== TOKIO NETWORK I/O =====
+use tokio::net::{TcpListener, TcpStream, UdpSocket, UnixListener, UnixStream};
+
+// TCP Server
+let listener = TcpListener::bind("127.0.0.1:8080").await?; // Bind to address
+let local_addr = listener.local_addr()?;            // Get bound address
+let (socket, addr) = listener.accept().await?;      // Accept connection
+
+// Accept loop
+loop {
+    let (socket, addr) = listener.accept().await?;
+    tokio::spawn(async move {
+        handle_client(socket).await;
+    });
+}
+
+// TCP Client
+let stream = TcpStream::connect("127.0.0.1:8080").await?; // Connect to server
+stream.peer_addr()?                                  // Get remote address
+stream.local_addr()?                                 // Get local address
+
+// TCP Read/Write
+stream.readable().await?                             // Wait until readable
+stream.writable().await?                             // Wait until writable
+let n = stream.read(&mut buffer).await?             // Read data
+stream.read_exact(&mut buffer).await?               // Read exact amount
+stream.write_all(b"data").await?                    // Write all data
+stream.flush().await?                                // Flush write buffer
+
+// Split TCP stream for concurrent read/write
+let (mut read_half, mut write_half) = stream.into_split();
+read_half.read(&mut buffer).await?;
+write_half.write_all(b"data").await?;
+
+// Or with borrowing
+let (read_half, write_half) = stream.split();
+
+// TCP socket options
+stream.set_nodelay(true)?                            // Disable Nagle's algorithm
+stream.nodelay()?                                    // Get nodelay status
+stream.set_ttl(64)?                                  // Set TTL
+stream.ttl()?                                        // Get TTL
+stream.set_linger(Some(Duration::from_secs(5)))?   // Set SO_LINGER
+
+// Shutdown TCP stream
+stream.shutdown().await?                             // Shutdown both directions
+
+// UDP Socket
+let socket = UdpSocket::bind("127.0.0.1:8080").await?; // Bind UDP socket
+socket.connect("127.0.0.1:9090").await?             // Connect to remote (optional)
+
+let n = socket.send_to(b"data", "127.0.0.1:9090").await?; // Send to address
+let (n, addr) = socket.recv_from(&mut buffer).await?; // Receive from any
+
+socket.send(b"data").await?                         // Send to connected address
+socket.recv(&mut buffer).await?                     // Receive from connected address
+
+socket.local_addr()?                                 // Get local address
+socket.peer_addr()?                                  // Get connected peer address
+
+// UDP socket options
+socket.set_broadcast(true)?                          // Enable broadcast
+socket.broadcast()?                                  // Get broadcast status
+socket.set_ttl(64)?                                  // Set TTL
+socket.ttl()?                                        // Get TTL
+
+// Unix Domain Sockets (Unix only)
+#[cfg(unix)]
+{
+    // Unix stream server
+    let listener = UnixListener::bind("/tmp/socket")?;
+    let (socket, addr) = listener.accept().await?;
+    
+    // Unix stream client
+    let stream = UnixStream::connect("/tmp/socket").await?;
+    
+    // Unix datagram
+    use tokio::net::UnixDatagram;
+    let socket = UnixDatagram::bind("/tmp/sock1")?;
+    socket.connect("/tmp/sock2")?;
+}
+
+// Buffered network I/O
+let stream = TcpStream::connect("127.0.0.1:8080").await?;
+let reader = BufReader::new(stream);
+let mut lines = reader.lines();
+while let Some(line) = lines.next_line().await? {
+    println!("{}", line);
+}
+
+let stream = TcpStream::connect("127.0.0.1:8080").await?;
+let mut writer = BufWriter::new(stream);
+writer.write_all(b"data").await?;
+writer.flush().await?;
+
+// HTTP-like line protocol
+let stream = TcpStream::connect("127.0.0.1:8080").await?;
+let (reader, mut writer) = tokio::io::split(stream);
+let mut reader = BufReader::new(reader);
+
+writer.write_all(b"GET / HTTP/1.1\r\n\r\n").await?;
+let mut response = String::new();
+reader.read_line(&mut response).await?;
+
+// Copy between streams
+tokio::io::copy(&mut source, &mut dest).await?     // Copy all data
+tokio::io::copy_buf(&mut buf_source, &mut dest).await?; // Copy from buffered
+
+// Common network patterns
+// Echo server
+let listener = TcpListener::bind("127.0.0.1:8080").await?;
+loop {
+    let (mut socket, _) = listener.accept().await?;
+    tokio::spawn(async move {
+        let mut buf = [0; 1024];
+        loop {
+            let n = socket.read(&mut buf).await.unwrap();
+            if n == 0 { break; }
+            socket.write_all(&buf[..n]).await.unwrap();
+        }
+    });
+}
+
+// HTTP-like request
+let mut stream = TcpStream::connect("example.com:80").await?;
+stream.write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n").await?;
+let mut response = Vec::new();
+stream.read_to_end(&mut response).await?;
+
+// Connection timeout
+use tokio::time::{timeout, Duration};
+let stream = timeout(
+    Duration::from_secs(5),
+    TcpStream::connect("127.0.0.1:8080")
+).await??;
+
+// Concurrent connections
+let mut handles = vec![];
+for i in 0..10 {
+    let handle = tokio::spawn(async move {
+        let stream = TcpStream::connect("127.0.0.1:8080").await?;
+        // work with stream
+        Ok::<_, io::Error>(())
+    });
+    handles.push(handle);
+}
+for handle in handles {
+    handle.await??;
+}
+
+// Bidirectional communication
+let stream = TcpStream::connect("127.0.0.1:8080").await?;
+let (read, write) = stream.into_split();
+
+let read_task = tokio::spawn(async move {
+    let mut reader = BufReader::new(read);
+    let mut line = String::new();
+    while reader.read_line(&mut line).await? > 0 {
+        println!("Received: {}", line);
+        line.clear();
+    }
+    Ok::<_, io::Error>(())
+});
+
+let write_task = tokio::spawn(async move {
+    let mut write = write;
+    for i in 0..10 {
+        write.write_all(format!("Message {}\n", i).as_bytes()).await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    Ok::<_, io::Error>(())
+});
+
+read_task.await??;
+write_task.await??;
+
+// UDP echo server
+let socket = UdpSocket::bind("127.0.0.1:8080").await?;
+let mut buf = [0; 1024];
+loop {
+    let (n, addr) = socket.recv_from(&mut buf).await?;
+    socket.send_to(&buf[..n], addr).await?;
+}
+
+// Graceful shutdown with signal
+use tokio::signal;
+let listener = TcpListener::bind("127.0.0.1:8080").await?;
+let shutdown = signal::ctrl_c();
+tokio::pin!(shutdown);
+
+loop {
+    tokio::select! {
+        result = listener.accept() => {
+            let (socket, _) = result?;
+            tokio::spawn(handle_connection(socket));
+        }
+        _ = &mut shutdown => {
+            println!("Shutting down");
+            break;
+        }
+    }
+}
+```

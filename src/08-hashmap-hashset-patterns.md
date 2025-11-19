@@ -1,7 +1,7 @@
 # HashMap & HashSet Patterns
 
 
-Entry API Patterns
+[Entry API Patterns]( #pattern-1-entry-api-patterns)
 
 - Problem: Double hash lookups for check-then-insert; inefficient
   conditional logic
@@ -11,7 +11,7 @@ Entry API Patterns
 - Use Cases: Word counting, LRU caches, graph adjacency, grouping,
   aggregation
 
-Custom Hash Functions
+[Custom Hash Functions](#pattern-2-custom-hash-functions)
 
 - Problem: Case sensitivity issues; composite keys need correct hashing;
   float NaN issues; SipHash slow for trusted keys
@@ -22,7 +22,7 @@ Custom Hash Functions
 - Use Cases: Case-insensitive keys, composite keys, float coordinates,
   content-addressable storage
 
-Capacity and Load Factor Optimization
+[Capacity and Load Factor Optimization](#pattern-3-capacity-and-load-factor-optimization)
 
 - Problem: No pre-allocation causes ~17 resizes for 100K entries;
   over-allocation wastes memory
@@ -32,7 +32,7 @@ Capacity and Load Factor Optimization
   resizes
 - Use Cases: Batch loading, config maps, HFT, embedded systems, caches
 
-Alternative Maps
+[Alternative Maps](#pattern-4-alternative-maps)
 
 - Problem: HashMap doesn't preserve order; no range queries; SipHash slow;
   small map overhead
@@ -42,7 +42,7 @@ Alternative Maps
 - Use Cases: BTreeMap for sorted/ranges, FxHashMap for trusted keys,
   IndexMap for ordered output
 
-Concurrent Maps
+[Concurrent Maps](#pattern-5-concurrent-maps)
 
 - Problem: Mutex<HashMap> creates contention bottleneck; 80% time waiting
   on locks
@@ -53,24 +53,63 @@ Concurrent Maps
 - Use Cases: DashMap for caches/counters, RwLock for read-heavy configs,
   Arc for immutable
 
-
-This chapter explores advanced patterns and techniques for working with hash-based collections in Rust. We'll cover the Entry API, custom hash functions, performance optimization, alternative map implementations, and concurrent access patterns through practical, real-world examples.
-
-## HashMap Foundations
-
+ ## Overview
 Rust's `HashMap<K, V>` is a hash table implementation that provides O(1) average-case performance for insertions, deletions, and lookups. It uses a robust hashing algorithm (SipHash 1-3) by default, which protects against hash collision denial-of-service (DoS) attacks. The HashMap automatically manages capacity and resizes when the load factor (ratio of entries to buckets) exceeds approximately 0.875. Keys must implement the `Eq` and `Hash` traits, ensuring that equal keys produce identical hash values—a critical invariant for correctness. Under the hood, HashMap uses open addressing with quadratic probing for collision resolution, storing entries in a contiguous array that enables efficient cache utilization. The collection owns both keys and values, moving them into the map on insertion, and provides flexible borrowing patterns through its API to avoid unnecessary cloning.
 
-## Table of Contents
 
-1. [Entry API Patterns](#entry-api-patterns)
-2. [Custom Hash Functions](#custom-hash-functions)
-3. [Capacity and Load Factor Optimization](#capacity-and-load-factor-optimization)
-4. [Alternative Maps](#alternative-maps)
-5. [Concurrent Maps](#concurrent-maps)
+## Hashmap Foundations
 
----
+```rust
+// Creation
+HashMap::new()                              // Empty HashMap
+HashMap::with_capacity(n)                   // Pre-allocate for n elements
+HashMap::from([("k1", v1), ("k2", v2)])    // From array of tuples
+vec![("k", v)].into_iter().collect()       // From iterator
 
-## Entry API Patterns
+// Capacity management
+map.len()                                   // Number of key-value pairs
+map.capacity()                              // Allocated capacity
+map.is_empty()                              // Check if empty
+map.reserve(n)                              // Reserve space for n more elements
+map.shrink_to_fit()                         // Reduce capacity to fit len
+map.shrink_to(n)                            // Shrink capacity to at least n
+map.clear()                                 // Remove all elements, retain capacity
+
+// Insertion
+map.insert(key, value)                      // Insert/update, returns old value
+map.entry(key).or_insert(value)            // Insert only if key doesn't exist
+map.entry(key).or_insert_with(|| val)      // Insert using closure if missing
+map.entry(key).or_default()                // Insert Default::default() if missing
+map.entry(key).and_modify(|v| *v += 1)     // Modify if exists, chain with or_insert
+
+// Retrieval
+map.get(&key)                               // Get Option<&V>
+map.get_mut(&key)                           // Get Option<&mut V>
+map.get_key_value(&key)                     // Get Option<(&K, &V)>
+map[&key]                                   // Direct access (panics if missing)
+
+// Checking existence
+map.contains_key(&key)                      // Returns bool
+
+// Removal
+map.remove(&key)                            // Remove and return Option<V>
+map.remove_entry(&key)                      // Remove and return Option<(K, V)>
+map.retain(|k, v| condition)               // Keep only matching elements
+
+// Iteration
+map.iter()                                  // Iterator over (&K, &V)
+map.iter_mut()                              // Iterator over (&K, &mut V)
+map.into_iter()                             // Iterator over (K, V), consumes map
+map.keys()                                  // Iterator over &K
+map.values()                                // Iterator over &V
+map.values_mut()                            // Iterator over &mut V
+
+// Extending & Draining
+map.extend(other_map)                       // Add all from another HashMap/iterator
+map.drain()                                 // Remove all, return iterator over (K, V)
+```
+
+## Pattern 1: Entry API Patterns
 
 **Problem**: Checking if a key exists and then inserting/updating requires two hash lookups—`contains_key()` followed by `insert()` or `get_mut()`. Implementing conditional logic (insert if absent, update if present) with separate operations is inefficient and verbose. Complex update patterns like incrementing counters or appending to values require multiple lookups and awkward Option handling.
 
@@ -80,13 +119,14 @@ Rust's `HashMap<K, V>` is a hash table implementation that provides O(1) average
 
 **Use Cases**: Word/frequency counting, LRU caches, graph adjacency lists, grouping operations (group-by), default value initialization, conditional updates (increment counters), aggregation pipelines.
 
-### Pattern 1: LRU Cache with Entry API
+### Example: LRU Cache with Entry API
 
-**Problem**: Implement a Least Recently Used (LRU) cache that efficiently tracks access order and evicts least recently used items.
-
-**Solution**:
+ Implement a Least Recently Used (LRU) cache that efficiently tracks access order and evicts least recently used items.
 
 ```rust
+//================================
+// Least Recently Used (LRU) cache
+//================================
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 
@@ -149,9 +189,7 @@ where
     }
 }
 
-//==============
 // Example usage
-//==============
 fn main() {
     let mut cache = LruCache::new(3);
 
@@ -175,13 +213,10 @@ fn main() {
 - `Entry::Vacant` handles insertions with capacity checks
 - Time complexity: O(1) average for get/put
 
----
 
-### Pattern 2: Word Frequency Counter
+### Example: Word Frequency Counter
 
-**Problem**: Count word frequencies in a large text corpus efficiently, handling case-insensitive matching and Unicode.
-
-**Solution**:
+ Count word frequencies in a large text corpus efficiently, handling case-insensitive matching and Unicode.
 
 ```rust
 use std::collections::HashMap;
@@ -281,13 +316,9 @@ fn main() {
 - `and_modify()`: Chain modification of existing entries
 - Batch processing reduces HashMap resizing
 
----
+### Example: Graph Adjacency List Construction
 
-### Pattern 3: Graph Adjacency List Construction
-
-**Problem**: Build an adjacency list representation of a graph efficiently, supporting both directed and undirected edges.
-
-**Solution**:
+ Build an adjacency list representation of a graph efficiently, supporting both directed and undirected edges.
 
 ```rust
 use std::collections::{HashMap, HashSet};
@@ -404,13 +435,9 @@ fn main() {
 - Avoids checking if key exists before inserting
 - Cleaner code compared to manual if-let patterns
 
----
 
-### Pattern 4: Grouping and Aggregation
-
-**Problem**: Group items by a key and perform aggregations (count, sum, average) efficiently.
-
-**Solution**:
+### Example: Grouping and Aggregation
+ Group items by a key and perform aggregations (count, sum, average) efficiently.
 
 ```rust
 use std::collections::HashMap;
@@ -587,9 +614,9 @@ fn main() {
 - `or_insert_with(Default::default)`: Generic initialization
 - Chaining entry access with modifications
 
----
 
-## Custom Hash Functions
+
+## Pattern 2: Custom Hash Functions
 
 **Problem**: Default hashing treats "ABC" and "abc" as different keys—case-insensitive lookups require normalizing every query. Composite keys like `(user_id, session_id)` need to implement Hash correctly to avoid collisions. Floating-point keys are tricky due to NaN != NaN. Default SipHash is cryptographically strong but slow—using it for trusted integer keys wastes 10x performance. Custom types without derived Hash can't be map keys.
 
@@ -599,11 +626,9 @@ fn main() {
 
 **Use Cases**: Case-insensitive string keys (usernames, HTTP headers), composite keys (multi-field lookups), floating-point coordinates (with epsilon equality), content-addressable storage, performance-critical maps with trusted integer keys, custom types needing special equality.
 
-### Pattern 5: Case-Insensitive String Keys
+### Example: Case-Insensitive String Keys
 
-**Problem**: Create a HashMap where string keys are case-insensitive ("Hello" and "hello" are the same key).
-
-**Solution**:
+Create a HashMap where string keys are case-insensitive ("Hello" and "hello" are the same key).
 
 ```rust
 use std::collections::HashMap;
@@ -694,11 +719,9 @@ fn main() {
 
 ---
 
-### Pattern 6: Composite Keys and Custom Types
+### Example: Composite Keys and Custom Types
 
-**Problem**: Use complex composite keys (e.g., (user_id, timestamp, event_type)) efficiently in a HashMap.
-
-**Solution**:
+ Use complex composite keys (e.g., (user_id, timestamp, event_type)) efficiently in a HashMap.
 
 ```rust
 use std::collections::HashMap;
@@ -893,11 +916,9 @@ fn main() {
 
 ---
 
-### Pattern 7: Hashing Floating-Point Numbers
+### Example: Hashing Floating-Point Numbers
 
-**Problem**: Use floating-point coordinates as HashMap keys (floats don't implement `Hash` due to NaN issues).
-
-**Solution**:
+Use floating-point coordinates as HashMap keys (floats don't implement `Hash` due to NaN issues)
 
 ```rust
 use std::collections::HashMap;
@@ -1092,7 +1113,7 @@ fn main() {
 
 ---
 
-## Capacity and Load Factor Optimization
+## Pattern 3: Capacity and Load Factor Optimization
 
 **Problem**: Creating HashMaps without capacity hints causes repeated resizing—each resize rehashes all entries and allocates new backing array. Building a 100K-entry map without pre-allocation triggers ~17 resizes. Over-allocating wastes memory for long-lived maps. Default load factor (0.875) trades memory for speed, but isn't always optimal. Resizing during hot paths causes latency spikes.
 
@@ -1102,11 +1123,9 @@ fn main() {
 
 **Use Cases**: Batch data loading (pre-allocate for dataset size), configuration maps (shrink after loading), high-frequency trading (avoid resize latency), embedded systems (minimize memory overhead), caches (balance memory vs performance), long-lived lookup tables.
 
-### Pattern 8: Pre-Allocated Collections for Batch Processing
+### Example: Pre-Allocated Collections for Batch Processing
 
-**Problem**: Process large datasets efficiently by pre-allocating HashMap capacity to avoid resizing.
-
-**Solution**:
+ Process large datasets efficiently by pre-allocating HashMap capacity to avoid resizing.
 
 ```rust
 use std::collections::HashMap;
@@ -1286,11 +1305,9 @@ fn main() {
 
 ---
 
-### Pattern 9: Memory-Efficient HashMap Configuration
+### Example: Memory-Efficient HashMap Configuration
+ Minimize memory usage for HashMaps while maintaining acceptable performance.
 
-**Problem**: Minimize memory usage for HashMaps while maintaining acceptable performance.
-
-**Solution**:
 
 ```rust
 use std::collections::HashMap;
@@ -1479,7 +1496,7 @@ fn main() {
 
 ---
 
-## Alternative Maps
+## Pattern 4: Alternative Maps
 
 **Problem**: HashMap doesn't preserve insertion/sorted order—iterating keys is unpredictable. Range queries (find all keys between X and Y) are O(N) in HashMap. Default SipHash is slow for trusted integer keys—10x slower than simpler hashes. Small maps (< 10 entries) waste memory with HashMap's overhead. Deterministic iteration is needed for reproducible builds or testing.
 
@@ -1489,11 +1506,9 @@ fn main() {
 
 **Use Cases**: BTreeMap for sorted iteration (timestamps, priority queues), range queries (time ranges, IP ranges), deterministic output. FxHashMap for compiler internals, trusted integer keys, hot paths. IndexMap for ordered JSON output, LRU caches, command-line arguments. Arrays for tiny fixed-size maps (< 5 entries).
 
-### Pattern 10: BTreeMap for Ordered Operations
+### Example: BTreeMap for Ordered Operations
 
-**Problem**: Need to maintain sorted keys and perform range queries efficiently.
-
-**Solution**:
+Maintain sorted keys and perform range queries efficiently.
 
 ```rust
 use std::collections::BTreeMap;
@@ -1711,11 +1726,10 @@ fn main() {
 
 ---
 
-### Pattern 11: FxHashMap for Performance
+### Example: FxHashMap for Performance
 
-**Problem**: Need faster hashing for integer keys or when cryptographic security isn't required.
+Faster hashing for integer keys or when cryptographic security isn't required.
 
-**Solution**:
 
 ```rust
 //=============================================
@@ -1930,7 +1944,7 @@ fn main() {
 
 ---
 
-## Concurrent Maps
+## Pattern 5: Concurrent Maps
 
 **Problem**: Wrapping HashMap in `Mutex<HashMap<K, V>>` or `RwLock<HashMap<K, V>>` creates contention—all threads block on a single lock even for different keys. High-concurrency servers spend 80% of time waiting on locks. Read-heavy workloads suffer from exclusive writer blocking all readers. Manual fine-grained locking (sharding) is error-prone and complex. Atomic operations can't update HashMap entries atomically.
 
@@ -1940,16 +1954,12 @@ fn main() {
 
 **Use Cases**: DashMap for high-concurrency caches, session stores, request counters. RwLock for configuration maps (read-heavy), lookup tables. Mutex for low-contention maps, small critical sections. Manual sharding for extreme scale, custom load distribution. Arc for immutable shared state (compiled configs, static lookup).
 
-### Pattern 12: DashMap for Concurrent Access
+### Example: DashMap for Concurrent Access
+ Multiple threads read and write to a shared map concurrently with minimal contention.
 
-**Problem**: Multiple threads need to read and write to a shared map concurrently with minimal contention.
-
-**Solution**:
 
 ```rust
-//==========================================
 // Note: Add `dashmap = "5.5"` to Cargo.toml
-//==========================================
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::thread;
@@ -2150,9 +2160,7 @@ impl TaskTracker {
     }
 }
 
-//==============
 // Example usage
-//==============
 fn main() {
     println!("=== Concurrent Cache ===\n");
 
@@ -2265,13 +2273,12 @@ fn main() {
 
 **Performance**: 10-100x faster than `Arc<Mutex<HashMap>>` for read-heavy workloads
 
----
 
-### Pattern 13: Comparison of Concurrent Strategies
 
-**Problem**: Choose the right concurrent map strategy for different scenarios.
+### Example: Comparison of Concurrent Strategies
 
-**Solution**:
+Choose the right concurrent map strategy for different scenarios.
+
 
 ```rust
 use dashmap::DashMap;
@@ -2433,7 +2440,7 @@ fn main() {
 | Simple access patterns | `Mutex<HashMap>` | Easier to reason about |
 | Complex operations | `Mutex<HashMap>` | Full control with guards |
 
----
+
 
 ## Summary
 

@@ -1,6 +1,6 @@
 # Atomic Operations & Lock-Free Programming
 
-Memory Ordering Semantics
+[Memory Ordering Semantics](#pattern-1-memory-ordering-semantics)
 
 - Problem: CPU reordering and compiler optimizations break lock-free
   algorithms; wrong ordering causes races
@@ -11,7 +11,7 @@ Memory Ordering Semantics
 - Use Cases: Lock-free structures, Arc, flags, synchronization, atomic
   counters, wait-free algorithms
 
-Compare-and-Swap Patterns
+[Compare-and-Swap Patterns](#pattern-2-compare-and-swap-patterns)
 
 - Problem: Implementing lock-free operations requires atomic updates; ABA
   problem breaks naive CAS
@@ -22,7 +22,7 @@ Compare-and-Swap Patterns
 - Use Cases: Lock-free stacks, atomic max tracking, conditional updates,
   version tracking
 
-Lock-Free Data Structures
+[Lock-Free Data Structures](#pattern-3-lock-free-data-structures)
 
 - Problem: Mutex serializes access (80% time waiting); deadlocks; priority
   inversion; no real parallelism
@@ -33,7 +33,7 @@ Lock-Free Data Structures
 - Use Cases: Work-stealing queues, MPMC queues, real-time systems,
   high-throughput servers
 
-Hazard Pointers
+[Hazard Pointers](#pattern-4-hazard-pointers)
 
 - Problem: Lock-free structures need memory reclamation; can't free nodes
   (use-after-free risk)
@@ -44,7 +44,7 @@ Hazard Pointers
 - Use Cases: Production lock-free stacks/queues, concurrent data structures,
   safe memory management
 
-Seqlock Pattern
+[Seqlock Pattern](#pattern-5-seqlock-pattern)
 
 - Problem: Frequent reads of small data; locks too expensive; atomics
   insufficient for multi-field updates
@@ -56,64 +56,47 @@ Seqlock Pattern
   metrics, configuration
 
 
-This chapter explores low-level concurrent programming using atomic operations and lock-free data structures. We'll cover memory ordering semantics, compare-and-swap patterns, lock-free algorithms, memory reclamation strategies, and specialized synchronization patterns through practical, production-ready examples.
+## Overview
 
-## Why Use Lock-Free
+- Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits.
+A stalled or slow thread cannot prevent others from making progress.
+Ideal for real-time or latency-critical applications. 
 
-### **1. Avoid Blocking**
-Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits.
-
-Lock-free operations never block:
-- A stalled or slow thread cannot prevent others from making progress.
-- Ideal for real-time or latency-critical applications.
-
-**Example:** In an audio processing thread, blocking even briefly can cause audible glitches.
+1. Lock-free operations never block    
+   Example: In an audio processing thread, blocking even briefly can cause audible glitches.
 
 
-### **2. Progress Guarantees**
-Lock-free structures guarantee **system-wide progress**:
-- *Lock-free*: at least **one** thread always makes progress.
-- *Wait-free*: **every** thread makes progress within a bounded time.
+- Locks guarantee nothing under contention—threads can starve.
 
-Locks guarantee nothing under contention—threads can starve.
+2. Lock-free structures guarantee ystem-wide progress:     
+   Lock-free: at least one thread always makes progress.    
+   Wait-free: every thread makes progress within a bounded time.
 
----
+- Locks come with hazards:
+Deadlocks     
+Priority inversion (low-priority thread holds lock; high-priority thread waits)    
+Convoys (one slow thread causes others to queue)
 
-### **3. No Deadlocks, No Priority Inversion**
-Locks come with hazards:
-- Deadlocks
-- Priority inversion (low-priority thread holds lock; high-priority thread waits)
-- Convoys (one slow thread causes others to queue)
-
-Lock-free code avoids all of these because it never "holds" exclusive access.
-
-### **4. Better Scalability Under High Contention**
-With many CPUs hammering the same lock, performance collapses:
-- Threads constantly block, sleep, wake up (expensive operations)
-- Cache lines bounce between cores like crazy
-
-Lock-free operations often scale much better because:
-- They use atomic instructions (CAS, fetch_add) that avoid kernel involvement
-- They allow optimistic concurrency—many threads proceed in parallel
+3. Lock-free code avoids all of these because it never "holds" exclusive access.
 
 
-### **5. Lower Latency, Not Just Higher Throughput**
-Under load, locks often collapse into long queues, causing:
-- Latency spikes
-- Tail latency problems (p99, p999)
+- With many CPUs hammering the same lock, performance collapses:
+  Threads constantly block, sleep, wake up (expensive operations)     
+  Cache lines bounce between cores like crazy
 
-Lock-free structures often offer:
-- Predictable latency
-- Fewer outlier delays
+4. Lock-free operations often scale much better because:    
+They use atomic instructions (CAS, fetch_add) that avoid kernel involvement    
+They allow optimistic concurrency—many threads proceed in parallel    
 
 
-### **6. Useful for Specialized Cases (e.g., SPSC queues)**
-Some lock-free patterns are extremely simple and efficient:
-- Single-producer, single-consumer queue (SPSC)
-- Atomic counters
-- Seqlock reads
 
-These outperform lock-based versions by avoiding all synchronization except atomic loads/stores.
+- Under load, locks often collapse into long queues, causing:
+Latency spikes   
+Tail latency problems (p99, p999)   
+
+5. Lock-free structures often offer:    
+Predictable latency    
+Fewer outlier delays    
 
 
 # ❌ **Why *NOT* Use Lock-Free Everywhere?**
@@ -134,7 +117,7 @@ Locks are:
 > Use locks unless you have a *measurable* reason not to.
 
 
-### Summary
+### Locks vs Lock-Free
 
 | Feature | Locks | Lock-Free |
 |--------|-------|-----------|
@@ -147,17 +130,9 @@ Locks are:
 | Safety | Easy | Hard |
 
 
-## Table of Contents
 
-1. [Memory Ordering Semantics](#memory-ordering-semantics)
-2. [Compare-and-Swap Patterns](#compare-and-swap-patterns)
-3. [Lock-Free Queues and Stacks](#lock-free-queues-and-stacks)
-4. [Hazard Pointers](#hazard-pointers)
-5. [Seqlock Pattern](#seqlock-pattern)
 
----
-
-## Memory Ordering Semantics
+## Pattern 1: Memory Ordering Semantics
 
 **Problem**: CPU reordering and compiler optimizations can break lock-free algorithms—writes may be visible in different order than written. `Relaxed` ordering is fast but provides no guarantees, causing race conditions. `SeqCst` (sequentially consistent) is slow—acts like global lock on all atomics. Wrong ordering causes subtle bugs: ABA problem, data races, lost updates. Memory fence placement is complex and error-prone.
 
@@ -167,29 +142,10 @@ Locks are:
 
 **Use Cases**: Lock-free data structures (queues, stacks, maps), reference counting (Arc), flags and signals, atomic counters, synchronization primitives, wait-free algorithms.
 
-### Atomic Orderings Are not Locks
 
-Locks provide: Mutual exclusion (only one thread in critical section)
-Atomics provide: Memory visibility ordering (when writes become visible)
+### Example: Memory Ordering Fundamentals
 
-Acquire semantics: When a thread performs a read operation (like get()), it ensures that all previous writes (by other threads) are visible. This prevents reordering of operations that follow the read.
-Release semantics: When a thread performs a write operation (like set()), it ensures that all previous operations are completed before the write. This prevents reordering of operations that precede the write.
-
-
-
-| Ordering | What It Does                                                  | Use For |
-|----------|---------------------------------------------------------------|---------|
-| **Relaxed** | Atomicity only, no ordering                                   | Counters where order doesn't matter |
-| **Acquire** | that all previous writes (by other threads) are visible       | Reading after another thread signals "done" |
-| **Release** | all writes (by other threads) are completed before this write | Signaling "I'm done writing" |
-| **AcqRel** | Both Acquire + Release                                        | Read-modify-write operations (CAS, fetch_add) |
-| **SeqCst** | Total global order of all operations                          | When you need strongest guarantees |
-
-### Pattern 1: Memory Ordering Fundamentals
-
-**Problem**: Understand different memory orderings and their performance/correctness trade-offs.
-
-**Solution**:
+Understand different memory orderings and their performance/correctness trade-offs.
 
 ```rust
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -464,13 +420,11 @@ fn main() {
 | AcqRel | Both Acquire and Release | RMW operations | Medium |
 | SeqCst | Total order across all threads | When correctness is critical | Slowest |
 
----
 
-### Pattern 2: Fence Operations
+### Example: Fence Operations
 
-**Problem**: Establish memory ordering without atomic operations, or strengthen ordering of existing atomics.
+Establish memory ordering without atomic operations, or strengthen ordering of existing atomics.
 
-**Solution**:
 
 ```rust
 use std::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
@@ -577,9 +531,7 @@ fn main() {
 - **compiler_fence(Ordering)**: Compiler-only barrier (no CPU fence)
 - Use for: MMIO, DMA, FFI boundaries
 
----
-
-## Compare-and-Swap Patterns
+## Pattern 2: Compare-and-Swap Patterns
 
 **Problem**: Implementing lock-free operations requires atomic read-modify-write. Naive approaches have race conditions when multiple threads update simultaneously. Need to detect when value changed between read and write. ABA problem: value changes A→B→A, CAS succeeds but intermediate state was different. Conditional updates require careful retry logic.
 
@@ -589,11 +541,8 @@ fn main() {
 
 **Use Cases**: Lock-free stacks and queues, atomic max/min tracking, conditional increments (rate limiting), version tracking, optimistic updates, retry logic.
 
-### Pattern 3: CAS Basics and Patterns
-
-**Problem**: Use compare-and-swap to implement lock-free operations correctly.
-
-**Solution**:
+### Example: CAS Basics and Patterns
+Using compare-and-swap to implement lock-free operations correctly.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
@@ -869,13 +818,11 @@ fn main() {
 - **compare_exchange**: Use outside loops (stronger guarantee)
 - **Failure handling**: Update current value on failure
 
----
 
-### Pattern 4: ABA Problem and Solutions
 
-**Problem**: Detect and prevent the ABA problem where a value changes from A to B back to A, fooling CAS.
+### Example: ABA Problem and Solutions
 
-**Solution**:
+Detect and prevent the ABA problem where a value changes from A to B back to A, fooling CAS.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
@@ -1124,9 +1071,7 @@ fn main() {
 3. **Epoch-based reclamation**: Defer deletion until safe
 4. **Hazard pointers**: Track active pointers (next Pattern)
 
----
-
-## Lock-Free Queues and Stacks
+## Pattern 3: Lock-Free Queues and Stacks
 
 **Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting. Priority inversion: low-priority thread holds lock, blocking high-priority thread. Deadlocks from lock ordering mistakes. Panics while holding lock poison the mutex. Real-time systems can't tolerate lock-induced latency spikes.
 
@@ -1136,11 +1081,10 @@ fn main() {
 
 **Use Cases**: Work-stealing task queues (tokio, rayon), MPMC message passing, real-time audio/video processing, high-frequency trading, concurrent data structure building blocks, actor system mailboxes.
 
-### Pattern 5: Treiber Stack (Lock-Free Stack)
+### Example: Treiber Stack (Lock-Free Stack)
 
-**Problem**: Implement a lock-free stack that allows concurrent push/pop operations.
+*A lock-free stack that allows concurrent push/pop operations.
 
-**Solution**:
 
 ```rust
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -1389,13 +1333,9 @@ fn main() {
 - **Pop**: O(1) average case
 - **ABA problem**: Requires protection (hazard pointers or epoch GC)
 
----
+### Example: Lock-Free Queue (MPSC)
 
-### Pattern 6: Lock-Free Queue (MPSC)
-
-**Problem**: Implement a multi-producer single-consumer lock-free queue.
-
-**Solution**:
+A multi-producer single-consumer lock-free queue.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, AtomicBool, Ordering, AtomicUsize};
@@ -1649,7 +1589,7 @@ fn main() {
 
 ---
 
-## Hazard Pointers
+## Pattern 4: Hazard Pointers
 
 **Problem**: Lock-free structures need memory reclamation—can't immediately free nodes because other threads might access them. Naive deletion causes use-after-free. Reference counting (Arc) adds overhead and doesn't solve the problem (threads can hold pointer after refcount=0). Garbage collection would solve it but Rust doesn't have GC. Memory leaks accumulate if nodes are never freed. ABA problem makes safe reclamation even harder.
 
@@ -1659,11 +1599,9 @@ fn main() {
 
 **Use Cases**: Production lock-free stacks and queues, concurrent hash maps, lock-free linked lists, RCU-style updates, safe memory management without GC, building blocks for complex concurrent data structures.
 
-### Pattern 7: Hazard Pointer Implementation
+### Example: Hazard Pointer Implementation
 
-**Problem**: Safely reclaim memory in lock-free structures without use-after-free.
-
-**Solution**:
+Safely reclaim memory in lock-free structures without use-after-free.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
@@ -1967,7 +1905,7 @@ fn main() {
 
 ---
 
-## Seqlock Pattern
+## Pattern 5: Seqlock Pattern
 
 **Problem**: Frequent reads of small data with occasional writes. Mutex too expensive (blocks readers). Reader-writer lock still has overhead and priority issues. Atomics insufficient for multi-field updates (coordinates, stats). Need consistency: read all fields from same write. CAS-based approaches complex for multiple fields. Want zero-cost reads in common case (no writes).
 
@@ -1977,11 +1915,8 @@ fn main() {
 
 **Use Cases**: Game entity positions/state, real-time sensor data, network statistics and metrics, configuration that changes rarely, performance counters, dashboard data, time-series snapshots, read-heavy caches.
 
-### Pattern 8: Seqlock Implementation
-
-**Problem**: Allow fast, lock-free reads with occasional writes for small data structures.
-
-**Solution**:
+### Example: Seqlock Implementation
+Allow fast, lock-free reads with occasional writes for small data structures.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2256,11 +2191,10 @@ fn main() {
 
 ---
 
-### Pattern 9: Advanced Atomic Patterns
+### Example: Advanced Atomic Patterns
 
-**Problem**: Implement specialized concurrent patterns using atomics.
+Specialized concurrent patterns using atomics.
 
-**Solution**:
 
 ```rust
 use std::sync::atomic::{AtomicU64, AtomicUsize, AtomicBool, Ordering};
@@ -2647,3 +2581,23 @@ This chapter covered atomic operations and lock-free programming:
 - Atomic operations are safe
 - Raw pointers in lock-free structures require unsafe
 - Use existing libraries (crossbeam) when possible
+
+## Atomic Foundation
+```rust
+// Atomic types
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+let atom = AtomicI32::new(0)                        // Create atomic
+atom.load(Ordering::SeqCst)                         // Read value
+atom.store(5, Ordering::SeqCst)                     // Write value
+atom.fetch_add(1, Ordering::SeqCst)                 // Atomic increment, return old
+atom.fetch_sub(1, Ordering::SeqCst)                 // Atomic decrement
+atom.swap(10, Ordering::SeqCst)                     // Swap value
+atom.compare_exchange(old, new, success, failure)   // CAS operation
+
+// Memory orderings
+Ordering::Relaxed                                    // No ordering guarantees
+Ordering::Acquire                                    // Read barrier
+Ordering::Release                                    // Write barrier
+Ordering::AcqRel                                     // Both acquire and release
+Ordering::SeqCst                                     // Sequential consistency (safest)
+```

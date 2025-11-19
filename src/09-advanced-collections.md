@@ -1,6 +1,6 @@
 # Advanced Collections
 
-VecDeque and Ring Buffers
+[VecDeque and Ring Buffers](#vecdeque-and-ring-buffers)
 
 - Problem: Vec only O(1) at one end; queue operations O(N); manual ring
   buffer wrapping
@@ -11,7 +11,7 @@ VecDeque and Ring Buffers
 - Use Cases: FIFO queues, deques, ring buffers, sliding windows, BFS,
   undo/redo
 
-BinaryHeap and Priority Queues
+[BinaryHeap and Priority Queues](#binaryheap-and-priority-queues)   
 
 - Problem: Sorting after each insert O(N log N); finding min/max O(N);
   full sort for top-K wasteful
@@ -22,7 +22,7 @@ BinaryHeap and Priority Queues
 - Use Cases: Task scheduling, event simulation, pathfinding, top-K,
   deadline scheduling
 
-Graph Representations
+[Graph Representations](#graph-representations)
 
 - Problem: Recursive structures fight ownership; Rc verbose; wrong choice
   kills performance
@@ -33,7 +33,7 @@ Graph Representations
 - Use Cases: Adjacency list for social networks/sparse; matrix for
   dense/grid; HashMap for dynamic
 
-Trie and Radix Tree Structures
+[Trie and Radix Tree Structures](#trie-and-radix-tree-structures)
 
 - Problem: HashMap prefix search O(N); autocomplete checks all words;
   shared prefixes waste memory
@@ -44,7 +44,7 @@ Trie and Radix Tree Structures
 - Use Cases: Autocomplete, spell check, IP routing, phonebook, DNA
   matching, compression
 
-Lock-Free Data Structures
+[Lock-Free Data Structures](#lock-free-data-structures)
 
 - Problem: Mutex serializes all access; 80% time waiting; deadlocks;
   priority inversion
@@ -56,19 +56,12 @@ Lock-Free Data Structures
   maps, real-time systems
 
 
+## Overview
 This chapter explores advanced collection types and data structures beyond the standard Vec and HashMap. We'll cover double-ended queues, priority queues, graph representations, prefix trees, and lock-free concurrent data structures through practical, real-world examples.
 
-## Table of Contents
 
-1. [VecDeque and Ring Buffers](#vecdeque-and-ring-buffers)
-2. [BinaryHeap and Priority Queues](#binaryheap-and-priority-queues)
-3. [Graph Representations](#graph-representations)
-4. [Trie and Radix Tree Structures](#trie-and-radix-tree-structures)
-5. [Lock-Free Data Structures](#lock-free-data-structures)
 
----
-
-## VecDeque and Ring Buffers
+## Pattern 1: VecDeque and Ring Buffers
 
 **Problem**: Vec only supports O(1) operations at one end—`push_front()` requires shifting all elements making it O(N). Implementing queues (FIFO) with Vec is inefficient: either `pop(0)` is O(N) or reversing is needed. Ring buffers with Vec require manual index wrapping. Sliding window algorithms with Vec allocate for every window position.
 
@@ -78,11 +71,9 @@ This chapter explores advanced collection types and data structures beyond the s
 
 **Use Cases**: FIFO queues (task processing, message queues), deques (double-ended queues), ring buffers (audio/video streaming, fixed-size logs), sliding windows (moving averages, pattern matching), BFS traversal, undo/redo stacks.
 
-### Pattern 1: Task Queue with Priority Lanes
+### Example: Task Queue with Priority Lanes
 
-**Problem**: Implement a multi-lane task queue where tasks can be added and removed from both ends efficiently.
-
-**Solution**:
+ A multi-lane task queue where tasks can be added and removed from both ends efficiently.
 
 ```rust
 use std::collections::VecDeque;
@@ -227,11 +218,10 @@ fn main() {
 
 ---
 
-### Pattern 2: Ring Buffer for Real-Time Data
+### Example: Ring Buffer for Real-Time Data
 
-**Problem**: Implement a fixed-size circular buffer that overwrites oldest data when full, commonly used for sensor data, logging, and audio processing.
+A fixed-size circular buffer that overwrites oldest data when full, commonly used for sensor data, logging, and audio processing.
 
-**Solution**:
 
 ```rust
 use std::collections::VecDeque;
@@ -441,11 +431,9 @@ fn main() {
 
 ---
 
-### Pattern 3: Deque-Based Sliding Window Maximum
+### Example: Deque-Based Sliding Window Maximum
 
-**Problem**: Find the maximum value in every sliding window of size k in an array efficiently (O(n) time).
-
-**Solution**:
+Find the maximum value in every sliding window of size k in an array efficiently (O(n) time).
 
 ```rust
 use std::collections::VecDeque;
@@ -636,7 +624,7 @@ fn main() {
 
 ---
 
-## BinaryHeap and Priority Queues
+## Pattern 2: BinaryHeap and Priority Queues
 
 **Problem**: Maintaining a sorted collection with frequent insertions is expensive—sorting after each insert is O(N log N). Finding the min/max element in unsorted Vec is O(N). Priority-based task scheduling requires efficiently extracting highest-priority item. Top-K problems need partial sorting but full sort wastes work. Event scheduling requires ordered timestamp processing.
 
@@ -646,11 +634,9 @@ fn main() {
 
 **Use Cases**: Priority task scheduling, event simulation (process by timestamp), Dijkstra/A* pathfinding, top-K element finding (median, percentiles), merge K sorted lists, deadline scheduling, rate limiting.
 
-### Pattern 4: Task Scheduler with Deadlines
+### Example: Task Scheduler with Deadlines
 
-**Problem**: Schedule tasks based on priority and deadlines, ensuring high-priority tasks are executed first.
-
-**Solution**:
+Schedule tasks based on priority and deadlines, ensuring high-priority tasks are executed first.
 
 ```rust
 use std::collections::BinaryHeap;
@@ -898,11 +884,8 @@ fn main() {
 
 ---
 
-### Pattern 5: K-way Merge and Median Tracking
-
-**Problem**: Merge k sorted lists efficiently, and track the median of a stream of numbers.
-
-**Solution**:
+### Example: K-way Merge and Median Tracking
+ Merge k sorted lists efficiently, and track the median of a stream of numbers
 
 ```rust
 use std::collections::BinaryHeap;
@@ -1100,11 +1083,9 @@ fn main() {
 
 ---
 
-### Pattern 6: Top-K Frequent Elements
+### Example: Top-K Frequent Elements
 
-**Problem**: Find the k most frequent elements in a stream efficiently.
-
-**Solution**:
+Find the k most frequent elements in a stream efficiently.
 
 ```rust
 use std::collections::{HashMap, BinaryHeap};
@@ -1295,7 +1276,7 @@ fn main() {
 
 ---
 
-## Graph Representations
+## Pattern 3: Graph Representations
 
 **Problem**: Naive graph implementations with recursive structures hit Rust's ownership rules—nodes can't mutually reference each other without causing cycles. Using `Rc<RefCell<Node>>` everywhere is verbose and has runtime overhead. Dense graphs with adjacency matrices waste O(V²) memory when edges are sparse. Edge-list representations make neighbor queries O(E). Choosing wrong representation kills algorithm performance.
 
@@ -1305,11 +1286,9 @@ fn main() {
 
 **Use Cases**: Adjacency list for social networks, dependency graphs, road networks (sparse). Adjacency matrix for complete graphs, grid-based pathfinding, dense weighted graphs. HashMap-based for dynamic graphs (adding/removing nodes), unknown node sets.
 
-### Pattern 7: Adjacency List with Weighted Edges
+### Example: Adjacency List with Weighted Edges
 
-**Problem**: Implement a graph with weighted edges for algorithms like Dijkstra's shortest path.
-
-**Solution**:
+A graph with weighted edges for algorithms like Dijkstra's shortest path.
 
 ```rust
 use std::collections::{HashMap, BinaryHeap, HashSet};
@@ -1538,11 +1517,9 @@ fn main() {
 
 ---
 
-### Pattern 8: Topological Sort and Dependency Resolution
+### Example: Topological Sort and Dependency Resolution
 
-**Problem**: Order tasks respecting dependencies, detect cycles in dependency graphs.
-
-**Solution**:
+Order tasks respecting dependencies, detect cycles in dependency graphs.
 
 ```rust
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1790,7 +1767,7 @@ fn main() {
 
 ---
 
-## Trie and Radix Tree Structures
+## Pattern 4: Trie and Radix Tree Structures
 
 **Problem**: Finding all strings with a given prefix in HashMap requires checking every key—O(N) with N strings. Autocomplete for 1M words checks all 1M. Longest common prefix requires pairwise comparisons. IP routing tables need longest prefix matching. HashSet can't efficiently answer "words starting with 'pre'". Storing dictionary with shared prefixes wastes memory ("pre", "prefix", "preview" store "pre" three times).
 
@@ -1800,11 +1777,9 @@ fn main() {
 
 **Use Cases**: Autocomplete (search engines, IDEs, command completion), spell checkers (dictionary lookup, suggestions), IP routing (longest prefix match), phonebook search by prefix, DNA sequence matching, text compression (shared prefix storage).
 
-### Pattern 9: Trie for Autocomplete and Prefix Search
+### Example: Trie for Autocomplete and Prefix Search
 
-**Problem**: Implement autocomplete functionality with fast prefix matching.
-
-**Solution**:
+Autocomplete with fast prefix matching.
 
 ```rust
 use std::collections::HashMap;
@@ -2090,11 +2065,9 @@ fn main() {
 
 ---
 
-### Pattern 10: Radix Tree for Compressed Trie
+### Example: Radix Tree for Compressed Trie
 
-**Problem**: Implement a space-efficient radix tree (compressed trie) for storing strings with common prefixes.
-
-**Solution**:
+A space-efficient radix tree (compressed trie) for storing strings with common prefixes.
 
 ```rust
 use std::collections::HashMap;
@@ -2363,7 +2336,7 @@ fn main() {
 
 ---
 
-## Lock-Free Data Structures
+## Pattern 5: Lock-Free Data Structures
 
 **Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting. Priority inversion: low-priority thread holds lock, blocking high-priority thread. Deadlocks from lock ordering mistakes. Panics while holding lock poison the mutex. Real-time systems can't tolerate lock-induced latency spikes.
 
@@ -2373,11 +2346,9 @@ fn main() {
 
 **Use Cases**: MPMC queues (work-stealing schedulers, actor systems), atomic counters (metrics, rate limiting), lock-free stacks (memory allocators), concurrent hash maps (caches, indexes), real-time systems (audio, trading), high-throughput servers.
 
-### Pattern 11: Lock-Free Stack
+### Example: Lock-Free Stack
 
-**Problem**: Implement a thread-safe stack without using mutexes, allowing multiple threads to push/pop concurrently.
-
-**Solution**:
+A thread-safe stack without using mutexes, allowing multiple threads to push/pop concurrently.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -2559,13 +2530,9 @@ fn main() {
 - **Memory Ordering**: Acquire/Release semantics for correct synchronization
 - **Progress Guarantee**: At least one thread makes progress
 
----
+### Example: Lock-Free Queue with Crossbeam
 
-### Pattern 12: Lock-Free Queue with Crossbeam
-
-**Problem**: Implement a production-ready lock-free MPMC (Multi-Producer Multi-Consumer) queue.
-
-**Solution**:
+Production-ready lock-free MPMC (Multi-Producer Multi-Consumer) queue.
 
 ```rust
 //============================================
