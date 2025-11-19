@@ -1,7 +1,7 @@
 # Chapter 1: Memory & Ownership Patterns
 
 
-Pattern 1: Clone-on-Write (Cow)
+[Pattern 1: Clone-on-Write (Cow)](#pattern-1-zero-copy-with-clone-on-write-cow)
 
 - Problem: Functions face a dilemma between always cloning (wasteful) or
   awkward API design
@@ -12,7 +12,7 @@ Pattern 1: Clone-on-Write (Cow)
 - Use Cases: String normalization, path canonicalization, validation, HTML
   escaping
 
-Pattern 2: Interior Mutability (Cell/RefCell)
+[Pattern 2: Interior Mutability (Cell/RefCell)](#pattern-2-interior-mutability-with-cell-and-refcell)
 
 - Problem: Some designs need mutation through &self, but Rust requires
   &mut self
@@ -20,7 +20,7 @@ Pattern 2: Interior Mutability (Cell/RefCell)
 - Why It Matters: Essential for caching, graphs, and observer patterns
 - Use Cases: Memoization, counters, graph structures, event systems
 
-Pattern 3: Thread-Safe Interior Mutability (Mutex/RwLock)
+[Pattern 3: Thread-Safe Interior Mutability (Mutex/RwLock)](#pattern-3-thread-safe-interior-mutability-mutex-and-rwlock)
 
 - Problem: RefCell isn't thread-safe; need shared mutable state without
   data races
@@ -28,21 +28,21 @@ Pattern 3: Thread-Safe Interior Mutability (Mutex/RwLock)
 - Why It Matters: Makes data races impossible to compile
 - Use Cases: Concurrent servers, parallel algorithms, connection pools
 
-Pattern 4: RAII and Drop Guards
+[Pattern 4: RAII and Drop Guards](#pattern-4-raii-and-drop-guards)
 
 - Problem: Manual cleanup is error-prone and early returns skip cleanup
 - Solution: Tie resource cleanup to scope using the Drop trait
 - Why It Matters: Eliminates resource leaks and enables panic-safe code
 - Use Cases: File cleanup, transaction guards, lock guards, metrics
 
-Pattern 5: Memory Layout Optimization
+[Pattern 5: Memory Layout Optimization](#pattern-5-memory-layout-optimization)
 
 - Problem: Naive structs waste memory and hurt cache performance
 - Solution: Use #[repr] attributes, field ordering, cache alignment
 - Why It Matters: Difference between 10 MB/s and 1 GB/s throughput
 - Use Cases: Game engines, scientific computing, FFI, SIMD optimization
 
-Pattern 6: Arena Allocation
+[Pattern 6: Arena Allocation](#pattern-6-arena-allocation)
 
 - Problem: Allocating many small objects is slow; malloc has overhead
 - Solution: Bump allocator that hands out pointers by incrementing a
@@ -50,7 +50,7 @@ Pattern 6: Arena Allocation
 - Why It Matters: 10-100x faster than general allocators for small objects
 - Use Cases: Compilers, web servers, parsers, game engines
 
-Pattern 7: Custom Smart Pointers
+[Pattern 7: Custom Smart Pointers](#pattern-7-custom-smart-pointers)
 
 - Problem: Standard smart pointers have limitations for specialized needs
 - Solution: Build custom pointers with NonNull, PhantomData, Deref, Drop
@@ -71,9 +71,7 @@ These rules enable sophisticated zero-cost abstractions while preventing entire 
 ## Type System Foundation
 
 ```rust
-//=====================
 // Core ownership types
-//=====================
 T                    // Owned value, moved by default
 &T                   // Shared reference (immutable borrow)
 &mut T               // Exclusive reference (mutable borrow)
@@ -82,9 +80,7 @@ Rc<T>                // Reference counted (single-threaded)
 Arc<T>               // Atomic reference counted (thread-safe)
 Cow<'a, T>           // Clone-on-write smart pointer
 
-//==============================================
 // Interior mutability (runtime borrow checking)
-//==============================================
 Cell<T>              // Copy types, no borrows
 RefCell<T>           // Runtime-checked borrows, panics on violation
 Mutex<T>             // Thread-safe interior mutability
@@ -101,6 +97,7 @@ RwLock<T>            // Reader-writer lock pattern
 
 **Use Cases**: String normalization, path canonicalization, configuration with defaults, HTML escaping, parser token extraction, validation with sanitization.
 
+### Examples
 ```rust
 use std::borrow::Cow;
 
@@ -202,6 +199,7 @@ impl<'a> Config<'a> {
 
 **Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
 
+### Examples
 ```rust
 use std::cell::{Cell, RefCell};
 
@@ -317,6 +315,8 @@ impl Node {
 **Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation. Understanding these patterns is essential for writing concurrent servers, parallel algorithms, and high-performance applications.
 
 **Use Cases**: Shared counters in multi-threaded servers, concurrent caches, thread pools with shared work queues, parallel data processing with result aggregation, connection pools.
+
+### Examples
 
 ```rust
 use std::sync::{Arc, Mutex, RwLock};
@@ -457,6 +457,8 @@ fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
 **Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically. Temporary files are always deleted. Transactions always rollback on error. This pattern is fundamental to Rust's safety guarantees and enables panic-safe code.
 
 **Use Cases**: Temporary file management, database transaction guards, lock guards (mutex, RwLock), metrics timers, state flag restoration, scope-based profiling, connection cleanup in pools.
+
+### Examples
 
 ```rust
 use std::fs::File;
@@ -627,6 +629,8 @@ fn perform_operations() {}
 **Why It Matters**: Modern CPUs are dominated by memory hierarchy—cache misses cost 100-200 cycles while arithmetic costs 1-4 cycles. A cache miss is 50-100x slower than a cache hit. False sharing (two threads modifying different variables on the same cache line) serializes supposedly-parallel code. Understanding memory layout is the difference between 10 MB/s and 1 GB/s in data processing.
 
 **Use Cases**: High-frequency trading systems, game engines, scientific computing, embedded systems, FFI with C libraries, SIMD optimization, lock-free data structures.
+
+### Examples
 
 ```rust
 //==========================================
@@ -816,6 +820,8 @@ impl ParticlesSoA {
 
 **Use Cases**: Compiler frontends (AST, IR, symbol tables), web server request handlers, game engine frame allocations, graph algorithms with temporary structures, template engines, parsers and lexers.
 
+### Examples
+
 ```rust
 //================================
 // Pattern: Simple arena allocator
@@ -964,6 +970,8 @@ impl<'arena> RequestContext<'arena> {
 **Why It Matters**: Custom smart pointers enable patterns impossible with standard types. Intrusive `Rc` saves one allocation per object (critical for millions of small objects). Generational arenas let you use stable indices instead of pointers, simplifying serialization and debugging. Understanding these techniques is essential for high-performance systems programming.
 
 **Use Cases**: Game engines (entity-component systems with generational indices), database systems (buffer pool management), embedded systems (intrusive data structures for minimal overhead), kernel development, custom memory pools.
+
+### Examples
 
 ```rust
 use std::ops::{Deref, DerefMut};

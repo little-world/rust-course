@@ -1,6 +1,6 @@
 # Chapter 6: Vec & Slice Manipulation
 
-Pattern 1: Capacity Management and Amortization
+[Pattern 1: Capacity Management and Amortization](#pattern-1-capacity-management-and-amortization)
 
 - Problem: Incremental growth causes repeated reallocations; 100K elements
   = ~17 reallocations
@@ -11,7 +11,7 @@ Pattern 1: Capacity Management and Amortization
 - Use Cases: Batch processing, query results, temporary buffers in loops,
   large datasets
 
-Pattern 2: Slice Algorithms
+[Pattern 2: Slice Algorithms](#pattern-2-slice-algorithms)
 
 - Problem: Linear search O(N) when binary O(log N) possible; full sort for
   median wastes time
@@ -22,7 +22,7 @@ Pattern 2: Slice Algorithms
 - Use Cases: Database query optimization, statistics, deduplication,
   priority queues
 
-Pattern 3: Chunking and Windowing
+[Pattern 3: Chunking and Windowing](#pattern-3-chunking-and-windowing)
 
 - Problem: Element-by-element processing slow; overlapping subsequences
   waste memory
@@ -33,7 +33,7 @@ Pattern 3: Chunking and Windowing
 - Use Cases: Batch processing, signal processing, image tiles, parallel
   computation
 
-Pattern 4: Zero-Copy Slicing
+[Pattern 4: Zero-Copy Slicing](#pattern-4-zero-copy-slicing)
 
 - Problem: Parsing allocates per field; 1M CSV × 10 fields = 10M
   allocations
@@ -44,7 +44,7 @@ Pattern 4: Zero-Copy Slicing
 - Use Cases: CSV/JSON parsing, protocol parsers, text processing, binary
   formats
 
-Pattern 5: SIMD Operations
+[Pattern 5: SIMD Operations](#pattern-5-simd-operations)
 
 - Problem: Scalar code uses 1 element/instruction when CPUs can do 4-16
 - Solution: Use std::simd or packed_simd2; process SIMD-width chunks with
@@ -54,7 +54,7 @@ Pattern 5: SIMD Operations
 - Use Cases: Image/video processing, audio, numerical computing,
   compression
 
-Pattern 6: Advanced Slice Patterns
+[Pattern 6: Advanced Slice Patterns](#pattern-6-advanced-slice-patterns)
 
 - Problem: Removing during iteration complex; mutable access to two parts
   violates borrow checker
@@ -123,6 +123,8 @@ v.rotate_left(n)    // Rotate elements left
 **Why It Matters**: Pre-allocation can improve performance by 10-100x for vector construction. A data pipeline building 1M-element results: naive approach does ~20 reallocations copying ~2M elements. Pre-allocated approach: one allocation, zero copies. Memory reuse with `.clear()` eliminates allocation entirely in loops. For real-time systems, avoiding mid-operation reallocations prevents latency spikes.
 
 **Use Cases**: Batch processing (pre-allocate for batch size), collecting query results (reserve based on estimated count), temporary buffers in loops (reuse with clear), building large datasets (with_capacity), long-lived lookup tables (shrink_to_fit after construction).
+
+### Examples
 
 ```rust
 //=========================================
@@ -291,6 +293,8 @@ fn generate_dataset(n: usize) -> Vec<DataPoint> {
 
 **Use Cases**: Database query optimization (binary search on sorted indices), statistics computation (median, percentiles with select_nth), data deduplication (sort + dedup), priority queues (partition by priority), cyclic buffers (rotate operations), filtering with memory constraints (retain vs filter+collect).
 
+### Examples
+
 ```rust
 //===============================================
 // Pattern: Binary search (requires sorted slice)
@@ -442,6 +446,8 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 **Why It Matters**: Chunking improves cache locality—processing 1000-element chunks instead of individual elements can be 10-50x faster. Window operations enable signal processing algorithms (FFT, convolution) without collecting intermediate vectors—zero allocation for moving statistics. Chunks enable trivial parallelization: split data into N chunks, process on N threads. These abstractions prevent index errors that plague manual chunking code.
 
 **Use Cases**: Batch processing (database inserts, API requests), signal processing (moving averages, FFT windows), image processing (tile-based operations), parallel computation (divide work across threads), network packet assembly (fixed-size frames), time-series analysis (rolling statistics).
+
+### Examples
 
 ```rust
 //===========================
@@ -621,6 +627,8 @@ fn compute_spectrogram(signal: &[f32], window_size: usize, hop_size: usize) -> V
 **Why It Matters**: Zero-copy parsing can be 10-100x faster than allocating approach. Parsing a 100MB CSV file: allocating approach needs gigabytes of temporary memory and causes GC pressure. Zero-copy approach uses constant memory and eliminates allocation overhead entirely. Network protocol parsing benefits dramatically—handling 1M requests/second becomes feasible. The borrow checker ensures slices can't outlive data, making this safe.
 
 **Use Cases**: CSV/JSON parsing (return field slices), network protocol parsers (split packets into views), text processing (split without allocation), binary format parsing (frame headers/payloads), configuration file parsing, streaming data processors.
+
+### Examples
 
 ```rust
 //==========================================
@@ -824,6 +832,8 @@ impl<'a> HttpRequest<'a> {
 **Why It Matters**: SIMD provides 4-16x speedups for data-parallel operations. Processing 1M floats: scalar takes 1M operations, SIMD with 8-wide vectors takes 125K operations. Image processing (applying filters, color conversion) becomes 10x faster. Checksum computation, compression, and cryptography all benefit. Rust's portable SIMD compiles to optimal instructions for target CPU without unsafe code, unlike C intrinsics.
 
 **Use Cases**: Image/video processing (filters, transformations), audio processing (effects, encoding), numerical computing (matrix operations, scientific simulations), compression algorithms, checksums and hashing, database query execution, machine learning inference.
+
+### Examples
 
 ```rust
 //=======================================
@@ -1037,6 +1047,8 @@ fn normalize_vectors(vectors: &mut [Vec3]) {
 **Why It Matters**: These patterns enable complex transformations without temporary allocations. In-place compaction with swap avoids O(N²) repeated deletions. `split_at_mut` lets you work on slice parts simultaneously—impossible with single mutable borrow. Drain enables efficient element removal while processing remaining elements. Understanding these advanced patterns is the difference between elegant solutions and fighting the borrow checker with workarounds.
 
 **Use Cases**: In-place vector compaction, gap buffer implementations, sorting implementations with pivot splitting, parallel processing with split_at_mut, memory-efficient filtering, zero-copy type conversions (e.g., &[u8] to &[u32]), efficient element removal patterns.
+
+### Examples
 
 ```rust
 //============================================

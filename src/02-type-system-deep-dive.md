@@ -1,6 +1,6 @@
 # Chapter 2: Type System Pattern
 
-Pattern 1: Newtype Pattern for Type Safety
+[Pattern 1: Newtype Pattern for Type Safety](#pattern-1-newtype-pattern-for-type-safety)
 
 - Problem: Type aliases provide no safety; unit confusion bugs have
   crashed spacecraft
@@ -8,7 +8,7 @@ Pattern 1: Newtype Pattern for Type Safety
 - Why It Matters: Zero-cost compile-time bug prevention for domain types
 - Use Cases: IDs, units, validated strings, API boundaries
 
-Pattern 2: Phantom Types and Zero-Cost State Machines
+[Pattern 2: Phantom Types and Zero-Cost State Machines](#pattern-2-phantom-types-and-zero-cost-state-machines)
 
 - Problem: Runtime state machines allow invalid transitions
 - Solution: Zero-sized type parameters encode states; transitions consume
@@ -16,7 +16,7 @@ Pattern 2: Phantom Types and Zero-Cost State Machines
 - Why It Matters: Security vulnerabilities and crashes become impossible
 - Use Cases: Protocols, resource lifecycle, builders, permission systems
 
-Pattern 3: Generic Associated Types (GATs)
+[Pattern 3: Generic Associated Types (GATs)](#pattern-3-generic-associated-types-gats)
 
 - Problem: Can't express lending iterators or async traits with lifetimes
 - Solution: Associated types with generic parameters (lifetimes)
@@ -24,7 +24,7 @@ Pattern 3: Generic Associated Types (GATs)
 - Use Cases: Lending iterators, database rows, async traits, pointer
   families
 
-Pattern 4: Type-Level Programming with Const Generics
+[Pattern 4: Type-Level Programming with Const Generics](#pattern-4-type-level-programming-with-const-generics)
 
 - Problem: Can't be generic over array sizes; dimension errors at runtime
 - Solution: Type parameters for constant values enable compile-time sizes
@@ -32,14 +32,14 @@ Pattern 4: Type-Level Programming with Const Generics
   systems
 - Use Cases: Fixed buffers, matrices, SIMD, cryptography, protocols
 
-Pattern 5: Trait Object Optimization
+[Pattern 5: Trait Object Optimization](#pattern-5-trait-object-optimization)
 
 - Problem: Static dispatch bloats binaries; dynamic dispatch adds overhead
 - Solution: Strategic use of trait objects with enum dispatch optimization
 - Why It Matters: 1-10ns per call compounds to 20% overhead in hot paths
 - Use Cases: Plugins, GUI, game engines, serialization, middleware
 
-Pattern 6: Associated Types vs Generic Parameters
+[Pattern 6: Associated Types vs Generic Parameters](#pattern-6-associated-types-vs-generic-parameters)
 
 - Problem: Wrong choice makes APIs painful to use
 - Solution: Associated types for single outputs, generics for multiple
@@ -91,6 +91,8 @@ Box<dyn Display>                         // Heap-allocated trait object
 **Why It Matters**: Domain-specific types catch bugs at compile time that would otherwise manifest as runtime errors or silent data corruption. Unit confusion has caused spacecraft failures and medical dosing errors. Email validation bugs enable SQL injection. Newtypes eliminate these entire categories of bugs with zero runtime cost—the compiler erases the wrapper.
 
 **Use Cases**: Domain identifiers (UserId, OrderId, SessionToken), units of measurement (Meters, Kilograms, Celsius), validated strings (Email, PhoneNumber, URL), API boundaries requiring opaque handles, preventing index confusion between different collections.
+
+### Examples
 
 ```rust
 //========================================
@@ -264,6 +266,8 @@ struct Product;
 **Why It Matters**: Invalid state transitions cause security vulnerabilities (sending data over unencrypted connections), data corruption (modifying committed transactions), and crashes (using closed file handles). The typestate pattern makes these impossible—if it compiles, the state machine is valid. This is zero-cost abstraction perfected: state tracking with no runtime overhead.
 
 **Use Cases**: Protocol implementations (TCP state machine, TLS handshake), resource lifecycle (file handles, database transactions), builder patterns with required fields, permission systems (authenticated vs unauthenticated users), dimensional analysis in physics calculations.
+
+### Examples
 
 ```rust
 use std::marker::PhantomData;
@@ -538,6 +542,7 @@ impl TcpConnection<Authenticated> {
 **Why It Matters**: Without GATs, iterators over windows (`&[T]` slices) were impossible—you'd need allocation or unsafe code. Database queries had to clone every row instead of borrowing. Async functions in traits required the `async-trait` crate with heap allocations. GATs unlock zero-allocation patterns that were previously language limitations.
 
 **Use Cases**: Lending iterators (windows, streaming parsers returning borrowed chunks), database libraries with borrowed rows, async traits (now stabilized), generic pointer families (abstraction over Box/Rc/Arc), effect systems and monad-like patterns.
+### Examples
 
 ```rust
 //============================================================
@@ -741,6 +746,7 @@ impl<E> Effect for ResultEffect<E> {
 **Why It Matters**: Dynamic allocation is forbidden in many embedded systems, real-time systems, and kernels. Dimension errors in linear algebra cause subtle bugs (machine learning models, graphics, physics simulations). Const generics enable type-safe stack allocation with zero runtime overhead—array bounds and dimensions checked at compile time, not runtime.
 
 **Use Cases**: Embedded systems with fixed buffers, linear algebra (matrices, vectors with compile-time dimensions), SIMD operations (Vec3, Vec4), cryptography (fixed-size hashes, keys), network protocol buffers with fixed fields, ring buffers in real-time systems.
+### Examples
 
 ```rust
 //===================================================
@@ -975,6 +981,7 @@ fn array_operations() {
 **Why It Matters**: Trait objects enable plugin systems, heterogeneous collections, and runtime polymorphism, but add 1-10ns overhead per call from vtable lookup and prevent inlining. In hot paths processing millions of items, this compounds to seconds of overhead. Understanding when to use static vs dynamic dispatch determines whether your abstraction costs 0% or 20% performance.
 
 **Use Cases**: Plugin systems and dynamic loading, GUI frameworks with heterogeneous widgets, game engines with component systems, serialization frameworks, middleware/handler chains in web frameworks, configuration-driven behavior.
+### Examples
 
 ```rust
 //=============================
@@ -1218,7 +1225,7 @@ fn draw_with_fn(shapes: &[ShapeWithFn]) {
 **Why It Matters**: Wrong choice makes APIs painful. `Iterator` with a generic parameter would require `Vec<Box<dyn Iterator<Item = i32>>>` everywhere instead of clean `Box<dyn Iterator<Item = i32>>`. But `From` with associated types would allow only one `From` impl per type, breaking the conversion ecosystem. This decision shapes your entire API surface.
 
 **Use Cases**: Associated types for natural outputs (Iterator::Item, Future::Output, Graph::Node), generic parameters for conversions (From, Into, TryFrom), mixed approach for flexible abstractions (generic container with natural element type).
-
+### Examples
 ```rust
 //=============================================
 // Pattern: Associated types for "output" types

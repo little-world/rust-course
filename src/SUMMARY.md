@@ -32,10 +32,10 @@
 - [testing-benchmarking](24-testing-benchmarking.md)
 # Part VIII: Advanced Topics
 - [trait-design-patterns](25-trait-design-patterns.md)
+- [struct-enum-patterns](26-struct-enum-patterns.md)
 - [builder-api-design](27-builder-api-design.md)
 - [lifetime-patterns](28-lifetime-patterns.md)
 - [performance-optimization](29-performance-optimization.md)
-- [type level programming](33-typelevel-programming.md)
 # Appendices
 - [appendix-a-quick-reference](30-appendix-a-quick-reference.md)
 - [appendix-b-design-patterns](31-appendix-b-design-patterns.md)

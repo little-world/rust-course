@@ -1,6 +1,6 @@
 # Chapter 4: Pattern Matching & Destructuring
 
-Pattern 1: Advanced Match Patterns
+[Pattern 1: Advanced Match Patterns](#pattern-1-advanced-match-patterns)
 
 - Problem: Unwieldy if-else chains, separate extract-and-test steps, code
   duplication
@@ -11,7 +11,7 @@ Pattern 1: Advanced Match Patterns
 - Use Cases: Numeric classification, token parsing, request routing, user
   categorization
 
-Pattern 2: Exhaustiveness and Match Ergonomics
+[Pattern 2: Exhaustiveness and Match Ergonomics](#pattern-2-exhaustiveness-and-match-ergonomics)
 
 - Problem: Missing cases cause runtime crashes; wildcards hide bugs when
   adding variants
@@ -22,7 +22,7 @@ Pattern 2: Exhaustiveness and Match Ergonomics
 - Use Cases: Evolving state machines, protocol implementations, command
   parsing
 
-Pattern 3: If-Let Chains and While-Let
+[Pattern 3: If-Let Chains and While-Let](#pattern-3-if-let-chains-and-while-let)
 
 - Problem: Verbose single-pattern matches, nested validation creates
   pyramid of doom
@@ -32,7 +32,7 @@ Pattern 3: If-Let Chains and While-Let
   natural validation flow
 - Use Cases: Auth flows, config parsing, queue processing, stream parsing
 
-Pattern 4: State Machines with Type-State Pattern
+[Pattern 4: State Machines with Type-State Pattern](#pattern-4-state-machines-with-type-state-pattern)
 
 - Problem: Runtime state machines allow invalid method calls; docs don't
   enforce order
@@ -43,7 +43,7 @@ Pattern 4: State Machines with Type-State Pattern
 - Use Cases: Network connections, file handles, transactions, builders,
   protocols
 
-Pattern 5: Enum-Driven Architecture
+[Pattern 5: Enum-Driven Architecture](#pattern-5-enum-driven-architecture)
 
 - Problem: OOP command patterns verbose; scattered business logic; untyped
   events
@@ -53,7 +53,7 @@ Pattern 5: Enum-Driven Architecture
   cases; 10x less code
 - Use Cases: CQRS, API design, message passing, workflows, parser ASTs
 
-Pattern 6: Destructuring in Practice
+[Pattern 6: Destructuring in Practice](#pattern-6-destructuring-in-practice)
 
 - Problem: Verbose field extraction, unclear intent, manual array
   indexing, ownership issues
@@ -127,6 +127,8 @@ match ch {
 **Why It Matters**: Range patterns reduce 20 lines of if-else to a single clear match expression. The `@` binding eliminates temporary variables—capture and test in one step. Guards let you incorporate arbitrary logic without sacrificing pattern matching's exhaustiveness checking. This makes complex classification logic (temperature ranges, HTTP status codes, user categories) both readable and provably complete.
 
 **Use Cases**: Numeric classification (temperature ranges, HTTP status codes, port numbers), token parsing (keywords, operators, literals), request routing (method + path combinations), user categorization (age/premium/activity), validation with capture (valid ranges that you need to use).
+
+### Examples
 
 ```rust
 //====================================
@@ -243,6 +245,8 @@ fn parse_token(input: &str) -> Token {
 **Why It Matters**: Exhaustiveness checking catches bugs at compile time that would be production outages in other languages. When you add a new `DatabaseState` variant, the compiler forces you to update every match—no forgotten edge cases. This is transformative for evolving codebases: refactoring enums is safe because the compiler finds every place that needs updating. Match ergonomics eliminates 50% of reference-handling boilerplate.
 
 **Use Cases**: State machines that evolve (adding states breaks compilation where needed), protocol implementations (version handling), command parsing (ensure all commands handled), API error types (exhaustive error handling), event systems (all events processed).
+
+### Examples
 
 ```rust
 //================================================
@@ -376,6 +380,8 @@ impl DatabaseState {
 **Why It Matters**: If-let reduces boilerplate by 60% compared to match for simple checks. If-let chains eliminate the "pyramid of doom" from nested validation—5 levels of indentation become one line. Let-else makes validation sequences read naturally: "ensure this condition, otherwise bail". While-let is the idiomatic way to drain queues, process streams, and implement state machines. These constructs make Rust feel high-level without sacrificing safety.
 
 **Use Cases**: Authentication flows (check header, extract token, validate claims), configuration parsing (layered validation), queue processing (drain until empty), stream parsing (read until EOF), optional chaining (navigate nested Options/Results), guard clauses in functions.
+
+### Examples
 
 ```rust
 //========================================
@@ -514,6 +520,8 @@ fn extract_nested_better(data: Option<Result<Vec<String>, Error>>) {
 **Why It Matters**: Type-state pattern makes invalid state transitions impossible to express, not just incorrect. You cannot call `send()` on a disconnected connection—the method simply doesn't exist for that type. Builders can enforce "URL is required" at compile time by making `build()` only available after `url()` is called. This is stronger than any amount of testing: if it compiles, state transitions are valid. The typestate pattern has caught real bugs in TLS implementations and database libraries.
 
 **Use Cases**: Network connections (TCP state machine, TLS handshake), file handles (open/closed states), database transactions (begin/commit/rollback), builder patterns (required fields), protocol implementations (HTTP request lifecycle), resource lifecycle (allocated/initialized/released).
+
+### Examples
 
 ```rust
 //=====================================================
@@ -745,6 +753,8 @@ impl RequestBuilder<HasUrl> {
 **Why It Matters**: Enum-driven architecture centralizes behavior and makes it exhaustive. Adding a new command means adding one enum variant—the match expression in `execute()` fails to compile until you handle it. This is transformative for maintainability: you can't forget to handle a command because the compiler forces it. Event sourcing with typed enums prevents "replay failed because event format changed". Command pattern without OOP boilerplate is 10x less code. Enum dispatch is faster than vtables.
 
 **Use Cases**: CQRS systems (commands and events as enums), API design (explicit response variants), message-passing systems (typed message enums), workflow engines (pipeline steps as enums), parser ASTs (expression trees), protocol state machines (request/response variants).
+
+### Examples
 
 ```rust
 //====================================
@@ -1067,6 +1077,8 @@ impl Workflow {
 **Why It Matters**: Destructuring eliminates intermediate variables—20 lines of field extraction become 2 lines. It makes intent explicit: `let User { age, .. }` says "I only care about age". Function parameters that destructure (`fn format((x, y): (i32, i32))`) document what data is used at the signature level. Slice destructuring with `@..` enables head/tail operations without manual indexing. This is about writing code that reads like specifications.
 
 **Use Cases**: Function parameters (destructure tuples/structs inline), nested data extraction (JSON parsing, config objects), iterator processing (for loops with tuple destructuring), ownership control (ref patterns prevent moves), array/slice operations (head/tail, pattern length checking), expression trees (recursive destructuring in parsers).
+
+### Examples
 
 ```rust
 //============================================

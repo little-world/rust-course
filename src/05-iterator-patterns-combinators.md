@@ -1,5 +1,6 @@
 # Chapter 5: Iterator Patterns & Combinators
-Pattern 1: Custom Iterators and IntoIterator
+
+[Pattern 1: Custom Iterators and IntoIterator](#pattern-1-custom-iterators-and-intoiterator)
 
 - Problem: Returning Vec forces allocation; exposing internals breaks
   encapsulation; manual indexing error-prone
@@ -10,7 +11,7 @@ Pattern 1: Custom Iterators and IntoIterator
 - Use Cases: Custom collections, infinite sequences, computed ranges,
   generators
 
-Pattern 2: Zero-Allocation Iteration
+[Pattern 2: Zero-Allocation Iteration](#pattern-2-zero-allocation-iteration)
 
 - Problem: Intermediate collections waste memory; allocations dominate
   runtime in hot paths
@@ -21,7 +22,7 @@ Pattern 2: Zero-Allocation Iteration
 - Use Cases: Data pipelines, large datasets, hot paths, parsing, real-time
   streams
 
-Pattern 3: Iterator Adapter Composition
+[Pattern 3: Iterator Adapter Composition](#pattern-3-iterator-adapter-composition)
 
 - Problem: Nested loops hard to read; intermediate collections waste
   memory; custom operations require boilerplate
@@ -32,7 +33,7 @@ Pattern 3: Iterator Adapter Composition
 - Use Cases: Log analysis, ETL, parsers, grouping, batching, complex
   filters
 
-Pattern 4: Streaming Algorithms
+[Pattern 4: Streaming Algorithms](#pattern-4-streaming-algorithms)
 
 - Problem: Loading entire datasets causes OOM; multiple passes multiply
   I/O cost
@@ -43,7 +44,7 @@ Pattern 4: Streaming Algorithms
 - Use Cases: Log analysis, database ETL, real-time analytics, sensor data,
   infinite streams
 
-Pattern 5: Parallel Iteration with Rayon
+[Pattern 5: Parallel Iteration with Rayon](#pattern-5-parallel-iteration-with-rayon)
 
 - Problem: Sequential iteration wastes cores; manual threading complex and
   error-prone
@@ -113,6 +114,8 @@ iter.find(|x| *x == target)     // Find first match
 **Why It Matters**: Custom iterators eliminate unnecessary allocations—a function returning "first 10 primes" as `Vec<u64>` allocates even if caller only checks the first. Iterators are lazy: `Fibonacci::new().take(10)` computes 10 values, not infinite. They compose: `.filter().map().take()` chains without intermediate vectors. This is transformative for API design: libraries can expose iteration without committing to storage format, and code using them gets full iterator method access (map, filter, fold, etc.) for free.
 
 **Use Cases**: Custom collections (trees, graphs, circular buffers), infinite sequences (Fibonacci, primes, random numbers), computed ranges (2D coordinates, date ranges), stateful generators, adapters for external APIs, zero-copy views into data structures.
+
+### Examples
 
 ```rust
 //===============================
@@ -341,6 +344,8 @@ impl<I: Iterator> BatchedExt for I {}
 
 **Use Cases**: Data processing pipelines (ETL, analytics), filtering and transforming large datasets, hot path operations in servers, parsing without intermediate buffers, mathematical computations on sequences, real-time stream processing.
 
+### Examples
+
 ```rust
 //===================================================
 // Pattern: Chaining without intermediate collections
@@ -483,6 +488,8 @@ fn find_sum_exceeding(numbers: &[i32], threshold: i32) -> Option<i32> {
 **Why It Matters**: Iterator composition turns imperative procedural code into declarative pipelines that document intent. A log analysis pipeline: `logs.filter(errors).filter(recent).group_by(level).count()` reads like a specification. Custom adapters (interleave, batch, group_by) compose with standard ones, building a vocabulary for your domain. The compiler optimizes these chains: a 5-adapter pipeline often compiles to a single loop. This enables writing code that is simultaneously readable, composable, and fast.
 
 **Use Cases**: Log analysis pipelines, data transformation ETL, parsers with lookahead (peekable), grouping and aggregation, mathematical sequences, interleaving or merging streams, batching for bulk processing, complex filtering logic.
+
+### Examples
 
 ```rust
 use std::collections::HashMap;
@@ -662,6 +669,8 @@ enum Token {
 **Why It Matters**: Streaming algorithms enable processing datasets larger than RAM—a 100GB log file processes with constant 1MB memory. Single-pass algorithms are dramatically faster: computing average + variance in one pass vs two passes halves I/O time. Top-K with a heap of size K uses O(K) memory, not O(N). Real-time systems process infinite streams (network packets, sensor data, user events) that can't be collected first. This is the difference between "works on test data" and "works on production scale".
 
 **Use Cases**: Log file analysis (grep-like filtering, statistics), database ETL (processing query results), real-time analytics (streaming averages, alerting), sensor data processing, network packet analysis, infinite sequences (event streams, live data feeds), CSV/JSON parsing of large files.
+
+### Examples
 
 ```rust
 use std::io::{BufRead, BufReader, Read};
@@ -962,6 +971,8 @@ fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
 **Why It Matters**: Parallel iteration provides near-linear speedup with CPU cores—8 cores can process 7-8x faster with a single character change (`.par_iter()`). Rayon automatically handles work distribution, load balancing, and thread management. The work-stealing scheduler prevents idle threads while maintaining cache efficiency. This enables writing high-level declarative code that runs at maximum hardware speed. For data processing (image processing, log analysis, simulations), parallelization is often free performance: change one word, get 8x speedup.
 
 **Use Cases**: Data-intensive computations (matrix operations, image/video processing), batch processing (file processing, database imports), scientific computing (simulations, Monte Carlo), sorting and searching large datasets, map-reduce patterns, parallel validation, embarrassingly parallel workloads.
+
+### Examples
 
 ```rust
 use rayon::prelude::*;
