@@ -1,40 +1,44 @@
 # Builder & API Design
 
-Builder Pattern Variations
+[Builder Pattern Variations](#pattern-1-builder-pattern-variations)
 
 - Problem: Constructors with many parameters unclear; optional fields confusing; can't enforce required fields at compile-time
 - Solution: Basic builder (mut self), consuming builder (self), non-consuming (&mut self); Result from build() for validation
 - Why It Matters: Self-documenting code; fluent API; compile-time required fields with typestate; defaults for optional fields
 - Use Cases: HTTP requests, database connections, configuration objects, query builders, complex object construction
 
-Typestate Pattern
+[Typestate Pattern](#pattern-2-typestate-pattern)
 
 - Problem: Invalid state transitions possible; runtime state checks; can't enforce "must call authenticate before query" at compile-time
 - Solution: Different types for different states; state transitions consume old type, return new type; methods only on valid states
 - Why It Matters: Impossible states unrepresentable; compile-time state machine; zero runtime cost; API misuse prevented
 - Use Cases: Database connections (Unauthenticated→Authenticated), file handles (Open/Closed), builders (incomplete→complete), protocols
 
-Method Chaining and Fluent APIs
+[Method Chaining and Fluent APIs](#pattern-3-method-chaining-and-fluent-apis)
 
 - Problem: Repeated object references; verbose configuration; unclear operation order; mutation vs consumption unclear
 - Solution: Return Self or &mut Self for chaining; consuming pattern (self) prevents reuse; named parameters via methods
 - Why It Matters: Ergonomic configuration; clear intent; compiler prevents invalid chains; self-documenting
 - Use Cases: Builders, query DSLs, test assertions, configuration, iterators, command patterns
 
-Into/AsRef for Flexible Parameters
+[Into/AsRef for Flexible Parameters](#pattern-4-intoasref-for-flexible-parameters)
 
 - Problem: String vs &str parameters force conversions; accepting only one type limits flexibility; allocations when borrowing sufficient
 - Solution: Use Into<String> for owned parameters, AsRef<str> for borrowed; generic conversions with Into/From traits
 - Why It Matters: Ergonomic APIs accept both owned and borrowed; no forced allocations; caller convenience; zero-cost abstractions
 - Use Cases: String parameters, path parameters, any parameter with multiple valid types, builder methods, flexible APIs
 
-Must-Use Types and Linear Types
+[Must-Use Types and Linear Types](#pattern-5-must-use-types-and-linear-types)
 
 - Problem: Ignoring important return values (errors, connections); forgetting to call build(); resource leaks possible
 - Solution: #[must_use] attribute; linear types (must be consumed); typestate prevents partial usage; Result<T, E> must be handled
 - Why It Matters: Compiler warnings for ignored values; prevents resource leaks; enforces API contracts; no silent failures
 - Use Cases: Error handling, builders, resource handles (files, connections), guards (MutexGuard), transaction types
 
+[Builder Cheat Sheet] (#builder-cheat-sheet)
+- This comprehensive guide covers both builder patterns (basic and typestate) and typestate patterns for state machines.
+
+## Overview
 
 This chapter explores API design patterns: builder pattern variations for complex construction, typestate pattern for compile-time state machines, fluent APIs via method chaining, flexible parameters with Into/AsRef, and must-use types to prevent misuse.
 
@@ -82,7 +86,7 @@ let request = make_request(
 
 This is hard to read and maintain. Which parameter is which? What if you only want to set timeout but accept defaults for everything else?
 
-### Basic Builder Pattern
+### Example: Basic Builder Pattern
 
 The builder pattern solves this elegantly:
 
@@ -187,7 +191,7 @@ fn example() {
 
 Now the code is self-documenting. Each method call clearly states what it's configuring. You can set only the options you care about, accepting defaults for the rest.
 
-### Builder with Required Fields
+### Example: Builder with Required Fields
 
 Sometimes certain fields must be provided. You can enforce this at compile time:
 
@@ -289,7 +293,7 @@ fn example() -> Result<(), String> {
 
 This approach validates at runtime—`build()` returns `Result`. If you forget a required field, you get a clear error message. However, the error only appears when you call `build()`, not at compile time. The typestate pattern solves this.
 
-### Consuming Builder Pattern
+### Example: Consuming Builder Pattern
 
 Some builders are consumed as they're built:
 
@@ -351,7 +355,7 @@ fn example() {
 
 Each method takes `self` (not `&mut self`), consumes the builder, modifies it, and returns it. This enables method chaining while maintaining move semantics. The builder is consumed by `to_sql()`, preventing accidental reuse.
 
-### Non-Consuming Builder Pattern
+### Example: Non-Consuming Builder Pattern
 
 For builders that you might reuse, use `&mut self`:
 
@@ -440,6 +444,8 @@ This pattern allows reusing the builder for multiple operations.
 
 **Use Cases**: Database connections (Unauthenticated → Authenticated), file handles (Open/Closed states), protocol state machines (HTTP connection states), builder pattern (ensure all fields set), resource lifecycle (Acquired/Released), async operations (Pending/Ready), payment processing (Pending→Authorized→Captured), document workflow (Draft→Review→Published).
 
+## Problem: Runtime Checks
+
 Consider a TCP connection:
 
 ```rust
@@ -469,7 +475,7 @@ impl Connection {
 
 Runtime checks are error-prone. You might forget to check the state, leading to bugs. The typestate pattern moves these checks to compile time.
 
-### Basic Typestate Pattern
+### Example: Basic Typestate Pattern
 
 Use different types for different states:
 
@@ -552,7 +558,7 @@ fn example() -> Result<(), String> {
 
 The compiler prevents calling `send()` on a disconnected or closed connection. Invalid state transitions are impossible.
 
-### Typestate with Builder
+### Example: Typestate with Builder
 
 Combine typestate with the builder pattern:
 
@@ -653,7 +659,7 @@ fn example() {
 
 The type system enforces that you can only build when all required fields are set. The error messages are clear and occur at compile time.
 
-### Typestate for Protocols
+### Example: Typestate for Protocols
 
 Typestate is excellent for encoding communication protocols:
 
@@ -724,7 +730,7 @@ fn example() -> Result<(), String> {
 
 The protocol can only be used in the correct sequence. You can't send data before handshake, and you can't send data after beginning shutdown.
 
-### Combining Typestate and Lifetimes
+### Example: Combining Typestate and Lifetimes
 
 Typestate can ensure references remain valid:
 
@@ -790,6 +796,7 @@ fn example() {
 
 **Use Cases**: Query builders (SQL DSLs), test assertions (expect(x).to_be(y)), configuration objects (builder pattern), iterator combinators (map/filter/collect), command builders (CLI construction), HTTP request builders, async chain operations (then/and_then), reactive programming (Observable methods).
 
+### Example: Fluent API
 ```rust
 struct QueryBuilder {
     select: Vec<String>,
@@ -885,7 +892,7 @@ fn example() {
 
 The code reads naturally: "select id, name, email from users where...". This is the hallmark of a good fluent interface.
 
-### Conditional Fluent Chains
+### Example: Conditional Fluent Chains
 
 Support conditional configuration:
 
@@ -935,7 +942,7 @@ fn example_conditional(include_email: bool, sort_by_name: bool) {
 }
 ```
 
-### Fluent Interface with References
+### Example: Fluent Interface with References
 
 For non-consuming builders, use `&mut self`:
 
@@ -1009,7 +1016,7 @@ fn example() -> Result<(), String> {
 }
 ```
 
-### Fluent Error Handling
+### Example: Fluent Error Handling
 
 Fluent interfaces can integrate error handling:
 
@@ -1078,6 +1085,7 @@ Errors short-circuit the pipeline, making error handling natural and composable.
 
 **Use Cases**: String parameters (impl Into<String> or impl AsRef<str>), path parameters (impl AsRef<Path>), any parameter with owned/borrowed variants, builder methods (ergonomic chaining), generic collection parameters (impl AsRef<[T]>), conversion-heavy APIs, library public interfaces, configuration builders.
 
+### Example: String Extension
 ```rust
 trait StringExt {
     fn truncate_words(&self, max_words: usize) -> String;
@@ -1110,7 +1118,7 @@ fn example() {
 
 Anyone who imports your `StringExt` trait gets these methods on all strings.
 
-### Extension Traits for Generic Types
+### Example: Extension Traits for Generic Types
 
 Extend generic types with trait bounds:
 
@@ -1173,7 +1181,7 @@ fn example() {
 }
 ```
 
-### Extension Traits for Error Handling
+### Example: Extension Traits for Error Handling
 
 Make error handling more ergonomic:
 
@@ -1215,7 +1223,7 @@ fn example() {
 }
 ```
 
-### Conditional Extension Traits
+### Example: Conditional Extension Traits
 
 Provide extensions only when certain traits are implemented:
 
@@ -1268,6 +1276,8 @@ fn example() {
 
 **Use Cases**: Error handling (Result must be handled), builders (must call build()), resource handles (files, connections must be used/closed), guards (MutexGuard, RwLockGuard), transaction types (must commit or rollback), iterators (must consume or iterator does nothing), async futures (must await), lock guards (must be held for scope).
 
+### Problem: Breaking Changes
+
 ```rust
 //==================
 // Your library v1.0
@@ -1286,22 +1296,16 @@ impl Operation for UserOperation {
     }
 }
 
-//=====================================
 // Your library v1.1 - BREAKING CHANGE!
-//=====================================
 // pub trait Operation {
-//=======================
 //     fn execute(&self);
-//=======================
 //     fn validate(&self) -> bool; // New method breaks user code
-//==
 // }
-//==
 ```
 
 Adding `validate()` breaks all external implementations. The sealed trait pattern prevents this.
 
-### Basic Sealed Trait
+### Example: Basic Sealed Trait
 
 ```rust
 mod private {
@@ -1326,15 +1330,12 @@ impl Operation for InternalOperation {
         println!("Internal operation");
     }
 }
-
-//========================================================================================
 // External crates cannot implement Operation because they can't implement private::Sealed
-//========================================================================================
 ```
 
 Users can use the trait but can't implement it. You can add methods without breaking compatibility.
 
-### Sealed Trait with Associated Types
+### Example: Sealed Trait with Associated Types
 
 ```rust
 mod sealed {
@@ -1373,7 +1374,7 @@ fn use_data_source<T: DataSource>(source: T) {
 }
 ```
 
-### Partially Sealed Traits
+### Example: Partially Sealed Traits
 
 Sometimes you want to seal some parts but not others:
 
@@ -1382,16 +1383,12 @@ mod sealed {
     pub trait Sealed {}
 }
 
-//===========================================
 // Sealed trait - cannot implement externally
-//===========================================
 pub trait ProtocolHandler: sealed::Sealed {
     fn handle(&self, data: &[u8]);
 }
 
-//======================================
 // Open trait - can implement externally
-//======================================
 pub trait MessageTransform {
     fn transform(&self, message: String) -> String;
 }
@@ -1410,9 +1407,7 @@ impl<T: MessageTransform> ProtocolHandler for Handler<T> {
     }
 }
 
-//=====================================
 // Users can implement MessageTransform
-//=====================================
 struct UppercaseTransform;
 
 impl MessageTransform for UppercaseTransform {
@@ -1432,7 +1427,7 @@ fn example() {
 
 Users can provide custom transformers but can't implement the handler trait itself.
 
-### Sealed Trait for Marker Traits
+### Example: Sealed Trait for Marker Traits
 
 Seal marker traits to create closed sets:
 
@@ -1511,47 +1506,6 @@ This chapter covered API design patterns for creating type-safe, ergonomic Rust 
 - Use Into/AsRef for flexible parameters (owned or borrowed)
 - Use #[must_use] for critical returns (errors, resources)
 
-**Common Patterns**:
-```rust
-// Builder pattern (consuming)
-impl RequestBuilder {
-    fn method(mut self, m: String) -> Self {
-        self.method = m;
-        self
-    }
-    fn build(self) -> Request { /* ... */ }
-}
-let req = Request::builder("url").method("POST").build();
-
-// Typestate pattern
-struct Connection<State> {
-    _state: PhantomData<State>,
-}
-impl Connection<Unauthenticated> {
-    fn authenticate(self) -> Connection<Authenticated> { /* ... */ }
-}
-impl Connection<Authenticated> {
-    fn query(&self) { /* ... */ }
-}
-
-// Fluent API
-query().select("*").from("users").where_clause("active = true").limit(10);
-
-// Into/AsRef parameters
-fn send_message(to: impl Into<String>, body: impl AsRef<str>) {
-    let to = to.into();      // Owned
-    let body = body.as_ref(); // Borrowed
-}
-send_message("alice", "hello");              // &str, &str
-send_message(String::from("bob"), "world");  // String, &str
-
-// Must-use type
-#[must_use = "connection must be used"]
-struct Connection { /* ... */ }
-
-#[must_use = "build must be called"]
-fn builder() -> Builder { /* ... */ }
-```
 
 **Performance Considerations**:
 - Builder: zero runtime cost, compiles to direct construction
@@ -1576,3 +1530,818 @@ fn builder() -> Builder { /* ... */ }
 - Test method chaining readability
 - Test parameter flexibility (both owned/borrowed work)
 - Test must-use warnings (should warn if ignored)
+
+
+## Builder Cheat Sheet
+```rust
+// ===== BASIC BUILDER PATTERN =====
+#[derive(Debug)]
+struct User {
+    username: String,
+    email: String,
+    age: Option<u32>,
+    active: bool,
+}
+
+struct UserBuilder {
+    username: Option<String>,
+    email: Option<String>,
+    age: Option<u32>,
+    active: bool,
+}
+
+impl UserBuilder {
+    fn new() -> Self {
+        UserBuilder {
+            username: None,
+            email: None,
+            age: None,
+            active: true,
+        }
+    }
+    
+    fn username(mut self, username: String) -> Self {
+        self.username = Some(username);
+        self
+    }
+    
+    fn email(mut self, email: String) -> Self {
+        self.email = Some(email);
+        self
+    }
+    
+    fn age(mut self, age: u32) -> Self {
+        self.age = Some(age);
+        self
+    }
+    
+    fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+    
+    fn build(self) -> Result<User, String> {
+        Ok(User {
+            username: self.username.ok_or("username is required")?,
+            email: self.email.ok_or("email is required")?,
+            age: self.age,
+            active: self.active,
+        })
+    }
+}
+
+fn basic_builder_example() {
+    let user = UserBuilder::new()
+        .username("alice".to_string())
+        .email("alice@example.com".to_string())
+        .age(30)
+        .build()
+        .unwrap();
+    
+    println!("{:?}", user);
+}
+
+// ===== BUILDER WITH REFERENCES =====
+struct ConfigBuilder<'a> {
+    host: Option<&'a str>,
+    port: Option<u16>,
+    timeout: Option<u64>,
+}
+
+impl<'a> ConfigBuilder<'a> {
+    fn new() -> Self {
+        ConfigBuilder {
+            host: None,
+            port: None,
+            timeout: None,
+        }
+    }
+    
+    fn host(mut self, host: &'a str) -> Self {
+        self.host = Some(host);
+        self
+    }
+    
+    fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+    
+    fn timeout(mut self, timeout: u64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+    
+    fn build(self) -> Config {
+        Config {
+            host: self.host.unwrap_or("localhost").to_string(),
+            port: self.port.unwrap_or(8080),
+            timeout: self.timeout.unwrap_or(30),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Config {
+    host: String,
+    port: u16,
+    timeout: u64,
+}
+
+// ===== BUILDER WITH DEFAULTS =====
+#[derive(Debug, Default)]
+struct ServerConfig {
+    host: String,
+    port: u16,
+    workers: usize,
+    timeout: u64,
+}
+
+impl ServerConfig {
+    fn builder() -> ServerConfigBuilder {
+        ServerConfigBuilder::default()
+    }
+}
+
+#[derive(Default)]
+struct ServerConfigBuilder {
+    host: Option<String>,
+    port: Option<u16>,
+    workers: Option<usize>,
+    timeout: Option<u64>,
+}
+
+impl ServerConfigBuilder {
+    fn host(mut self, host: impl Into<String>) -> Self {
+        self.host = Some(host.into());
+        self
+    }
+    
+    fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+    
+    fn workers(mut self, workers: usize) -> Self {
+        self.workers = Some(workers);
+        self
+    }
+    
+    fn timeout(mut self, timeout: u64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+    
+    fn build(self) -> ServerConfig {
+        ServerConfig {
+            host: self.host.unwrap_or_else(|| "0.0.0.0".to_string()),
+            port: self.port.unwrap_or(8080),
+            workers: self.workers.unwrap_or(4),
+            timeout: self.timeout.unwrap_or(30),
+        }
+    }
+}
+
+fn builder_with_defaults() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .port(3000)
+        .build();
+    
+    println!("{:?}", config);
+}
+
+// ===== TYPESTATE BUILDER PATTERN =====
+// Compile-time enforcement of builder state
+
+use std::marker::PhantomData;
+
+// State markers
+struct Empty;
+struct HasUsername;
+struct HasEmail;
+
+// Builder with typestate
+struct TypedUserBuilder<UsernameState, EmailState> {
+    username: Option<String>,
+    email: Option<String>,
+    age: Option<u32>,
+    _username_state: PhantomData<UsernameState>,
+    _email_state: PhantomData<EmailState>,
+}
+
+impl TypedUserBuilder<Empty, Empty> {
+    fn new() -> Self {
+        TypedUserBuilder {
+            username: None,
+            email: None,
+            age: None,
+            _username_state: PhantomData,
+            _email_state: PhantomData,
+        }
+    }
+}
+
+impl<EmailState> TypedUserBuilder<Empty, EmailState> {
+    fn username(self, username: String) -> TypedUserBuilder<HasUsername, EmailState> {
+        TypedUserBuilder {
+            username: Some(username),
+            email: self.email,
+            age: self.age,
+            _username_state: PhantomData,
+            _email_state: PhantomData,
+        }
+    }
+}
+
+impl<UsernameState> TypedUserBuilder<UsernameState, Empty> {
+    fn email(self, email: String) -> TypedUserBuilder<UsernameState, HasEmail> {
+        TypedUserBuilder {
+            username: self.username,
+            email: Some(email),
+            age: self.age,
+            _username_state: PhantomData,
+            _email_state: PhantomData,
+        }
+    }
+}
+
+impl<UsernameState, EmailState> TypedUserBuilder<UsernameState, EmailState> {
+    fn age(mut self, age: u32) -> Self {
+        self.age = Some(age);
+        self
+    }
+}
+
+// Only allow build when both username and email are set
+impl TypedUserBuilder<HasUsername, HasEmail> {
+    fn build(self) -> User {
+        User {
+            username: self.username.unwrap(),
+            email: self.email.unwrap(),
+            age: self.age,
+            active: true,
+        }
+    }
+}
+
+fn typestate_builder_example() {
+    let user = TypedUserBuilder::new()
+        .username("alice".to_string())
+        .email("alice@example.com".to_string())
+        .age(30)
+        .build();
+    
+    // This won't compile - missing required fields:
+    // let user = TypedUserBuilder::new()
+    //     .username("alice".to_string())
+    //     .build(); // ERROR: no method `build` found
+    
+    println!("{:?}", user);
+}
+
+// ===== TYPESTATE PATTERN FOR STATE MACHINES =====
+// Door state machine with typestate
+
+struct Locked;
+struct Unlocked;
+
+struct Door<State> {
+    _state: PhantomData<State>,
+}
+
+impl Door<Locked> {
+    fn new() -> Self {
+        println!("Creating locked door");
+        Door { _state: PhantomData }
+    }
+    
+    fn unlock(self) -> Door<Unlocked> {
+        println!("Unlocking door");
+        Door { _state: PhantomData }
+    }
+}
+
+impl Door<Unlocked> {
+    fn lock(self) -> Door<Locked> {
+        println!("Locking door");
+        Door { _state: PhantomData }
+    }
+    
+    fn open(&self) {
+        println!("Opening door");
+    }
+}
+
+fn door_state_example() {
+    let door = Door::<Locked>::new();
+    // door.open(); // ERROR: method not found for Door<Locked>
+    
+    let door = door.unlock();
+    door.open(); // OK
+    
+    let door = door.lock();
+    // door.open(); // ERROR: method not found for Door<Locked>
+}
+
+// ===== CONNECTION STATE MACHINE =====
+struct Disconnected;
+struct Connecting;
+struct Connected;
+struct Failed;
+
+struct Connection<State> {
+    address: String,
+    _state: PhantomData<State>,
+}
+
+impl Connection<Disconnected> {
+    fn new(address: String) -> Self {
+        Connection {
+            address,
+            _state: PhantomData,
+        }
+    }
+    
+    fn connect(self) -> Result<Connection<Connecting>, Connection<Failed>> {
+        println!("Attempting to connect to {}", self.address);
+        Ok(Connection {
+            address: self.address,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl Connection<Connecting> {
+    fn establish(self) -> Result<Connection<Connected>, Connection<Failed>> {
+        println!("Establishing connection...");
+        Ok(Connection {
+            address: self.address,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl Connection<Connected> {
+    fn send(&self, data: &str) {
+        println!("Sending data: {}", data);
+    }
+    
+    fn receive(&self) -> String {
+        "Received data".to_string()
+    }
+    
+    fn disconnect(self) -> Connection<Disconnected> {
+        println!("Disconnecting");
+        Connection {
+            address: self.address,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl Connection<Failed> {
+    fn retry(self) -> Connection<Disconnected> {
+        println!("Retrying connection");
+        Connection {
+            address: self.address,
+            _state: PhantomData,
+        }
+    }
+}
+
+fn connection_state_example() {
+    let conn = Connection::<Disconnected>::new("localhost:8080".to_string());
+    
+    let conn = match conn.connect() {
+        Ok(conn) => conn,
+        Err(failed) => return,
+    };
+    
+    let conn = match conn.establish() {
+        Ok(conn) => conn,
+        Err(failed) => return,
+    };
+    
+    conn.send("Hello");
+    let data = conn.receive();
+    println!("{}", data);
+    
+    let conn = conn.disconnect();
+}
+
+// ===== FILE HANDLE STATE MACHINE =====
+struct Closed;
+struct Open;
+
+struct File<State> {
+    path: String,
+    _state: PhantomData<State>,
+}
+
+impl File<Closed> {
+    fn new(path: String) -> Self {
+        File {
+            path,
+            _state: PhantomData,
+        }
+    }
+    
+    fn open(self) -> std::io::Result<File<Open>> {
+        println!("Opening file: {}", self.path);
+        Ok(File {
+            path: self.path,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl File<Open> {
+    fn read(&self) -> String {
+        format!("Contents of {}", self.path)
+    }
+    
+    fn write(&mut self, data: &str) {
+        println!("Writing to {}: {}", self.path, data);
+    }
+    
+    fn close(self) -> File<Closed> {
+        println!("Closing file: {}", self.path);
+        File {
+            path: self.path,
+            _state: PhantomData,
+        }
+    }
+}
+
+// ===== TRANSACTION STATE MACHINE =====
+struct NotStarted;
+struct InProgress;
+struct Committed;
+struct RolledBack;
+
+struct Transaction<State> {
+    id: u64,
+    _state: PhantomData<State>,
+}
+
+impl Transaction<NotStarted> {
+    fn new(id: u64) -> Self {
+        Transaction {
+            id,
+            _state: PhantomData,
+        }
+    }
+    
+    fn begin(self) -> Transaction<InProgress> {
+        println!("Beginning transaction {}", self.id);
+        Transaction {
+            id: self.id,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl Transaction<InProgress> {
+    fn execute(&mut self, query: &str) {
+        println!("Executing in transaction {}: {}", self.id, query);
+    }
+    
+    fn commit(self) -> Transaction<Committed> {
+        println!("Committing transaction {}", self.id);
+        Transaction {
+            id: self.id,
+            _state: PhantomData,
+        }
+    }
+    
+    fn rollback(self) -> Transaction<RolledBack> {
+        println!("Rolling back transaction {}", self.id);
+        Transaction {
+            id: self.id,
+            _state: PhantomData,
+        }
+    }
+}
+
+fn transaction_example() {
+    let tx = Transaction::<NotStarted>::new(1);
+    let mut tx = tx.begin();
+    
+    tx.execute("INSERT INTO users VALUES (1, 'alice')");
+    tx.execute("INSERT INTO users VALUES (2, 'bob')");
+    
+    let tx = tx.commit();
+}
+
+// ===== PROTOCOL STATE MACHINE =====
+struct Handshake;
+struct Authenticated;
+struct Active;
+
+struct Protocol<State> {
+    session_id: String,
+    _state: PhantomData<State>,
+}
+
+impl Protocol<Handshake> {
+    fn new() -> Self {
+        Protocol {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            _state: PhantomData,
+        }
+    }
+    
+    fn authenticate(self, token: &str) -> Result<Protocol<Authenticated>, String> {
+        if token == "valid_token" {
+            Ok(Protocol {
+                session_id: self.session_id,
+                _state: PhantomData,
+            })
+        } else {
+            Err("Invalid token".to_string())
+        }
+    }
+}
+
+impl Protocol<Authenticated> {
+    fn activate(self) -> Protocol<Active> {
+        Protocol {
+            session_id: self.session_id,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl Protocol<Active> {
+    fn send_message(&self, message: &str) {
+        println!("Sending: {}", message);
+    }
+    
+    fn receive_message(&self) -> String {
+        "Received message".to_string()
+    }
+}
+
+// ===== BUILDER WITH TYPESTATE AND VALIDATION =====
+struct NoHost;
+struct HasHost;
+struct NoPort;
+struct HasPort;
+
+struct ServerBuilder<HostState, PortState> {
+    host: Option<String>,
+    port: Option<u16>,
+    workers: usize,
+    _host_state: PhantomData<HostState>,
+    _port_state: PhantomData<PortState>,
+}
+
+impl ServerBuilder<NoHost, NoPort> {
+    fn new() -> Self {
+        ServerBuilder {
+            host: None,
+            port: None,
+            workers: 4,
+            _host_state: PhantomData,
+            _port_state: PhantomData,
+        }
+    }
+}
+
+impl<PortState> ServerBuilder<NoHost, PortState> {
+    fn host(self, host: impl Into<String>) -> ServerBuilder<HasHost, PortState> {
+        ServerBuilder {
+            host: Some(host.into()),
+            port: self.port,
+            workers: self.workers,
+            _host_state: PhantomData,
+            _port_state: PhantomData,
+        }
+    }
+}
+
+impl<HostState> ServerBuilder<HostState, NoPort> {
+    fn port(self, port: u16) -> ServerBuilder<HostState, HasPort> {
+        ServerBuilder {
+            host: self.host,
+            port: Some(port),
+            workers: self.workers,
+            _host_state: PhantomData,
+            _port_state: PhantomData,
+        }
+    }
+}
+
+impl<HostState, PortState> ServerBuilder<HostState, PortState> {
+    fn workers(mut self, workers: usize) -> Self {
+        self.workers = workers;
+        self
+    }
+}
+
+impl ServerBuilder<HasHost, HasPort> {
+    fn build(self) -> Server {
+        Server {
+            host: self.host.unwrap(),
+            port: self.port.unwrap(),
+            workers: self.workers,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Server {
+    host: String,
+    port: u16,
+    workers: usize,
+}
+
+fn typed_server_builder_example() {
+    let server = ServerBuilder::new()
+        .host("localhost")
+        .port(8080)
+        .workers(8)
+        .build();
+    
+    println!("{:?}", server);
+    
+    // Won't compile - missing required fields:
+    // let server = ServerBuilder::new()
+    //     .host("localhost")
+    //     .build(); // ERROR
+}
+
+// ===== PHANTOM TYPE FOR UNITS =====
+struct Meters;
+struct Kilometers;
+
+struct Distance<Unit> {
+    value: f64,
+    _unit: PhantomData<Unit>,
+}
+
+impl Distance<Meters> {
+    fn meters(value: f64) -> Self {
+        Distance {
+            value,
+            _unit: PhantomData,
+        }
+    }
+    
+    fn to_kilometers(self) -> Distance<Kilometers> {
+        Distance {
+            value: self.value / 1000.0,
+            _unit: PhantomData,
+        }
+    }
+}
+
+impl Distance<Kilometers> {
+    fn kilometers(value: f64) -> Self {
+        Distance {
+            value,
+            _unit: PhantomData,
+        }
+    }
+    
+    fn to_meters(self) -> Distance<Meters> {
+        Distance {
+            value: self.value * 1000.0,
+            _unit: PhantomData,
+        }
+    }
+}
+
+fn distance_example() {
+    let d1 = Distance::<Meters>::meters(5000.0);
+    let d2 = d1.to_kilometers();
+    println!("Distance: {} km", d2.value);
+    
+    // Won't compile - different units:
+    // let d3 = Distance::<Meters>::meters(100.0);
+    // let d4 = Distance::<Kilometers>::kilometers(1.0);
+    // let sum = d3.value + d4.value; // Types are different!
+}
+
+// ===== COMPILE-TIME GUARANTEES =====
+struct Draft;
+struct Published;
+
+struct BlogPost<State> {
+    title: String,
+    content: String,
+    _state: PhantomData<State>,
+}
+
+impl BlogPost<Draft> {
+    fn new(title: String) -> Self {
+        BlogPost {
+            title,
+            content: String::new(),
+            _state: PhantomData,
+        }
+    }
+    
+    fn write(&mut self, content: &str) {
+        self.content.push_str(content);
+    }
+    
+    fn publish(self) -> BlogPost<Published> {
+        println!("Publishing: {}", self.title);
+        BlogPost {
+            title: self.title,
+            content: self.content,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl BlogPost<Published> {
+    fn view(&self) -> String {
+        format!("{}\n\n{}", self.title, self.content)
+    }
+    
+    // Cannot write to published post
+}
+
+fn blog_post_example() {
+    let mut post = BlogPost::<Draft>::new("My Post".to_string());
+    post.write("This is the content.");
+    // post.view(); // ERROR: method not available on Draft
+    
+    let post = post.publish();
+    println!("{}", post.view());
+    // post.write("More content"); // ERROR: method not available on Published
+}
+
+// ===== PAYMENT STATE MACHINE =====
+struct Pending;
+struct Authorized;
+struct Captured;
+struct Refunded;
+
+struct Payment<State> {
+    amount: u64,
+    transaction_id: String,
+    _state: PhantomData<State>,
+}
+
+impl Payment<Pending> {
+    fn new(amount: u64) -> Self {
+        Payment {
+            amount,
+            transaction_id: uuid::Uuid::new_v4().to_string(),
+            _state: PhantomData,
+        }
+    }
+    
+    fn authorize(self) -> Result<Payment<Authorized>, String> {
+        println!("Authorizing payment of ${}", self.amount);
+        Ok(Payment {
+            amount: self.amount,
+            transaction_id: self.transaction_id,
+            _state: PhantomData,
+        })
+    }
+}
+
+impl Payment<Authorized> {
+    fn capture(self) -> Payment<Captured> {
+        println!("Capturing payment");
+        Payment {
+            amount: self.amount,
+            transaction_id: self.transaction_id,
+            _state: PhantomData,
+        }
+    }
+}
+
+impl Payment<Captured> {
+    fn refund(self) -> Payment<Refunded> {
+        println!("Refunding payment");
+        Payment {
+            amount: self.amount,
+            transaction_id: self.transaction_id,
+            _state: PhantomData,
+        }
+    }
+}
+
+// Mock uuid for example
+mod uuid {
+    pub struct Uuid;
+    impl Uuid {
+        pub fn new_v4() -> Self { Uuid }
+        pub fn to_string(&self) -> String { "uuid".to_string() }
+    }
+}
+
+fn payment_example() {
+    let payment = Payment::<Pending>::new(10000);
+    let payment = payment.authorize().unwrap();
+    let payment = payment.capture();
+    // Can only refund captured payments
+    let payment = payment.refund();
+}
+```

@@ -1,41 +1,44 @@
 # Testing & Benchmarking
 
-Unit Test Patterns
+[Unit Test Patterns](#pattern-1-unit-test-patterns)
 
 - Problem: Business logic bugs slip through type system; manual testing misses edge cases; no verification of error paths
 - Solution: Built-in #[test] framework; assert macros; #[should_panic]; organize with nested modules; RAII cleanup
 - Why It Matters: Catch logic bugs type system can't detect; error paths rarely tested manually = production bugs
 - Use Cases: Function correctness, error handling, panic verification, regression prevention, API contracts
 
-Property-Based Testing
+[Property-Based Testing](#pattern-2-property-based-testing)
 
 - Problem: Example tests miss edge cases; manually enumerating inputs tedious; corner cases unknown until production
 - Solution: proptest/quickcheck generate random inputs; verify properties hold for all inputs; automatic shrinking to minimal failure
 - Why It Matters: Finds bugs you didn't think to test; 100+ random inputs vs 3-5 manual examples; shrinking reveals root cause
 - Use Cases: Pure functions, data structures, serialization round-trips, parsers, algorithms, invariant verification
 
-Mock and Stub Patterns
+[Mock and Stub Patterns](#pattern-3-mock-and-stub-patterns)
 
 - Problem: Testing with real DBs/APIs slow, unreliable, expensive; hard to test error conditions; tests require network/setup
 - Solution: Trait-based dependency injection; mock implementations for testing; mockall for advanced expectations; fakes for I/O
 - Why It Matters: Fast deterministic tests; test error paths easily; no external dependencies; parallel test execution safe
 - Use Cases: Database operations, HTTP clients, file I/O, email services, payment gateways, external APIs, error scenarios
 
-Integration Testing
+[Integration Testing](#pattern-4-integration-testing)
 
 - Problem: Unit tests don't catch inter-component bugs; need to test public API; binary crates hard to test
 - Solution: tests/ directory for integration tests; shared utilities in tests/common/; move binary logic to lib.rs; test transactions
 - Why It Matters: Verify components work together; test as external users would; catch integration bugs early
 - Use Cases: Multi-component systems, public API verification, database workflows, HTTP servers, end-to-end scenarios
 
-Criterion Benchmarking
+[Criterion Benchmarking](#pattern-5-criterion-benchmarking)
 
 - Problem: Guessing optimizations wastes time; no data on performance impact; regressions undetected; scaling behavior unknown
 - Solution: Criterion for statistical benchmarks; compare implementations; parameterized tests; throughput measurement; baseline tracking
 - Why It Matters: Measure don't guess; statistical rigor detects real improvements; regression detection prevents slowdowns; scaling analysis
 - Use Cases: Algorithm comparison, performance optimization, regression detection, throughput analysis, scaling validation
 
+[Testing Cheat Sheet](#testing-cheat-sheet)
+- common **testing** patterns
 
+## Overview
 This chapter explores Rust's testing ecosystem: built-in unit tests, property-based testing with proptest, mocking with traits, integration testing patterns, and Criterion benchmarks for performance measurement and regression detection.
 
 ## Pattern 1: Unit Test Patterns
@@ -48,7 +51,7 @@ This chapter explores Rust's testing ecosystem: built-in unit tests, property-ba
 
 **Use Cases**: Function correctness verification (math functions, string processing, data transformations), error handling validation (Result errors, input validation, boundary conditions), panic verification (invalid inputs should panic, out-of-bounds access), regression prevention (test bugs found in production), API contract enforcement (public interface behavior), edge case coverage (empty inputs, max values, negative numbers), refactoring confidence (tests ensure behavior unchanged).
 
-### The Basics of Rust Testing
+### Example: The Basics of Rust Testing
 
 ```rust
 #[cfg(test)]
@@ -72,7 +75,7 @@ Run tests with `cargo test`. The test runner automatically discovers and execute
 
 The `#[cfg(test)]` attribute ensures test modules only compile during testing. This keeps test code out of release builds, reducing binary size.
 
-### Assertion Macros
+### Example: Assertion Macros
 
 Rust provides several assertion macros for different scenarios:
 
@@ -97,7 +100,7 @@ fn assertion_examples() {
 
 The `assert_eq!` and `assert_ne!` macros provide better error messages than `assert!` because they show both the expected and actual values when tests fail.
 
-### Testing Error Cases
+### Example: Testing Error Cases
 
 Good tests verify both success and failure paths. Rust makes this elegant:
 
@@ -136,7 +139,7 @@ mod tests {
 
 Testing error cases is crucial—many bugs lurk in error paths because they're harder to test manually.
 
-### Testing Panics
+### Example: Testing Panics
 
 Some functions should panic in certain conditions. Test this with `#[should_panic]`:
 
@@ -167,7 +170,7 @@ mod tests {
 
 The `expected` parameter verifies that the panic message contains specific text, ensuring you're panicking for the right reason.
 
-### Organizing Tests
+### Example: Organizing Tests
 
 As codebases grow, test organization becomes important. Here are common patterns:
 
@@ -224,7 +227,7 @@ mod tests {
 
 Nested modules help organize related tests, making the test suite easier to navigate and maintain.
 
-### Test Setup and Teardown
+### Example: Test Setup and Teardown
 
 Sometimes tests need setup or cleanup. Rust doesn't have built-in setup/teardown hooks, but you can use regular Rust patterns:
 
@@ -264,7 +267,7 @@ fn test_with_temp_directory() {
 
 This pattern uses RAII (Resource Acquisition Is Initialization) for automatic cleanup. The compiler guarantees cleanup happens, even if the test panics.
 
-### Ignoring and Filtering Tests
+### Example: Ignoring and Filtering Tests
 
 During development, you might want to skip expensive or unfinished tests:
 
@@ -295,7 +298,7 @@ cargo test addition
 cargo test math::tests::addition_tests
 ```
 
-### Testing Private Functions
+### Example: Testing Private Functions
 
 Tests in the same file can access private functions:
 
@@ -337,6 +340,7 @@ This is a deliberate design decision. Tests in the same module are part of the i
 
 **Use Cases**: Pure function testing (math, string operations, no side effects), data structure invariants (BST ordering, heap properties, graph validity), serialization round-trips (JSON, bincode, protobuf), parser correctness (parse then unparse), algorithm properties (sorting, searching, hashing), cryptographic properties (encryption then decryption), compression round-trips (compress then decompress), state machine transitions (all transitions maintain invariants).
 
+## Example: Can do better
 ```rust
 fn sort(mut vec: Vec<i32>) -> Vec<i32> {
     vec.sort();
@@ -360,18 +364,14 @@ This test is fine, but what about:
 
 You could write tests for each case, but you'd still miss edge cases. Property-based testing explores the input space automatically.
 
-### Introduction to proptest
+### Example: Introduction to proptest
 
 proptest is Rust's leading property-based testing library. It generates random test cases and verifies your properties hold:
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // [dev-dependencies]
-//=================
 // proptest = "1.0"
-//=================
 
 use proptest::prelude::*;
 
@@ -397,7 +397,7 @@ proptest! {
 
 proptest generates hundreds of random vectors and verifies all three properties hold. If it finds a failure, it "shrinks" the input to find the minimal failing case.
 
-### Shrinking: Finding Minimal Failing Cases
+### Example: Shrinking: Finding Minimal Failing Cases
 
 Shrinking is proptest's killer feature. When a test fails, proptest tries smaller, simpler inputs to find the smallest case that still fails:
 
@@ -421,7 +421,7 @@ proptest! {
 
 This test fails because `buggy_absolute_value(i32::MIN)` panics (overflow). proptest might initially find the failure with a large negative number, but it shrinks to the simplest failing case: `i32::MIN`.
 
-### Custom Generators
+### Example: Custom Generators
 
 Sometimes you need specific input patterns:
 
@@ -467,7 +467,7 @@ proptest! {
 
 Custom generators let you focus testing on realistic inputs while still getting proptest's shrinking and reporting.
 
-### Testing Invariants
+### Example: Testing Invariants
 
 Property-based testing excels at verifying invariants—properties that should always hold:
 
@@ -509,18 +509,14 @@ proptest! {
 
 These properties completely specify `merge_maps`' behavior without testing specific examples.
 
-### QuickCheck: Alternative Approach
+### Example: QuickCheck 
 
 QuickCheck is another property-based testing library, inspired by Haskell's QuickCheck:
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // [dev-dependencies]
-//===================
 // quickcheck = "1.0"
-//===================
 // quickcheck_macros = "1.0"
 
 use quickcheck::{quickcheck, TestResult};
@@ -544,7 +540,7 @@ fn concat_length(a: Vec<i32>, b: Vec<i32>) -> bool {
 
 QuickCheck's syntax is slightly different from proptest, but the concept is the same. Choose based on your preference—both are excellent.
 
-### When to Use Property-Based Testing
+### Example: When to Use Property-Based Testing
 
 Property-based testing shines when:
 
@@ -569,7 +565,7 @@ It's less useful for:
 
 **Use Cases**: Database operations testing (SQL queries, transactions without PostgreSQL/MySQL), HTTP client testing (API calls, retry logic, error handling without real servers), email service testing (verify emails sent without SMTP), file system operations (read/write without disk I/O), payment gateway testing (charge logic without Stripe/PayPal), authentication testing (login without auth server), cache testing (Redis operations without real Redis), message queue testing (Kafka/RabbitMQ logic without brokers).
 
-### Trait-Based Mocking
+### Example: Trait-Based Mocking
 
 The most idiomatic approach uses traits:
 
@@ -670,7 +666,7 @@ mod tests {
 
 This pattern is powerful: the real code uses `EmailService` trait, tests use `MockEmailService`, production uses `SmtpEmailService`. No mocking framework needed.
 
-### Using mockall for Advanced Mocking
+### Example: Using mockall for Advanced Mocking
 
 For complex mocking needs, the `mockall` crate provides a powerful framework:
 
@@ -727,7 +723,7 @@ mod tests {
 
 mockall automatically generates mock implementations and verifies expectations, similar to mocking frameworks in other languages.
 
-### Dependency Injection Patterns
+### Example: Dependency Injection Patterns
 
 Dependency injection makes testing easier by making dependencies explicit:
 
@@ -805,10 +801,10 @@ fn test_failed_payment() {
 
 This pattern—using traits for dependencies and injecting implementations—is idiomatic Rust and makes testing straightforward.
 
-### Test Doubles for I/O
+### Example: Test Doubles for I/O
 
 File system and network operations need special handling:
-
+ 
 ```rust
 trait FileSystem {
     fn read_file(&self, path: &str) -> std::io::Result<String>;
@@ -893,6 +889,7 @@ This fake is fast, deterministic, and doesn't touch the actual file system.
 
 **Use Cases**: Multi-component systems (web server + database + cache), public library API verification (ensure usability), database workflow testing (CRUD operations, transactions, migrations), HTTP server testing (routes, middleware, auth), binary application testing (CLI tools, services), end-to-end scenarios (user flows, data pipelines), cross-crate interaction testing (workspace members), deployment smoke tests (can system start and respond).
 
+## Example: Integration Tests Structure
 ```
 my_project/
 ├── src/
@@ -922,7 +919,7 @@ fn test_public_api() {
 
 Integration tests only have access to your crate's public API, just like external users.
 
-### Common Test Code
+### Example: Common Test Code
 
 Shared test utilities go in `tests/common/`:
 
@@ -962,7 +959,7 @@ fn test_with_common_utilities() {
 
 The `common/mod.rs` pattern prevents Rust from treating `common` as a test file.
 
-### Testing Binary Crates
+### Example: Testing Binary Crates
 
 Binary crates can be tested by moving logic to a library:
 
@@ -1008,7 +1005,7 @@ fn test_application_logic() {
 
 This structure makes the binary testable while keeping `main.rs` simple.
 
-### Database Integration Tests
+### Example: Database Integration Tests
 
 Testing with real databases requires setup and teardown:
 
@@ -1091,7 +1088,7 @@ async fn test_in_transaction() {
 
 This pattern runs tests in isolation without slow database cleanup.
 
-### HTTP Integration Tests
+### Example: HTTP Integration Tests
 
 Testing HTTP servers requires starting a test server:
 
@@ -1173,28 +1170,18 @@ async fn test_full_server() {
 
 **Use Cases**: Algorithm comparison (sort implementations, hash functions, compression algorithms), optimization validation (did refactor improve speed?), regression detection (CI fails if >10% slower), throughput analysis (parser MB/s, serialization throughput), scaling validation (performance vs input size), data structure benchmarks (Vec vs HashMap lookup), cache effectiveness (measure cache hit impact), optimization prioritization (profile then benchmark hot spots).
 
-### Basic Criterion Benchmarks
+### Example: Basic Criterion Benchmarks
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // [dev-dependencies]
-//==================
 // criterion = "0.5"
-//==================
 //
-//==========
 // [[bench]]
-//==========
 // name = "my_benchmark"
-//================
 // harness = false
-//================
 
-//========================
 // benches/my_benchmark.rs
-//========================
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn fibonacci(n: u64) -> u64 {
@@ -1221,7 +1208,7 @@ fib 20                  time:   [26.029 µs 26.251 µs 26.509 µs]
 
 The `black_box` function prevents the compiler from optimizing away the computation.
 
-### Comparing Implementations
+### Example: Comparing Implementations
 
 Benchmark multiple implementations to choose the best:
 
@@ -1270,7 +1257,7 @@ criterion_main!(benches);
 
 Criterion generates comparative graphs showing which implementation is fastest.
 
-### Parameterized Benchmarks
+### Example: Parameterized Benchmarks
 
 Benchmark across different input sizes:
 
@@ -1300,7 +1287,7 @@ criterion_main!(benches);
 
 This reveals how performance scales with input size—crucial for understanding algorithmic complexity.
 
-### Throughput Measurement
+### Example: Throughput Measurement
 
 Measure operations per second or bytes per second:
 
@@ -1338,7 +1325,7 @@ parse_throughput/parse  time:   [1.2034 ms 1.2156 ms 1.2289 ms]
                         thrpt:  [37.428 MiB/s 37.835 MiB/s 38.216 MiB/s]
 ```
 
-### Profiling Integration
+### Example: Profiling Integration
 
 Criterion can integrate with profilers:
 
@@ -1362,7 +1349,7 @@ criterion_main!(benches);
 
 This generates flamegraphs showing where time is spent.
 
-### Regression Testing
+### Example: Regression Testing
 
 Criterion saves baseline measurements:
 
@@ -1378,7 +1365,7 @@ cargo bench -- --baseline master
 
 Criterion reports whether performance regressed, improved, or stayed the same.
 
-### Best Practices for Benchmarking
+### Example: Best Practices for Benchmarking
 
 1. **Benchmark realistic scenarios**: Synthetic microbenchmarks can be misleading
 
@@ -1488,3 +1475,743 @@ fn bench_implementations(c: &mut Criterion) {
 - `cargo bench -- --baseline main`: Compare PR against baseline, fail if >10% slower
 - Test coverage tools: tarpaulin, llvm-cov for coverage reports
 - Parallel execution: Tests run concurrently by default (use `--test-threads=1` to serialize)
+
+## Testing Cheat Sheet
+```rust
+// ===== UNIT TESTS =====
+// Cargo.toml:
+/*
+[dev-dependencies]
+mockall = "0.12"
+proptest = "1.4"
+criterion = "0.5"
+*/
+
+// Basic unit test
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_addition() {
+        assert_eq!(2 + 2, 4);
+    }
+    
+    #[test]
+    fn test_function() {
+        let result = my_function(5);
+        assert_eq!(result, 10);
+    }
+}
+
+fn my_function(x: i32) -> i32 {
+    x * 2
+}
+
+// ===== ASSERTIONS =====
+#[cfg(test)]
+mod assertion_tests {
+    #[test]
+    fn test_assertions() {
+        // Equality
+        assert_eq!(2 + 2, 4);
+        assert_ne!(2 + 2, 5);
+        
+        // Boolean
+        assert!(true);
+        assert!(!false);
+        
+        // Custom message
+        assert_eq!(2 + 2, 4, "Math is broken!");
+        assert!(true, "This should be true, got {}", false);
+    }
+    
+    #[test]
+    fn test_floats() {
+        let x = 0.1 + 0.2;
+        let y = 0.3;
+        
+        // Don't use == for floats
+        // assert_eq!(x, y);  // May fail!
+        
+        // Use epsilon comparison
+        assert!((x - y).abs() < 1e-10);
+    }
+    
+    #[test]
+    fn test_collections() {
+        let vec = vec![1, 2, 3];
+        
+        assert_eq!(vec.len(), 3);
+        assert!(vec.contains(&2));
+        assert_eq!(vec, vec![1, 2, 3]);
+    }
+}
+
+// ===== EXPECTED FAILURES =====
+#[cfg(test)]
+mod failure_tests {
+    #[test]
+    #[should_panic]
+    fn test_panic() {
+        panic!("This test should panic");
+    }
+    
+    #[test]
+    #[should_panic(expected = "division by zero")]
+    fn test_panic_with_message() {
+        let _ = divide(10, 0);
+    }
+    
+    fn divide(a: i32, b: i32) -> i32 {
+        if b == 0 {
+            panic!("division by zero");
+        }
+        a / b
+    }
+}
+
+// ===== RESULT-BASED TESTS =====
+#[cfg(test)]
+mod result_tests {
+    use std::io;
+    
+    #[test]
+    fn test_with_result() -> Result<(), String> {
+        let result = fallible_function()?;
+        assert_eq!(result, 42);
+        Ok(())
+    }
+    
+    #[test]
+    fn test_error_handling() -> io::Result<()> {
+        let content = std::fs::read_to_string("test.txt")?;
+        assert!(!content.is_empty());
+        Ok(())
+    }
+    
+    fn fallible_function() -> Result<i32, String> {
+        Ok(42)
+    }
+}
+
+// ===== TEST ORGANIZATION =====
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    
+    // Nested modules
+    mod addition {
+        use super::*;
+        
+        #[test]
+        fn test_positive() {
+            assert_eq!(add(2, 3), 5);
+        }
+        
+        #[test]
+        fn test_negative() {
+            assert_eq!(add(-2, -3), -5);
+        }
+    }
+    
+    mod multiplication {
+        use super::*;
+        
+        #[test]
+        fn test_basic() {
+            assert_eq!(multiply(2, 3), 6);
+        }
+    }
+    
+    fn add(a: i32, b: i32) -> i32 { a + b }
+    fn multiply(a: i32, b: i32) -> i32 { a * b }
+}
+
+// ===== IGNORING TESTS =====
+#[cfg(test)]
+mod ignore_tests {
+    #[test]
+    #[ignore]
+    fn expensive_test() {
+        // This test is ignored by default
+        // Run with: cargo test -- --ignored
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    }
+    
+    #[test]
+    #[ignore = "Not yet implemented"]
+    fn todo_test() {
+        // Ignored with reason
+    }
+}
+
+// ===== TEST SETUP AND TEARDOWN =====
+#[cfg(test)]
+mod setup_teardown {
+    struct TestContext {
+        data: Vec<i32>,
+    }
+    
+    impl TestContext {
+        fn new() -> Self {
+            println!("Setup");
+            TestContext {
+                data: vec![1, 2, 3],
+            }
+        }
+    }
+    
+    impl Drop for TestContext {
+        fn drop(&mut self) {
+            println!("Teardown");
+        }
+    }
+    
+    #[test]
+    fn test_with_context() {
+        let ctx = TestContext::new();
+        assert_eq!(ctx.data.len(), 3);
+        // Drop called automatically at end
+    }
+}
+
+// ===== ASYNC TESTS =====
+// Requires tokio test runtime
+use tokio;
+
+#[cfg(test)]
+mod async_tests {
+    use super::*;
+    
+    #[tokio::test]
+    async fn test_async_function() {
+        let result = async_function().await;
+        assert_eq!(result, 42);
+    }
+    
+    #[tokio::test]
+    async fn test_async_with_timeout() {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            async_function()
+        ).await.unwrap();
+    }
+    
+    async fn async_function() -> i32 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        42
+    }
+}
+
+// ===== MOCKING =====
+use mockall::{automock, predicate::*};
+
+#[automock]
+trait Database {
+    fn get_user(&self, id: u32) -> Option<String>;
+    fn save_user(&mut self, id: u32, name: String) -> Result<(), String>;
+}
+
+#[cfg(test)]
+mod mock_tests {
+    use super::*;
+    
+    #[test]
+    fn test_with_mock() {
+        let mut mock = MockDatabase::new();
+        
+        // Set expectations
+        mock.expect_get_user()
+            .with(eq(1))
+            .times(1)
+            .returning(|_| Some("Alice".to_string()));
+        
+        // Use mock
+        let result = mock.get_user(1);
+        assert_eq!(result, Some("Alice".to_string()));
+    }
+    
+    #[test]
+    fn test_mock_save() {
+        let mut mock = MockDatabase::new();
+        
+        mock.expect_save_user()
+            .with(eq(1), eq("Bob".to_string()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        
+        let result = mock.save_user(1, "Bob".to_string());
+        assert!(result.is_ok());
+    }
+    
+    #[test]
+    fn test_mock_sequence() {
+        let mut mock = MockDatabase::new();
+        
+        let mut seq = mockall::Sequence::new();
+        
+        mock.expect_get_user()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_| None);
+        
+        mock.expect_get_user()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_| Some("Alice".to_string()));
+        
+        assert_eq!(mock.get_user(1), None);
+        assert_eq!(mock.get_user(1), Some("Alice".to_string()));
+    }
+}
+
+// ===== PROPERTY-BASED TESTING =====
+use proptest::prelude::*;
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    
+    proptest! {
+        #[test]
+        fn test_addition_commutative(a in 0i32..1000, b in 0i32..1000) {
+            assert_eq!(a + b, b + a);
+        }
+        
+        #[test]
+        fn test_reverse_twice(vec in prop::collection::vec(0i32..100, 0..100)) {
+            let reversed_twice: Vec<_> = vec.iter()
+                .rev()
+                .rev()
+                .copied()
+                .collect();
+            assert_eq!(vec, reversed_twice);
+        }
+        
+        #[test]
+        fn test_string_length(s in "\\PC*") {
+            let len = s.len();
+            assert_eq!(s.chars().count(), s.chars().count());
+            prop_assume!(len < 1000); // Skip if too long
+        }
+    }
+    
+    // Custom strategies
+    proptest! {
+        #[test]
+        fn test_custom_strategy(
+            email in "[a-z]{5,10}@[a-z]{3,8}\\.(com|org|net)"
+        ) {
+            assert!(email.contains('@'));
+            assert!(email.contains('.'));
+        }
+    }
+}
+
+// ===== BENCHMARK TESTS =====
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        n => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+fn criterion_benchmark(c: &mut Criterion) {
+    c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
+    
+    // Compare implementations
+    c.bench_function("vec_push", |b| {
+        b.iter(|| {
+            let mut vec = Vec::new();
+            for i in 0..100 {
+                vec.push(black_box(i));
+            }
+        })
+    });
+    
+    c.bench_function("vec_with_capacity", |b| {
+        b.iter(|| {
+            let mut vec = Vec::with_capacity(100);
+            for i in 0..100 {
+                vec.push(black_box(i));
+            }
+        })
+    });
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);
+
+// ===== INTEGRATION TESTS =====
+// tests/integration_test.rs (separate file)
+/*
+use my_crate::*;
+
+#[test]
+fn integration_test() {
+    let result = public_function();
+    assert_eq!(result, expected_value);
+}
+*/
+
+// ===== DOCUMENTATION TESTS =====
+/// Adds two numbers together.
+///
+/// # Examples
+///
+/// ```
+/// let result = my_crate::add(2, 3);
+/// assert_eq!(result, 5);
+/// ```
+///
+/// ```should_panic
+/// // This example panics
+/// my_crate::divide(10, 0);
+/// ```
+///
+/// ```no_run
+/// // This example is compiled but not run
+/// my_crate::expensive_operation();
+/// ```
+///
+/// ```ignore
+/// // This example is not compiled
+/// let x = undefined_function();
+/// ```
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub fn divide(a: i32, b: i32) -> i32 {
+    a / b
+}
+
+pub fn expensive_operation() {}
+
+// ===== TEST HELPERS =====
+#[cfg(test)]
+mod test_helpers {
+    pub fn setup_test_db() -> TestDb {
+        TestDb::new()
+    }
+    
+    pub struct TestDb {
+        // Test database
+    }
+    
+    impl TestDb {
+        pub fn new() -> Self {
+            TestDb {}
+        }
+        
+        pub fn seed_data(&mut self) {
+            // Insert test data
+        }
+    }
+    
+    impl Drop for TestDb {
+        fn drop(&mut self) {
+            // Cleanup test database
+        }
+    }
+}
+
+// ===== CONDITIONAL COMPILATION =====
+#[cfg(test)]
+mod test_only_code {
+    pub fn test_helper() -> i32 {
+        42
+    }
+}
+
+#[cfg(not(test))]
+mod production_code {
+    pub fn production_function() {
+        // Only compiled in production
+    }
+}
+
+// ===== TEST FIXTURES =====
+#[cfg(test)]
+mod fixtures {
+    use std::path::PathBuf;
+    
+    pub fn fixture_path(name: &str) -> PathBuf {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests");
+        path.push("fixtures");
+        path.push(name);
+        path
+    }
+    
+    #[test]
+    fn test_with_fixture() {
+        let path = fixture_path("test_data.json");
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(!content.is_empty());
+    }
+}
+
+// ===== SNAPSHOT TESTING =====
+// Requires insta crate
+/*
+use insta::assert_snapshot;
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    
+    #[test]
+    fn test_output() {
+        let output = generate_output();
+        assert_snapshot!(output);
+    }
+    
+    fn generate_output() -> String {
+        "Generated output".to_string()
+    }
+}
+*/
+
+// ===== PARALLEL TESTS =====
+#[cfg(test)]
+mod parallel_tests {
+    use std::sync::Mutex;
+    use std::sync::Arc;
+    
+    #[test]
+    fn test_parallel_safe() {
+        // This test runs in parallel with others
+        let result = 2 + 2;
+        assert_eq!(result, 4);
+    }
+    
+    // Sequential test (requires test-case or similar)
+    // #[serial]
+    // fn test_sequential() {
+    //     // This test runs sequentially
+    // }
+}
+
+// ===== TABLE-DRIVEN TESTS =====
+#[cfg(test)]
+mod table_tests {
+    struct TestCase {
+        input: i32,
+        expected: i32,
+    }
+    
+    #[test]
+    fn test_multiple_cases() {
+        let test_cases = vec![
+            TestCase { input: 0, expected: 0 },
+            TestCase { input: 1, expected: 1 },
+            TestCase { input: 2, expected: 4 },
+            TestCase { input: 3, expected: 9 },
+            TestCase { input: 4, expected: 16 },
+        ];
+        
+        for case in test_cases {
+            assert_eq!(square(case.input), case.expected,
+                      "Failed for input {}", case.input);
+        }
+    }
+    
+    fn square(x: i32) -> i32 {
+        x * x
+    }
+}
+
+// ===== CUSTOM TEST HARNESS =====
+// In Cargo.toml:
+/*
+[[test]]
+name = "custom"
+path = "tests/custom.rs"
+harness = false
+*/
+
+// tests/custom.rs:
+/*
+fn main() {
+    println!("Running custom tests...");
+    
+    test_1();
+    test_2();
+    
+    println!("All tests passed!");
+}
+
+fn test_1() {
+    assert_eq!(2 + 2, 4);
+}
+
+fn test_2() {
+    assert_eq!(3 * 3, 9);
+}
+*/
+
+// ===== COVERAGE =====
+// Run with: cargo tarpaulin
+// Or: cargo llvm-cov
+
+// ===== TEST PATTERNS =====
+
+// Pattern 1: Builder pattern for test data
+#[cfg(test)]
+mod test_builder {
+    struct User {
+        id: u32,
+        name: String,
+        email: String,
+    }
+    
+    struct UserBuilder {
+        id: u32,
+        name: String,
+        email: String,
+    }
+    
+    impl UserBuilder {
+        fn new() -> Self {
+            UserBuilder {
+                id: 1,
+                name: "Test User".to_string(),
+                email: "test@example.com".to_string(),
+            }
+        }
+        
+        fn id(mut self, id: u32) -> Self {
+            self.id = id;
+            self
+        }
+        
+        fn name(mut self, name: &str) -> Self {
+            self.name = name.to_string();
+            self
+        }
+        
+        fn build(self) -> User {
+            User {
+                id: self.id,
+                name: self.name,
+                email: self.email,
+            }
+        }
+    }
+    
+    #[test]
+    fn test_with_builder() {
+        let user = UserBuilder::new()
+            .id(42)
+            .name("Alice")
+            .build();
+        
+        assert_eq!(user.id, 42);
+        assert_eq!(user.name, "Alice");
+    }
+}
+
+// Pattern 2: Test factories
+#[cfg(test)]
+mod test_factories {
+    fn create_test_user(id: u32) -> User {
+        User {
+            id,
+            name: format!("User{}", id),
+            email: format!("user{}@example.com", id),
+        }
+    }
+    
+    #[test]
+    fn test_with_factory() {
+        let user = create_test_user(1);
+        assert_eq!(user.id, 1);
+    }
+    
+    struct User {
+        id: u32,
+        name: String,
+        email: String,
+    }
+}
+
+// Pattern 3: Parametrized tests (with rstest crate)
+/*
+use rstest::rstest;
+
+#[rstest]
+#[case(0, 0)]
+#[case(1, 1)]
+#[case(2, 4)]
+#[case(3, 9)]
+fn test_square(#[case] input: i32, #[case] expected: i32) {
+    assert_eq!(square(input), expected);
+}
+*/
+
+// Pattern 4: Testing async code
+#[cfg(test)]
+mod async_test_patterns {
+    use tokio;
+    use std::time::Duration;
+    
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_concurrent() {
+        let handle1 = tokio::spawn(async { 1 + 1 });
+        let handle2 = tokio::spawn(async { 2 + 2 });
+        
+        let (r1, r2) = tokio::join!(handle1, handle2);
+        
+        assert_eq!(r1.unwrap(), 2);
+        assert_eq!(r2.unwrap(), 4);
+    }
+    
+    #[tokio::test]
+    async fn test_timeout() {
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                42
+            }
+        ).await;
+        
+        assert_eq!(result.unwrap(), 42);
+    }
+}
+
+// Pattern 5: Testing errors
+#[cfg(test)]
+mod error_tests {
+    #[test]
+    fn test_error_type() {
+        let result: Result<i32, &str> = Err("error");
+        
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "error");
+    }
+    
+    #[test]
+    fn test_error_matching() {
+        let result = divide(10, 0);
+        
+        match result {
+            Err(e) => assert_eq!(e, "division by zero"),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+    
+    fn divide(a: i32, b: i32) -> Result<i32, &'static str> {
+        if b == 0 {
+            Err("division by zero")
+        } else {
+            Ok(a / b)
+        }
+    }
+}
+```

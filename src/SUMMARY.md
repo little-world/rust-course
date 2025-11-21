@@ -1,10 +1,13 @@
 - [introduction](00-introduction.md)
 # Part I: Core Language Mechanics
 - [memory-ownership-patterns](01-memory-ownership-patterns.md)
-- [type-system-deep-dive](02-type-system-deep-dive.md)
-- [error-handling-architecture](03-error-handling-architecture.md)
-- [pattern-matching-destructuring](04-pattern-matching-destructuring.md)
-- [iterator-patterns-combinators](05-iterator-patterns-combinators.md)
+- [struct-enum-patterns](02-struct-enum-patterns.md)
+- [trait-design-patterns](03-trait-design-patterns.md)
+- [builder-api-design](05-builder-api-design.md)
+- [lifetime-patterns](06-lifetime-patterns.md)
+- [pattern-matching-destructuring](07-pattern-matching-destructuring.md)
+- [iterator-patterns-combinators](08-iterator-patterns-combinators.md)
+- [error-handling-architecture](09-error-handling-architecture.md)
 # Part II: Collections & Data Structures
 - [vec-slice-manipulation](06-vec-slice-manipulation.md)
 - [string-processing](07-string-processing.md)
@@ -30,11 +33,6 @@
 - [network-programming](22-network-programming.md)
 - [database-patterns](23-database-patterns.md)
 - [testing-benchmarking](24-testing-benchmarking.md)
-# Part VIII: Advanced Topics
-- [trait-design-patterns](25-trait-design-patterns.md)
-- [struct-enum-patterns](26-struct-enum-patterns.md)
-- [builder-api-design](27-builder-api-design.md)
-- [lifetime-patterns](28-lifetime-patterns.md)
 - [performance-optimization](29-performance-optimization.md)
 # Appendices
 - [appendix-a-quick-reference](30-appendix-a-quick-reference.md)

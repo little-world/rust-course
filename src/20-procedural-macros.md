@@ -1,52 +1,46 @@
 # Procedural Macros
 
-Derive Macros
+[Derive Macros](#pattern-1-derive-macros)
 
 - Problem: Auto-implementing traits tedious (Debug, Serialize, Clone for 50 types); manual impls forget fields; code generation limited in macro_rules!
 - Solution: #[derive(MyTrait)] with proc_macro_derive; parse struct with syn; generate impl with quote; full AST access; TokenStream → parse → manipulate → generate
 - Why It Matters: Powers serde, clap, derive ecosystem; type-safe codegen; adds fields → derive updates automatically; impossible with declarative macros
 - Use Cases: serde Serialize/Deserialize, Clone/Debug derives, builder patterns, ORM derives (Diesel), clap command parsing, validation derives
 
-Attribute Macros
+[Attribute Macros](#pattern-2-attribute-macros)
 
 - Problem: Need to modify/wrap functions; add tracing/logging; inject code before/after; declarative macros can't modify items; aspect-oriented programming in Rust
 - Solution: #[my_attr] attribute macros; receive item + attr args; modify function/struct/impl; wrap with additional code; full AST manipulation
 - Why It Matters: tokio::main wraps async fn; tracing instruments functions; route macros (actix-web); test frameworks; non-invasive code injection
 - Use Cases: tokio::test/main (async runtime), tracing::instrument (logging), actix-web routes, test fixtures, memoization, error handling wrappers
 
-Function-like Macros
+[Function-like Macros](#pattern-3-function-like-macros)
 
 - Problem: Custom syntax beyond derive/attribute; sql! needs full syntax parsing; html! templates; declarative macros limited; need complex parsing
 - Solution: my_macro!(...) function-like proc macros; full parsing control; syn::parse for custom syntax; build DSLs; return arbitrary code
 - Why It Matters: Enables complex DSLs—sql! with type checking, html! templates; more flexible than macro_rules!; full compiler integration
 - Use Cases: SQL DSLs (type-safe queries), HTML templates, config DSLs, query builders, compile-time regex, format string validation
 
-Token Stream Manipulation
+[Token Stream Manipulation](#pattern-4-token-stream-manipulation)
 
 - Problem: Need fine-grained token control; syn too high-level; custom parsing; build syntax not in syn; low-level macro construction
 - Solution: Direct TokenStream manipulation; proc_macro2::TokenTree; syn::parse for custom types; manual token construction; Punctuated for lists
 - Why It Matters: Maximum flexibility—handle any syntax; syn doesn't support your grammar; custom DSL syntax; performance-critical parsing
 - Use Cases: Custom DSL parsers, performance-critical macros, syntax not in syn, advanced derive scenarios, macro composition
 
-Macro Helper Crates (syn, quote)
+[Macro Helper Crates (syn, quote)](pattern-5-macro-helper-crates)
 
 - Problem: Parsing TokenStream manually tedious; constructing code error-prone; quote interpolation complex; field iteration boilerplate
 - Solution: syn parses Rust syntax to AST; quote! generates code with interpolation; proc_macro2 for testing; darling for derive helpers
 - Why It Matters: syn eliminates 90% parsing code; quote! readable codegen (#field_name interpolation); darling handles attributes; essential tooling
 - Use Cases: All proc macros (syn+quote standard), derive macros (darling), testing (proc_macro2), attribute parsing, custom derives
 
+[Procedural Macros Cheat Sheet](#procedural-macros-cheat-sheet)
+- common patterns in procedural macros
+
+## Overview
 
 This chapter covers procedural macros—full Rust functions that manipulate TokenStreams. Three types: derive (#[derive(Trait)]), attribute (#[my_attr]), function-like (sql!). Must be separate crate. Use syn to parse, quote to generate. Powers serde, tokio, clap ecosystem.
-
-## Table of Contents
-
-1. [Derive Macros](#pattern-1-derive-macros)
-2. [Attribute Macros](#pattern-2-attribute-macros)
-3. [Function-like Macros](#pattern-3-function-like-macros)
-4. [Token Stream Manipulation](#pattern-4-token-stream-manipulation)
-5. [Macro Helper Crates (syn, quote)](#pattern-5-macro-helper-crates-syn-quote)
-
----
 
 ## Setup
 
@@ -84,9 +78,8 @@ proc-macro2 = "1.0"
 
 **Use Cases**: serde Serialize/Deserialize (JSON/binary), Clone/Debug/PartialEq derives, builder patterns (derive_builder crate), ORM models (Diesel, SeaORM), command-line parsers (clap), error types (thiserror), validation (validator), getters/setters.
 
-### Basic Derive Pattern
-
-**Problem**: Create simple derive macro for custom trait.
+### Example: Basic Derive Pattern
+ Create simple derive macro for custom trait.
 
 ```rust
 //=====================
@@ -137,7 +130,7 @@ fn main() {
 }
 ```
 
-### Derive Macro with Field Access
+### Example: Derive Macro with Field Access
 
 ```rust
 use proc_macro::TokenStream;
@@ -250,7 +243,7 @@ fn main() {
 }
 ```
 
-### Derive Macro with Attributes
+### Example: Derive Macro with Attributes
 
 ```rust
 use proc_macro::TokenStream;
@@ -386,7 +379,7 @@ fn main() {
 }
 ```
 
-### Derive Macro for Enums
+### Example: Derive Macro for Enums
 
 ```rust
 use proc_macro::TokenStream;
@@ -461,9 +454,9 @@ fn main() {
 
 **Use Cases**: tokio::main/test (async runtime), tracing::instrument (automatic logging), web framework routes (actix, axum, rocket), test fixtures, memoization/caching, error handling wrappers, performance timing, authorization checks.
 
-### Attribute Macro Pattern
+### Example: Attribute Macro Pattern
 
-**Problem**: Wrap function with timing/logging without modifying its body.
+Wrap function with timing/logging without modifying its body.
 
 ```rust
 use proc_macro::TokenStream;
@@ -509,7 +502,7 @@ fn main() {
 }
 ```
 
-### Attribute Macro with Parameters
+### Example: Attribute Macro with Parameters
 
 ```rust
 use proc_macro::TokenStream;
@@ -570,7 +563,7 @@ fn main() {
 }
 ```
 
-### Method Attribute Macro
+### Example: Method Attribute Macro
 
 ```rust
 use proc_macro::TokenStream;
@@ -610,7 +603,7 @@ pub fn cache(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 ```
 
-### Struct Attribute Macro
+### Example: Struct Attribute Macro
 
 ```rust
 use proc_macro::TokenStream;
@@ -674,9 +667,8 @@ fn main() {
 
 **Use Cases**: SQL DSLs (sqlx, diesel—type-checked queries), HTML templates (yew html!, maud), configuration DSLs, query builders, compile-time regex validation, format string checking, JSON literals with validation, embedded language DSLs.
 
-### Function-like Macro Pattern
-
-**Problem**: Create SQL-like macro with custom parsing.
+### Example: Function-like Macro Pattern
+Create SQL-like macro with custom parsing.
 
 ```rust
 use proc_macro::TokenStream;
@@ -722,7 +714,7 @@ fn main() {
 }
 ```
 
-### Complex Function-like Macro
+### Example: Complex Function-like Macro
 
 ```rust
 use proc_macro::TokenStream;
@@ -800,7 +792,7 @@ fn main() {
 }
 ```
 
-### DSL Function-like Macro
+### Example: DSL Function-like Macro
 
 ```rust
 use proc_macro::TokenStream;
@@ -887,9 +879,9 @@ pub fn routes(input: TokenStream) -> TokenStream {
 
 **Use Cases**: Custom DSL parsers (syntax not in syn), performance-critical macros (skip syn overhead), advanced derive scenarios, token filters/transformers, macro composition, debugging token structure, embedded language parsers.
 
-### Direct TokenStream Pattern
+### Example: Direct TokenStream Pattern
 
-**Problem**: Manipulate tokens directly without syn parsing.
+ Manipulate tokens directly without syn parsing.
 
 ```rust
 use proc_macro::{TokenStream, TokenTree, Delimiter, Group, Punct, Spacing};
@@ -903,7 +895,7 @@ pub fn reverse_tokens(input: TokenStream) -> TokenStream {
 }
 ```
 
-### Token Inspection
+### Example: Token Inspection
 
 ```rust
 use proc_macro::TokenStream;
@@ -933,7 +925,7 @@ pub fn inspect_tokens(input: TokenStream) -> TokenStream {
 }
 ```
 
-### Building TokenStream from Scratch
+### Example: Building TokenStream from Scratch
 
 ```rust
 use proc_macro::{TokenStream, TokenTree, Ident, Span, Literal};
@@ -962,7 +954,7 @@ pub fn build_struct(_input: TokenStream) -> TokenStream {
 }
 ```
 
-### Span Manipulation
+### Example: Span Manipulation
 
 ```rust
 use proc_macro::TokenStream;
@@ -1009,9 +1001,9 @@ pub fn with_span(input: TokenStream) -> TokenStream {
 
 **Use Cases**: All proc macros (syn+quote ubiquitous), derive macros (syn::DeriveInput), attribute parsing (darling), testing macros (proc_macro2), custom parsing (syn::parse::Parse), code generation (quote!), field iteration, type inspection.
 
-### syn Parsing Pattern
+### Example: syn Parsing Pattern
 
-**Problem**: Parse Rust syntax from TokenStream into typed AST.
+ Parse Rust syntax from TokenStream into typed AST.
 
 ```rust
 use syn::{
@@ -1062,7 +1054,7 @@ impl Parse for StructDef {
 }
 ```
 
-### Using quote for Code Generation
+### Example: Using quote for Code Generation
 
 ```rust
 use quote::{quote, format_ident};
@@ -1096,7 +1088,7 @@ fn generate_multiple_methods(name: &str, count: usize) -> proc_macro2::TokenStre
 }
 ```
 
-### Advanced syn Features
+### Example: Advanced syn Features
 
 ```rust
 use syn::{
@@ -1131,7 +1123,7 @@ fn get_doc_comments(attrs: &[Attribute]) -> Vec<String> {
 }
 ```
 
-### Combining syn and quote
+### Example: Combining syn and quote
 
 ```rust
 use proc_macro::TokenStream;
@@ -1187,7 +1179,7 @@ pub fn getter_setter_derive(input: TokenStream) -> TokenStream {
 }
 ```
 
-### Error Handling in Procedural Macros
+### Example: Error Handling in Procedural Macros
 
 ```rust
 use proc_macro::TokenStream;
@@ -1225,7 +1217,7 @@ pub fn validated_derive(input: TokenStream) -> TokenStream {
 }
 ```
 
-### Custom Parse Implementation
+### Example: Custom Parse Implementation
 
 ```rust
 use syn::{
@@ -1272,7 +1264,7 @@ impl Parse for ConfigItem {
 }
 ```
 
-### Using proc_macro2
+### Example: Using proc_macro2
 
 ```rust
 use proc_macro2::{TokenStream, Span, Ident};
@@ -1309,7 +1301,7 @@ fn convert_token_streams(input: TokenStream1) -> TokenStream1 {
 }
 ```
 
-### Complete Example: JSON Serialization Macro
+### Example: Complete Example: JSON Serialization Macro
 
 ```rust
 use proc_macro::TokenStream;
@@ -1373,7 +1365,7 @@ fn main() {
 }
 ```
 
-### Testing Procedural Macros
+### Example: Testing Procedural Macros
 
 ```rust
 //===========================
@@ -1408,7 +1400,7 @@ fn test_function_macro() {
 }
 ```
 
----
+
 
 ## Summary
 
@@ -1481,4 +1473,654 @@ proc-macro = true
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc_macro2 = "1"
+```
+
+## Procedural Macros Cheat Sheet
+```rust
+// ===== PROCEDURAL MACROS SETUP =====
+// Cargo.toml for proc-macro crate:
+/*
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+*/
+
+// ===== DERIVE MACROS =====
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+// Basic derive macro
+#[proc_macro_derive(HelloMacro)]
+pub fn hello_macro_derive(input: TokenStream) -> TokenStream {
+    // Parse the input tokens into a syntax tree
+    let input = parse_macro_input!(input as DeriveInput);
+    
+    // Get the name of the struct/enum
+    let name = &input.ident;
+    
+    // Generate the implementation
+    let expanded = quote! {
+        impl HelloMacro for #name {
+            fn hello_macro() {
+                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[derive(HelloMacro)]
+struct Pancakes;
+
+Pancakes::hello_macro();  // Prints: Hello, Macro! My name is Pancakes!
+*/
+
+// ===== DERIVE WITH ATTRIBUTES =====
+#[proc_macro_derive(Builder, attributes(builder))]
+pub fn derive_builder(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let builder_name = format!("{}Builder", name);
+    let builder_ident = syn::Ident::new(&builder_name, name.span());
+    
+    // Extract struct fields
+    let fields = match input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
+            ..
+        }) => named,
+        _ => panic!("Builder only works on structs with named fields"),
+    };
+    
+    // Generate builder fields (all Option<T>)
+    let builder_fields = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! { #name: Option<#ty> }
+    });
+    
+    // Generate setter methods
+    let setters = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {
+            pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        }
+    });
+    
+    // Generate build method
+    let build_fields = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            #name: self.#name.clone()
+                .ok_or(concat!("Field ", stringify!(#name), " is not set"))?
+        }
+    });
+    
+    let expanded = quote! {
+        pub struct #builder_ident {
+            #(#builder_fields,)*
+        }
+        
+        impl #builder_ident {
+            #(#setters)*
+            
+            pub fn build(&self) -> Result<#name, Box<dyn std::error::Error>> {
+                Ok(#name {
+                    #(#build_fields,)*
+                })
+            }
+        }
+        
+        impl #name {
+            pub fn builder() -> #builder_ident {
+                #builder_ident {
+                    #(#(fields.iter().map(|f| {
+                        let name = &f.ident;
+                        quote! { #name: None }
+                    })),*)*
+                }
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[derive(Builder)]
+struct User {
+    name: String,
+    age: u32,
+    email: String,
+}
+
+let user = User::builder()
+    .name("Alice".to_string())
+    .age(30)
+    .email("alice@example.com".to_string())
+    .build()?;
+*/
+
+// ===== ATTRIBUTE MACROS =====
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::ItemFn);
+    let attr = parse_macro_input!(attr as syn::LitStr);
+    
+    let fn_name = &input.sig.ident;
+    let fn_block = &input.block;
+    let fn_inputs = &input.sig.inputs;
+    let fn_output = &input.sig.output;
+    let route_path = attr.value();
+    
+    let expanded = quote! {
+        pub fn #fn_name(#fn_inputs) #fn_output {
+            println!("Route: {}", #route_path);
+            #fn_block
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[route("/users/:id")]
+fn get_user(id: u32) -> String {
+    format!("User {}", id)
+}
+*/
+
+// ===== FUNCTION-LIKE MACROS =====
+#[proc_macro]
+pub fn sql(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::LitStr);
+    let query = input.value();
+    
+    // Parse and validate SQL at compile time
+    // Generate code to execute query
+    let expanded = quote! {
+        {
+            let query = #query;
+            // Generated query execution code
+            execute_query(query)
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+let result = sql!("SELECT * FROM users WHERE id = ?");
+*/
+
+// ===== PARSING CUSTOM SYNTAX =====
+use syn::parse::{Parse, ParseStream};
+
+// Custom syntax: make_struct!(MyStruct { field: i32, other: String })
+struct MakeStructInput {
+    name: syn::Ident,
+    fields: syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
+}
+
+impl Parse for MakeStructInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: syn::Ident = input.parse()?;
+        
+        let content;
+        syn::braced!(content in input);
+        let fields = content.parse_terminated(syn::Field::parse_named, syn::Token![,])?;
+        
+        Ok(MakeStructInput { name, fields })
+    }
+}
+
+#[proc_macro]
+pub fn make_struct(input: TokenStream) -> TokenStream {
+    let MakeStructInput { name, fields } = parse_macro_input!(input as MakeStructInput);
+    
+    let expanded = quote! {
+        struct #name {
+            #fields
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// ===== WORKING WITH ATTRIBUTES =====
+use syn::{Attribute, Meta};
+
+fn parse_attributes(attrs: &[Attribute]) -> Vec<String> {
+    attrs.iter()
+        .filter_map(|attr| {
+            if attr.path().is_ident("builder") {
+                match &attr.meta {
+                    Meta::List(meta_list) => {
+                        // Parse #[builder(arg1, arg2)]
+                        Some(meta_list.tokens.to_string())
+                    }
+                    _ => None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+// ===== DERIVE MACRO WITH GENERICS =====
+#[proc_macro_derive(Debug)]
+pub fn derive_debug(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    
+    let expanded = quote! {
+        impl #impl_generics std::fmt::Debug for #name #ty_generics #where_clause {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", stringify!(#name))
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// ===== ENUM VARIANTS ITERATION =====
+#[proc_macro_derive(EnumIter)]
+pub fn derive_enum_iter(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let variants = match input.data {
+        syn::Data::Enum(ref data) => &data.variants,
+        _ => panic!("EnumIter only works on enums"),
+    };
+    
+    let variant_names = variants.iter().map(|v| {
+        let variant = &v.ident;
+        quote! { #name::#variant }
+    });
+    
+    let expanded = quote! {
+        impl #name {
+            pub fn iter() -> impl Iterator<Item = Self> {
+                [#(#variant_names),*].iter().copied()
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[derive(EnumIter)]
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+for color in Color::iter() {
+    println!("{:?}", color);
+}
+*/
+
+// ===== SERIALIZATION DERIVE =====
+#[proc_macro_derive(Serialize)]
+pub fn derive_serialize(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let fields = match input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(ref fields),
+            ..
+        }) => &fields.named,
+        _ => panic!("Serialize only works on structs with named fields"),
+    };
+    
+    let field_serializers = fields.iter().map(|f| {
+        let field_name = &f.ident;
+        let field_str = field_name.as_ref().unwrap().to_string();
+        quote! {
+            serializer.serialize_field(#field_str, &self.#field_name)?;
+        }
+    });
+    
+    let field_count = fields.len();
+    
+    let expanded = quote! {
+        impl Serialize for #name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                use serde::ser::SerializeStruct;
+                let mut serializer = serializer.serialize_struct(
+                    stringify!(#name),
+                    #field_count
+                )?;
+                #(#field_serializers)*
+                serializer.end()
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// ===== ERROR HANDLING IN PROC MACROS =====
+#[proc_macro_derive(Validated)]
+pub fn derive_validated(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    
+    // Return compile errors with syn::Error
+    let fields = match input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(ref fields),
+            ..
+        }) => &fields.named,
+        _ => {
+            return syn::Error::new(
+                input.ident.span(),
+                "Validated can only be derived for structs with named fields"
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+    
+    // Generate code...
+    TokenStream::new()
+}
+
+// ===== HELPER ATTRIBUTE MACRO =====
+#[proc_macro_attribute]
+pub fn log_function_call(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::ItemFn);
+    let fn_name = &input.sig.ident;
+    let fn_block = &input.block;
+    let fn_sig = &input.sig;
+    
+    let expanded = quote! {
+        #fn_sig {
+            println!("Calling function: {}", stringify!(#fn_name));
+            let result = #fn_block;
+            println!("Function {} completed", stringify!(#fn_name));
+            result
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[log_function_call]
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+*/
+
+// ===== CONDITIONAL COMPILATION =====
+#[proc_macro_derive(ConditionalImpl)]
+pub fn derive_conditional(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let expanded = quote! {
+        #[cfg(feature = "special")]
+        impl SpecialTrait for #name {
+            fn special_method(&self) {
+                println!("Special implementation");
+            }
+        }
+        
+        #[cfg(not(feature = "special"))]
+        impl SpecialTrait for #name {
+            fn special_method(&self) {
+                println!("Default implementation");
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// ===== HELPER FUNCTIONS =====
+use proc_macro2::Span;
+use syn::Ident;
+
+// Create identifier
+fn make_ident(name: &str) -> Ident {
+    Ident::new(name, Span::call_site())
+}
+
+// Check if type is Option
+fn is_option(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            return segment.ident == "Option";
+        }
+    }
+    false
+}
+
+// Extract inner type from Option<T>
+fn extract_option_inner(ty: &syn::Type) -> Option<&syn::Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Some(inner);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+// ===== PROC MACRO EXAMPLES =====
+
+// Example 1: Getters/Setters
+#[proc_macro_derive(Getters)]
+pub fn derive_getters(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let fields = match input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(ref fields),
+            ..
+        }) => &fields.named,
+        _ => return TokenStream::new(),
+    };
+    
+    let getters = fields.iter().map(|f| {
+        let field_name = &f.ident;
+        let field_ty = &f.ty;
+        let getter_name = make_ident(&format!("get_{}", field_name.as_ref().unwrap()));
+        
+        quote! {
+            pub fn #getter_name(&self) -> &#field_ty {
+                &self.#field_name
+            }
+        }
+    });
+    
+    let expanded = quote! {
+        impl #name {
+            #(#getters)*
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Example 2: FromStr derive
+#[proc_macro_derive(FromStr)]
+pub fn derive_from_str(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let variants = match input.data {
+        syn::Data::Enum(ref data) => &data.variants,
+        _ => panic!("FromStr only works on enums"),
+    };
+    
+    let match_arms = variants.iter().map(|v| {
+        let variant = &v.ident;
+        let variant_str = variant.to_string();
+        quote! {
+            #variant_str => Ok(#name::#variant),
+        }
+    });
+    
+    let expanded = quote! {
+        impl std::str::FromStr for #name {
+            type Err = String;
+            
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    #(#match_arms)*
+                    _ => Err(format!("Unknown variant: {}", s)),
+                }
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Example 3: Display derive for enums
+#[proc_macro_derive(Display)]
+pub fn derive_display(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let variants = match input.data {
+        syn::Data::Enum(ref data) => &data.variants,
+        _ => return TokenStream::new(),
+    };
+    
+    let match_arms = variants.iter().map(|v| {
+        let variant = &v.ident;
+        let variant_str = variant.to_string();
+        quote! {
+            #name::#variant => write!(f, #variant_str),
+        }
+    });
+    
+    let expanded = quote! {
+        impl std::fmt::Display for #name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    #(#match_arms)*
+                }
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Example 4: Default with field attributes
+#[proc_macro_derive(DefaultWithAttrs, attributes(default))]
+pub fn derive_default_with_attrs(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    
+    let fields = match input.data {
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(ref fields),
+            ..
+        }) => &fields.named,
+        _ => return TokenStream::new(),
+    };
+    
+    let field_defaults = fields.iter().map(|f| {
+        let field_name = &f.ident;
+        
+        // Check for #[default = "value"] attribute
+        let default_value = f.attrs.iter()
+            .find(|attr| attr.path().is_ident("default"))
+            .and_then(|attr| {
+                if let Meta::NameValue(meta) = &attr.meta {
+                    Some(&meta.value)
+                } else {
+                    None
+                }
+            });
+        
+        if let Some(value) = default_value {
+            quote! { #field_name: #value }
+        } else {
+            quote! { #field_name: Default::default() }
+        }
+    });
+    
+    let expanded = quote! {
+        impl Default for #name {
+            fn default() -> Self {
+                Self {
+                    #(#field_defaults,)*
+                }
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}
+
+// Usage:
+/*
+#[derive(DefaultWithAttrs)]
+struct Config {
+    #[default = "8080"]
+    port: u16,
+    #[default = "\"localhost\".to_string()"]
+    host: String,
+    verbose: bool,  // Uses Default::default()
+}
+*/
+
+// ===== TESTING PROC MACROS =====
+/*
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_derive_macro() {
+        let input = quote! {
+            struct MyStruct {
+                field: i32,
+            }
+        };
+        
+        let output = derive_my_macro(input.into());
+        // Assert on output
+    }
+}
+*/
 ```

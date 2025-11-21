@@ -1,54 +1,49 @@
 # Declarative Macros
 
-Macro Patterns and Repetition
+[Macro Patterns and Repetition](#pattern-1-macro-patterns-and-repetition)
 
 - Problem: Functions have fixed signatures; can't accept variable arguments; println! needs N args; vec![1,2,3] variable length; boilerplate for every type
 - Solution: macro_rules! with pattern matching; $(...)* for repetition; fragment specifiers (expr, ident, ty); match syntax, expand to code
 - Why It Matters: Zero-cost abstraction—compiles to optimal code; variadic without runtime overhead; reduces boilerplate 10x; DRY principle at compile time
 - Use Cases: vec!/hashmap! (collections), println!/format! (variadics), assert_eq! (testing), builders, DSLs, derive-like custom macros
 
-Hygiene and Scoping
+[Hygiene and Scoping](#pattern-2-hygiene-and-scoping)
 
 - Problem: Macro-generated variables collide with caller's variables; $x shadows user's x; unhygienic macros break; need fresh identifiers
 - Solution: Hygienic macros—compiler renames macro vars to avoid collisions; $crate for absolute paths; $crate::module works across crates
 - Why It Matters: Prevents subtle bugs—user's x won't conflict with macro's x; macros composable (no name clashes); $crate enables library macros
 - Use Cases: All macros (hygiene default), library macros ($crate for paths), nested macro calls, macro-generated structs/functions
 
-DSL Construction
+[DSL Construction](#pattern-3-dsl-construction)
 
 - Problem: Want Rust-like syntax for domain logic; SQL/HTML in strings error-prone; type-safe query builders verbose; domain code unreadable
 - Solution: Macros parse custom syntax at compile-time; sql! macro for type-safe queries; html! for templates; match complex patterns
 - Why It Matters: Type safety at compile-time (SQL typos → compile error); readable domain code; zero runtime overhead vs string parsing
 - Use Cases: SQL builders (compile-time checked), HTML templates, test DSLs, config DSLs, state machines, parser combinators
 
-Code Generation Patterns
+[Code Generation Patterns](#pattern-4-code-generation-patterns)
 
 - Problem: Implementing trait for 50 types is tedious; tuple impls for (T1), (T1,T2), ...; enum boilerplate; getter/setter repetition
 - Solution: Macros generate impl blocks; repeat patterns for tuples; auto-generate From/Into; builder pattern automation
 - Why It Matters: DRY—define once, generate many; adding type doesn't need 50 manual impls; reduces human error (forgot impl for u128)
 - Use Cases: Trait impls for primitives, tuple trait impls (1-12 elements), enum helpers (from_str, to_string), builders, newtype patterns
 
-Macro Debugging
+[Macro Debugging](#pattern-5-macro-debugging)
 
 - Problem: Macro errors cryptic—"no rules expected token"; expansion invisible; hygiene confusing; recursion limits hit
 - Solution: cargo expand shows expansion; trace_macros!(true) logs matching; rust-analyzer inline expansion; #[macro_export] for visibility
 - Why It Matters: Debug faster—see actual generated code; understand errors (token in wrong place); iterate on macro design
 - Use Cases: All macro development, debugging expansion errors, understanding library macros, teaching, code review
 
+[Macro Cheat Sheet](#macro-cheat-sheet)
+- common patterns for declarative macros
 
+# Overview
 This chapter covers declarative macros (macro_rules!)—pattern matching on syntax to generate code at compile-time. Macros enable variadic arguments, DSLs, and zero-cost abstractions impossible with functions. Pattern match input syntax, expand to template code.
 
-## Table of Contents
 
-1. [Macro Patterns and Repetition](#macro-patterns-and-repetition)
-2. [Hygiene and Scoping](#hygiene-and-scoping)
-3. [DSL Construction](#dsl-construction)
-4. [Code Generation Patterns](#code-generation-patterns)
-5. [Macro Debugging](#macro-debugging)
 
----
-
-## Macro Patterns and Repetition
+## Pattern 1: Macro Patterns and Repetition
 
 **Problem**: Functions have fixed signatures—can't accept variable number of arguments. println!("{} {}", a, b, c) needs different function for each arg count. vec![1, 2, 3] vs vec![1, 2, ..., 1000] requires different code. Implementing trait for u8, u16, u32, ..., u128 is 10x boilerplate. Can't have foo(expr, expr, ...) with N expressions. Type system can't express "any number of arguments of any types".
 
@@ -58,9 +53,9 @@ This chapter covers declarative macros (macro_rules!)—pattern matching on synt
 
 **Use Cases**: Collection literals (vec!, hashmap!), variadic functions (println!, format!, write!), testing macros (assert_eq!, assert!), DSL construction (sql!, html!), builders (setters for all fields), trait implementations (for all numeric types), derive-like custom macros.
 
-### Basic Pattern Matching
+### Example: Basic Pattern Matching
 
-**Problem**: Create macros that accept different syntax patterns.
+Create macros that accept different syntax patterns.
 
 **The simplest patterns:**
 - `()` matches empty invocation: `my_macro!()`
@@ -116,7 +111,7 @@ fn basic_examples() {
 }
 ```
 
-### Fragment Specifiers
+### Example: Fragment Specifiers
 
 Fragment specifiers tell the macro what kind of syntax to expect. Each specifier matches a different part of Rust's grammar.
 
@@ -201,7 +196,7 @@ fn fragment_usage() {
 }
 ```
 
-### Repetition Patterns
+### Example: Repetition Patterns
 
 Repetitions are the most powerful feature of declarative macros. They let you match and generate variable amounts of code.
 
@@ -296,7 +291,7 @@ fn repetition_examples() {
 }
 ```
 
-### Nested Repetitions
+### Example: Nested Repetitions
 
 Nested repetitions allow matching multi-dimensional structures like matrices or tables.
 
@@ -308,9 +303,7 @@ Nested repetitions allow matching multi-dimensional structures like matrices or 
 ```rust
 //========================================
 // Matrix creation with nested repetitions
-//========================================
 // Outer repetition: rows
-//=======================================
 // Inner repetition: elements in each row
 //=======================================
 macro_rules! matrix {
@@ -377,9 +370,7 @@ Use recursion to add 1 for each element until you hit the base case (empty).
 ```rust
 //==========================================
 // Count arguments using recursive expansion
-//==========================================
 // How it works:
-//=========================================================================================================
 // count!(a b c) → 1 + count!(b c) → 1 + 1 + count!(c) → 1 + 1 + 1 + count!() → 1 + 1 + 1 + 0 → 3
 //=========================================================================================================
 macro_rules! count {
@@ -403,8 +394,8 @@ macro_rules! create_fields {
 
 //=======================
 // Tuple indexing pattern
-//=======================
 // Manually provides accessors for tuple elements
+//=======================
 macro_rules! tuple_access {
     ($tuple:expr, 0) => { $tuple.0 };
     ($tuple:expr, 1) => { $tuple.1 };
@@ -423,7 +414,7 @@ fn counting_examples() {
 }
 ```
 
-### Pattern Matching with Guards
+### Example: Pattern Matching with Guards
 
 Pattern matching in macros can match specific literals or any syntax, giving you fine control over what invocations are valid.
 
@@ -436,7 +427,6 @@ Pattern matching in macros can match specific literals or any syntax, giving you
 //========================
 // Match specific literals
 //========================
-// This creates a type-safe boolean matcher
 macro_rules! match_literal {
     (true) => { "It's true!" };
     (false) => { "It's false!" };
@@ -457,7 +447,6 @@ macro_rules! describe_expr {
 //=========================
 // Complex pattern matching
 //=========================
-// Match literal operators to create a calculator DSL
 macro_rules! operation {
     // Match literal operators as tokens
     ($a:expr, +, $b:expr) => {
@@ -484,9 +473,8 @@ fn pattern_matching_examples() {
 }
 ```
 
----
 
-## Hygiene and Scoping
+## Pattern 2: Hygiene and Scoping
 
 **Problem**: Macro-generated variables collide with caller's variables—C's #define SWAP uses temp, but caller has temp variable, conflict! Macro introduces $x but user has x—which wins? Unhygienic macros have name capture bugs. Need fresh identifiers that won't conflict. Macros in library crates reference other modules—absolute paths break across crates. Without hygiene, composing macros fails.
 
@@ -496,9 +484,9 @@ fn pattern_matching_examples() {
 
 **Use Cases**: All macros (hygiene is default behavior), library macros using $crate for paths, nested macro invocations, macros generating helper functions/structs, temporary variables in macros, composable macro systems.
 
-### Hygienic Variables Pattern
+### Example: Hygienic Variables Pattern
 
-**Problem**: Generate temporary variables without colliding with user code.
+Generate temporary variables without colliding with user code.
 
 ```rust
 //=======================================
@@ -522,7 +510,7 @@ fn hygiene_test() {
 }
 ```
 
-### Breaking Hygiene with $name:ident
+### Example: Breaking Hygiene with $name:ident
 
 Sometimes you *want* to create or modify variables in the caller's scope. Use `ident` fragment specifiers to intentionally break hygiene.
 
@@ -557,7 +545,7 @@ fn breaking_hygiene() {
 }
 ```
 
-### Macro Scope and Ordering
+### Example: Macro Scope and Ordering
 
 Unlike functions, macros must be defined *before* they're used. Macros are expanded in a single pass through the file.
 
@@ -582,9 +570,8 @@ fn can_use_early() {
 
 //================================================
 // This won't compile if called before definition:
-//================================================
 // late_macro!();  // ERROR: macro not yet defined
-
+//================================================
 macro_rules! late_macro {
     () => {
         println!("Defined late");
@@ -596,7 +583,7 @@ fn can_use_late() {
 }
 ```
 
-### Module Visibility
+### Example: Module Visibility
 
 Macros have special visibility rules compared to other items.
 
@@ -640,7 +627,7 @@ fn visibility_example() {
 }
 ```
 
-### Context Capture
+### Example: Context Capture
 
 Macros can intentionally capture context to provide convenient DSLs.
 
@@ -648,10 +635,10 @@ Macros can intentionally capture context to provide convenient DSLs.
 Create a scope with predefined variables that the user's code can access.
 
 ```rust
-//==============================
+//==================================================
 // Capture context intentionally
-//==============================
 // Provides a 'context' variable to the user's block
+//==================================================
 macro_rules! with_context {
     ($name:ident, $body:block) => {
         {
@@ -669,9 +656,7 @@ fn context_example() {
 }
 ```
 
----
-
-## DSL Construction
+## Pattern 3: DSL Construction
 
 **Problem**: Domain-specific code in Rust verbose—writing SQL queries as strings loses compile-time checking. HTML templates as strings have no type safety. Handwritten query builders (data.iter().filter(...).map(...)) unreadable for complex queries. Want domain-natural syntax but Rust's semantics. Parsing strings at runtime slow. Test assertion DSLs verbose.
 
@@ -681,9 +666,9 @@ fn context_example() {
 
 **Use Cases**: SQL query builders (type-safe at compile-time), HTML templates (yew, maud), test DSLs (assert_matches!, mock!), configuration DSLs, state machine definitions, parser combinators, JSON builders, regex DSLs, markup languages.
 
-### SQL-Style DSL Pattern
+### Example: SQL-Style DSL Pattern
 
-**Problem**: Create readable query syntax that compiles to efficient iterator code.
+Create readable query syntax that compiles to efficient iterator code.
 
 ```rust
 //==================================================
@@ -726,15 +711,15 @@ fn sql_dsl_example() {
 }
 ```
 
-### Configuration DSL
+### Example 2: Configuration DSL
 
 Create a structured configuration syntax that parses at compile time.
 
 ```rust
 //========================================
 // Configuration DSL with nested structure
-//========================================
 // section { key: value, key: value }
+//========================================
 macro_rules! config {
     {
         $(
@@ -782,7 +767,7 @@ fn config_dsl_example() {
 }
 ```
 
-### HTML-like DSL
+### Example: HTML-like DSL
 
 Generate HTML strings with XML-like syntax (simplified version of real templating engines).
 
@@ -837,16 +822,14 @@ fn html_dsl_example() {
 }
 ```
 
-### State Machine DSL
+### Example 3: State Machine DSL
 
 Define state machines declaratively, compiling to efficient match-based transitions.
 
 ```rust
-//==================
-// State machine DSL
-//==================
-// states: [State1, State2]
 //===========================================
+// State machine DSL
+// states: [State1, State2]
 // transitions: { State1 -> State2 on Event }
 //===========================================
 macro_rules! state_machine {
@@ -922,7 +905,7 @@ fn state_machine_example() {
 
 ---
 
-## Code Generation Patterns
+## Pattern 4: Code Generation Patterns
 
 **Problem**: Implementing trait for all numeric types (u8, u16, u32, u64, u128, i8, ...) is 10+ identical impls. Tuple trait impls for (T1), (T1, T2), ..., (T1...T12) exponential boilerplate. Enum From/Into conversions manual for each variant. Getters/setters for 20 struct fields—120 lines of boilerplate. Adding new type means copying impl. Human error: forgot impl for u128.
 
@@ -932,9 +915,9 @@ fn state_machine_example() {
 
 **Use Cases**: Trait impls for primitives (all numeric types), tuple trait impls (arity 1-12), enum From/Into/Display, struct getters/setters/builders, newtype pattern automation, format string wrappers, test case generation.
 
-### Trait Implementation Generation
+### Example: Trait Implementation Generation
 
-**Problem**: Implement same trait for many types without copy-paste.
+Implement same trait for many types without copy-paste.
 
 ```rust
 //=======================================================================
@@ -998,7 +981,7 @@ fn accessor_example() {
 }
 ```
 
-### Trait Implementation Generation
+### Example: Trait Implementation Generation
 
 Generate repetitive trait implementations automatically.
 
@@ -1038,7 +1021,7 @@ fn trait_impl_example() {
 }
 ```
 
-### Test Generation
+### Example: Test Generation
 
 Generate test cases from a compact specification.
 
@@ -1083,17 +1066,15 @@ generate_tests! {
         test_add_zero: (0, 5) => 5,
     }
 }
-//============
+//================================================
 // Expands to:
-//============
 // #[test] fn test_add_positive() { assert_eq!(add(2, 3), 5); }
-//================================================================
 // #[test] fn test_add_negative() { assert_eq!(add(-2, -3), -5); }
-//================================================================
 // #[test] fn test_add_zero() { assert_eq!(add(0, 5), 5); }
+//================================================
 ```
 
-### Bitflags Pattern
+### Example: Bitflags Pattern
 
 Generate bitflag types with operations (similar to the `bitflags` crate).
 
@@ -1172,7 +1153,7 @@ fn bitflags_example() {
 
 ---
 
-## Macro Debugging
+## Pattern 5: Macro Debugging
 
 **Problem**: Macro errors cryptic—"no rules expected token `ident`" doesn't show which rule failed. Expansion invisible—can't see generated code. Pattern doesn't match but why? Hygiene confusing: which x is which? Recursion limit hit (default 128). Macro compiles but generates wrong code—how to inspect? Error in expansion points to macro call site, not generated code.
 
@@ -1182,9 +1163,9 @@ fn bitflags_example() {
 
 **Use Cases**: All macro development (cargo expand essential), debugging "no rules expected" errors, understanding library macros (expand tokio::main!), teaching macros, code review of macro-heavy code, performance analysis (see if macro optimal), verifying hygiene.
 
-### cargo expand Tool
+### Example: cargo expand Tool
 
-**Problem**: View expanded macro output to understand what code is generated.
+View expanded macro output to understand what code is generated.
 
 ```bash
 # Install cargo-expand
@@ -1200,7 +1181,7 @@ cargo expand module_name
 cargo expand --color always
 ```
 
-### Debug Printing with compile_error!
+### Example: Debug Printing with compile_error!
 
 Force a compile error that shows the macro input—useful for understanding what the macro receives.
 
@@ -1216,14 +1197,12 @@ macro_rules! debug_macro {
 
 //===============================================
 // This will show the exact input at compile time
-//===============================================
 // debug_macro!(some input here);
-//==============================================
 // Compile error: "Macro input: some input here"
-//==============================================
+//===============================================
 ```
 
-### Tracing Macro Expansion
+### Example: Tracing Macro Expansion
 
 Print macro inputs at runtime to trace execution.
 
@@ -1248,7 +1227,7 @@ fn tracing_example() {
 }
 ```
 
-### Common Debugging Patterns
+### Example: Common Debugging Patterns
 
 ```rust
 //==============================================
@@ -1298,7 +1277,7 @@ fn debugging_patterns() {
 }
 ```
 
-### Error Messages with Custom Diagnostics
+### Example: Error Messages with Custom Diagnostics
 
 Provide helpful error messages when macro invocation is invalid.
 
@@ -1330,7 +1309,7 @@ macro_rules! require_literal {
 }
 ```
 
----
+
 
 ## Summary
 
@@ -1392,3 +1371,606 @@ This chapter covered declarative macros (macro_rules!):
 - Use $crate for library macros
 - Test edge cases (empty, single, many elements)
 - Keep macros simple—complexity hurts maintainability
+
+## Macro Cheat Sheet
+```rust
+// ===== DECLARATIVE MACROS (macro_rules!) =====
+
+// Basic macro - no arguments
+macro_rules! say_hello {
+    () => {
+        println!("Hello!");
+    };
+}
+
+say_hello!();                                       // Prints: Hello!
+
+// Macro with single argument
+macro_rules! print_value {
+    ($val:expr) => {
+        println!("Value: {}", $val);
+    };
+}
+
+print_value!(42);                                   // Prints: Value: 42
+print_value!(1 + 2);                                // Prints: Value: 3
+
+// ===== MACRO FRAGMENT SPECIFIERS =====
+// expr - expression
+macro_rules! eval {
+    ($e:expr) => { $e };
+}
+
+// ident - identifier (variable/function name)
+macro_rules! create_var {
+    ($name:ident) => {
+        let $name = 42;
+    };
+}
+
+// ty - type
+macro_rules! create_struct {
+    ($name:ident, $field_type:ty) => {
+        struct $name {
+            value: $field_type,
+        }
+    };
+}
+
+// pat - pattern
+macro_rules! match_option {
+    ($opt:expr, $pattern:pat => $result:expr) => {
+        match $opt {
+            $pattern => $result,
+            _ => panic!("Pattern didn't match"),
+        }
+    };
+}
+
+// stmt - statement
+macro_rules! execute {
+    ($s:stmt) => {
+        $s
+    };
+}
+
+// block - block of code
+macro_rules! run_block {
+    ($b:block) => {
+        $b
+    };
+}
+
+// item - item (function, struct, etc.)
+macro_rules! create_function {
+    ($i:item) => {
+        $i
+    };
+}
+
+// meta - attribute metadata
+// path - path (::std::vec::Vec)
+// tt - token tree (any valid token)
+// literal - literal value
+
+// ===== MULTIPLE PATTERNS =====
+macro_rules! calculate {
+    (add $a:expr, $b:expr) => {
+        $a + $b
+    };
+    (sub $a:expr, $b:expr) => {
+        $a - $b
+    };
+    (mul $a:expr, $b:expr) => {
+        $a * $b
+    };
+}
+
+calculate!(add 5, 3);                               // 8
+calculate!(sub 10, 4);                              // 6
+calculate!(mul 2, 7);                               // 14
+
+// ===== REPETITION =====
+// Zero or more repetitions: $(...)*
+macro_rules! vec_of_strings {
+    ($($x:expr),*) => {
+        {
+            let mut temp_vec = Vec::new();
+            $(
+                temp_vec.push($x.to_string());
+            )*
+            temp_vec
+        }
+    };
+}
+
+let v = vec_of_strings!("a", "b", "c");            // vec!["a", "b", "c"]
+
+// One or more repetitions: $(...)+ 
+macro_rules! sum {
+    ($($x:expr),+) => {
+        {
+            let mut total = 0;
+            $(
+                total += $x;
+            )+
+            total
+        }
+    };
+}
+
+sum!(1, 2, 3, 4);                                   // 10
+
+// Zero or one repetition: $(...)?
+macro_rules! optional_print {
+    ($val:expr $(, $msg:expr)?) => {
+        print!("{}", $val);
+        $(
+            print!(" - {}", $msg);
+        )?
+        println!();
+    };
+}
+
+optional_print!(42);                                // "42"
+optional_print!(42, "answer");                      // "42 - answer"
+
+// ===== NESTED REPETITIONS =====
+macro_rules! matrix {
+    ($([$($x:expr),*]),*) => {
+        vec![
+            $(
+                vec![$($x),*],
+            )*
+        ]
+    };
+}
+
+let m = matrix!([1, 2], [3, 4], [5, 6]);           // [[1,2], [3,4], [5,6]]
+
+// ===== RECURSIVE MACROS =====
+// Count elements
+macro_rules! count {
+    () => { 0 };
+    ($head:expr) => { 1 };
+    ($head:expr, $($tail:expr),+) => {
+        1 + count!($($tail),+)
+    };
+}
+
+count!(1, 2, 3, 4);                                // 4
+
+// Reverse list (compile-time)
+macro_rules! reverse {
+    ([] $($rev:expr),*) => {
+        [$($rev),*]
+    };
+    ([$head:expr $(, $tail:expr)*] $($rev:expr),*) => {
+        reverse!([$($tail),*] $head $(, $rev)*)
+    };
+}
+
+reverse!([1, 2, 3, 4]);                            // [4, 3, 2, 1]
+
+// ===== MACRO HYGIENE =====
+// Macros are hygienic - variables don't leak
+macro_rules! declare_var {
+    () => {
+        let x = 42;
+    };
+}
+
+declare_var!();
+// println!("{}", x);                               // ERROR: x not in scope
+
+// Using $name to expose variable
+macro_rules! declare_named {
+    ($name:ident) => {
+        let $name = 42;
+    };
+}
+
+declare_named!(my_var);
+println!("{}", my_var);                             // OK: 42
+
+// ===== COMMON MACRO PATTERNS =====
+
+// Pattern 1: HashMap creation
+macro_rules! hashmap {
+    ($($key:expr => $val:expr),* $(,)?) => {
+        {
+            let mut map = ::std::collections::HashMap::new();
+            $(
+                map.insert($key, $val);
+            )*
+            map
+        }
+    };
+}
+
+let map = hashmap! {
+    "a" => 1,
+    "b" => 2,
+    "c" => 3,
+};
+
+// Pattern 2: Implement trait for multiple types
+macro_rules! impl_trait {
+    ($trait_name:ident for $($type:ty),+) => {
+        $(
+            impl $trait_name for $type {
+                fn method(&self) {
+                    println!("Called on {}", stringify!($type));
+                }
+            }
+        )+
+    };
+}
+
+trait MyTrait {
+    fn method(&self);
+}
+
+impl_trait!(MyTrait for i32, f64, String);
+
+// Pattern 3: Generate getter/setter methods
+macro_rules! getter_setter {
+    ($field:ident: $type:ty) => {
+        paste::paste! {
+            pub fn [<get_ $field>](&self) -> &$type {
+                &self.$field
+            }
+            
+            pub fn [<set_ $field>](&mut self, value: $type) {
+                self.$field = value;
+            }
+        }
+    };
+}
+
+// Pattern 4: Assert with custom message
+macro_rules! assert_custom {
+    ($condition:expr, $($arg:tt)*) => {
+        if !$condition {
+            panic!("Assertion failed: {}", format!($($arg)*));
+        }
+    };
+}
+
+assert_custom!(2 + 2 == 4, "Math is broken!");
+
+// Pattern 5: Logging macro
+macro_rules! log {
+    ($level:expr, $($arg:tt)*) => {
+        println!("[{}] {}", $level, format!($($arg)*));
+    };
+}
+
+log!("INFO", "User {} logged in", "alice");
+log!("ERROR", "Failed to connect");
+
+// Pattern 6: Match with automatic arms
+macro_rules! match_enum {
+    ($val:expr, $enum:ident :: { $($variant:ident),* }) => {
+        match $val {
+            $(
+                $enum::$variant => stringify!($variant),
+            )*
+        }
+    };
+}
+
+// Pattern 7: Lazy static-like macro
+macro_rules! lazy_static {
+    ($name:ident: $type:ty = $init:expr) => {
+        static $name: std::sync::OnceLock<$type> = std::sync::OnceLock::new();
+        impl $name {
+            fn get() -> &'static $type {
+                $name.get_or_init(|| $init)
+            }
+        }
+    };
+}
+
+// ===== DEBUGGING MACROS =====
+// dbg! - debug print and return value
+let x = dbg!(1 + 2);                               // Prints: [src/main.rs:42] 1 + 2 = 3
+
+// stringify! - convert to string literal
+let s = stringify!(1 + 2);                         // "1 + 2"
+
+// concat! - concatenate literals
+let s = concat!("Hello", " ", "World");            // "Hello World"
+
+// file! - current file name
+let file = file!();                                // "src/main.rs"
+
+// line! - current line number
+let line = line!();                                // line number
+
+// column! - current column number
+let col = column!();
+
+// module_path! - current module path
+let path = module_path!();                         // "myapp::mymodule"
+
+// cfg! - check configuration
+let is_unix = cfg!(unix);
+let is_debug = cfg!(debug_assertions);
+
+// env! - get environment variable at compile time
+let user = env!("USER");                           // Compile error if not set
+
+// option_env! - optional environment variable
+let user = option_env!("USER");                    // Option<&str>
+
+// include! - include file content as code
+// include!("other_file.rs");
+
+// include_str! - include file as string
+let content = include_str!("data.txt");
+
+// include_bytes! - include file as byte array
+let bytes = include_bytes!("image.png");
+
+// ===== PROCEDURAL MACROS (OVERVIEW) =====
+// Note: Requires separate crate with proc-macro = true
+
+// Derive macro example (in proc-macro crate)
+/*
+use proc_macro::TokenStream;
+
+#[proc_macro_derive(MyTrait)]
+pub fn derive_my_trait(input: TokenStream) -> TokenStream {
+    // Parse and generate code
+}
+*/
+
+// Usage:
+/*
+#[derive(MyTrait)]
+struct MyStruct {
+    field: i32,
+}
+*/
+
+// Attribute macro example
+/*
+#[proc_macro_attribute]
+pub fn my_attribute(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Transform the item
+}
+*/
+
+// Usage:
+/*
+#[my_attribute]
+fn my_function() {
+    // ...
+}
+*/
+
+// Function-like procedural macro
+/*
+#[proc_macro]
+pub fn my_macro(input: TokenStream) -> TokenStream {
+    // Generate code
+}
+*/
+
+// Usage:
+/*
+my_macro! {
+    // input
+}
+*/
+
+// ===== MACRO EXAMPLES =====
+
+// Example 1: Min/max macro
+macro_rules! min {
+    ($x:expr) => { $x };
+    ($x:expr, $($rest:expr),+) => {
+        std::cmp::min($x, min!($($rest),+))
+    };
+}
+
+let minimum = min!(3, 1, 4, 1, 5);                 // 1
+
+// Example 2: Timing macro
+macro_rules! time_it {
+    ($label:expr, $block:block) => {
+        {
+            let start = std::time::Instant::now();
+            let result = $block;
+            let duration = start.elapsed();
+            println!("{} took: {:?}", $label, duration);
+            result
+        }
+    };
+}
+
+time_it!("Computation", {
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    42
+});
+
+// Example 3: Repeat expression
+macro_rules! repeat_expr {
+    ($expr:expr; $count:expr) => {
+        {
+            let mut v = Vec::new();
+            for _ in 0..$count {
+                v.push($expr);
+            }
+            v
+        }
+    };
+}
+
+let v = repeat_expr!(rand::random::<i32>(); 5);   // 5 random numbers
+
+// Example 4: Unwrap or return
+macro_rules! try_or_return {
+    ($expr:expr) => {
+        match $expr {
+            Some(val) => val,
+            None => return None,
+        }
+    };
+}
+
+fn example(opt: Option<i32>) -> Option<i32> {
+    let value = try_or_return!(opt);
+    Some(value * 2)
+}
+
+// Example 5: Debug print with context
+macro_rules! debug {
+    ($val:expr) => {
+        println!("[{}:{}] {} = {:?}", 
+            file!(), line!(), stringify!($val), $val);
+    };
+}
+
+let x = 42;
+debug!(x);                                          // [main.rs:123] x = 42
+
+// Example 6: Builder pattern
+macro_rules! builder {
+    ($name:ident { $($field:ident: $type:ty),* }) => {
+        struct $name {
+            $($field: $type),*
+        }
+        
+        paste::paste! {
+            impl $name {
+                $(
+                    fn [<with_ $field>](mut self, $field: $type) -> Self {
+                        self.$field = $field;
+                        self
+                    }
+                )*
+            }
+        }
+    };
+}
+
+// Example 7: Test generation
+macro_rules! test_cases {
+    ($fn_name:ident: $($input:expr => $expected:expr),+ $(,)?) => {
+        $(
+            #[test]
+            fn [<test_ $fn_name _ $input>]() {
+                assert_eq!($fn_name($input), $expected);
+            }
+        )+
+    };
+}
+
+// Example 8: Bitflags-like macro
+macro_rules! bitflags {
+    ($name:ident: $type:ty { $($flag:ident = $val:expr),* $(,)? }) => {
+        struct $name($type);
+        
+        impl $name {
+            $(
+                const $flag: Self = Self($val);
+            )*
+            
+            fn contains(&self, other: Self) -> bool {
+                self.0 & other.0 == other.0
+            }
+        }
+    };
+}
+
+bitflags! {
+    Flags: u32 {
+        READ = 0b001,
+        WRITE = 0b010,
+        EXECUTE = 0b100,
+    }
+}
+
+// Example 9: Enum with string conversion
+macro_rules! enum_str {
+    ($name:ident { $($variant:ident),* $(,)? }) => {
+        enum $name {
+            $($variant),*
+        }
+        
+        impl $name {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => stringify!($variant)),*
+                }
+            }
+        }
+    };
+}
+
+enum_str! {
+    Color {
+        Red,
+        Green,
+        Blue,
+    }
+}
+
+// Example 10: Compile-time assertions
+macro_rules! const_assert {
+    ($condition:expr) => {
+        const _: () = assert!($condition);
+    };
+}
+
+const_assert!(std::mem::size_of::<usize>() == 8);  // Compile-time check
+
+// ===== MACRO BEST PRACTICES =====
+
+// 1. Use $(,)? for optional trailing comma
+macro_rules! my_vec {
+    ($($x:expr),* $(,)?) => {
+        vec![$($x),*]
+    };
+}
+
+// 2. Wrap in block for hygiene
+macro_rules! swap {
+    ($a:expr, $b:expr) => {
+        {
+            let temp = $a;
+            $a = $b;
+            $b = temp;
+        }
+    };
+}
+
+// 3. Use fully qualified paths
+macro_rules! new_vec {
+    () => {
+        ::std::vec::Vec::new()                     // Avoid name conflicts
+    };
+}
+
+// 4. Document macros
+/// Creates a HashMap from key-value pairs
+/// 
+/// # Examples
+/// ```
+/// let map = hashmap!("a" => 1, "b" => 2);
+/// ```
+macro_rules! documented_macro {
+    // ...
+}
+
+// 5. Use vis for visibility
+macro_rules! create_struct {
+    ($vis:vis $name:ident) => {
+        $vis struct $name;
+    };
+}
+
+create_struct!(pub MyStruct);                      // Public struct
+```

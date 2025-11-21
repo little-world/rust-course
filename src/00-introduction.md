@@ -12,35 +12,74 @@ For Experienced Programmers
 - Memory layout optimization (repr, alignment)
 - RAII patterns and drop guards
 
-[**02. Type System Deep Dive**](02-type-system-deep-dive.md)
-- Newtype pattern and type safety
-- Phantom types and zero-cost abstractions
-- GATs (Generic Associated Types)
-- Type-level programming
-- Trait object optimization
 
-[**03. Error Handling Architecture**](03-error-handling-architecture.md)
-- Error type design patterns
-- Error propagation strategies (?, thiserror, anyhow)
-- Custom error types with context
-- Recoverable vs unrecovable errors
-- Error handling in async contexts
+[**02. Struct & Enum Patterns**](02-struct-enum-patterns.md)
+- Struct design patterns (tuple, unit, named fields)
+- Enum-driven architecture
+- Newtype and wrapper patterns
+- Zero-Sized Types and Markers
+- Struct update syntax and partial moves
+- Enum variants with data payloads
+- Pattern matching for enums
+- Visitor pattern with enums
+- Type-safe state machines with enums
 
-[**04. Pattern Matching & Destructuring**](04-pattern-matching-destructuring.md)
+[**03. Trait Design Patterns**](03-trait-design-patterns.md)
+- Trait inheritance and bounds
+- Associated types vs generics
+- Trait objects and dynamic dispatch
+- Extension traits
+- Blanket implementations
+
+[**04. generics and polymorphism**](04-generics-polymorphism.md)
+- Type-Safe Generic Functions 
+- Generic Structs and Enums 
+- Trait Bounds and Constraints
+- Associated Types vs Generic Parameters 
+- Blanket Implementations 
+- Phantom Types and Type-Level State -
+- Higher-Ranked Trait Bounds 
+- Const Generics 
+
+[**05. Builder & API Design**](05-builder-api-design.md)
+- Builder pattern variations
+- Typestate pattern
+- Fluent interfaces
+- Extension traits for libraries
+- Sealed trait pattern
+
+[**06. Lifetime Patterns**](06-lifetime-patterns.md)
+- Named lifetimes and elision rules
+- Lifetime bounds and where clauses
+- Higher-ranked trait bounds (for<'a>)
+- Self-referential structures
+- Variance and subtyping
+
+[**07. Pattern Matching & Destructuring**](07-pattern-matching-destructuring.md)
 - Advanced match patterns (guards, bindings, ranges)
 - Exhaustiveness and match ergonomics
 - If-let chains and while-let
 - Pattern matching for state machines
 - Enum-driven architecture
 
-[**05. Iterator Patterns & Combinators**](05-iterator-patterns-combinators.md)
+[**08. Iterator Patterns & Combinators**](08-iterator-patterns-combinators.md)
 - Custom iterators and IntoIterator
 - Zero-allocation iteration
 - Iterator adapters composition
 - Streaming algorithms
 - Parallel iteration (rayon patterns)
 
+[**09. Error Handling Architecture**](09-error-handling-architecture.md)
+- Error type design patterns
+- Error propagation strategies (?, thiserror, anyhow)
+- Custom error types with context
+- Recoverable vs unrecovable errors
+- Error handling in async contexts
+
 ### **Part II: Collections & Data Structures**
+
+// TODO: renumber
+
 
 [**06. Vec & Slice Manipulation**](06-vec-slice-manipulation.md)
 - Capacity management and amortization
@@ -185,43 +224,7 @@ For Experienced Programmers
 - Integration testing
 - Criterion benchmarking
 
-### **Part VIII: Advanced Topics**
-
-[**25. Trait Design Patterns**](25-trait-design-patterns.md)
-- Trait inheritance and bounds
-- Associated types vs generics
-- Trait objects and dynamic dispatch
-- Extension traits
-- Blanket implementations
-
-[**26. Struct & Enum Patterns**](26-struct-enum-patterns.md)
-- Struct design patterns (tuple, unit, named fields)
-- Enum-driven architecture
-- Newtype and wrapper patterns
-- Zero-Sized Types and Markers
-- Struct update syntax and partial moves
-- Enum variants with data payloads
-- Pattern matching for enums
-- Visitor pattern with enums
-- Type-safe state machines with enums
-
-
-[**27. Builder & API Design**](27-builder-api-design.md)
-- Builder pattern variations
-- Typestate pattern
-- Fluent interfaces
-- Extension traits for libraries
-- Sealed trait pattern
-
-[**28. Lifetime Patterns**](28-lifetime-patterns.md)
-- Named lifetimes and elision rules
-- Lifetime bounds and where clauses
-- Higher-ranked trait bounds (for<'a>)
-- Self-referential structures
-- Variance and subtyping
-
-
-[**29. Performance Optimization**](29-performance-optimization.md)
+[**25. Performance Optimization**](29-performance-optimization.md)
 - Profiling strategies (perf, flamegraph)
 - Allocation reduction techniques
 - Cache-friendly data structures
