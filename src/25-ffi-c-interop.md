@@ -39,7 +39,7 @@
 
 
 
-## Overview
+### Overview
 This chapter covers FFI (Foreign Function Interface)—calling C from Rust and vice versa. Rust's safety model differs from C: must use unsafe, manage memory carefully, handle strings/callbacks/errors correctly. Essential for integrating existing C libraries and system APIs.
 
 
@@ -1256,7 +1256,7 @@ impl MyState {
 ```
 
 
-## Summary
+### Summary
 
 This chapter covered FFI (Foreign Function Interface) patterns for C interop:
 
@@ -1319,7 +1319,7 @@ This chapter covered FFI (Foreign Function Interface) patterns for C interop:
 - **Valgrind**: Memory errors at runtime
 
 
-## FFI Cheat Sheet
+### FFI Cheat Sheet
 ```rust
 // ===== FFI BASICS =====
 // Calling C functions from Rust

@@ -58,7 +58,7 @@
 [Atomic Cheat Sheet](#atomic-cheat-sheet)
   - common **atomic** functions
 
-## Overview
+### Overview
 
 - Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits.
 A stalled or slow thread cannot prevent others from making progress.
@@ -2539,7 +2539,7 @@ fn main() {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered atomic operations and lock-free programming:
 
@@ -2584,7 +2584,7 @@ This chapter covered atomic operations and lock-free programming:
 - Raw pointers in lock-free structures require unsafe
 - Use existing libraries (crossbeam) when possible
 
-## Atomic Cheat Sheet
+### Atomic Cheat Sheet
 ```rust
 // Atomic types
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};

@@ -58,7 +58,7 @@
 [Iterator Cheat Sheet](#iterator-cheat-sheet)
 - common **iterator** pattern
 
-## Overview
+### Overview
 
 Iterators are one of Rust's most powerful abstractions, providing a unified interface for processing sequences of data. Unlike loops in many languages, Rust iterators are zero-cost abstractions: they compile down to the same machine code as hand-written loops, yet offer composability, expressiveness, and safety.
 
@@ -71,7 +71,7 @@ The patterns we'll explore include:
 - Streaming algorithms for large datasets
 - Parallel iteration with rayon
 
-## Iterator Cheat Sheet
+### Iterator Cheat Sheet
 
 ```rust
 // Core iterator traits
@@ -1214,7 +1214,7 @@ fn parallel_join_example(data: &[i32]) -> (i32, i32) {
 4. **Chunk size matters**: Use par_chunks for better cache locality
 5. **Measure before parallelizing**: Overhead can exceed benefits for small datasets
 
-## Summary
+### Summary
 
 Iterator patterns in Rust enable writing code that is both elegant and efficient. By mastering custom iterators, zero-allocation techniques, adapter composition, streaming algorithms, and parallel iteration, you can:
 
@@ -1235,7 +1235,7 @@ Iterator patterns in Rust enable writing code that is both elegant and efficient
 Iterators aren't just a convenience—they're a fundamental design pattern in Rust that enables writing high-level code that runs as fast as hand-optimized loops. Master these patterns to unlock the full power of Rust's iterator ecosystem.
 
 
-## Pattern Matching Cheat Sheet
+### Pattern Matching Cheat Sheet
 ```rust
 // ===== CREATING ITERATORS =====
 // From collections

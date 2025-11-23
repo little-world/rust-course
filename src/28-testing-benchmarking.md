@@ -38,7 +38,7 @@
 [Testing Cheat Sheet](#testing-cheat-sheet)
 - common **testing** patterns
 
-## Overview
+### Overview
 This chapter explores Rust's testing ecosystem: built-in unit tests, property-based testing with proptest, mocking with traits, integration testing patterns, and Criterion benchmarks for performance measurement and regression detection.
 
 ## Pattern 1: Unit Test Patterns
@@ -1381,7 +1381,7 @@ Criterion reports whether performance regressed, improved, or stayed the same.
 
 7. **Profile before optimizing**: Benchmarks tell you what's slow, profilers tell you why
 
-## Summary
+### Summary
 
 This chapter covered comprehensive testing and benchmarking patterns for Rust:
 
@@ -1476,7 +1476,7 @@ fn bench_implementations(c: &mut Criterion) {
 - Test coverage tools: tarpaulin, llvm-cov for coverage reports
 - Parallel execution: Tests run concurrently by default (use `--test-threads=1` to serialize)
 
-## Testing Cheat Sheet
+### Testing Cheat Sheet
 ```rust
 // ===== UNIT TESTS =====
 // Cargo.toml:

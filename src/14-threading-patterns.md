@@ -59,7 +59,7 @@
 [Threading Cheat Sheet](#threading-cheat-sheet)
 - common **threading** functions
 
-## Overview
+### Overview
 This chapter explores concurrent programming patterns in Rust using threads. We'll cover thread lifecycle management, parallel work distribution, message passing, shared state synchronization, and coordination primitives through practical, production-ready examples.
 
 
@@ -252,19 +252,13 @@ use std::thread;
 
 //==================================================
 // Problem: This won't compile (non-static lifetime)
-//==================================================
 // fn broken_borrow() {
-//==============================
 //     let data = vec![1, 2, 3];
-//==============================
 //     thread::spawn(|| {
-//==================================================================================
 //         println!("{:?}", data); // Error: borrowed value doesn't live long enough
-//==================================================================================
 //     });
-//==
 // }
-//==
+//==================================================
 
 //=============================
 // Solution: Use scoped threads
@@ -2380,7 +2374,7 @@ fn main() {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered essential threading patterns in Rust:
 
@@ -2412,7 +2406,7 @@ This chapter covered essential threading patterns in Rust:
 - No deadlocks from forgetting to unlock
 
 
-## Threading Cheat Sheet
+### Threading Cheat Sheet
 ```rust
 // Thread creation
 thread::spawn(|| { /* code */ })                    // Spawn new thread, returns JoinHandle

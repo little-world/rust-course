@@ -36,7 +36,7 @@
 - Use Cases: Async futures, generators, intrusive linked lists, self-referential iterators, arena-allocated graphs
 
 
-## Overview
+### Overview
 This chapter explores lifetime patterns: elision rules for inference, bounds for generic constraints, higher-ranked bounds for closure lifetime polymorphism, variance for subtyping, and Pin for self-referential structures.
 
 ## Pattern 1: Named Lifetimes and Elision Rules
@@ -1104,7 +1104,7 @@ fn get_first<T>(vec: &Vec<T>) -> Option<&'_ T> {
 
 Anonymous lifetimes improve readability when the specific lifetime name doesn't matter.
 
-## Summary
+### Summary
 
 This chapter covered lifetime patterns for ensuring reference validity:
 
@@ -1188,7 +1188,7 @@ let short: &str = long; // OK: 'static is subtype of shorter
 - Ignoring compiler suggestions (they're usually correct)
 
 
-## Lifetime Cheat Sheet
+### Lifetime Cheat Sheet
 
 ```rust
 // ===== BASIC LIFETIMES =====

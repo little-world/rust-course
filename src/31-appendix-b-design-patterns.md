@@ -26,7 +26,7 @@
 - [Async/Await Pattern](#asyncawait-pattern)
 
 
-## Overview
+### Overview
 
 Design patterns are reusable solutions to common programming problems. They're not finished code you can copy, but templates for how to solve a problem in many different situations. In Rust, classic design patterns take on unique characteristics due to the language's ownership model, zero-cost abstractions, and powerful type system.
 
@@ -2050,7 +2050,7 @@ async fn timeout_example() {
 
 ---
 
-## Summary
+### Summary
 
 Design patterns in Rust take unique forms due to the language's ownership model, type system, and zero-cost abstractions. Many patterns that require runtime polymorphism in object-oriented languages can be implemented at compile-time in Rust through generics and traits, eliminating overhead.
 

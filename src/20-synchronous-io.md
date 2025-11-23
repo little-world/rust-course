@@ -49,7 +49,7 @@
 [Command Cheat Sheet](#command-cheat-sheet)    
 - A long list of useful functions
 
-## Overview
+### Overview
 This chapter covers Rust's synchronous I/O patterns—blocking operations that pause threads until complete. Unlike async I/O (Chapter 17), synchronous I/O is simpler, easier to debug, and sufficient for most programs. CLI tools, build scripts, and even high-performance servers with thread pools rely on these patterns.
 
 
@@ -989,7 +989,7 @@ fn complex_pipeline(file: &str, pattern: &str) -> io::Result<()> {
 **How piping works**: `Stdio::from(child.stdout.unwrap())` passes the child's stdout as stdin to the next process. The OS manages the buffer between processes.
 
 
-## Summary
+### Summary
 
 This chapter covered synchronous I/O patterns:
 
@@ -1012,7 +1012,7 @@ This chapter covered synchronous I/O patterns:
 - Mmap: O(1) random access vs O(N) seek+read
 - Directory walk: O(N) with proper caching
 
-## File IO Cheat Sheet
+### File IO Cheat Sheet
 ```rust
 use std::fs;
 use std::io::{self, Read, Write, BufRead, BufReader, BufWriter, Seek, SeekFrom};
@@ -1268,7 +1268,7 @@ file.write_all(&42u32.to_le_bytes())?;             // Write little-endian u32
 ```
 
 
-## Command Cheat Sheet
+### Command Cheat Sheet
 
 ```rust
 use std::process::{Command, Stdio, Child, ExitStatus, Output};

@@ -104,7 +104,7 @@ document search (legal discovery, log analysis), web page search.
 [String Cheat Sheet](#string-cheat-sheet)
 - common **string** functions
 
-## Overview
+### Overview
 
 Strings in Rust are more complex than in many languages due to UTF-8 encoding guarantees, ownership semantics, and platform interoperability requirements. `String` is a heap-allocated, growable UTF-8 string, while `&str` is an immutable view into UTF-8 data. Understanding the type system, encoding rules, and zero-copy techniques is essential for writing efficient text processing code.
 
@@ -2461,7 +2461,7 @@ fn main() {
 5. **Chars not bytes**: Use `char_indices()` for UTF-8 safety
 
 
-## Summary
+### Summary
 
 1. **String Type Selection**: String (owned), &str (borrowed), Cow (conditional), OsString (platform), Path (filesystem)
 2. **Builder Patterns**: Pre-allocate capacity, method chaining, domain-specific builders for HTML/SQL
@@ -2521,7 +2521,7 @@ s.push_str("content");  // O(1) until capacity exhausted
 
 
 
-## String Cheat Sheet
+### String Cheat Sheet
 ```rust
 // ===== CREATING STRINGS =====
 // Empty string

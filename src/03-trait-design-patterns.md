@@ -38,7 +38,7 @@
 [Traits Cheat Sheet](#traits-cheat-sheet)
 - A comprehensive guide to all major aspects of traits in Rust, from basic definitions to advanced patterns and real-world use cases!
 
-
+### Overview
 This chapter explores advanced trait patterns: inheritance and bounds for capabilities, associated types vs generics for API design, trait objects for dynamic dispatch, extension traits for extending external types, and sealed traits for controlled implementation.
 
 ## Pattern 1: Trait Inheritance and Bounds
@@ -251,7 +251,7 @@ The builder pattern becomes particularly powerful with conditional trait impleme
 
 **Use Cases**: Iterator pattern (item type determined by collection), parser output types (parser determines what it produces), conversion traits with multiple sources (From<T> for String), data transformation pipelines (associated Output/Error types), graph algorithms (Node/Edge types associated with graph), database query builders (associated Row type), serialization (associated Output format), type families (group related types together).
 
-## Example: Generics
+### Example: Generics
 ```rust
 //=================================================
 // With generics: Multiple implementations possible
@@ -998,7 +998,7 @@ This pattern makes code testable and modular.
 
 > **See Also**: For blanket implementations (`impl<T: Trait> OtherTrait for T`), see **Chapter 4: Pattern 5 (Blanket Implementations)**. For typestate builder patterns, see **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
-## Summary
+### Summary
 
 This chapter covered trait design patterns for flexible, expressive Rust APIs:
 
@@ -1066,7 +1066,7 @@ pub trait MyTrait: sealed::Sealed { /* ... */ }
 > **See Also**: For blanket implementations and generics patterns, see **Chapter 4: Generics & Polymorphism**. For typestate builders, see **Chapter 5: Builder & API Design**.
 
 
-## Traits Cheat Sheet
+### Traits Cheat Sheet
 ```rust
 // ===== BASIC TRAITS =====
 // Define a trait

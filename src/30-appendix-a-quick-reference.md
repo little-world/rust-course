@@ -6,7 +6,7 @@
 - [Cargo Commands Reference](#cargo-commands-reference)
 
 
-## Overview
+### Overview
 
 As you develop production Rust code, certain patterns recur constantly: converting between types, implementing common traits, chaining iterators, and managing projects with Cargo. While the main chapters explore these concepts in depth, this appendix provides a condensed reference for the patterns you'll reach for daily.
 

@@ -67,7 +67,7 @@
 [Pattern Matching Cheat Sheet](#pattern-matching-cheat-sheet)
  -  long list if **pattern matching** examples
 
-## Overview
+### Overview
 
 Pattern matching is one of Rust's most powerful features, enabling you to write clear, exhaustive, and efficient code for handling complex data structures. Unlike simple switch statements in other languages, Rust's pattern matching provides deep destructuring, guards, bindings, and compile-time exhaustiveness checking.
 
@@ -80,7 +80,7 @@ The patterns we'll explore include:
 - Pattern matching for state machines
 - Enum-driven architecture patterns
 
-## Pattern Matching Cheat Sheet
+### Pattern Matching Cheat Sheet
 
 ```rust
 // Basic patterns
@@ -1271,7 +1271,7 @@ fn classify_point((x, y): (i32, i32)) -> &'static str {
 4. **Match slices with patterns**: Handle different lengths explicitly
 5. **Be mindful of moves**: Use ref/&mut when needed to avoid consuming values
 
-## Summary
+### Summary
 
 Pattern matching in Rust is a powerful tool that goes beyond simple control flow. By leveraging advanced patterns, exhaustiveness checking, state machines, and enum-driven architecture, you can:
 
@@ -1293,7 +1293,7 @@ Pattern matching isn't just a language feature—it's a design philosophy that s
 ```
 
 
-## Pattern Matching Cheat Sheet
+### Pattern Matching Cheat Sheet
 
 ```rust 
 // ===== BASIC MATCH =====

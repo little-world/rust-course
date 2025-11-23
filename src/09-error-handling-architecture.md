@@ -55,7 +55,7 @@
 [Error Handling Cheat Sheet](#error-handling-cheat-sheet)
 -  common **error handling** pattern
 
-## Overview
+### Overview
 
 Error handling is one of Rust's most carefully designed features. Unlike exceptions in languages like Java or Python, Rust uses explicit return types (`Result<T, E>`) to force handling of errors at compile time. This approach eliminates entire classes of bugs: forgotten error checks, unexpected exception propagation, and unclear error boundaries.
 
@@ -1267,7 +1267,7 @@ let result = timeout(duration, async_op).await?;
 let results = try_join_all(futures).await?;
 ```
 
-## Key Takeaways
+### Key Takeaways
 
 1. **Libraries: specific errors, applications: opaque errors**
 2. **Add context at error sites, not at error definitions**
@@ -1283,7 +1283,7 @@ let results = try_join_all(futures).await?;
 Rust's error handling transforms errors from exceptional control flow to explicit, type-safe values. This approach makes error handling more verbose but dramatically more reliable, forcing you to consider every failure mode at compile time.
 
 
-## Error Handling Cheat Sheet
+### Error Handling Cheat Sheet
 ```rust
 // ===== RESULT TYPE =====
 // Result enum definition

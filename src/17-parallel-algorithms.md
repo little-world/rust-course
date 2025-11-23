@@ -1926,7 +1926,7 @@ fn main() {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered parallel algorithm patterns in Rust:
 
@@ -1973,7 +1973,7 @@ This chapter covered parallel algorithm patterns in Rust:
 - Not profiling actual performance
 
 
-## Rayon Cheat Sheet
+### Rayon Cheat Sheet
 ```rust
 // Basic parallel iterators
 use rayon::prelude::*;

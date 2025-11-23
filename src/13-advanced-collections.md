@@ -57,7 +57,7 @@
 
 [Advanced Collections Cheat Sheet](#advanced-collections-cheat-sheet)
 
-## Overview
+### Overview
 This chapter explores advanced collection types and data structures beyond the standard Vec and HashMap. We'll cover double-ended queues, priority queues, graph representations, prefix trees, and lock-free concurrent data structures through practical, real-world examples.
 
 
@@ -2828,7 +2828,7 @@ fn main() {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered advanced collection types:
 
@@ -2854,7 +2854,7 @@ This chapter covered advanced collection types:
 - Lock-free: No blocking, better scalability under contention
 
 
-## Advanced Collections Cheat Sheet
+### Advanced Collections Cheat Sheet
 ```rust
 use std::collections::*;
 

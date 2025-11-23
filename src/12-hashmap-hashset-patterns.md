@@ -2395,7 +2395,7 @@ fn main() {
 
 
 
-## Summary
+### Summary
 
 This chapter covered essential HashMap and HashSet patterns:
 
@@ -2420,7 +2420,7 @@ This chapter covered essential HashMap and HashSet patterns:
 - Profile before choosing hash function
 - DashMap for >4 concurrent writers
 
-## Hashmap and HashSet Cheat Sheets
+### Hashmap and HashSet Cheat Sheets
 ```rust
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher, BuildHasher};

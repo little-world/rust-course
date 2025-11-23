@@ -769,7 +769,7 @@ fn demo_visitor() {
 
 **The pattern:** Visitors separate traversal logic from data structure. You can add new operations without modifying the enum definition.
 
-## Summary
+### Summary
 
 This chapter covered struct and enum patterns for type-safe data modeling:
 
@@ -823,7 +823,7 @@ This chapter covered struct and enum patterns for type-safe data modeling:
 
 > **See Also**: For compile-time state machines (typestate pattern) and phantom types, see **Chapter 4: Pattern 6** and **Chapter 5: Pattern 2**.
 
-## Struct Cheat Sheet
+### Struct Cheat Sheet
 ```rust
 // ===== BASIC STRUCTS =====
 // Named field struct
@@ -1617,7 +1617,7 @@ impl<T> Tagged<T> {
 
 
 
-## Enum Cheat Sheet
+### Enum Cheat Sheet
 
 ```rust
 // ===== BASIC ENUMS =====

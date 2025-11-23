@@ -60,7 +60,7 @@
 [Generics Cheat Sheet](#generics-cheat-sheet)
 - Comprehensive reference for generic syntax and patterns
 
-## Overview
+### Overview
 
 Generics are Rust's mechanism for writing code that works across multiple types while maintaining full type safety. Unlike dynamic languages that achieve polymorphism through runtime type checking, Rust's generics are resolved entirely at compile time through **monomorphization**—the compiler generates specialized versions of generic code for each concrete type used.
 
@@ -1794,7 +1794,7 @@ fn works<F>(f: F) where F: for<'a> Fn(&'a str) -> &'a str {
 }
 ```
 
-## Key Takeaways
+### Key Takeaways
 
 1. **Monomorphization is zero-cost**: Generic code compiles to specialized machine code
 2. **Trait bounds are contracts**: Specify exactly what capabilities you need
@@ -1807,7 +1807,7 @@ fn works<F>(f: F) where F: for<'a> Fn(&'a str) -> &'a str {
 
 Generics are the backbone of Rust's zero-cost abstractions. Mastering them means understanding not just syntax, but the trade-offs between compile-time safety, API ergonomics, and implementation flexibility.
 
-## Generics Cheat Sheet
+### Generics Cheat Sheet
 ```rust
 // ===== BASIC GENERIC SYNTAX =====
 // Generic function

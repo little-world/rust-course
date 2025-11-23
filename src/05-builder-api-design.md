@@ -38,7 +38,7 @@
 [Builder Cheat Sheet] (#builder-cheat-sheet)
 - This comprehensive guide covers both builder patterns (basic and typestate) and typestate patterns for state machines.
 
-## Overview
+### Overview
 
 This chapter explores API design patterns: builder pattern variations for complex construction, typestate pattern for compile-time state machines, fluent APIs via method chaining, flexible parameters with Into/AsRef, and must-use types to prevent misuse.
 
@@ -1336,7 +1336,7 @@ fn example() {
 
 > **See Also**: For phantom types and typestate mechanics, see **Chapter 4: Pattern 6 (Phantom Types)**. For sealed traits, see **Chapter 3: Pattern 5 (Sealed Traits)**.
 
-## Summary
+### Summary
 
 This chapter covered API design patterns for creating type-safe, ergonomic Rust APIs:
 
@@ -1394,7 +1394,7 @@ This chapter covered API design patterns for creating type-safe, ergonomic Rust 
 - Test must-use warnings (should warn if ignored)
 
 
-## Builder Cheat Sheet
+### Builder Cheat Sheet
 ```rust
 // ===== BASIC BUILDER PATTERN =====
 #[derive(Debug)]

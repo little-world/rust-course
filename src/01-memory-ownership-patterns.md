@@ -60,7 +60,7 @@
 [Ownership and Borrowing Cheat Sheet](#ownership-and-borrowing-cheat-sheet)
 - a list of ownership and borrowing patterns
 
-## Overview
+### Overview
 
 Rust's ownership system is its defining feature, enabling memory safety without garbage collection. This chapter explores advanced patterns that leverage ownership, borrowing, and lifetimes to write efficient, safe code. For experienced programmers, understanding these patterns is crucial for designing high-performance systems where memory allocation, cache locality, and zero-copy operations matter.
 
@@ -71,7 +71,7 @@ The ownership model enforces three fundamental rules at compile time:
 
 These rules enable sophisticated zero-cost abstractions while preventing entire classes of bugs: use-after-free, double-free, dangling pointers, and data races.
 
-## Type System Foundation
+### Type System Foundation
 
 ```rust
 // Core ownership types
@@ -1148,7 +1148,7 @@ use std::rc::Rc;
 - Systems with unique ownership semantics
 - Performance-critical code where std overhead matters
 
-## Performance Summary
+### Performance Summary
 
 | Pattern | Allocation Cost | Access Cost | Best Use Case |
 |---------|----------------|-------------|---------------|
@@ -1160,7 +1160,7 @@ use std::rc::Rc;
 | `Mutex<T>` | O(0) | O(lock) | Interior mutability, multi-threaded |
 | Arena | O(1) bump | O(1) | Bulk allocation/deallocation |
 
-## Quick Reference: Choosing Ownership Patterns
+### Quick Reference: Choosing Ownership Patterns
 
 ```rust
 // Need to modify through shared reference, single-threaded?
@@ -1189,7 +1189,7 @@ Arena          // Bump allocator
 #[repr(align(N))] // Cache alignment
 ```
 
-## Common Anti-Patterns
+### Common Anti-Patterns
 
 ```rust
 // ❌ Holding RefCell borrow across function call
@@ -1227,7 +1227,7 @@ fn needs_modification(_s: &str) -> bool { true }
 fn modify(s: &str) -> String { s.to_uppercase() }
 ```
 
-## Key Takeaways
+### Key Takeaways
 
 1. **Ownership is zero-cost**: Compile-time enforcement means no runtime overhead
 2. **Interior mutability is a tool, not a default**: Use sparingly, prefer immutability
@@ -1240,7 +1240,7 @@ fn modify(s: &str) -> String { s.to_uppercase() }
 
 Understanding these patterns transforms Rust from "fighting the borrow checker" to leveraging one of the most sophisticated memory management systems in any programming language.
 
-## Ownership and Borrowing Cheat Sheet
+### Ownership and Borrowing Cheat Sheet
 ```rust
 // ===== OWNERSHIP BASICS =====
 // Move semantics (default for non-Copy types)

@@ -35,7 +35,7 @@
 - Why It Matters: Real-time apps require bidirectional push; WebSocket persistent connection avoids HTTP overhead; 1 connection vs polling every 100ms
 - Use Cases: Chat applications, live notifications, collaborative editing, stock tickers, gaming, dashboard updates, IoT control, video streaming signaling
 
-## Overview
+### Overview
 This chapter covers network programming patterns—TCP/UDP for low-level protocols, HTTP client/server for web services, WebSocket for real-time bidirectional communication. Rust's async ecosystem enables high-performance, concurrent network applications with safety guarantees.
 
 
@@ -1494,7 +1494,7 @@ This ensures you detect and clean up dead connections promptly.
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered network programming patterns:
 
@@ -1580,7 +1580,7 @@ axum::serve(listener, app).await?;
 - **hyper**: Low-level HTTP library (foundation for axum)
 
 
-## TCP Cheat Sheet
+### TCP Cheat Sheet
 ```rust
 use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
 use std::io::{Read, Write, BufReader, BufRead, Result, Error, ErrorKind};
@@ -1820,7 +1820,7 @@ fn tcp_shutdown(stream: TcpStream) -> Result<()> {
 
 ```
 
-## UDP Cheat Sheet
+### UDP Cheat Sheet
 ```rust
 // ===== UDP SOCKET =====
 // Basic UDP server
@@ -2206,7 +2206,7 @@ fn tcp_graceful_shutdown() -> Result<()> {
 }
 ```
 
-## Reqwest Cheat Sheet
+### Reqwest Cheat Sheet
 ```rust
 // Cargo.toml dependencies:
 /*
@@ -2908,7 +2908,7 @@ async fn conditional_request(client: &Client, etag: Option<&str>) -> Result<(), 
 }
 ```
 
-## Axum Cheat Sheet
+### Axum Cheat Sheet
 
 ```rust
 // ===== AXUM =====
@@ -3253,7 +3253,7 @@ async fn serve_static(Path(path): Path<String>) -> Response {
     (StatusCode::OK, format!("Serving: {}", path)).into_response()
 }
 ```
-## Actix-web Cheat Sheet
+### Actix-web Cheat Sheet
 ```rust
 // ===== ACTIX-WEB =====
 // Cargo.toml:
@@ -3638,7 +3638,7 @@ async fn actix_update_user() -> impl Responder { "Updated" }
 async fn actix_delete_user() -> impl Responder { "Deleted" }
 ```
 
-## Tungstenite Cheat Sheet
+### Tungstenite Cheat Sheet
 
 ```rust
 // Cargo.toml:

@@ -45,7 +45,7 @@
 [Smart Pointer Cheat Sheet](#smart-pointer-cheat-sheet)
 - some common functions
 
-## Overview
+### Overview
 This chapter explores smart pointer patterns in Rust, covering heap allocation with Box, reference counting with Rc/Arc, preventing memory leaks with Weak references, implementing custom smart pointers, intrusive data structures, and optimization techniques. We'll cover practical, production-ready examples for managing complex ownership scenarios.
 
 
@@ -1908,7 +1908,7 @@ fn main() {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered smart pointer patterns in Rust:
 
@@ -1963,7 +1963,7 @@ This chapter covered smart pointer patterns in Rust:
 - Weak prevents dangling pointers
 
 
-## Smart Pointer Cheat Sheet
+### Smart Pointer Cheat Sheet
 
 ```rust
 // Box<T> - Heap allocation

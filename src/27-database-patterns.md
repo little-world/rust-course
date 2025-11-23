@@ -1266,7 +1266,7 @@ pub struct GrowthMetric {
 
 This structure separates concerns: simple operations use type-safe queries, while analytics uses raw SQL for complex aggregations.
 
-## Summary
+### Summary
 
 This chapter covered database patterns for production Rust applications:
 
@@ -1356,7 +1356,7 @@ if let Some(name) = filter {
 - Batch data migrations: process 1000-10000 rows at a time
 - Use indexes: query performance depends on proper indexing (outside scope of patterns, but critical)
 
-## Diesel Cheat Sheet
+### Diesel Cheat Sheet
 ```rust
 // Cargo.toml:
 /*
@@ -2050,7 +2050,7 @@ fn increment_view_count(conn: &mut PgConnection, post_id: i32) {
 }
 ```
 
-## SQLx Cheat Sheet
+### SQLx Cheat Sheet
 ```rust
 // Cargo.toml:
 /*

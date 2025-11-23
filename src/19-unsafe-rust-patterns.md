@@ -57,7 +57,7 @@
   wrappers, typestate APIs
 
 
-## Overview
+### Overview
 
 Unsafe Rust is not a separate language—it's a escape hatch that allows you to tell the compiler "I know what I'm doing, trust me on this." While Rust's safety guarantees are powerful, they can't express every valid program. Low-level systems programming, hardware interaction, foreign function interfaces, and certain performance optimizations require operations that the compiler cannot verify as safe.
 
@@ -1733,7 +1733,7 @@ fn safe_transmute_example() {
 
 ---
 
-## Summary
+### Summary
 
 Unsafe Rust is not about being reckless—it's about taking responsibility for safety properties the compiler cannot verify. Every unsafe block is a promise: "I have verified these invariants hold."
 
@@ -1760,7 +1760,7 @@ Unsafe Rust gives you the power to build anything—operating systems, databases
 
 The standard library is proof this works: millions of lines of safe Rust code rely on carefully crafted unsafe foundations. Your unsafe code can achieve the same reliability with discipline and care.
 
-## Unsafe Rust Cheat Sheet
+### Unsafe Rust Cheat Sheet
 
 ```rust
 // ============================================================================

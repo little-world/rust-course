@@ -26,7 +26,7 @@
 - [Returning Owned When Borrowed Suffices](#anti-pattern-returning-owned-when-borrowed-suffices)
 - [Overengineered Generic APIs](#anti-pattern-overengineered-generic-apis)
 
-## Overview
+### Overview
 
 Anti-patterns are common solutions to recurring problems that initially seem reasonable but ultimately create more issues than they solve. Unlike design patterns, which represent best practices, anti-patterns represent pitfalls—seductive shortcuts that lead to bugs, performance degradation, or unmaintainable code.
 
@@ -1621,7 +1621,7 @@ where
 
 ---
 
-## Summary
+### Summary
 
 Anti-patterns represent accumulated wisdom from mistakes made across the Rust ecosystem. Recognizing these patterns helps you write better code from the start and refactor problematic code when you encounter it.
 

@@ -39,7 +39,7 @@
 [Serde Cheat Sheet](#serde-cheat-sheet)
  - common **serde** functions
 
-## Overview
+### Overview
 This chapter covers serialization patterns using serde—converting Rust types to/from JSON, binary formats, config files. Serde provides zero-cost abstraction: types separated from formats, derive macros generate optimal code, switch formats by changing one line.
 
 
@@ -1779,7 +1779,7 @@ fn binary_streaming_example() -> io::Result<()> {
 
 ---
 
-## Summary
+### Summary
 
 This chapter covered serialization patterns using serde:
 
@@ -1824,7 +1824,7 @@ This chapter covered serialization patterns using serde:
 - Not versioning schemas → breaking changes painful
 - Choosing wrong format (JSON for everything) → performance problems
 
-## Serde Cheat Sheet
+### Serde Cheat Sheet
 
 ```rust
 use serde::{Serialize, Deserialize, Serializer, Deserializer};

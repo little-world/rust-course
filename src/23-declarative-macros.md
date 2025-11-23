@@ -38,7 +38,7 @@
 [Macro Cheat Sheet](#macro-cheat-sheet)
 - common patterns for declarative macros
 
-## Overview
+### Overview
 This chapter covers declarative macros (macro_rules!)—pattern matching on syntax to generate code at compile-time. Macros enable variadic arguments, DSLs, and zero-cost abstractions impossible with functions. Pattern match input syntax, expand to template code.
 
 
@@ -1311,7 +1311,7 @@ macro_rules! require_literal {
 
 
 
-## Summary
+### Summary
 
 This chapter covered declarative macros (macro_rules!):
 
@@ -1372,7 +1372,7 @@ This chapter covered declarative macros (macro_rules!):
 - Test edge cases (empty, single, many elements)
 - Keep macros simple—complexity hurts maintainability
 
-## Macro Cheat Sheet
+### Macro Cheat Sheet
 ```rust
 // ===== DECLARATIVE MACROS (macro_rules!) =====
 

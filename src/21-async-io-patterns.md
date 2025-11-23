@@ -42,7 +42,7 @@
 [Tokio Network IO Cheat Sheet](#tokio-network-io-cheat-sheet)
 - a long list of useful functions
 
-## Overview
+### Overview
 This chapter explores async I/O patterns using Tokio—handling thousands of concurrent connections, buffered streams, backpressure, connection pooling, and timeouts. Async I/O allows one thread to manage thousands of operations by yielding when blocked, solving the C10K problem.
 
 
@@ -1640,7 +1640,7 @@ async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
 }
 ```
 
-## Summary
+### Summary
 
 This chapter covered async I/O patterns using Tokio:
 
@@ -1680,7 +1680,7 @@ This chapter covered async I/O patterns using Tokio:
 - Connection pool without health checks keeps stale connections
 
 
-## Tokio File IO Cheat Sheet
+### Tokio File IO Cheat Sheet
 
 ```rust
 // ===== TOKIO FILE I/O =====
@@ -1822,7 +1822,7 @@ loop {
 
 
 ```
-## Tokio Network IO Cheat Sheet
+### Tokio Network IO Cheat Sheet
 ```rust
 // ===== TOKIO NETWORK I/O =====
 use tokio::net::{TcpListener, TcpStream, UdpSocket, UnixListener, UnixStream};

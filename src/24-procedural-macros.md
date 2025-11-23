@@ -38,7 +38,7 @@
 [Procedural Macros Cheat Sheet](#procedural-macros-cheat-sheet)
 - common patterns in procedural macros
 
-## Overview
+### Overview
 
 This chapter covers procedural macros—full Rust functions that manipulate TokenStreams. Three types: derive (#[derive(Trait)]), attribute (#[my_attr]), function-like (sql!). Must be separate crate. Use syn to parse, quote to generate. Powers serde, tokio, clap ecosystem.
 
@@ -1402,7 +1402,7 @@ fn test_function_macro() {
 
 
 
-## Summary
+### Summary
 
 This chapter covered procedural macros:
 
@@ -1475,7 +1475,7 @@ quote = "1"
 proc_macro2 = "1"
 ```
 
-## Procedural Macros Cheat Sheet
+### Procedural Macros Cheat Sheet
 ```rust
 // ===== PROCEDURAL MACROS SETUP =====
 // Cargo.toml for proc-macro crate:

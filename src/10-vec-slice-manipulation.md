@@ -68,7 +68,7 @@
 [Vector Cheat Sheet](#vector-and-slices-cheat-sheet)
  - a lot of **vector** functions
 
-## Overview
+### Overview
 
 Vectors and slices are the workhorses of Rust data processing. `Vec<T>` provides dynamic, heap-allocated arrays with amortized O(1) append operations, while slices (`&[T]`, `&mut [T]`) provide views into contiguous sequences without ownership. Understanding how to efficiently manipulate these types is essential for writing high-performance Rust code.
 
@@ -1211,7 +1211,7 @@ fn partition_three_way(values: &mut [i32], pivot: i32) -> (usize, usize) {
 4. **Implement circular buffers for fixed-size windows**: Avoid shifting elements
 5. **Partition in-place when possible**: Avoids allocation
 
-## Summary
+### Summary
 
 Vectors and slices are fundamental to Rust data processing. By mastering capacity management, algorithmic operations, chunking patterns, zero-copy techniques, and SIMD optimizations, you can write high-performance code that competes with C/C++ while maintaining Rust's safety guarantees.
 
@@ -1242,7 +1242,7 @@ Vectors and slices are fundamental to Rust data processing. By mastering capacit
 Vector and slice manipulation is about understanding trade-offs: allocation cost vs memory usage, stable vs unstable sorting, copying vs borrowing. Master these patterns to build efficient, idiomatic Rust systems that maximize performance while preserving safety.
 
 
-## Vector and Slices Cheat Sheet
+### Vector and Slices Cheat Sheet
 ```rust
 // ===== CREATING VECTORS =====
 // Empty vector
