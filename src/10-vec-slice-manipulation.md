@@ -1,4 +1,4 @@
-# Chapter 6: Vec & Slice Manipulation
+# Vec & Slice Manipulation
 
 [Pattern 1: Capacity Management and Amortization](#pattern-1-capacity-management-and-amortization)
 

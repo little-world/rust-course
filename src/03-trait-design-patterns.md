@@ -921,396 +921,7 @@ This pattern is incredibly powerful—one implementation provides functionality 
 
 **Use Cases**: Internal abstractions (pub trait, private impls), public traits with limited implementations (only std types), future-proof APIs (reserve right to add methods), unsafe traits (verify safety invariants internally), protocol enforcement (only certain types valid), standard library patterns (Iterator is open, but some traits sealed), marker traits with meaning (Send/Sync are special, user impls wrong), library evolution (add functionality without breaking).
 
-### Example: ToString Blanket Implementation
-```rust
-trait ToString {
-    fn to_string(&self) -> String;
-}
-
-//======================================================================
-// Blanket implementation: ToString for all types that implement Display
-//======================================================================
-impl<T: std::fmt::Display> ToString for T {
-    fn to_string(&self) -> String {
-        format!("{}", self)
-    }
-}
-
-//=================================================================
-// Now any type that implements Display automatically gets ToString
-//=================================================================
-```
-
-This is why you can call `.to_string()` on integers, floats, and any other `Display` type—the blanket implementation provides it.
-
-### Example: The From/Into Pattern
-
-The standard library's `From` and `Into` traits showcase blanket implementations:
-
-```rust
-trait From<T> {
-    fn from(value: T) -> Self;
-}
-
-trait Into<T> {
-    fn into(self) -> T;
-}
-
-//=======================================================================================
-// Blanket implementation: Into is automatically implemented for all From implementations
-//=======================================================================================
-impl<T, U> Into<U> for T
-where
-    U: From<T>,
-{
-    fn into(self) -> U {
-        U::from(self)
-    }
-}
-
-//================================
-// You only need to implement From
-//================================
-impl From<i32> for f64 {
-    fn from(value: i32) -> f64 {
-        value as f64
-    }
-}
-
-//================================
-// Into is automatically available
-//================================
-fn example() {
-    let x: i32 = 42;
-    let y: f64 = x.into(); // Works because of blanket impl!
-}
-```
-
-This pattern reduces boilerplate—implement `From`, get `Into` for free.
-
-### Example: Trait Composition with Blanket Impls
-
-Blanket implementations can compose multiple traits:
-
-```rust
-trait Serialize {
-    fn serialize(&self) -> String;
-}
-
-trait Deserialize {
-    fn deserialize(data: &str) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-//==============================================================
-// Blanket impl: all Serialize + Deserialize types get RoundTrip
-//==============================================================
-trait RoundTrip: Serialize + Deserialize {
-    fn round_trip(&self) -> Result<Self, String>
-    where
-        Self: Sized,
-    {
-        let serialized = self.serialize();
-        Self::deserialize(&serialized)
-    }
-}
-
-//=====================================================
-// Automatically implemented for types with both traits
-//=====================================================
-impl<T> RoundTrip for T where T: Serialize + Deserialize {}
-
-#[derive(Debug, PartialEq)]
-struct Data {
-    value: i32,
-}
-
-impl Serialize for Data {
-    fn serialize(&self) -> String {
-        self.value.to_string()
-    }
-}
-
-impl Deserialize for Data {
-    fn deserialize(data: &str) -> Result<Self, String> {
-        Ok(Data {
-            value: data.parse().map_err(|e| format!("{}", e))?,
-        })
-    }
-}
-
-fn example() {
-    let data = Data { value: 42 };
-    let round_tripped = data.round_trip().unwrap();
-    assert_eq!(data, round_tripped);
-}
-```
-
-The `RoundTrip` trait is automatically implemented for any type with both `Serialize` and `Deserialize`.
-
-### Example: Blanket Implementations for Smart Pointers
-
-Blanket implementations work excellently with smart pointers:
-
-```rust
-trait Process {
-    fn process(&self) -> String;
-}
-
-//==========================================================
-// Blanket impl: Process for all references to Process types
-//==========================================================
-impl<T: Process + ?Sized> Process for &T {
-    fn process(&self) -> String {
-        (**self).process()
-    }
-}
-
-//===========================================
-// Blanket impl: Process for all Box<Process>
-//===========================================
-impl<T: Process + ?Sized> Process for Box<T> {
-    fn process(&self) -> String {
-        (**self).process()
-    }
-}
-
-//==========================
-// Similar for Arc, Rc, etc.
-//==========================
-
-struct Data {
-    value: String,
-}
-
-impl Process for Data {
-    fn process(&self) -> String {
-        format!("Processing: {}", self.value)
-    }
-}
-
-fn use_processor<T: Process>(processor: T) -> String {
-    processor.process()
-}
-
-fn example() {
-    let data = Data { value: "test".to_string() };
-
-    // All of these work thanks to blanket impls
-    use_processor(&data);
-    use_processor(Box::new(data.clone()));
-    use_processor(std::sync::Arc::new(data.clone()));
-}
-```
-
-This pattern makes smart pointers transparent—you can use `Box<T>` wherever you'd use `T`.
-
-### Example: Marker Traits with Blanket Impls
-
-Marker traits (traits with no methods) can use blanket implementations to automatically mark types:
-
-```rust
-//===============================================================
-// Marker trait for types that can be safely sent between threads
-//===============================================================
-trait ThreadSafe {}
-
-//===================================================
-// Blanket impl: all Send + Sync types are ThreadSafe
-//===================================================
-impl<T: Send + Sync> ThreadSafe for T {}
-
-fn requires_thread_safe<T: ThreadSafe>(_value: T) {
-    println!("Value is thread-safe");
-}
-
-fn example() {
-    requires_thread_safe(42); // i32 is Send + Sync, so it's ThreadSafe
-    requires_thread_safe(vec![1, 2, 3]); // Vec<i32> too
-}
-```
-
-This pattern creates semantic groupings of types based on existing traits.
-
-### Example: Negative Trait Bounds (Unstable)
-
-While not stable, negative trait bounds would allow conditional implementations based on what traits a type *doesn't* implement:
-
-```rust
-//===============================
-// Future syntax (not yet stable)
-//===============================
-impl<T: !Copy> Clone for Wrapper<T> {
-    fn clone(&self) -> Self {
-        // Special clone logic for non-Copy types
-    }
-}
-
-//==================================================
-// Workaround: Use specialization or different types
-//==================================================
-```
-
-For now, work around this limitation with different types or specialization.
-
-### Example: Coherence and Orphan Rules
-
-Blanket implementations must respect Rust's coherence rules:
-
-```rust
-//===============================
-// You can do this in your crate:
-//===============================
-trait MyTrait {
-    fn my_method(&self);
-}
-
-impl<T: std::fmt::Display> MyTrait for T {
-    fn my_method(&self) {
-        println!("{}", self);
-    }
-}
-
-// But you cannot do this (orphan rule):
-// impl<T> std::fmt::Display for Vec<T> {
-//     // Error! Neither Display nor Vec is defined in this crate
-// }
-```
-
-The orphan rule prevents conflicts: either the trait or the type must be defined in your crate.
-
-### Example: Real-World Example: AsRef Pattern
-
-The standard library's `AsRef` trait is a masterclass in blanket implementations:
-
-```rust
-trait AsRef<T: ?Sized> {
-    fn as_ref(&self) -> &T;
-}
-
-//=============================
-// String implements AsRef<str>
-//=============================
-impl AsRef<str> for String {
-    fn as_ref(&self) -> &str {
-        self
-    }
-}
-
-//===========================
-// &str implements AsRef<str>
-//===========================
-impl AsRef<str> for str {
-    fn as_ref(&self) -> &str {
-        self
-    }
-}
-
-//===========================================
-// Functions can accept either String or &str
-//===========================================
-fn print_string<S: AsRef<str>>(s: S) {
-    println!("{}", s.as_ref());
-}
-
-fn example() {
-    print_string("hello");              // &str
-    print_string("hello".to_string());  // String
-}
-```
-
-This pattern makes APIs flexible without sacrificing type safety.
-
-## Pattern 6: Advanced Trait Patterns
-
-Let's explore some sophisticated patterns that combine these concepts.
-
-### Example: Builder Traits
-
-Use traits to create type-safe builder patterns:
-
-```rust
-//===============================
-// Type-state pattern with traits
-//===============================
-trait Buildable {
-    type Built;
-    fn build(self) -> Self::Built;
-}
-
-struct UserBuilder<Stage> {
-    name: Option<String>,
-    email: Option<String>,
-    _stage: std::marker::PhantomData<Stage>,
-}
-
-struct Initial;
-struct WithName;
-struct WithEmail;
-
-impl UserBuilder<Initial> {
-    fn new() -> Self {
-        UserBuilder {
-            name: None,
-            email: None,
-            _stage: std::marker::PhantomData,
-        }
-    }
-
-    fn with_name(self, name: String) -> UserBuilder<WithName> {
-        UserBuilder {
-            name: Some(name),
-            email: None,
-            _stage: std::marker::PhantomData,
-        }
-    }
-}
-
-impl UserBuilder<WithName> {
-    fn with_email(self, email: String) -> UserBuilder<WithEmail> {
-        UserBuilder {
-            name: self.name,
-            email: Some(email),
-            _stage: std::marker::PhantomData,
-        }
-    }
-}
-
-impl Buildable for UserBuilder<WithEmail> {
-    type Built = User;
-
-    fn build(self) -> User {
-        User {
-            name: self.name.unwrap(),
-            email: self.email.unwrap(),
-        }
-    }
-}
-
-struct User {
-    name: String,
-    email: String,
-}
-
-fn example() {
-    let user = UserBuilder::new()
-        .with_name("Alice".to_string())
-        .with_email("alice@example.com".to_string())
-        .build();
-
-    // This won't compile (missing email):
-    // UserBuilder::new()
-    //     .with_name("Bob".to_string())
-    //     .build();
-}
-```
-
-The type system enforces that you can only build when all required fields are set.
-
-### Example: Sealed Traits
-
-Prevent external implementations of your traits:
+### Example: Basic Sealed Trait
 
 ```rust
 mod sealed {
@@ -1319,6 +930,11 @@ mod sealed {
 
 pub trait MyTrait: sealed::Sealed {
     fn my_method(&self);
+
+    // Can add new methods without breaking external code
+    fn new_method(&self) {
+        println!("Default implementation");
+    }
 }
 
 struct MyType;
@@ -1330,12 +946,11 @@ impl MyTrait for MyType {
     }
 }
 
-//=====================================================================================
-// External crates cannot implement MyTrait because they can't implement sealed::Sealed
-//=====================================================================================
+// External crates can USE MyTrait but cannot IMPLEMENT it
+// because they can't access sealed::Sealed
 ```
 
-This pattern ensures you can add methods to the trait without breaking compatibility.
+This pattern ensures you can evolve the trait API without semver-major version bumps.
 
 ### Example: Dependency Injection with Traits
 
@@ -1381,36 +996,37 @@ impl<D: Database, E: EmailService> UserService<D, E> {
 
 This pattern makes code testable and modular.
 
+> **See Also**: For blanket implementations (`impl<T: Trait> OtherTrait for T`), see **Chapter 4: Pattern 5 (Blanket Implementations)**. For typestate builder patterns, see **Chapter 5: Pattern 2 (Typestate Pattern)**.
+
 ## Summary
 
-This chapter covered advanced trait design patterns for flexible, expressive Rust APIs:
+This chapter covered trait design patterns for flexible, expressive Rust APIs:
 
 1. **Trait Inheritance and Bounds**: Supertrait relationships, multiple bounds, where clauses, conditional implementations
-2. **Associated Types vs Generics**: When to use each, ergonomics vs flexibility, Iterator pattern, type families
-3. **Trait Objects and Dynamic Dispatch**: &dyn Trait, object safety, heterogeneous collections, vtable overhead
-4. **Extension Traits**: Extending external types, blanket implementations, modular design, ecosystem interop
-5. **Sealed Traits**: Preventing external impls, API evolution, safety guarantees, protocol enforcement
+2. **Associated Types vs Generics**: When to use each, ergonomics vs flexibility, Iterator pattern
+3. **Trait Objects and Dynamic Dispatch**: &dyn Trait, object safety, heterogeneous collections
+4. **Extension Traits**: Extending external types, modular opt-in design
+5. **Sealed Traits**: Preventing external impls, API evolution, safety guarantees
 
 **Key Takeaways**:
 - Trait inheritance expresses capabilities: "to be A must be B" is declarative and composable
 - Associated types = one impl per type, inferred; generics = multiple impls, explicit choice
-- Dynamic dispatch = smaller binary, ~2-3ns overhead; static dispatch = optimized per-type, code bloat
-- Extension traits extend types you don't own via trait + impl, coherence allows (one of trait/type is yours)
-- Sealed traits prevent external impls via private supertrait, enables non-breaking trait evolution
+- Dynamic dispatch = smaller binary, ~2-3ns overhead; static dispatch = optimized per-type
+- Extension traits extend types you don't own via trait + impl
+- Sealed traits prevent external impls via private supertrait
 
 **Design Guidelines**:
-- Supertraits for capability requirements: trait Loggable: Debug + Display
+- Supertraits for capability requirements: `trait Loggable: Debug + Display`
 - Associated types when output determined by type, generics when chosen by caller
 - Trait objects for heterogeneous collections, generics for performance
 - Extension traits for opt-in functionality on external types
 - Sealed traits when evolution/safety requires controlled implementations
 
-**Performance Considerations**:
-- Static dispatch: optimized per-type, inlined, zero cost, but code bloat
-- Dynamic dispatch: vtable lookup ~2-3ns, not inlinable, one implementation
-- Blanket implementations: zero runtime cost, compile-time feature provision
-- Associated types vs generics: no performance difference, ergonomics differ
-- Trait bounds: purely compile-time, zero runtime cost
+**Object Safety Rules** (for `&dyn Trait`):
+- No generic methods (needs concrete type at compile-time)
+- No Self: Sized bound (trait objects are !Sized)
+- Must have &self/&mut self receiver (needs object to call)
+- No associated functions without self (can't call without type)
 
 **Common Patterns**:
 ```rust
@@ -1443,43 +1059,11 @@ trait StringExt {
 impl StringExt for String { /* ... */ }
 
 // Sealed trait (prevent external impl)
-mod sealed {
-    pub trait Sealed {}
-}
+mod sealed { pub trait Sealed {} }
 pub trait MyTrait: sealed::Sealed { /* ... */ }
-impl sealed::Sealed for MyType {}
-impl MyTrait for MyType { /* ... */ }
-
-// Blanket implementation (extend all types)
-impl<T: Iterator> IteratorExt for T {
-    fn counts(self) -> HashMap<Self::Item, usize> { /* ... */ }
-}
 ```
 
-**Object Safety Rules** (for `&dyn Trait`):
-- No generic methods (needs concrete type at compile-time)
-- No Self: Sized bound (trait objects are !Sized)
-- Must have &self/&mut self receiver (needs object to call)
-- No associated functions without self (can't call without type)
-
-**API Design Checklist**:
-- Use supertraits to express capability requirements (clear dependencies)
-- Choose associated types for determined outputs (better inference)
-- Use generics for flexible inputs (multiple implementations)
-- Provide trait objects when heterogeneity needed (dyn Trait)
-- Create extension traits for external types (modular opt-in)
-- Seal traits that need controlled evolution (future-proof)
-- Document trait expectations (pre/post-conditions, invariants)
-- Use where clauses for complex bounds (readability)
-
-**When to Use What**:
-- Supertraits: Capability composition, trait requirements
-- Associated types: One implementation, determined by type
-- Generics: Multiple implementations, chosen by caller
-- Trait objects: Runtime polymorphism, heterogeneous collections
-- Extension traits: Add methods to external types
-- Sealed traits: Control implementations, API evolution
-- Blanket impls: Provide functionality to all matching types
+> **See Also**: For blanket implementations and generics patterns, see **Chapter 4: Generics & Polymorphism**. For typestate builders, see **Chapter 5: Builder & API Design**.
 
 
 ## Traits Cheat Sheet

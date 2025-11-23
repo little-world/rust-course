@@ -14,12 +14,12 @@
 - Why It Matters: Type safety prevents mixing IDs; invariants encoded in types; eliminates defensive checks; zero runtime cost
 - Use Cases: Domain-specific IDs, validated types (PositiveInteger), units (Kilometers), semantic clarity, orphan rule workaround
 
-[Zero-Sized Types and Markers](#pattern-3-zero-sized-types-and-markers)
+[Struct Memory and Update Patterns](#pattern-3-struct-memory-and-update-patterns)
 
-- Problem: Runtime state checks expensive; want compile-time guarantees; capabilities unclear; phantom type parameters unused warning
-- Solution: Zero-sized types (unit structs, PhantomData) occupy 0 bytes; marker traits tag capabilities; typestate pattern enforces valid transitions
-- Why It Matters: Zero runtime cost; compile-time state checking; impossible states unrepresentable; builder safety; API misuse prevented
-- Use Cases: Typestate (Authenticated/Unauthenticated), capabilities (ReadPermission), builder patterns, phantom types, generic markers
+- Problem: Understanding struct memory layout; struct update syntax and partial moves; efficient struct transformations
+- Solution: Struct update syntax `..other`; understand Copy vs Move fields; builder-style updates with `mut self`
+- Why It Matters: Enables ergonomic immutable updates; prevents accidental partial moves; foundation for builder patterns
+- Use Cases: Configuration updates, immutable data patterns, fluent APIs, functional-style transformations
 
 [Enum Design Patterns](#pattern-4-enum-design-patterns)
 
@@ -30,16 +30,10 @@
 
 [Advanced Enum Techniques](#pattern-5-advanced-enum-techniques)
 
-- Problem: Large enum variants waste memory; recursive enums; need interior mutability; want to extend enum behavior
-- Solution: Box large variants; Box for recursion; impl methods on enums; match expressions; From/TryFrom for conversions
+- Problem: Large enum variants waste memory; recursive enums infinite size; need methods on enums; conversion patterns
+- Solution: Box large variants; Box for recursion; impl methods on enums; From/TryFrom for conversions
 - Why It Matters: Memory efficiency (size of largest variant); recursion possible; ergonomic APIs; conversion patterns
-- Use Cases: AST nodes (Box recursion), large variant optimization, state transitions, protocol handlers, command dispatch
-
-[Struct Cheat Sheet](#struct-cheat-sheet)
-- A comprehensive guide on the major aspects of structs in Rust
-
-[Enum Cheat Sheet](#enum-cheat-sheet)
-- A comprehensive guide on the major aspects of enums in Rust
+- Use Cases: AST nodes (Box recursion), large variant optimization, protocol handlers, command dispatch, error types
 
 
 
@@ -275,15 +269,17 @@ println!("Length: {}", validated_string.len()); // Deref to String
 println!("Age: {:?}", validated_string.age());  // Validated method
 ```
 
-## Pattern 3: Zero-Sized Types and Marker Traits
+## Pattern 3: Struct Memory and Update Patterns
 
-**Problem**: Runtime state checks are expensive (if authenticated { query() } else { panic!() }). Want compile-time guarantees about state. Capabilities unclear: does this File have ReadPermission? PhantomData needed for unused type parameters but compiler warns. Need zero-cost type-level information. Builder pattern allows calling build() before all fields set. No way to encode "this operation only valid in this state" at type level.
+**Problem**: Understanding struct memory layout and update syntax. Struct update syntax (`..other`) can cause partial moves. Efficient struct transformations unclear. Copy vs Move field interaction confusing. Immutable update patterns feel clumsy.
 
-**Solution**: Zero-sized types (ZSTs) occupy 0 bytes: unit structs, PhantomData<T>. Use for marker types in typestate pattern: `Database<Unauthenticated>` vs `Database<Authenticated>`. Marker traits tag capabilities without methods: `trait ReadPermission {}`. PhantomData for phantom type parameters: `_state: PhantomData<State>` satisfies compiler. Typestate pattern: consume self, return new state type. Builder pattern with typestate: `Builder<NoFields>` → `Builder<WithName>` → build() only when complete.
+**Solution**: Struct update syntax `..other` copies/moves remaining fields. Understand Copy fields copy, non-Copy fields move. Clone before update to preserve original. Builder-style methods consume `self`, return `Self`. Use `mut self` for in-place transformation chains.
 
-**Why It Matters**: Zero runtime cost: ZSTs are 0 bytes, purely compile-time. State checking at compile-time: can't call query() on unauthenticated database, compiler error not runtime panic. Impossible states unrepresentable: builder can't be in invalid state. API misuse prevented: wrong order of operations = compile error. No overhead: typestate compiles to same code as untyped version. Type-level programming: encode constraints in type system. Self-documenting: `File<ReadWrite>` vs `File<ReadOnly>` shows capabilities.
+**Why It Matters**: Enables ergonomic immutable updates. Prevents accidental partial moves. Foundation for builder patterns (see Chapter 5). Memory layout awareness prevents surprises. Functional-style transformations possible.
 
-**Use Cases**: Typestate pattern (Database<Authenticated>, File<Open>/File<Closed>), builder safety (prevent build() before ready), capability system (ReadPermission, WritePermission, AdminPermission), phantom type parameters (generic types unused at runtime), lifetime markers (variance control), protocol states (Connection<Handshake>/Connection<Established>), resource lifecycle (Handle<Acquired>/Handle<Released>), initialization tracking (Initialized/Uninitialized).
+**Use Cases**: Configuration updates, immutable data patterns, fluent method chains, functional-style transformations, struct cloning with modifications.
+
+> **Note**: For compile-time state checking with phantom types and typestate patterns, see **Chapter 4: Pattern 6 (Phantom Types)** and **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
 ### Example: Struct Update Syntax and Partial Moves
 
@@ -365,7 +361,7 @@ println!("Copyable: {}", data.copyable); // OK
 // println!("{}", data.moveable); // Error: value borrowed after move
 ```
 
-**The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming self and returning Self, or use `&mut self` for in-place updates.
+**The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming self and returning Self, or use `&mut self` for in-place updates. For full builder pattern coverage, see **Chapter 5: Builder & API Design**.
 
 ## Pattern 4: Enum Design Patterns
 
@@ -377,365 +373,92 @@ println!("Copyable: {}", data.copyable); // OK
 
 **Use Cases**: State machines (ConnectionState, HttpRequestState), error types (custom Error enums with variants), optional values (Option<T> replacement), message types (WebSocket messages, RPC calls), command patterns (Command enum with variants), AST nodes (expression trees, parse trees), protocol parsing (packet types), event handling (Event enum), sum types (Either, Result).
 
-### Example: Zero-sized Types
+### Example: Basic Enum with Pattern Matching
+
 ```rust
-// Zero-sized types
-struct Empty;                    // Unit struct: 0 bytes
-struct Marker<T> {
-    _phantom: std::marker::PhantomData<T>  // 0 bytes
-}
-struct TwoMarkers {
-    a: (),                      // Unit type: 0 bytes
-    b: std::marker::PhantomData<i32>  // 0 bytes
+// Model HTTP responses precisely
+enum HttpResponse {
+    Ok { body: String, headers: Vec<(String, String)> },
+    Created { id: u64, location: String },
+    NoContent,
+    BadRequest { error: String },
+    Unauthorized,
+    NotFound,
+    ServerError { message: String, details: Option<String> },
 }
 
-// Verify they're actually zero-sized
-fn check_sizes() {
-    assert_eq!(std::mem::size_of::<Empty>(), 0);
-    assert_eq!(std::mem::size_of::<Marker<String>>(), 0);
-    assert_eq!(std::mem::size_of::<TwoMarkers>(), 0);
+impl HttpResponse {
+    fn status_code(&self) -> u16 {
+        match self {
+            HttpResponse::Ok { .. } => 200,
+            HttpResponse::Created { .. } => 201,
+            HttpResponse::NoContent => 204,
+            HttpResponse::BadRequest { .. } => 400,
+            HttpResponse::Unauthorized => 401,
+            HttpResponse::NotFound => 404,
+            HttpResponse::ServerError { .. } => 500,
+        }
+    }
+
+    fn is_success(&self) -> bool {
+        matches!(self, HttpResponse::Ok { .. } | HttpResponse::Created { .. } | HttpResponse::NoContent)
+    }
+}
+
+// Usage
+fn handle_request(path: &str) -> HttpResponse {
+    match path {
+        "/users" => HttpResponse::Ok {
+            body: "[{\"id\": 1}]".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+        },
+        "/users/create" => HttpResponse::Created {
+            id: 123,
+            location: "/users/123".to_string(),
+        },
+        _ => HttpResponse::NotFound,
+    }
 }
 ```
 
-**Why ZSTs matter:**
-- Compile-time information with zero runtime cost
-- Enable marker-based type system programming
-- Foundation for phantom types and type states
-- Used extensively in Rust's standard library
+**The power:** Each variant carries exactly the data it needs. No null or undefined—if a variant needs an ID, it has one.
 
-### Example: Marker Traits
+### Example: Enum State Machines
 
-Marker traits are traits with no methods that tag types with capabilities or properties:
+Enums model state machines with exhaustive matching:
 
 ```rust
-//=========================================
-// Standard library marker traits (auto traits)
-//=========================================
-
-// Send: Can be transferred across thread boundaries
-// Sync: Can be shared between threads (via &T)
-// Copy: Can be copied bitwise
-// Sized: Has a known size at compile time
-// Unpin: Can be safely moved after being pinned
-
-//=========================================
-// Custom marker traits
-//=========================================
-
-// Marker for types that have been validated
-trait Validated {}
-
-// Marker for types that are safe to serialize
-trait SafeSerialize {}
-
-// Marker for types representing capabilities
-trait ReadPermission {}
-trait WritePermission {}
-trait AdminPermission {}
-
-//=========================================
-// Pattern: Capability-based design
-//=========================================
-
-struct File<Permissions> {
-    path: String,
-    _permissions: PhantomData<Permissions>,
+enum OrderStatus {
+    Pending { items: Vec<String>, customer_id: u64 },
+    Processing { order_id: u64, started_at: std::time::Instant },
+    Shipped { order_id: u64, tracking_number: String },
+    Delivered { order_id: u64, signature: Option<String> },
+    Cancelled { order_id: u64, reason: String },
 }
 
-// Only files with ReadPermission can be read
-impl<P: ReadPermission> File<P> {
-    fn read(&self) -> String {
-        format!("Reading from {}", self.path)
+impl OrderStatus {
+    fn process(self) -> Result<OrderStatus, String> {
+        match self {
+            OrderStatus::Pending { items, .. } => {
+                if items.is_empty() {
+                    return Err("Cannot process empty order".to_string());
+                }
+                Ok(OrderStatus::Processing {
+                    order_id: 12345,
+                    started_at: std::time::Instant::now(),
+                })
+            }
+            _ => Err("Order is not in pending state".to_string()),
+        }
     }
-}
 
-// Only files with WritePermission can be written
-impl<P: WritePermission> File<P> {
-    fn write(&mut self, data: &str) {
-        println!("Writing '{}' to {}", data, self.path);
+    fn can_cancel(&self) -> bool {
+        matches!(self, OrderStatus::Pending { .. } | OrderStatus::Processing { .. })
     }
-}
-
-// Only files with AdminPermission can be deleted
-impl<P: AdminPermission> File<P> {
-    fn delete(self) {
-        println!("Deleting {}", self.path);
-    }
-}
-
-// Permission types (all ZSTs)
-struct ReadOnly;
-struct ReadWrite;
-struct Admin;
-
-impl ReadPermission for ReadOnly {}
-impl ReadPermission for ReadWrite {}
-impl ReadPermission for Admin {}
-
-impl WritePermission for ReadWrite {}
-impl WritePermission for Admin {}
-
-impl AdminPermission for Admin {}
-
-// Usage: Type system enforces permissions
-fn capability_example() {
-    let readonly_file = File::<ReadOnly> {
-        path: "data.txt".to_string(),
-        _permissions: PhantomData,
-    };
-
-    let _data = readonly_file.read();  // ✓ OK
-    // readonly_file.write("data");    // ✗ Error: no write permission
-
-    let mut readwrite_file = File::<ReadWrite> {
-        path: "config.txt".to_string(),
-        _permissions: PhantomData,
-    };
-
-    let _data = readwrite_file.read();      // ✓ OK
-    readwrite_file.write("new config");     // ✓ OK
-    // readwrite_file.delete();             // ✗ Error: no admin permission
-
-    let admin_file = File::<Admin> {
-        path: "system.txt".to_string(),
-        _permissions: PhantomData,
-    };
-
-    admin_file.delete();  // ✓ OK: Admin has all permissions
 }
 ```
 
-### Example: Type-Level Witnesses
-
-Use ZSTs as compile-time witnesses to prove properties:
-
-```rust
-//=========================================
-// Pattern: Type-level proof witnesses
-//=========================================
-
-// Witness that a value is non-empty
-struct NonEmpty;
-
-// Witness that a value is sorted
-struct Sorted;
-
-struct Vec<T, State = ()> {
-    data: std::vec::Vec<T>,
-    _state: PhantomData<State>,
-}
-
-impl<T> Vec<T, ()> {
-    fn new(data: std::vec::Vec<T>) -> Self {
-        Vec {
-            data,
-            _state: PhantomData,
-        }
-    }
-
-    // Prove non-empty at construction
-    fn non_empty(data: std::vec::Vec<T>) -> Option<Vec<T, NonEmpty>> {
-        if data.is_empty() {
-            None
-        } else {
-            Some(Vec {
-                data,
-                _state: PhantomData,
-            })
-        }
-    }
-}
-
-impl<T: Ord> Vec<T, ()> {
-    // Prove sorted by sorting
-    fn sorted(mut data: std::vec::Vec<T>) -> Vec<T, Sorted> {
-        data.sort();
-        Vec {
-            data,
-            _state: PhantomData,
-        }
-    }
-}
-
-// Only non-empty vectors can return first element
-impl<T: Clone> Vec<T, NonEmpty> {
-    fn first(&self) -> T {
-        // Safe: NonEmpty witness guarantees data is non-empty
-        self.data[0].clone()
-    }
-}
-
-// Only sorted vectors can do binary search
-impl<T: Ord> Vec<T, Sorted> {
-    fn binary_search(&self, item: &T) -> Result<usize, usize> {
-        self.data.binary_search(item)
-    }
-}
-
-fn witness_example() {
-    let empty = Vec::new(vec![]);
-    // empty.first();  // ✗ Error: no witness for NonEmpty
-
-    let non_empty = Vec::non_empty(vec![1, 2, 3]).unwrap();
-    let first = non_empty.first();  // ✓ OK: has NonEmpty witness
-
-    let sorted = Vec::sorted(vec![3, 1, 2]);
-    let _pos = sorted.binary_search(&2);  // ✓ OK: has Sorted witness
-}
-```
-
-### Example: Branded Types Pattern
-
-Use ZSTs to create "branded" types that cannot be forged:
-
-```rust
-use std::marker::PhantomData;
-
-//=========================================
-// Pattern: Branded types for security
-//=========================================
-
-// Brand marker (not exported)
-struct SanitizedBrand;
-
-// Branded type ensures values are sanitized
-pub struct Sanitized<T> {
-    value: T,
-    _brand: PhantomData<SanitizedBrand>,
-}
-
-impl Sanitized<String> {
-    // Only way to create is through validation
-    pub fn new(input: String) -> Self {
-        let sanitized = input
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("&", "&amp;");
-
-        Sanitized {
-            value: sanitized,
-            _brand: PhantomData,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.value
-    }
-}
-
-// Safe database queries only accept sanitized input
-pub struct Database;
-
-impl Database {
-    // Cannot be called with unsanitized strings
-    pub fn query(&self, sql: Sanitized<String>) {
-        println!("Executing: {}", sql.as_str());
-        // Safe: sql is guaranteed sanitized
-    }
-}
-
-fn branded_example() {
-    let db = Database;
-
-    // Must sanitize before querying
-    let user_input = String::from("Robert'); DROP TABLE users;--");
-    let sanitized = Sanitized::new(user_input);
-
-    db.query(sanitized);  // ✓ Safe
-
-    // Cannot forge a Sanitized<String>
-    // let fake = Sanitized { value: "malicious".to_string(), _brand: PhantomData };
-    // ✗ Error: SanitizedBrand is private
-}
-
-//=========================================
-// Pattern: Multiple brands for different properties
-//=========================================
-
-struct Encrypted;
-struct Compressed;
-
-struct Data<Brands> {
-    bytes: Vec<u8>,
-    _brands: PhantomData<Brands>,
-}
-
-impl Data<()> {
-    fn new(bytes: Vec<u8>) -> Self {
-        Data {
-            bytes,
-            _brands: PhantomData,
-        }
-    }
-
-    fn encrypt(self) -> Data<Encrypted> {
-        // ... encryption logic ...
-        Data {
-            bytes: self.bytes,
-            _brands: PhantomData,
-        }
-    }
-}
-
-impl Data<Encrypted> {
-    fn compress(self) -> Data<(Encrypted, Compressed)> {
-        // ... compression logic ...
-        Data {
-            bytes: self.bytes,
-            _brands: PhantomData,
-        }
-    }
-}
-
-// Only encrypted and compressed data can be transmitted
-fn transmit(data: Data<(Encrypted, Compressed)>) {
-    println!("Transmitting {} bytes", data.bytes.len());
-}
-```
-
-### Example: Performance and Best Practices
-
-**Zero-cost guarantees:**
-```rust
-struct WithZst {
-    data: String,
-    marker: PhantomData<i32>,
-}
-
-struct WithoutZst {
-    data: String,
-}
-
-fn size_check() {
-    // Both have the same size - ZST adds no overhead
-    assert_eq!(
-        std::mem::size_of::<WithZst>(),
-        std::mem::size_of::<WithoutZst>()
-    );
-
-    // Arrays of ZSTs are also zero-sized
-    assert_eq!(std::mem::size_of::<[(); 1000]>(), 0);
-}
-```
-
-**Best practices:**
-1. Use `PhantomData<T>` instead of storing unused `T` values
-2. Prefer marker traits over runtime booleans for properties
-3. Use sealed traits to control trait implementations
-4. Brand sensitive types to prevent forgery
-5. Document why each ZST exists (not obvious from code)
-
-**When to use ZSTs:**
-- ✓ Capability-based security (permissions)
-- ✓ Compile-time witnesses (sorted, validated, non-empty)
-- ✓ Branded types (sanitized, encrypted)
-- ✓ Sealed trait hierarchies
-- ✓ Type-level programming foundations
-
-**When NOT to use ZSTs:**
-- ✗ When runtime checks are simpler and sufficient
-- ✗ For dynamic properties that change at runtime
-- ✗ When the type complexity outweighs benefits
+> **Note:** For compile-time enforced state machines using types (typestate pattern), see **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
 ## Pattern 5: Advanced Enum Techniques
 
@@ -813,74 +536,70 @@ fn handle_request(path: &str) -> HttpResponse {
 }
 ```
 
-**The power:** Each variant can carry exactly the data it needs. There's no `null` or `undefined` - if a variant needs an ID, it has one. If it doesn't, it can't have one.
+**The power:** Each variant can carry exactly the data it needs. There's no `null` or `undefined` - if a variant needs an ID, it has one.
 
-### Example: Enum Variants with Rich Data
-
-Enums shine when modeling state machines or complex workflows:
+### Example: Recursive Enums with Box
 
 ```rust
-enum OrderStatus {
-    Pending {
-        items: Vec<String>,
-        customer_id: u64,
-    },
-    Processing {
-        order_id: u64,
-        started_at: std::time::Instant,
-    },
-    Shipped {
-        order_id: u64,
-        tracking_number: String,
-        carrier: String,
-    },
-    Delivered {
-        order_id: u64,
-        delivered_at: std::time::SystemTime,
-        signature: Option<String>,
-    },
-    Cancelled {
-        order_id: u64,
-        reason: String,
+// Binary tree - recursive enum needs Box to break infinite size
+enum Tree<T> {
+    Leaf(T),
+    Node {
+        value: T,
+        left: Box<Tree<T>>,
+        right: Box<Tree<T>>,
     },
 }
 
-impl OrderStatus {
-    fn process(self) -> Result<OrderStatus, String> {
+impl<T: std::fmt::Debug> Tree<T> {
+    fn depth(&self) -> usize {
         match self {
-            OrderStatus::Pending { items, customer_id } => {
-                if items.is_empty() {
-                    return Err("Cannot process empty order".to_string());
-                }
-                Ok(OrderStatus::Processing {
-                    order_id: 12345, // Generated
-                    started_at: std::time::Instant::now(),
-                })
+            Tree::Leaf(_) => 1,
+            Tree::Node { left, right, .. } => {
+                1 + left.depth().max(right.depth())
             }
-            _ => Err("Order is not in pending state".to_string()),
         }
     }
+}
 
-    fn ship(self, tracking_number: String, carrier: String) -> Result<OrderStatus, String> {
+// AST nodes often use Box for recursion
+enum Expr {
+    Number(i32),
+    Add(Box<Expr>, Box<Expr>),
+    Mul(Box<Expr>, Box<Expr>),
+}
+
+impl Expr {
+    fn eval(&self) -> i32 {
         match self {
-            OrderStatus::Processing { order_id, .. } => {
-                Ok(OrderStatus::Shipped {
-                    order_id,
-                    tracking_number,
-                    carrier,
-                })
-            }
-            _ => Err("Can only ship processing orders".to_string()),
+            Expr::Number(n) => *n,
+            Expr::Add(l, r) => l.eval() + r.eval(),
+            Expr::Mul(l, r) => l.eval() * r.eval(),
         }
-    }
-
-    fn can_cancel(&self) -> bool {
-        matches!(self, OrderStatus::Pending { .. } | OrderStatus::Processing { .. })
     }
 }
 ```
 
-**The benefit:** Invalid state transitions become impossible. You can't ship a cancelled order because the types don't align.
+### Example: Memory-Efficient Large Variants
+
+```rust
+// Without Box: enum size = size of largest variant (LargeData)
+enum Inefficient {
+    Small(u8),
+    Large([u8; 1024]),  // 1KB - every variant takes this space
+}
+
+// With Box: enum size = size of pointer (8 bytes on 64-bit)
+enum Efficient {
+    Small(u8),
+    Large(Box<[u8; 1024]>),  // Only allocates when this variant is used
+}
+
+fn check_sizes() {
+    println!("Inefficient: {} bytes", std::mem::size_of::<Inefficient>());
+    println!("Efficient: {} bytes", std::mem::size_of::<Efficient>());
+}
+```
 
 ## Pattern 6: Visitor Pattern with Enums
 
@@ -1050,281 +769,32 @@ fn demo_visitor() {
 
 **The pattern:** Visitors separate traversal logic from data structure. You can add new operations without modifying the enum definition.
 
-## Pattern 8: Type-Safe State Machines with Enums
-
-State machines prevent invalid states and transitions at compile time:
-
-```rust
-// Simple state machine: Door
-struct Open;
-struct Closed;
-struct Locked;
-
-struct Door<State> {
-    _state: std::marker::PhantomData<State>,
-}
-
-impl Door<Closed> {
-    fn new() -> Self {
-        println!("Door created in closed state");
-        Door { _state: std::marker::PhantomData }
-    }
-
-    fn open(self) -> Door<Open> {
-        println!("Opening door");
-        Door { _state: std::marker::PhantomData }
-    }
-
-    fn lock(self) -> Door<Locked> {
-        println!("Locking door");
-        Door { _state: std::marker::PhantomData }
-    }
-}
-
-impl Door<Open> {
-    fn close(self) -> Door<Closed> {
-        println!("Closing door");
-        Door { _state: std::marker::PhantomData }
-    }
-}
-
-impl Door<Locked> {
-    fn unlock(self) -> Door<Closed> {
-        println!("Unlocking door");
-        Door { _state: std::marker::PhantomData }
-    }
-}
-
-// Complex state machine with enum states
-#[derive(Debug)]
-enum ConnectionState {
-    Disconnected,
-    Connecting { attempt: u32 },
-    Connected { session_id: String },
-    Authenticated { session_id: String, user_id: u64 },
-}
-
-struct Connection {
-    state: ConnectionState,
-    max_retries: u32,
-}
-
-impl Connection {
-    fn new() -> Self {
-        Connection {
-            state: ConnectionState::Disconnected,
-            max_retries: 3,
-        }
-    }
-
-    fn connect(&mut self) -> Result<(), String> {
-        match &self.state {
-            ConnectionState::Disconnected => {
-                self.state = ConnectionState::Connecting { attempt: 1 };
-                Ok(())
-            }
-            ConnectionState::Connecting { attempt } if *attempt < self.max_retries => {
-                self.state = ConnectionState::Connecting { attempt: attempt + 1 };
-                Ok(())
-            }
-            _ => Err("Cannot connect in current state".to_string()),
-        }
-    }
-
-    fn establish(&mut self, session_id: String) -> Result<(), String> {
-        match &self.state {
-            ConnectionState::Connecting { .. } => {
-                self.state = ConnectionState::Connected { session_id };
-                Ok(())
-            }
-            _ => Err("Not in connecting state".to_string()),
-        }
-    }
-
-    fn authenticate(&mut self, user_id: u64) -> Result<(), String> {
-        match &self.state {
-            ConnectionState::Connected { session_id } => {
-                self.state = ConnectionState::Authenticated {
-                    session_id: session_id.clone(),
-                    user_id,
-                };
-                Ok(())
-            }
-            _ => Err("Must be connected to authenticate".to_string()),
-        }
-    }
-
-    fn disconnect(&mut self) {
-        self.state = ConnectionState::Disconnected;
-    }
-
-    fn is_authenticated(&self) -> bool {
-        matches!(self.state, ConnectionState::Authenticated { .. })
-    }
-}
-
-fn demo_state_machine() {
-    // Type-state door
-    let door = Door::<Closed>::new();
-    let door = door.open();
-    let door = door.close();
-    let door = door.lock();
-    // door.open(); // Compile error! Can't open a locked door
-    let door = door.unlock();
-    let _door = door.open();
-
-    // Enum-based connection
-    let mut conn = Connection::new();
-    conn.connect().unwrap();
-    conn.establish("session-123".to_string()).unwrap();
-    conn.authenticate(42).unwrap();
-    assert!(conn.is_authenticated());
-    println!("Connection state: {:?}", conn.state);
-}
-```
-
-**Why this works:** The type system enforces valid state transitions. You can't accidentally call `unlock()` on an open door because that method simply doesn't exist for `Door<Open>`.
-
-### Combining Enums with Type States
-
-For maximum safety, combine both approaches:
-
-```rust
-// Payment processing state machine
-struct Pending;
-struct Authorized;
-struct Captured;
-struct Refunded;
-
-struct Payment<State> {
-    id: String,
-    amount: u64,
-    state_data: State,
-}
-
-// Each state has its own data
-impl Payment<Pending> {
-    fn new(amount: u64) -> Self {
-        Payment {
-            id: format!("pay_{}", uuid::Uuid::new_v4()),
-            amount,
-            state_data: Pending,
-        }
-    }
-
-    fn authorize(self, auth_code: String) -> Payment<Authorized> {
-        Payment {
-            id: self.id,
-            amount: self.amount,
-            state_data: Authorized { auth_code },
-        }
-    }
-
-    fn cancel(self) -> PaymentResult {
-        PaymentResult::Cancelled { payment_id: self.id }
-    }
-}
-
-struct Authorized {
-    auth_code: String,
-}
-
-impl Payment<Authorized> {
-    fn capture(self) -> Payment<Captured> {
-        Payment {
-            id: self.id,
-            amount: self.amount,
-            state_data: Captured {
-                auth_code: self.state_data.auth_code,
-                captured_at: std::time::SystemTime::now(),
-            },
-        }
-    }
-
-    fn void(self) -> PaymentResult {
-        PaymentResult::Voided {
-            payment_id: self.id,
-            auth_code: self.state_data.auth_code,
-        }
-    }
-}
-
-struct Captured {
-    auth_code: String,
-    captured_at: std::time::SystemTime,
-}
-
-impl Payment<Captured> {
-    fn refund(self, reason: String) -> Payment<Refunded> {
-        Payment {
-            id: self.id,
-            amount: self.amount,
-            state_data: Refunded {
-                auth_code: self.state_data.auth_code,
-                captured_at: self.state_data.captured_at,
-                refunded_at: std::time::SystemTime::now(),
-                reason,
-            },
-        }
-    }
-}
-
-struct Refunded {
-    auth_code: String,
-    captured_at: std::time::SystemTime,
-    refunded_at: std::time::SystemTime,
-    reason: String,
-}
-
-enum PaymentResult {
-    Cancelled { payment_id: String },
-    Voided { payment_id: String, auth_code: String },
-}
-
-// Usage demonstrates compile-time safety
-fn process_payment() {
-    let payment = Payment::<Pending>::new(10000);
-    // payment.capture(); // Compile error! Can't capture pending payment
-
-    let payment = payment.authorize("AUTH123".to_string());
-    let payment = payment.capture();
-    // payment.authorize(...); // Compile error! Already captured
-
-    let _result = payment.refund("Customer requested".to_string());
-}
-```
-
-**The architecture:** Each state transition consumes the old state and returns a new one. Invalid transitions don't exist in the type system.
-
 ## Summary
 
 This chapter covered struct and enum patterns for type-safe data modeling:
 
-1. **Struct Design Patterns**: Named fields for clarity, tuple for newtypes/position, unit for zero-cost markers
+1. **Struct Design Patterns**: Named fields for clarity, tuple for newtypes/position, unit for markers
 2. **Newtype and Wrapper Patterns**: Domain IDs, validated types, invariant enforcement, orphan rule workaround
-3. **Zero-Sized Types and Markers**: Typestate pattern, capability markers, PhantomData, compile-time guarantees
+3. **Struct Memory and Update Patterns**: Struct update syntax, partial moves, builder-style transformations
 4. **Enum Design Patterns**: Variants for related types, exhaustive matching, state machines, error types
-5. **Advanced Enum Techniques**: Box for large/recursive variants, methods on enums, conversions, memory optimization
+5. **Advanced Enum Techniques**: Box for large/recursive variants, methods on enums, memory optimization
+6. **Visitor Pattern**: Separating traversal logic from data structure with enums
 
 **Key Takeaways**:
 - Struct choice is semantic: named for data models, tuple for wrappers, unit for markers
 - Newtype pattern: UserId(u64) vs OrderId(u64) prevents mixing at zero cost
-- ZSTs are 0 bytes: typestate and markers provide compile-time guarantees without overhead
 - Enums enforce exhaustiveness: adding variant causes compile errors in incomplete matches
-- Impossible states unrepresentable: Payment<Pending> can't capture(), only authorize()
+- Box breaks infinite size for recursive enums and reduces memory for large variants
 
 **Design Principles**:
 - Use named fields when clarity matters, tuple when type itself is meaningful
 - Wrap primitives in domain types (UserId not u64) for type safety
 - Encode invariants in types (PositiveInteger guaranteed positive)
-- Use typestate for state machines (Database<Authenticated> vs Database<Unauthenticated>)
 - Enums for "one of" types, structs for "all of" types
 - Box large/recursive enum variants for memory efficiency
 
 **Performance Characteristics**:
 - Newtype: zero runtime cost, same representation as wrapped type
-- ZSTs: 0 bytes, purely compile-time, no runtime overhead
-- Typestate: compiles to same code as untyped version
 - Enum size: largest variant + discriminant (usually 1 byte)
 - Boxing: reduces enum to pointer size, adds indirection
 
@@ -1339,7 +809,6 @@ This chapter covered struct and enum patterns for type-safe data modeling:
 - **Multiple types, all fields present**: Named struct
 - **Simple wrapper, distinct type**: Tuple struct (newtype)
 - **No data, marker only**: Unit struct
-- **Compile-time state**: Unit struct + PhantomData (typestate)
 - **One of several types**: Enum
 - **Recursive structure**: Enum with Box
 - **Validated type**: Newtype with smart constructor
@@ -1347,11 +816,12 @@ This chapter covered struct and enum patterns for type-safe data modeling:
 
 **Anti-Patterns to Avoid**:
 - Using u64 for IDs instead of newtypes (loses type safety)
-- Runtime state checks instead of typestate (loses compile-time safety)
 - Multiple Option fields instead of enum (unclear which combinations valid)
 - Large enum variants without Box (wastes memory)
 - Missing exhaustive match (non-exhaustive pattern use `_`)
 - Type aliases for distinct types (`type UserId = u64` doesn't prevent mixing)
+
+> **See Also**: For compile-time state machines (typestate pattern) and phantom types, see **Chapter 4: Pattern 6** and **Chapter 5: Pattern 2**.
 
 ## Struct Cheat Sheet
 ```rust

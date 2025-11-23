@@ -1,4 +1,4 @@
-# Chapter 3: Error Handling Architecture
+# Error Handling Architecture
 
 [Pattern 1: Error Type Design Principles](#pattern-1-error-type-design-principles)
 

@@ -1,4 +1,4 @@
-# Chapter 4: Pattern Matching & Destructuring
+# Pattern Matching & Destructuring
 
 [Pattern 1: Advanced Match Patterns](#pattern-1-advanced-match-patterns)
 

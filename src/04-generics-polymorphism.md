@@ -1,4 +1,4 @@
-# Chapter 3: Generics & Polymorphism
+# Generics & Polymorphism
 
 
 [Pattern 1: Type-Safe Generic Functions](#pattern-1-type-safe-generic-functions)

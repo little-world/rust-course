@@ -101,7 +101,7 @@ Predictable latency
 Fewer outlier delays    
 
 
-# ❌ **Why *NOT* Use Lock-Free Everywhere?**
+## ❌ **Why *NOT* Use Lock-Free Everywhere?**
 
 Lock-free is **hard**:
 - Complex to design

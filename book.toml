@@ -1,0 +1,18 @@
+[book]
+authors = ["littleworld"]
+language = "en"
+src = "src"
+title = "Rust Patterns"
+
+
+
+
+[output.html]
+# this turns on MathJax support so $…$ and $$…$$ are rendered
+mathjax-support = true
+
+
+[output.pdf]
+css = ["pdf-styles.css"]
+scale = 0.8
+generate-document-outline = true

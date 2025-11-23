@@ -41,7 +41,7 @@
 - This comprehensive guide covers memory optimization, CPU optimization, cache optimization, I/O optimization, and profiling techniques for Rust performance optimization!
 
 
-# Overview
+## Overview
 This chapter explores performance optimization: profiling to find bottlenecks, allocation reduction techniques, cache-friendly data structures, zero-cost abstractions, and compiler optimizations for maximum performance.
 
 ## Pattern 1: Profiling Strategies

@@ -1,4 +1,30 @@
 # Appendix C: Anti-Patterns
+**Common Pitfalls:**
+- [Excessive Cloning](#anti-pattern-excessive-cloning)
+- [Overusing Rc/Arc Without Need](#anti-pattern-overusing-rcarc-without-need)
+- [Ignoring Iterator Combinators](#anti-pattern-ignoring-iterator-combinators)
+- [Deref Coercion Abuse](#anti-pattern-deref-coercion-abuse)
+- [String + &str Confusion](#anti-pattern-string--str-confusion)
+
+**Performance Anti-Patterns:**
+- [Collecting Iterators Unnecessarily](#anti-pattern-collecting-iterators-unnecessarily)
+- [Vec<T> When [T; N] Suffices](#anti-pattern-vect-when-t-n-suffices)
+- [HashMap for Small Key Sets](#anti-pattern-hashmap-for-small-key-sets)
+- [Premature String Allocation](#anti-pattern-premature-string-allocation)
+- [Boxed Trait Objects Everywhere](#anti-pattern-boxed-trait-objects-everywhere)
+
+**Safety Anti-Patterns:**
+- [Unsafe for Convenience](#anti-pattern-unsafe-for-convenience)
+- [Unwrap() in Production Code](#anti-pattern-unwrap-in-production-code)
+- [RefCell/Mutex Without Consideration](#anti-pattern-refcellmutex-without-consideration)
+- [Ignoring Send/Sync Implications](#anti-pattern-ignoring-sendsync-implications)
+
+**API Design Mistakes:**
+- [Stringly-Typed APIs](#anti-pattern-stringly-typed-apis)
+- [Boolean Parameter Trap](#anti-pattern-boolean-parameter-trap)
+- [Leaky Abstractions](#anti-pattern-leaky-abstractions)
+- [Returning Owned When Borrowed Suffices](#anti-pattern-returning-owned-when-borrowed-suffices)
+- [Overengineered Generic APIs](#anti-pattern-overengineered-generic-apis)
 
 ## Overview
 

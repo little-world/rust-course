@@ -1,4 +1,4 @@
-# Chapter 1: Memory & Ownership Patterns
+#  Memory & Ownership Patterns
 
 
 [Pattern 1: Clone-on-Write (Cow)](#pattern-1-zero-copy-with-clone-on-write-cow)

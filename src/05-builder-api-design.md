@@ -1276,203 +1276,65 @@ fn example() {
 
 **Use Cases**: Error handling (Result must be handled), builders (must call build()), resource handles (files, connections must be used/closed), guards (MutexGuard, RwLockGuard), transaction types (must commit or rollback), iterators (must consume or iterator does nothing), async futures (must await), lock guards (must be held for scope).
 
-### Problem: Breaking Changes
+### Example: #[must_use] Attribute
 
 ```rust
-//==================
-// Your library v1.0
-//==================
-pub trait Operation {
-    fn execute(&self);
+#[must_use = "this `Result` may be an error that should be handled"]
+pub fn connect(addr: &str) -> Result<Connection, Error> {
+    // ...
 }
 
-//===========================
-// User implements your trait
-//===========================
-struct UserOperation;
-impl Operation for UserOperation {
-    fn execute(&self) {
-        println!("User operation");
-    }
+#[must_use = "builder must be consumed with build()"]
+pub struct RequestBuilder {
+    // ...
 }
 
-// Your library v1.1 - BREAKING CHANGE!
-// pub trait Operation {
-//     fn execute(&self);
-//     fn validate(&self) -> bool; // New method breaks user code
-// }
-```
-
-Adding `validate()` breaks all external implementations. The sealed trait pattern prevents this.
-
-### Example: Basic Sealed Trait
-
-```rust
-mod private {
-    pub trait Sealed {}
-}
-
-pub trait Operation: private::Sealed {
-    fn execute(&self);
-
-    // Can add this later without breaking compatibility
-    fn validate(&self) -> bool {
-        true // Default implementation
-    }
-}
-
-struct InternalOperation;
-
-impl private::Sealed for InternalOperation {}
-
-impl Operation for InternalOperation {
-    fn execute(&self) {
-        println!("Internal operation");
-    }
-}
-// External crates cannot implement Operation because they can't implement private::Sealed
-```
-
-Users can use the trait but can't implement it. You can add methods without breaking compatibility.
-
-### Example: Sealed Trait with Associated Types
-
-```rust
-mod sealed {
-    pub trait Sealed {
-        type Internal;
-    }
-}
-
-pub trait DataSource: sealed::Sealed {
-    type Item;
-
-    fn fetch(&self) -> Vec<Self::Item>;
-
-    // Added in v2.0 - not a breaking change
-    fn count(&self) -> usize {
-        self.fetch().len()
-    }
-}
-
-struct Database;
-
-impl sealed::Sealed for Database {
-    type Internal = ();
-}
-
-impl DataSource for Database {
-    type Item = String;
-
-    fn fetch(&self) -> Vec<String> {
-        vec!["data1".to_string(), "data2".to_string()]
-    }
-}
-
-fn use_data_source<T: DataSource>(source: T) {
-    println!("Count: {}", source.count());
+// Usage
+fn example() {
+    connect("localhost:8080");  // Warning: unused Result
+    RequestBuilder::new();       // Warning: unused builder
 }
 ```
 
-### Example: Partially Sealed Traits
+### Example: Linear Type Pattern
 
-Sometimes you want to seal some parts but not others:
+Force values to be consumed exactly once:
 
 ```rust
-mod sealed {
-    pub trait Sealed {}
+#[must_use = "transaction must be committed or rolled back"]
+pub struct Transaction {
+    id: u64,
 }
 
-// Sealed trait - cannot implement externally
-pub trait ProtocolHandler: sealed::Sealed {
-    fn handle(&self, data: &[u8]);
-}
-
-// Open trait - can implement externally
-pub trait MessageTransform {
-    fn transform(&self, message: String) -> String;
-}
-
-struct Handler<T: MessageTransform> {
-    transformer: T,
-}
-
-impl<T: MessageTransform> sealed::Sealed for Handler<T> {}
-
-impl<T: MessageTransform> ProtocolHandler for Handler<T> {
-    fn handle(&self, data: &[u8]) {
-        let message = String::from_utf8_lossy(data).to_string();
-        let transformed = self.transformer.transform(message);
-        println!("Handled: {}", transformed);
+impl Transaction {
+    pub fn new() -> Self {
+        Transaction { id: 1 }
     }
-}
 
-// Users can implement MessageTransform
-struct UppercaseTransform;
+    pub fn execute(&mut self, query: &str) {
+        println!("Executing: {}", query);
+    }
 
-impl MessageTransform for UppercaseTransform {
-    fn transform(&self, message: String) -> String {
-        message.to_uppercase()
+    // Consumes self - must be called
+    pub fn commit(self) -> Result<(), String> {
+        println!("Committed transaction {}", self.id);
+        Ok(())
+    }
+
+    pub fn rollback(self) {
+        println!("Rolled back transaction {}", self.id);
     }
 }
 
 fn example() {
-    let handler = Handler {
-        transformer: UppercaseTransform,
-    };
-
-    handler.handle(b"hello");
+    let mut tx = Transaction::new();
+    tx.execute("INSERT INTO users VALUES (1, 'alice')");
+    tx.commit().unwrap();  // Must commit or rollback
+    // Dropping tx without commit/rollback would be a logic error
 }
 ```
 
-Users can provide custom transformers but can't implement the handler trait itself.
-
-### Example: Sealed Trait for Marker Traits
-
-Seal marker traits to create closed sets:
-
-```rust
-mod sealed {
-    pub trait Sealed {}
-
-    impl Sealed for i32 {}
-    impl Sealed for i64 {}
-    impl Sealed for f32 {}
-    impl Sealed for f64 {}
-}
-
-pub trait Numeric: sealed::Sealed {
-    fn zero() -> Self;
-    fn one() -> Self;
-}
-
-impl Numeric for i32 {
-    fn zero() -> Self { 0 }
-    fn one() -> Self { 1 }
-}
-
-impl Numeric for i64 {
-    fn zero() -> Self { 0 }
-    fn one() -> Self { 1 }
-}
-
-impl Numeric for f32 {
-    fn zero() -> Self { 0.0 }
-    fn one() -> Self { 1.0 }
-}
-
-impl Numeric for f64 {
-    fn zero() -> Self { 0.0 }
-    fn one() -> Self { 1.0 }
-}
-
-fn compute<T: Numeric>(value: T) -> T {
-    // Can add methods to Numeric without breaking this code
-    value
-}
-```
-
-Only your predefined types can implement `Numeric`.
+> **See Also**: For phantom types and typestate mechanics, see **Chapter 4: Pattern 6 (Phantom Types)**. For sealed traits, see **Chapter 3: Pattern 5 (Sealed Traits)**.
 
 ## Summary
 

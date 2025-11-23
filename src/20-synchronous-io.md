@@ -49,7 +49,7 @@
 [Command Cheat Sheet](#command-cheat-sheet)    
 - A long list of useful functions
 
-# Overview
+## Overview
 This chapter covers Rust's synchronous I/O patterns—blocking operations that pause threads until complete. Unlike async I/O (Chapter 17), synchronous I/O is simpler, easier to debug, and sufficient for most programs. CLI tools, build scripts, and even high-performance servers with thread pools rely on these patterns.
 
 

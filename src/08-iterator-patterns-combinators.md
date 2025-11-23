@@ -1,4 +1,4 @@
-# Chapter 5: Iterator Patterns & Combinators
+# Iterator Patterns & Combinators
 
 [Pattern 1: Custom Iterators and IntoIterator](#pattern-1-custom-iterators-and-intoiterator)
 

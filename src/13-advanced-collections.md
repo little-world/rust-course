@@ -2854,7 +2854,7 @@ This chapter covered advanced collection types:
 - Lock-free: No blocking, better scalability under contention
 
 
-# Advanced Collections Cheat Sheet
+## Advanced Collections Cheat Sheet
 ```rust
 use std::collections::*;
 

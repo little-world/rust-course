@@ -1,34 +1,34 @@
 # Network Programming
 
-TCP Server/Client Patterns
+[TCP Server/Client Patterns](#pattern-1-tcp-serverclient-patterns)
 
 - Problem: Need reliable bidirectional communication; handle multiple concurrent connections; echo server blocks on one client; thread-per-connection doesn't scale
 - Solution: Async TcpListener/TcpStream with tokio; spawn task per connection; BufReader for line-based protocols; graceful shutdown with CancellationToken
 - Why It Matters: TCP foundation for HTTP/SSH/FTP; async handles 10K+ connections; thread-per-connection hits OS limits (~1K threads); essential for servers
 - Use Cases: Chat servers, game servers, database protocols, custom TCP protocols, proxy servers, load balancers, monitoring agents
 
-UDP Patterns
+[UDP Patterns](#pattern-2-udp-patterns)
 
 - Problem: Need low-latency connectionless communication; broadcasting; multicast; TCP overhead too high; no connection setup
 - Solution: UdpSocket::bind() for server, send_to()/recv_from() for datagrams; set_broadcast()/join_multicast() for group communication; handle out-of-order/loss
 - Why It Matters: Lower latency than TCP (no handshake/ack); essential for gaming, VoIP, video streaming; multicast for discovery; DNS uses UDP
 - Use Cases: Gaming (position updates), VoIP, video streaming, DNS queries, service discovery, IoT sensors, time sync (NTP), multicast notifications
 
-HTTP Client (reqwest)
+[HTTP Client (reqwest)](#pattern-3-http-client-reqwest)
 
 - Problem: Need HTTP requests with async; handle cookies/headers/redirects; connection pooling; timeout management; JSON/form data; TLS verification
 - Solution: reqwest::Client with connection pool; async/await API; automatic JSON (de)serialization with serde; cookie_store() for sessions; timeout()
 - Why It Matters: HTTP ubiquitous for APIs; reqwest production-ready (connection pooling, retries); 10x easier than manual HTTP; essential for microservices
 - Use Cases: REST API clients, web scraping, microservice communication, webhook consumers, OAuth flows, file downloads, GraphQL clients, API testing
 
-HTTP Server (axum, actix-web)
+[HTTP Server (axum, actix-web)](#pattern-4-http-server-axum-actix-web)
 
 - Problem: Need HTTP server with routing, middleware, state; handle concurrent requests; parse JSON/forms; websocket upgrade; graceful shutdown
 - Solution: axum Router with handlers; State for shared data; extractors (Json, Query, Path); middleware (auth, logging); tower-http for CORS/compression
 - Why It Matters: Web servers core infrastructure; axum built on tokio (hyper); handles 100K+ req/s; type-safe extractors prevent bugs; ecosystem mature
 - Use Cases: REST APIs, web applications, microservices, GraphQL servers, webhook receivers, admin dashboards, file servers, proxy/gateway
 
-WebSocket Patterns
+[WebSocket Patterns](#pattern-5-websocket-patterns)
 
 - Problem: Need full-duplex real-time communication; HTTP request/response inadequate; long-polling wasteful; need bidirectional push; low latency
 - Solution: tokio-tungstenite for WebSocket; split into read/write halves; async message handling; ping/pong for keepalive; graceful close
