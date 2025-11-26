@@ -202,19 +202,97 @@ impl<'a> Config<'a> {
 
 **Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
 
-### Examples
+### Milestone 1: Experiencing the Borrowing Problem
+
+Let's start by trying to implement a counter in the most straightforward way. We want a counter that can be incremented from multiple places, including through shared references.
+
+**First Attempt: Using `&mut self`**
+
 ```rust
-use std::cell::{Cell, RefCell};
+// This is our first attempt - it seems reasonable!
+struct Counter {
+    count: usize,
+}
+
+impl Counter {
+    fn new() -> Self {
+        Counter { count: 0 }
+    }
+
+    fn increment(&mut self) {
+        self.count += 1;
+    }
+
+    fn get(&self) -> usize {
+        self.count
+    }
+}
+
+// Let's try to use it in a realistic scenario
+fn main() {
+    let counter = Counter::new();
+
+    // We want to pass the counter to multiple functions
+    // that each increment it
+    process_item(&counter);  // ❌ ERROR: increment needs &mut
+    process_item(&counter);  // ❌ ERROR: increment needs &mut
+
+    println!("Total: {}", counter.get());
+}
+
+fn process_item(counter: &Counter) {
+    // Inside here, we only have &Counter, not &mut Counter
+    // But we need to increment!
+    counter.increment();  // ❌ ERROR: cannot call &mut self with &self
+}
+```
+
+**The Problem**: When we pass `&Counter` to functions, we can't call `increment(&mut self)` because we don't have mutable access. We could change the function signature to take `&mut Counter`, but then:
+
+1. We can only have ONE mutable reference at a time
+2. We can't share the counter across threads
+3. Many APIs require `&self` (like trait methods)
+
+```rust
+// Even this doesn't work well:
+fn main() {
+    let mut counter = Counter::new();
+
+    let r1 = &mut counter;
+    let r2 = &mut counter;  // ❌ ERROR: cannot borrow as mutable more than once
+
+    r1.increment();
+    r2.increment();
+}
+```
+
+**Try It Yourself**:
+- Try to create a `Counter` that can be shared between two functions
+- Try to store a counter in a struct and increment it from a method that only has `&self`
+- Experience the frustration of Rust's borrowing rules preventing what seems like a simple operation
+
+### Milestone 2: The Solution with Cell
+
+Now that we've experienced the problem, let's see how `Cell<T>` solves it elegantly!
+
+**Solution: Interior Mutability with Cell**
+
+```rust
+use std::cell::Cell;
 
 //============================================
 // Pattern: Cell for Copy types (no borrowing)
 //============================================
 struct Counter {
-    count: Cell<usize>,
+    count: Cell<usize>,  // Wrapped in Cell!
 }
 
 impl Counter {
-    fn increment(&self) {  // Note: takes &self, not &mut self
+    fn new() -> Self {
+        Counter { count: Cell::new(0) }
+    }
+
+    fn increment(&self) {  // ✅ Note: takes &self, not &mut self!
         self.count.set(self.count.get() + 1);
     }
 
@@ -223,32 +301,172 @@ impl Counter {
     }
 }
 
-//==============================================================
-// Pattern: RefCell for non-Copy types (runtime borrow checking)
-//==============================================================
-use std::collections::HashMap;
+// Now this works!
+fn main() {
+    let counter = Counter::new();  // ✅ No need for `mut`
+
+    process_item(&counter);  // ✅ Works with &Counter
+    process_item(&counter);  // ✅ Works with &Counter
+
+    println!("Total: {}", counter.get());  // Prints: Total: 2
+}
+
+fn process_item(counter: &Counter) {
+    counter.increment();  // ✅ Works even with &self!
+}
+```
+
+**How Cell Works**:
+
+`Cell<T>` provides "interior mutability"—the ability to mutate data even through shared references. Here's what makes it safe:
+
+1. **Copy Types Only**: `Cell` only works with `Copy` types (like `usize`, `i32`, `bool`). These types are cheap to copy bitwise.
+
+2. **No Borrowing**: You can't get a reference into a `Cell`. You can only:
+   - `get()` - copies the value out
+   - `set(value)` - copies a new value in
+   - `replace(value)` - swaps the value, returns the old one
+
+3. **Why It's Safe**: Since you can't hold references to the interior value, there's no way to create aliasing issues. Every access copies the value out.
+
+```rust
+use std::cell::Cell;
+
+let cell = Cell::new(5);
+let value = cell.get();     // Copies out the value
+cell.set(10);               // Replaces the value
+let old = cell.replace(20); // Swaps and returns old value
+
+// This is NOT possible (and that's why it's safe):
+// let reference = cell.get_ref();  // ❌ This method doesn't exist!
+```
+
+**Key Insight**: `Cell` trades the ability to get references for the ability to mutate through `&self`. This trade-off works perfectly for small `Copy` types like counters, flags, and indices.
+
+**When to Use Cell**:
+- ✅ Counters and statistics in shared structures
+- ✅ Flags and state machines with simple state (bool, enums)
+- ✅ Cache metadata (access counts, timestamps)
+- ✅ Indices and positions
+- ❌ Large data structures (use `RefCell` instead)
+- ❌ Non-Copy types (use `RefCell` instead)
+
+### Milestone 3: Moving Beyond Copy Types - The RefCell Challenge
+
+`Cell` is great for simple `Copy` types, but what if we need to mutate a `Vec`, `HashMap`, or `String`? Let's explore the problem and solution.
+
+**The Problem: Cell Doesn't Work for Non-Copy Types**
+
+```rust
+use std::cell::Cell;
 
 struct Cache {
-    data: RefCell<HashMap<String, String>>,
+    data: Cell<Vec<String>>,  // ❌ ERROR: Vec<String> is not Copy!
 }
 
 impl Cache {
+    fn add(&self, item: String) {
+        let mut vec = self.data.get();  // ❌ ERROR: cannot move out of Cell
+        vec.push(item);
+        self.data.set(vec);
+    }
+}
+```
+
+Why doesn't this work? Because `Vec<String>` isn't `Copy`—it owns heap data that can't be duplicated with a simple bitwise copy. We need to actually *borrow* the interior data, not copy it.
+
+**Enter RefCell: Runtime Borrow Checking**
+
+//==============================================================
+// Pattern: RefCell for non-Copy types (runtime borrow checking)
+//==============================================================
+```rust
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+struct Cache {
+    data: RefCell<HashMap<String, String>>,  // ✅ RefCell works with any type!
+}
+
+impl Cache {
+    fn new() -> Self {
+        Cache {
+            data: RefCell::new(HashMap::new())
+        }
+    }
+
     fn get_or_compute(&self, key: &str, compute: impl FnOnce() -> String) -> String {
-        // Try to get from cache
+        // Try to get from cache (immutable borrow)
         if let Some(value) = self.data.borrow().get(key) {
             return value.clone();
         }
+        // borrow() returns a guard that is automatically dropped here
 
-        // Not found, compute and insert
+        // Not found, compute and insert (mutable borrow)
         let value = compute();
         self.data.borrow_mut().insert(key.to_string(), value.clone());
         value
     }
 }
 
+// Usage example
+fn main() {
+    let cache = Cache::new();
+
+    // All through &self!
+    let result1 = cache.get_or_compute("key1", || "expensive computation".to_string());
+    let result2 = cache.get_or_compute("key1", || "not called".to_string());
+
+    println!("First: {}", result1);   // Computed
+    println!("Second: {}", result2);  // Cached
+}
+```
+
+**How RefCell Differs from Cell**:
+
+| Feature | Cell | RefCell |
+|---------|------|---------|
+| Works with | `Copy` types only | Any type |
+| Borrowing | No references allowed | Returns reference guards |
+| Checking | Compile-time (via `Copy`) | Runtime (panics on violation) |
+| Overhead | Zero | Small (borrow flag check) |
+| Use for | `i32`, `bool`, etc. | `Vec`, `HashMap`, `String`, etc. |
+
+**The Runtime Borrow Rules**:
+
+RefCell enforces Rust's borrowing rules at *runtime* instead of compile-time:
+
+```rust
+use std::cell::RefCell;
+
+let data = RefCell::new(vec![1, 2, 3]);
+
+// ✅ Multiple immutable borrows are OK
+let borrow1 = data.borrow();
+let borrow2 = data.borrow();
+println!("{:?} {:?}", borrow1, borrow2);
+// Guards dropped here
+
+// ✅ One mutable borrow is OK
+let mut borrow_mut = data.borrow_mut();
+borrow_mut.push(4);
+// Guard dropped here
+
+// ❌ This panics at runtime!
+let borrow1 = data.borrow();
+let borrow_mut = data.borrow_mut();  // 💥 PANIC: already borrowed!
+```
+
+**Key Safety Technique: Scope Your Borrows**
+
+The most important pattern with `RefCell` is to keep borrow scopes as tight as possible:
+
+```rust
 //===========================================================
 // Pattern: Multiple borrows in single scope (borrow scoping)
 //===========================================================
+use std::cell::RefCell;
+
 fn process_cache(cache: &RefCell<Vec<String>>) {
     // Read operation
     {
@@ -291,6 +509,76 @@ impl Node {
         self.edges.borrow().clone()
     }
 }
+```
+
+### Summary: The Journey from &mut self to Interior Mutability
+
+Let's recap what we've learned through the three milestones:
+
+**Milestone 1: The Problem**
+- Started with `&mut self` for mutation
+- Discovered we can't share mutable references
+- Many APIs require `&self` (traits, shared structures)
+- Needed a way to mutate through shared references
+
+**Milestone 2: Cell - The Simple Solution**
+- Introduced `Cell<T>` for `Copy` types
+- Trade-off: No references, only get/set operations
+- Zero-cost abstraction for small values
+- Perfect for counters, flags, simple state
+
+**Milestone 3: RefCell - The General Solution**
+- Needed interior mutability for non-`Copy` types
+- `RefCell<T>` moves borrow checking to runtime
+- Returns guard objects that enforce rules
+- Must carefully scope borrows to avoid panics
+
+**Decision Tree: Which Interior Mutability Type?**
+
+```
+Need mutation through &self?
+│
+├─ Is it a Copy type (i32, bool, etc.)?
+│  └─ Use Cell<T>
+│     ✅ Zero overhead
+│     ✅ Cannot panic
+│     ✅ No lifetimes to worry about
+│
+└─ Is it non-Copy (Vec, HashMap, String)?
+   ├─ Single-threaded?
+   │  └─ Use RefCell<T>
+   │     ⚠️  Small runtime overhead
+   │     ⚠️  Can panic if misused
+   │     ⚠️  Must scope borrows carefully
+   │
+   └─ Multi-threaded?
+      └─ Use Mutex<T> or RwLock<T> (see Pattern 3)
+```
+
+**Best Practices for RefCell**:
+
+```rust
+// ✅ DO: Scope borrows tightly
+{
+    let data = refcell.borrow();
+    use_data(&data);
+} // Borrow released here
+refcell.borrow_mut().modify();
+
+// ❌ DON'T: Hold borrows across function calls
+let data = refcell.borrow();
+might_also_borrow(&refcell);  // 💥 Potential panic!
+
+// ✅ DO: Use try_borrow for fallible operations
+if let Ok(data) = refcell.try_borrow() {
+    use_data(&data);
+} else {
+    // Handle already borrowed case
+}
+
+// ❌ DON'T: Ignore the lifetime of the guard
+let data = refcell.borrow();
+std::mem::drop(data);  // Explicitly drop if needed!
 ```
 
 **When to use Cell:**

@@ -1,0 +1,513 @@
+## Project 1: Type-Safe Configuration System with Newtype Pattern
+
+### Problem Statement
+
+Build a configuration system for a web server that uses newtype wrappers to prevent common configuration errors. You'll start with basic structs, then add type safety through newtypes, validated types, and finally a fluent builder API.
+
+### Why It Matters
+
+**Real-World Impact**: Configuration bugs are a major source of production outages:
+
+**The Configuration Hell Problem**:
+- **Knight Capital (2012)**: Wrong server configuration caused $440M loss in 45 minutes
+- **AWS S3 Outage (2017)**: Typo in configuration command took down large portion of internet
+- **Common bugs**: Port 80 vs 8080, localhost vs production host, mixing dev/prod credentials
+- **Type confusion**: Passing timeout in seconds vs milliseconds, mixing database connection strings
+
+**Without Type Safety**:
+```rust
+struct Config {
+    host: String,      // Could be "localhost", "localhost:8080", or "https://..."
+    port: u16,         // Could be 0, 99999, or negative number
+    timeout: u64,      // Seconds? Milliseconds? Minutes?
+    max_connections: i32, // Could be negative!
+}
+
+// Bug: Accidentally swap host and database_url
+let config = Config {
+    host: "postgres://localhost/db".to_string(), // Wrong!
+    port: 5432,  // Database port, not HTTP port!
+    timeout: 30, // 30 what?
+    max_connections: -1, // Negative connections?
+};
+```
+
+**With Newtype Pattern**:
+```rust
+struct Hostname(String);
+struct Port(u16);
+struct Timeout(Duration);
+struct MaxConnections(NonZeroU32);
+
+// Compiler prevents mixing types
+fn connect(host: Hostname, port: Port) { }
+connect(Port(8080), Hostname("localhost")); // ❌ Compile error!
+```
+
+**Performance Benefits**:
+- **Zero runtime cost**: Newtypes compile to same memory layout as wrapped type
+- **Compile-time guarantees**: Invalid states impossible to represent
+- **Elimination of defensive code**: No need to check if port > 0, it's guaranteed
+
+**Real Production Examples**:
+- **AWS SDK**: Uses newtypes for region names, bucket names, instance IDs
+- **Kubernetes**: Type-safe wrappers for namespace, pod name, service name
+- **Database drivers**: Connection strings, table names, column names as types
+- **Web frameworks**: PathBuf vs AssetPath vs TemplatePath - prevent mixing
+
+### Use Cases
+
+**When you need this pattern**:
+1. **Server configuration**: Ports, hostnames, URLs, timeouts - prevent mixing
+2. **Database configuration**: Connection strings, pool sizes, credentials
+3. **API clients**: Endpoints, API keys, rate limits, retry policies
+4. **File paths**: Config vs data vs cache paths - type-safe separation
+5. **Resource limits**: Memory limits, CPU limits, connection limits - enforce positivity
+6. **Credentials**: Username, password, API tokens - hide in Debug output
+
+**Type Safety Prevents**:
+- Passing milliseconds where seconds expected (1000x bug!)
+- Using database port for HTTP server
+- Negative values for counts/sizes
+- Empty strings for required fields
+- Mixing development and production settings
+
+### Learning Goals
+
+- Understand newtype pattern for compile-time type safety
+- Implement validated types that enforce invariants
+- Build smart constructors that prevent invalid states
+- Create fluent builder APIs with method chaining
+- Use `Deref` for ergonomic access to wrapped values
+- Hide sensitive data in `Debug` implementations
+
+---
+
+### Milestone 1: Basic Configuration Struct
+
+**Goal**: Create a basic configuration struct with named fields.
+
+**Starter Code**:
+```rust
+#[derive(Debug, Clone)]
+struct ServerConfig {
+    host: String,
+    port: u16,
+    timeout_seconds: u64,
+    max_connections: u32,
+}
+
+impl ServerConfig {
+    fn new(host: String, port: u16, timeout_seconds: u64, max_connections: u32) -> Self {
+        // TODO: Create ServerConfig with given values
+        todo!()
+    }
+}
+```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_basic_config() {
+    let config = ServerConfig::new(
+        "localhost".to_string(),
+        8080,
+        30,
+        100,
+    );
+
+    assert_eq!(config.host, "localhost");
+    assert_eq!(config.port, 8080);
+}
+
+#[test]
+fn test_can_create_invalid_config() {
+    // This compiles but is semantically wrong!
+    let bad_config = ServerConfig::new(
+        "".to_string(),           // Empty host
+        0,                        // Invalid port
+        0,                        // Zero timeout
+        0,                        // Zero connections
+    );
+
+    // No way to prevent this at compile time yet
+    assert_eq!(bad_config.port, 0);
+}
+```
+
+**Check Your Understanding**:
+- What's wrong with allowing `port: 0` or `max_connections: 0`?
+- How could we accidentally pass the wrong string to the host parameter?
+- What happens if someone passes timeout in milliseconds by mistake?
+
+---
+
+### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+
+**Critical Limitations**:
+1. **No type safety**: Can swap `host` and `database_url` parameters - both are `String`
+2. **No validation**: Can create config with `port: 0`, `max_connections: 0`, empty host
+3. **No semantic meaning**: Is timeout in seconds? Milliseconds? Minutes?
+4. **Easy to mix up**: `ServerConfig::new(port_str, host_str)` compiles if you swap them
+5. **Debug leaks secrets**: `println!("{:?}", config)` might print passwords
+
+**What we're adding**: **Newtype wrappers** for each configuration value:
+- `Port(u16)`, `Hostname(String)`, `Timeout(Duration)`, `MaxConnections(NonZeroU32)`
+- Each is a distinct type - compiler prevents mixing them up
+- Smart constructors validate inputs
+- Custom `Debug` implementations hide sensitive data
+
+**Improvements**:
+- **Type safety**: Can't pass `Port` where `Hostname` expected
+- **Validation**: `Port::new(0)` returns `Err` - can't create invalid port
+- **Clarity**: `Timeout(Duration::from_secs(30))` is unambiguous
+- **Security**: `Password` type hides value in Debug output
+
+---
+
+### Milestone 2: Newtype Wrappers for Type Safety
+
+**Goal**: Wrap each configuration field in a newtype to prevent mixing them up.
+
+**Starter Code**:
+```rust
+use std::fmt;
+use std::num::NonZeroU32;
+use std::time::Duration;
+
+// TODO: Define newtype for Hostname
+// Hint: struct Hostname(String);
+#[derive(Debug, Clone, PartialEq)]
+struct Hostname(String);
+
+// TODO: Define newtype for Port with validation
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Port(u16);
+
+impl Port {
+    fn new(port: u16) -> Result<Self, String> {
+        // TODO: Validate port is in range 1..=65535
+        // Hint: Check port > 0, return Ok(Port(port)) or Err with message
+        todo!()
+    }
+
+    fn get(&self) -> u16 {
+        // TODO: Return the inner u16 value
+        todo!()
+    }
+}
+
+// TODO: Define Timeout newtype wrapping Duration
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Timeout(Duration);
+
+impl Timeout {
+    fn from_secs(secs: u64) -> Result<Self, String> {
+        // TODO: Validate secs > 0, wrap in Duration
+        // Hint: Duration::from_secs(secs)
+        todo!()
+    }
+
+    fn as_duration(&self) -> Duration {
+        // TODO: Return inner Duration
+        todo!()
+    }
+}
+
+// TODO: Define MaxConnections newtype using NonZeroU32
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MaxConnections(NonZeroU32);
+
+impl MaxConnections {
+    fn new(count: u32) -> Result<Self, String> {
+        // TODO: Convert to NonZeroU32, handle zero case
+        // Hint: NonZeroU32::new(count).ok_or_else(|| "count must be > 0")
+        todo!()
+    }
+
+    fn get(&self) -> u32 {
+        // TODO: Return inner value as u32
+        // Hint: self.0.get()
+        todo!()
+    }
+}
+
+// Updated ServerConfig with newtypes
+#[derive(Debug, Clone)]
+struct ServerConfig {
+    host: Hostname,
+    port: Port,
+    timeout: Timeout,
+    max_connections: MaxConnections,
+}
+
+impl ServerConfig {
+    fn new(
+        host: Hostname,
+        port: Port,
+        timeout: Timeout,
+        max_connections: MaxConnections,
+    ) -> Self {
+        // TODO: Create ServerConfig with newtype fields
+        todo!()
+    }
+}
+```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_port_validation() {
+    assert!(Port::new(8080).is_ok());
+    assert!(Port::new(0).is_err());  // Invalid port
+    assert!(Port::new(65535).is_ok()); // Max valid port
+}
+
+#[test]
+fn test_cannot_swap_types() {
+    // This won't compile - demonstrates type safety!
+    // let port = Port::new(8080).unwrap();
+    // let host = Hostname("localhost".to_string());
+    // let config = ServerConfig::new(port, host, ...); // ❌ Type error!
+}
+
+#[test]
+fn test_timeout_validation() {
+    assert!(Timeout::from_secs(30).is_ok());
+    assert!(Timeout::from_secs(0).is_err()); // Zero timeout invalid
+}
+
+#[test]
+fn test_max_connections() {
+    assert!(MaxConnections::new(100).is_ok());
+    assert!(MaxConnections::new(0).is_err()); // Zero connections invalid
+}
+
+#[test]
+fn test_valid_config() {
+    let config = ServerConfig::new(
+        Hostname("localhost".to_string()),
+        Port::new(8080).unwrap(),
+        Timeout::from_secs(30).unwrap(),
+        MaxConnections::new(100).unwrap(),
+    );
+
+    assert_eq!(config.port.get(), 8080);
+}
+```
+
+**Check Your Understanding**:
+- Why can't you accidentally swap `Port` and `MaxConnections` now?
+- What happens at compile-time if you try `Port::new(8080).unwrap().as_duration()`?
+- Why use `NonZeroU32` instead of validating `u32 > 0` manually?
+- What's the memory overhead of these newtypes? (Hint: zero!)
+
+---
+
+### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+
+**Remaining Issues**:
+1. **Verbose construction**: Must call `.unwrap()` multiple times, lots of `Result` handling
+2. **Inflexible**: Can't create config incrementally or with defaults
+3. **Poor ergonomics**: `config.port.get()` is clunky compared to `config.port` direct access
+4. **No validation context**: Errors don't say *which* field failed
+
+**What we're adding**:
+- **Builder pattern**: Fluent API for constructing config step-by-step
+- **Default values**: Reasonable defaults for optional fields
+- **Better error handling**: Collect all validation errors, not just first one
+- **Deref implementation**: Transparent access to inner values
+
+**Improvements**:
+- **Ergonomics**: `config.port` instead of `config.port.get()` via `Deref`
+- **Flexibility**: `ServerConfig::builder().port(8080).timeout_secs(30).build()`
+- **Better errors**: "Invalid port: 0, Invalid timeout: 0" (all errors at once)
+- **Defaults**: Can omit optional fields, builder provides sensible defaults
+
+---
+
+### Milestone 3: Builder Pattern with Defaults
+
+**Goal**: Create a fluent builder API for ergonomic config construction.
+
+**Starter Code**:
+```rust
+use std::ops::Deref;
+
+// Implement Deref for transparent access
+impl Deref for Port {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        // TODO: Return reference to inner u16
+        todo!()
+    }
+}
+
+// TODO: Implement Deref for other newtypes similarly
+
+struct ServerConfigBuilder {
+    host: Option<String>,
+    port: Option<u16>,
+    timeout_secs: Option<u64>,
+    max_connections: Option<u32>,
+}
+
+impl ServerConfigBuilder {
+    fn new() -> Self {
+        // TODO: Create builder with all None values
+        todo!()
+    }
+
+    fn host(mut self, host: impl Into<String>) -> Self {
+        // TODO: Set host field and return self for chaining
+        // Hint: self.host = Some(host.into()); self
+        todo!()
+    }
+
+    fn port(mut self, port: u16) -> Self {
+        // TODO: Set port and return self
+        todo!()
+    }
+
+    fn timeout_secs(mut self, secs: u64) -> Self {
+        // TODO: Set timeout_secs and return self
+        todo!()
+    }
+
+    fn max_connections(mut self, max: u32) -> Self {
+        // TODO: Set max_connections and return self
+        todo!()
+    }
+
+    fn build(self) -> Result<ServerConfig, Vec<String>> {
+        let mut errors = Vec::new();
+
+        // TODO: Validate and extract host, or add error
+        let host = match self.host {
+            Some(h) if !h.is_empty() => Hostname(h),
+            Some(_) => {
+                errors.push("Host cannot be empty".to_string());
+                Hostname("localhost".to_string()) // Placeholder
+            }
+            None => {
+                errors.push("Host is required".to_string());
+                Hostname("localhost".to_string())
+            }
+        };
+
+        // TODO: Validate port or use default 8080
+        let port = match self.port {
+            Some(p) => match Port::new(p) {
+                Ok(port) => port,
+                Err(e) => {
+                    errors.push(format!("Invalid port: {}", e));
+                    Port::new(8080).unwrap() // Safe default
+                }
+            },
+            None => Port::new(8080).unwrap(), // Default
+        };
+
+        // TODO: Similar for timeout (default 30s)
+        let timeout = todo!();
+
+        // TODO: Similar for max_connections (default 100)
+        let max_connections = todo!();
+
+        // TODO: If errors, return Err(errors), else Ok(config)
+        if !errors.is_empty() {
+            Err(errors)
+        } else {
+            Ok(ServerConfig::new(host, port, timeout, max_connections))
+        }
+    }
+}
+
+impl ServerConfig {
+    fn builder() -> ServerConfigBuilder {
+        ServerConfigBuilder::new()
+    }
+}
+```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_builder_fluent_api() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .port(8080)
+        .timeout_secs(30)
+        .max_connections(100)
+        .build()
+        .unwrap();
+
+    assert_eq!(*config.port, 8080); // Deref in action
+}
+
+#[test]
+fn test_builder_defaults() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .build()
+        .unwrap();
+
+    // Should use default values
+    assert_eq!(*config.port, 8080);
+    assert_eq!(*config.max_connections, 100);
+}
+
+#[test]
+fn test_builder_validation_errors() {
+    let result = ServerConfig::builder()
+        .port(0)  // Invalid
+        .timeout_secs(0)  // Invalid
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.len() >= 2); // At least port and timeout errors
+}
+
+#[test]
+fn test_builder_missing_required() {
+    let result = ServerConfig::builder()
+        .port(8080)
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("Host")));
+}
+```
+
+**Check Your Understanding**:
+- How does `Deref` allow `*config.port` to work?
+- Why return `Self` from builder methods instead of `&mut Self`?
+- What's the benefit of collecting all errors vs returning on first error?
+- How does `impl Into<String>` make the API more flexible?
+
+---
+
+### Complete Project Summary
+
+**What You Built**:
+1. Basic configuration struct with named fields
+2. Newtype wrappers for type safety and validation
+3. Fluent builder API with defaults and comprehensive error reporting
+4. Deref implementation for ergonomic access
+
+**Key Concepts Practiced**:
+- Newtype pattern for compile-time type safety
+- Smart constructors with validation
+- Builder pattern for ergonomic APIs
+- Deref trait for transparent access
+- Collecting multiple validation errors
+
+**Real-World Application**: This pattern is used in:
+- AWS SDK configuration builders
+- HTTP client configuration (reqwest, hyper)
+- Database connection configuration
+- Server/application configuration libraries
+
+---

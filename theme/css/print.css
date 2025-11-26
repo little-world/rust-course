@@ -1,0 +1,80 @@
+
+#sidebar,
+#menu-bar,
+.nav-chapters,
+.mobile-nav-chapters {
+    display: none;
+}
+
+#page-wrapper.page-wrapper {
+    transform: none !important;
+    margin-inline-start: 0px;
+    overflow-y: initial;
+}
+
+#content {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
+.page {
+    overflow-y: initial;
+}
+
+code {
+    direction: ltr !important;
+}
+
+pre > .buttons {
+    z-index: 2;
+}
+
+a, a:visited, a:active, a:hover {
+    color: #4183c4;
+    text-decoration: none;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    page-break-inside: avoid;
+    page-break-after: avoid;
+}
+
+.fa {
+    display: none !important;
+}
+
+/* Allow code blocks to break across pages */
+pre,
+pre.playground,
+pre pre,
+pre pre.playground,
+code,
+pre code,
+.language-rust {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    page-break-after: auto !important;
+    break-before: auto !important;
+    break-after: auto !important;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+@media print {
+    *:not(h1):not(h2):not(h3):not(h4):not(h5):not(h6) {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+    }
+
+    pre,
+    pre.playground,
+    pre pre,
+    code {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        orphans: 2;
+        widows: 2;
+    }
+}

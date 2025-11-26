@@ -1,0 +1,3 @@
+ pandoc 0*.md 1*.md 2*.md 3*.md --pdf-engine=weasyprint
+  --css=../pdf-style.css --toc --toc-depth=1 --highlight-style=haddock
+  --metadata title="Rust Patterns" -o ../book/pdf/rust-patterns.pdf

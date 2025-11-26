@@ -1,65 +1,4 @@
 # Atomic Operations & Lock-Free Programming
-
-[Memory Ordering Semantics](#pattern-1-memory-ordering-semantics)
-
-- Problem: CPU reordering and compiler optimizations break lock-free
-  algorithms; wrong ordering causes races
-- Solution: Acquire for reads, Release for writes, AcqRel for RMW, Relaxed
-  for counters
-- Why It Matters: 10x performance difference (Relaxed vs SeqCst); wrong
-  ordering = random production failures
-- Use Cases: Lock-free structures, Arc, flags, synchronization, atomic
-  counters, wait-free algorithms
-
-[Compare-and-Swap Patterns](#pattern-2-compare-and-swap-patterns)
-
-- Problem: Implementing lock-free operations requires atomic updates; ABA
-  problem breaks naive CAS
-- Solution: CAS loops with weak/strong variants; version counters or hazard
-  pointers for ABA
-- Why It Matters: Foundation of all lock-free algorithms; ABA causes silent
-  corruption without protection
-- Use Cases: Lock-free stacks, atomic max tracking, conditional updates,
-  version tracking
-
-[Lock-Free Data Structures](#pattern-3-lock-free-data-structures)
-
-- Problem: Mutex serializes access (80% time waiting); deadlocks; priority
-  inversion; no real parallelism
-- Solution: Treiber stack (CAS-based), MPSC queues, SPSC ring buffers;
-  crossbeam for production
-- Why It Matters: True parallelism: 8 cores → 8x vs 1x with Mutex;
-  100-1000x better under contention
-- Use Cases: Work-stealing queues, MPMC queues, real-time systems,
-  high-throughput servers
-
-[Hazard Pointers](#pattern-4-hazard-pointers)
-
-- Problem: Lock-free structures need memory reclamation; can't free nodes
-  (use-after-free risk)
-- Solution: Mark pointers as "in-use"; defer deletion until safe; epoch-based
-  or hazard pointer schemes
-- Why It Matters: Prevents crashes in production lock-free code; solves ABA
-  problem completely
-- Use Cases: Production lock-free stacks/queues, concurrent data structures,
-  safe memory management
-
-[Seqlock Pattern](#pattern-5-seqlock-pattern)
-
-- Problem: Frequent reads of small data; locks too expensive; atomics
-  insufficient for multi-field updates
-- Solution: Sequence counter (odd=writing); readers retry on mismatch;
-  optimistic lock-free reads
-- Why It Matters: 10-100x faster than locks for read-heavy workloads;
-  predictable latency; no blocking
-- Use Cases: Coordinates, statistics, sensor data, game state, network
-  metrics, configuration
-
-[Atomic Cheat Sheet](#atomic-cheat-sheet)
-  - common **atomic** functions
-
-### Overview
-
 - Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits.
 A stalled or slow thread cannot prevent others from making progress.
 Ideal for real-time or latency-critical applications. 
@@ -101,7 +40,7 @@ Predictable latency
 Fewer outlier delays    
 
 
-## ❌ **Why *NOT* Use Lock-Free Everywhere?**
+ ❌ **Why *NOT* Use Lock-Free Everywhere?**
 
 Lock-free is **hard**:
 - Complex to design
@@ -118,8 +57,6 @@ Locks are:
 **Rule of thumb:**
 > Use locks unless you have a *measurable* reason not to.
 
-
-### Locks vs Lock-Free
 
 | Feature | Locks | Lock-Free |
 |--------|-------|-----------|
@@ -2583,23 +2520,3 @@ This chapter covered atomic operations and lock-free programming:
 - Atomic operations are safe
 - Raw pointers in lock-free structures require unsafe
 - Use existing libraries (crossbeam) when possible
-
-### Atomic Cheat Sheet
-```rust
-// Atomic types
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
-let atom = AtomicI32::new(0)                        // Create atomic
-atom.load(Ordering::SeqCst)                         // Read value
-atom.store(5, Ordering::SeqCst)                     // Write value
-atom.fetch_add(1, Ordering::SeqCst)                 // Atomic increment, return old
-atom.fetch_sub(1, Ordering::SeqCst)                 // Atomic decrement
-atom.swap(10, Ordering::SeqCst)                     // Swap value
-atom.compare_exchange(old, new, success, failure)   // CAS operation
-
-// Memory orderings
-Ordering::Relaxed                                    // No ordering guarantees
-Ordering::Acquire                                    // Read barrier
-Ordering::Release                                    // Write barrier
-Ordering::AcqRel                                     // Both acquire and release
-Ordering::SeqCst                                     // Sequential consistency (safest)
-```

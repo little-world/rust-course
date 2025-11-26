@@ -1,4 +1,4 @@
-- [introduction](00-introduction.md)
+
 # Part I: Core Language Mechanics
 - [memory-ownership-patterns](01-memory-ownership-patterns.md)
 - [struct-enum-patterns](02-struct-enum-patterns.md)

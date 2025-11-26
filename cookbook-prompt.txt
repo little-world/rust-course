@@ -1,0 +1,8 @@
+rewrite it to a cookbook style on every pattern, containing
+
+- Problem: 
+- Solution:
+- Why It Matters: 
+- Use Cases: 
+
+see 09-advanced-collections.md as an example

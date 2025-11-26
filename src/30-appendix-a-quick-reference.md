@@ -1,12 +1,12 @@
 # Appendix A: Quick Reference
 **Sections:**
+
 - [Type Conversion Cheatsheet](#type-conversion-cheatsheet)
 - [Common Trait Implementations](#common-trait-implementations)
 - [Iterator Combinators Reference](#iterator-combinators-reference)
 - [Cargo Commands Reference](#cargo-commands-reference)
 
 
-### Overview
 
 As you develop production Rust code, certain patterns recur constantly: converting between types, implementing common traits, chaining iterators, and managing projects with Cargo. While the main chapters explore these concepts in depth, this appendix provides a condensed reference for the patterns you'll reach for daily.
 
@@ -1473,7 +1473,7 @@ t = "test"
 
 ---
 
-## Conclusion
+### Conclusion
 
 This quick reference captures the patterns you'll use daily in production Rust development. Type conversions establish clear boundaries between domains. Trait implementations make your types composable with the standard library. Iterator combinators transform data processing from imperative loops into declarative pipelines. Cargo commands orchestrate your entire project lifecycle.
 

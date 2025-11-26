@@ -1,0 +1,28 @@
+I want 3 programming projects on each chapter. 
+The students do know Rust basics and are familiar with programming concepts and algorithms
+
+
+Give problems statement for each project
+Add 'why it matters' and 'use cases' to each project
+
+Give an outline for a solution, but do not give complete implementation, make it didactically interesting
+
+Give hints how it can be tested
+
+Write it as markdown in a ../workbook directory
+
+Give the projects some (6) stepping stones and checks/tests for less experienced programmers 
+
+For each next step tell why the previous step is not enough and why we need another step tell what the improvement is (especially on optimization step; speed, memory, parallellism)
+
+look at workbook/workbook-projects.md for previous project subject 
+at new project on different subjects
+
+start with chp 08-iterator-*
+
+
+start with chp 02-struct* 
+in the projects on each milestone do the 'starter code' after 'checkpoint tests' 
+start the with the names structs/traits the fields and the functions with the role they play
+
+put a complete working example at the end the project

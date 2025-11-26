@@ -1,32 +1,34 @@
 # Appendix B: Design Pattern Catalog
 
 **Creational Patterns:**
+
 - [Builder Pattern](#builder-pattern)
 - [Factory Pattern](#factory-pattern)
 - [Singleton Pattern](#singleton-pattern)
 - [Prototype Pattern](#prototype-pattern)
 
 **Structural Patterns:**
+
 - [Adapter Pattern](#adapter-pattern)
 - [Decorator Pattern](#decorator-pattern)
 - [Facade Pattern](#facade-pattern)
 - [Newtype Pattern](#newtype-pattern)
 
 **Behavioral Patterns:**
+
 - [Strategy Pattern](#strategy-pattern)
 - [Observer Pattern](#observer-pattern)
 - [Command Pattern](#command-pattern)
 - [Iterator Pattern](#iterator-pattern)
 
 **Concurrency Patterns:**
+
 - [Thread Pool Pattern](#thread-pool-pattern)
 - [Producer-Consumer Pattern](#producer-consumer-pattern)
 - [Fork-Join Pattern](#fork-join-pattern)
 - [Actor Pattern](#actor-pattern)
 - [Async/Await Pattern](#asyncawait-pattern)
 
-
-### Overview
 
 Design patterns are reusable solutions to common programming problems. They're not finished code you can copy, but templates for how to solve a problem in many different situations. In Rust, classic design patterns take on unique characteristics due to the language's ownership model, zero-cost abstractions, and powerful type system.
 

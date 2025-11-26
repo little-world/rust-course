@@ -1,25 +1,29 @@
 # Appendix C: Anti-Patterns
 **Common Pitfalls:**
+
 - [Excessive Cloning](#anti-pattern-excessive-cloning)
 - [Overusing Rc/Arc Without Need](#anti-pattern-overusing-rcarc-without-need)
 - [Ignoring Iterator Combinators](#anti-pattern-ignoring-iterator-combinators)
 - [Deref Coercion Abuse](#anti-pattern-deref-coercion-abuse)
-- [String + &str Confusion](#anti-pattern-string--str-confusion)
+- [String vs &str Confusion](#anti-pattern-string-vs-str-confusion)
 
 **Performance Anti-Patterns:**
+
 - [Collecting Iterators Unnecessarily](#anti-pattern-collecting-iterators-unnecessarily)
-- [Vec<T> When [T; N] Suffices](#anti-pattern-vect-when-t-n-suffices)
+- [Vec<T> When [] Suffices](#anti-pattern-vect-when-t-n-suffices)
 - [HashMap for Small Key Sets](#anti-pattern-hashmap-for-small-key-sets)
 - [Premature String Allocation](#anti-pattern-premature-string-allocation)
 - [Boxed Trait Objects Everywhere](#anti-pattern-boxed-trait-objects-everywhere)
 
 **Safety Anti-Patterns:**
+
 - [Unsafe for Convenience](#anti-pattern-unsafe-for-convenience)
 - [Unwrap() in Production Code](#anti-pattern-unwrap-in-production-code)
 - [RefCell/Mutex Without Consideration](#anti-pattern-refcellmutex-without-consideration)
 - [Ignoring Send/Sync Implications](#anti-pattern-ignoring-sendsync-implications)
 
 **API Design Mistakes:**
+
 - [Stringly-Typed APIs](#anti-pattern-stringly-typed-apis)
 - [Boolean Parameter Trap](#anti-pattern-boolean-parameter-trap)
 - [Leaky Abstractions](#anti-pattern-leaky-abstractions)
@@ -407,7 +411,7 @@ print_employee_info(manager.employee());
 
 ---
 
-### Anti-Pattern: String + &str Confusion
+### Anti-Pattern: String vs &str Confusion
 
 **The Pattern**: Unnecessary string allocations and confusing conversions between String and &str.
 
@@ -542,7 +546,7 @@ fn process_data_reusable(numbers: &[i32]) -> Vec<i32> {
 
 ---
 
-### Anti-Pattern: Vec<T> When [T; N] Suffices
+### Anti-Pattern: Vec<T> When rray Suffices
 
 **The Pattern**: Using heap-allocated `Vec<T>` for fixed-size, small collections when stack-allocated arrays would work.
 

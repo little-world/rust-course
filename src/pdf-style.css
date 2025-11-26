@@ -1,0 +1,17 @@
+/* Override print.css - Allow code blocks to break across pages */
+pre, code, pre code, .hljs {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    white-space: pre-wrap;
+}
+
+/* Keep headings with following content */
+h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+}
+
+/* Only start new page for chapters */
+.chapter {
+    page-break-before: always;
+}

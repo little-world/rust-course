@@ -1,0 +1,31 @@
+Memory & Ownership Patterns
+Struct & Enum Patterns
+Trait Design Patterns
+Generics & Polymorphism
+Builder & API Design
+Lifetime Patterns
+Pattern Matching & Destructuring
+Iterator Patterns & Combinators
+Error Handling Architecture
+Vec & Slice Manipulation
+String Processing
+HashMap & HashSet Patterns
+Advanced Collections
+Threading Patterns
+Async Runtime Patterns
+Atomic Operations & Lock-Free
+Parallel Algorithms
+Smart Pointer Patterns
+Unsafe Rust Patterns
+Synchronous I/O
+Async I/O Patterns
+Serialization Patterns
+Declarative Macros
+Procedural Macros
+FFI and C Interop
+Network Programming
+Database Patterns
+Testing and Benchmarking
+Appendix A: Quick Reference
+Appendix B: Design Patterns
+Appendix C: Anti Patterns
