@@ -1,6 +1,6 @@
 # Chapter 01: Memory Management & Ownership - Programming Projects
 
-## Project 1: Memory Pool Allocator
+## Project 4: Memory Pool Allocator
 
 ### Problem Statement
 
