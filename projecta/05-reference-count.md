@@ -15,6 +15,17 @@ Your smart pointer should support:
 
 Reference counting is fundamental to memory management in languages without garbage collection. Understanding `Rc` and `Arc` teaches you about shared ownership, reference cycles, and the trade-offs between compile-time and runtime safety. These patterns appear in GUI frameworks, graph structures, caches, and any system where data has multiple owners.
 
+### Learning Goals
+
+By completing this project, you will:
+
+1. **Understand reference counting**: Learn how Rc/Arc work internally with heap allocation and counters
+2. **Master unsafe Rust**: Work with raw pointers and manual memory management safely
+3. **Implement Drop trait correctly**: Ensure proper cleanup and prevent memory leaks
+4. **Handle reference cycles**: Implement weak references to break cycles
+5. **Practice interior mutability**: Combine RefCell with Rc for shared mutable state
+6. **Understand Clone-on-Write**: Implement copy-on-write optimization for efficient sharing
+
 ### Use Cases
 
 - GUI frameworks: Widgets sharing application state
@@ -23,7 +34,7 @@ Reference counting is fundamental to memory management in languages without garb
 - Event systems: Subscribers sharing event data
 - Plugin systems: Shared configuration across plugins
 
-### Solution Outline
+
 
 #### Milestone 1: Basic Reference Counter
 **Goal**: Implement a simple `MyRc<T>` with reference counting.
@@ -34,13 +45,94 @@ Reference counting is fundamental to memory management in languages without garb
 - Drop to decrement and potentially free
 
 **Key concepts**:
-- Structs: `MyRc<T>`, `RcInner<T>`
-- Fields: `ptr: *mut RcInner<T>`, `strong_count: usize`, `data: T`
-- Functions:
+**Structs**: 
+- `MyRc<T>`
+  - **Field**: `strong_count: usize` - Number of MyRc pointers 
+  - **Field**: `data: T` - The actual data                     
+- `RcInner<T>`
+  - **Field**:  `ptr: NonNull<RcInner<T>>` - Pointer to heap data           
+  - **Field**:  `_marker: PhantomData<RcInner<T>>` - Ensure proper variance 
+- **Functions**:
     - `new(value: T) -> MyRc<T>` - Allocates and initializes
     - `clone() -> MyRc<T>` - Increments ref count
     - `drop()` - Decrements, frees if zero
     - `strong_count() -> usize` - Returns current count
+
+---
+
+
+---
+
+**Starter Code**:
+
+```rust
+use std::ops::Deref;
+use std::ptr::NonNull;
+
+/// Inner structure holding the data and reference count
+struct RcInner<T> {
+    strong_count: usize,
+    data: T,
+}
+
+/// A reference-counted smart pointer
+pub struct MyRc<T> {
+    ptr: NonNull<RcInner<T>>,
+    _marker: std::marker::PhantomData<RcInner<T>>,
+}
+
+impl<T> MyRc<T> {
+    /// Creates a new reference-counted pointer
+    /// Role: Allocate on heap with count=1
+    pub fn new(value: T) -> Self {
+        todo!("Allocate RcInner on heap")
+    }
+
+    /// Returns the current strong reference count
+    /// Role: Query reference count
+    pub fn strong_count(this: &Self) -> usize {
+        todo!("Read strong_count from inner")
+    }
+
+    /// Gets a reference to the inner data
+    /// Role: Access to inner structure
+    fn inner(&self) -> &RcInner<T> {
+        todo!("Dereference ptr safely")
+    }
+
+    /// Gets a mutable reference to the inner data
+    /// Role: Mutable access (requires unique ownership)
+    fn inner_mut(&mut self) -> &mut RcInner<T> {
+        todo!("Dereference ptr mutably")
+    }
+}
+
+impl<T> Clone for MyRc<T> {
+    /// Clones the Rc by incrementing the reference count
+    /// Role: Share ownership
+    fn clone(&self) -> Self {
+        todo!("Increment count, return new MyRc with same ptr")
+    }
+}
+
+impl<T> Deref for MyRc<T> {
+    type Target = T;
+
+    /// Allows treating MyRc<T> as &T
+    /// Role: Transparent access to data
+    fn deref(&self) -> &Self::Target {
+        todo!("Return reference to data field")
+    }
+}
+
+impl<T> Drop for MyRc<T> {
+    /// Decrements count, frees memory if count reaches zero
+    /// Role: Automatic cleanup
+    fn drop(&mut self) {
+        todo!("Decrement count, deallocate if zero")
+    }
+}
+```
 
 ---
 
@@ -105,100 +197,6 @@ mod tests {
 }
 ```
 
----
-
-**Starter Code**:
-
-```rust
-use std::ops::Deref;
-use std::ptr::NonNull;
-
-/// Inner structure holding the data and reference count
-///
-/// Structs:
-/// - RcInner<T>: Heap-allocated reference counted data
-///
-/// Fields:
-/// - strong_count: usize - Number of MyRc pointers
-/// - data: T - The actual data
-struct RcInner<T> {
-    strong_count: usize,
-    data: T,
-}
-
-/// A reference-counted smart pointer
-///
-/// Structs:
-/// - MyRc<T>: Smart pointer with shared ownership
-///
-/// Fields:
-/// - ptr: NonNull<RcInner<T>> - Pointer to heap data
-/// - _marker: PhantomData<RcInner<T>> - Ensure proper variance
-///
-/// Functions:
-/// - new(value: T) - Creates new Rc with count=1
-/// - clone() - Increments count, returns new Rc
-/// - strong_count() - Returns current reference count
-/// - drop() - Decrements count, frees if zero
-pub struct MyRc<T> {
-    ptr: NonNull<RcInner<T>>,
-    _marker: std::marker::PhantomData<RcInner<T>>,
-}
-
-impl<T> MyRc<T> {
-    /// Creates a new reference-counted pointer
-    /// Role: Allocate on heap with count=1
-    pub fn new(value: T) -> Self {
-        todo!("Allocate RcInner on heap")
-    }
-
-    /// Returns the current strong reference count
-    /// Role: Query reference count
-    pub fn strong_count(this: &Self) -> usize {
-        todo!("Read strong_count from inner")
-    }
-
-    /// Gets a reference to the inner data
-    /// Role: Access to inner structure
-    fn inner(&self) -> &RcInner<T> {
-        todo!("Dereference ptr safely")
-    }
-
-    /// Gets a mutable reference to the inner data
-    /// Role: Mutable access (requires unique ownership)
-    fn inner_mut(&mut self) -> &mut RcInner<T> {
-        todo!("Dereference ptr mutably")
-    }
-}
-
-impl<T> Clone for MyRc<T> {
-    /// Clones the Rc by incrementing the reference count
-    /// Role: Share ownership
-    fn clone(&self) -> Self {
-        todo!("Increment count, return new MyRc with same ptr")
-    }
-}
-
-impl<T> Deref for MyRc<T> {
-    type Target = T;
-
-    /// Allows treating MyRc<T> as &T
-    /// Role: Transparent access to data
-    fn deref(&self) -> &Self::Target {
-        todo!("Return reference to data field")
-    }
-}
-
-impl<T> Drop for MyRc<T> {
-    /// Decrements count, frees memory if count reaches zero
-    /// Role: Automatic cleanup
-    fn drop(&mut self) {
-        todo!("Decrement count, deallocate if zero")
-    }
-}
-```
-
----
 
 #### Milestone 2: Weak References
 **Goal**: Add weak references to prevent reference cycles.
@@ -207,18 +205,86 @@ impl<T> Drop for MyRc<T> {
 
 **What's the improvement**: `MyWeak<T>` doesn't increment strong count. It can upgrade to `MyRc<T>` if data still exists, or return `None` if data was freed.
 
-**Key concepts**:
-- Structs: `MyWeak<T>`
-- Fields: `weak_count: usize` (add to RcInner)
-- Functions:
-    - `MyRc::downgrade() -> MyWeak<T>` - Creates weak ref
-    - `MyWeak::upgrade() -> Option<MyRc<T>>` - Try to get strong ref
-    - `weak_count()` - Returns weak reference count
+**Architecture**:
+- **Field**: `weak_count: usize` (add to RcInner)
+
+**Structs**:                                              
+- `MyWeak<T>`: Non-owning reference
+  - **field**: `ptr: NonNull<RcInner<T>>` - Pointer to heap data
+
+**Functions**:
+- `upgrade()` - Try to get MyRc if data alive
+- `clone()` - Increment weak count
+- `drop()` - Decrement weak count                       
+
+
+
+**Starter Code**:
+
+```rust
+/// Inner structure now tracks both strong and weak counts
+struct RcInner<T> {
+    strong_count: usize,
+    weak_count: usize,
+    data: T,
+}
+
+/// A weak reference that doesn't own the data
+pub struct MyWeak<T> {
+    ptr: NonNull<RcInner<T>>,
+    _marker: std::marker::PhantomData<RcInner<T>>,
+}
+
+impl<T> MyRc<T> {
+    /// Creates a weak reference
+    /// Role: Create non-owning pointer
+    pub fn downgrade(this: &Self) -> MyWeak<T> {
+        todo!("Increment weak_count, create MyWeak")
+    }
+
+    /// Returns the weak reference count
+    /// Role: Query weak references
+    pub fn weak_count(this: &Self) -> usize {
+        todo!("Read weak_count")
+    }
+}
+
+impl<T> MyWeak<T> {
+    /// Attempts to upgrade to a strong reference
+    /// Role: Convert weak to strong if data exists
+    pub fn upgrade(&self) -> Option<MyRc<T>> {
+        todo!("Check strong_count > 0, increment and return MyRc")
+    }
+
+    /// Returns the strong count if data still exists
+    /// Role: Query without upgrading
+    pub fn strong_count(&self) -> usize {
+        todo!("Read strong_count")
+    }
+}
+
+impl<T> Clone for MyWeak<T> {
+    /// Clone the weak reference
+    /// Role: Share weak reference
+    fn clone(&self) -> Self {
+        todo!("Increment weak_count")
+    }
+}
+
+impl<T> Drop for MyWeak<T> {
+    /// Decrement weak count, free RcInner if both counts are zero
+    /// Role: Cleanup weak reference
+    fn drop(&mut self) {
+        todo!("Decrement weak_count, free if strong=0 and weak=0")
+    }
+}
+
+// Update MyRc::drop to only free data when strong=0,
+// but keep RcInner alive if weak_count > 0
+```
 
 ---
-
 **Checkpoint Tests**:
-
 ```rust
 #[cfg(test)]
 mod tests {
@@ -309,88 +375,6 @@ mod tests {
 
 ---
 
-**Starter Code**:
-
-```rust
-/// Inner structure now tracks both strong and weak counts
-///
-/// Fields:
-/// - strong_count: usize - Number of MyRc pointers
-/// - weak_count: usize - Number of MyWeak pointers
-/// - data: T - The actual data
-struct RcInner<T> {
-    strong_count: usize,
-    weak_count: usize,
-    data: T,
-}
-
-/// A weak reference that doesn't own the data
-///
-/// Structs:
-/// - MyWeak<T>: Non-owning reference
-///
-/// Fields:
-/// - ptr: NonNull<RcInner<T>> - Pointer to heap data
-///
-/// Functions:
-/// - upgrade() - Try to get MyRc if data alive
-/// - clone() - Increment weak count
-/// - drop() - Decrement weak count
-pub struct MyWeak<T> {
-    ptr: NonNull<RcInner<T>>,
-    _marker: std::marker::PhantomData<RcInner<T>>,
-}
-
-impl<T> MyRc<T> {
-    /// Creates a weak reference
-    /// Role: Create non-owning pointer
-    pub fn downgrade(this: &Self) -> MyWeak<T> {
-        todo!("Increment weak_count, create MyWeak")
-    }
-
-    /// Returns the weak reference count
-    /// Role: Query weak references
-    pub fn weak_count(this: &Self) -> usize {
-        todo!("Read weak_count")
-    }
-}
-
-impl<T> MyWeak<T> {
-    /// Attempts to upgrade to a strong reference
-    /// Role: Convert weak to strong if data exists
-    pub fn upgrade(&self) -> Option<MyRc<T>> {
-        todo!("Check strong_count > 0, increment and return MyRc")
-    }
-
-    /// Returns the strong count if data still exists
-    /// Role: Query without upgrading
-    pub fn strong_count(&self) -> usize {
-        todo!("Read strong_count")
-    }
-}
-
-impl<T> Clone for MyWeak<T> {
-    /// Clone the weak reference
-    /// Role: Share weak reference
-    fn clone(&self) -> Self {
-        todo!("Increment weak_count")
-    }
-}
-
-impl<T> Drop for MyWeak<T> {
-    /// Decrement weak count, free RcInner if both counts are zero
-    /// Role: Cleanup weak reference
-    fn drop(&mut self) {
-        todo!("Decrement weak_count, free if strong=0 and weak=0")
-    }
-}
-
-// Update MyRc::drop to only free data when strong=0,
-// but keep RcInner alive if weak_count > 0
-```
-
----
-
 #### Milestone 3: Interior Mutability with RefCell
 **Goal**: Combine `MyRc` with interior mutability to allow mutation through shared references.
 
@@ -398,74 +382,23 @@ impl<T> Drop for MyWeak<T> {
 
 **What's the improvement**: Implement `MyRefCell<T>` with runtime borrow checking. Track borrows at runtime and panic on violations.
 
-**Key concepts**:
-- Structs: `MyRefCell<T>`, `Ref<T>`, `RefMut<T>`
-- Fields: `value: UnsafeCell<T>`, `borrow_state: Cell<isize>`
-- Functions:
-    - `borrow() -> Ref<T>` - Get immutable reference
-    - `borrow_mut() -> RefMut<T>` - Get mutable reference
-    - Ref/RefMut implement Deref and update borrow state on drop
+**Architecture**:
+**Structs**:
+- `MyRefCell<T>`: Interior mutability container
+  - `value: UnsafeCell<T>` - Actual data
+  - `borrow_state: Cell<isize>` - >0: N immutable borrows, -1: mutable borrow
+- `Ref<'a, T>`: Immutable borrow guard
+- `RefMut<'a, T>`: Mutable borrow guard
+
+**Functions**:
+- `new(value) `- Create new RefCell
+- `borrow()` - Get Ref<T>, panic if mutably borrowed
+- `borrow_mut()` - Get RefMut<T>, panic if any borrows exist
+- `try_borrow()` - Non-panicking version
+- `try_borrow_mut()` - Non-panicking version                                      
 
 ---
 
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_refcell_basic_borrow() {
-        let cell = MyRefCell::new(42);
-        let borrowed = cell.borrow();
-        assert_eq!(*borrowed, 42);
-    }
-
-    #[test]
-    fn test_refcell_multiple_immutable() {
-        let cell = MyRefCell::new(100);
-        let b1 = cell.borrow();
-        let b2 = cell.borrow();
-        assert_eq!(*b1, *b2);
-    }
-
-    #[test]
-    fn test_refcell_mutable_borrow() {
-        let cell = MyRefCell::new(String::from("hello"));
-        {
-            let mut borrowed = cell.borrow_mut();
-            borrowed.push_str(" world");
-        }
-        assert_eq!(&*cell.borrow(), "hello world");
-    }
-
-    #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn test_refcell_panic_on_double_mut() {
-        let cell = MyRefCell::new(42);
-        let _b1 = cell.borrow_mut();
-        let _b2 = cell.borrow_mut(); // Should panic
-    }
-
-    #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn test_refcell_panic_mut_while_immutable() {
-        let cell = MyRefCell::new(42);
-        let _b1 = cell.borrow();
-        let _b2 = cell.borrow_mut(); // Should panic
-    }
-
-    #[test]
-    fn test_rc_refcell_combination() {
-        let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
-        let data2 = data.clone();
-
-        data.borrow_mut().push(4);
-        assert_eq!(*data2.borrow(), vec![1, 2, 3, 4]);
-    }
-}
-```
 
 ---
 
@@ -475,22 +408,6 @@ mod tests {
 use std::cell::{Cell, UnsafeCell};
 
 /// A cell with runtime borrow checking
-///
-/// Structs:
-/// - MyRefCell<T>: Interior mutability container
-/// - Ref<'a, T>: Immutable borrow guard
-/// - RefMut<'a, T>: Mutable borrow guard
-///
-/// MyRefCell Fields:
-/// - value: UnsafeCell<T> - Actual data
-/// - borrow_state: Cell<isize> - >0: N immutable borrows, -1: mutable borrow
-///
-/// Functions:
-/// - new(value) - Create new RefCell
-/// - borrow() - Get Ref<T>, panic if mutably borrowed
-/// - borrow_mut() - Get RefMut<T>, panic if any borrows exist
-/// - try_borrow() - Non-panicking version
-/// - try_borrow_mut() - Non-panicking version
 pub struct MyRefCell<T> {
     value: UnsafeCell<T>,
     borrow_state: Cell<isize>,
@@ -573,6 +490,66 @@ unsafe impl<T: Send> Send for MyRefCell<T> {}
 ```
 
 ---
+
+**Checkpoint Tests**:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_refcell_basic_borrow() {
+        let cell = MyRefCell::new(42);
+        let borrowed = cell.borrow();
+        assert_eq!(*borrowed, 42);
+    }
+
+    #[test]
+    fn test_refcell_multiple_immutable() {
+        let cell = MyRefCell::new(100);
+        let b1 = cell.borrow();
+        let b2 = cell.borrow();
+        assert_eq!(*b1, *b2);
+    }
+
+    #[test]
+    fn test_refcell_mutable_borrow() {
+        let cell = MyRefCell::new(String::from("hello"));
+        {
+            let mut borrowed = cell.borrow_mut();
+            borrowed.push_str(" world");
+        }
+        assert_eq!(&*cell.borrow(), "hello world");
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_on_double_mut() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow_mut();
+        let _b2 = cell.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_mut_while_immutable() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow();
+        let _b2 = cell.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    fn test_rc_refcell_combination() {
+        let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
+        let data2 = data.clone();
+
+        data.borrow_mut().push(4);
+        assert_eq!(*data2.borrow(), vec![1, 2, 3, 4]);
+    }
+}
+```
+
 
 ### Testing Strategies
 

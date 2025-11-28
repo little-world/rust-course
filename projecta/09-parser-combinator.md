@@ -70,51 +70,20 @@ let result = use_parser(number_parser, "42");  // Output inferred!
 
 ### Learning Goals
 
-- Understand when to use associated types vs generics
-- Build composable parser combinators
-- Experience API ergonomics with associated types
-- Learn type-driven design patterns
-- Compare generic parameter vs associated type trade-offs
+By completing this project, you will:
+
+1. **Master associated types**: Understand when to use associated types vs generic parameters
+2. **Build composable APIs**: Create parser combinators that compose elegantly
+3. **Design ergonomic interfaces**: Use associated types to reduce type annotations
+4. **Practice higher-order functions**: Implement map, and_then, or_else combinators
+5. **Understand type-driven design**: Let the type system guide API usage
+6. **Compare trait designs**: Experience the trade-offs between different trait patterns
 
 ---
 
 ### Milestone 1: Basic Parser Trait with Generics
 
 **Goal**: Define a parser trait using generic type parameters.
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_char_parser() {
-    let parser = CharParser { expected: 'a' };
-
-    let result = parser.parse("abc");
-    assert_eq!(result, Ok(('a', "bc")));
-
-    let result = parser.parse("xyz");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_digit_parser() {
-    let parser = DigitParser;
-
-    let result = parser.parse("5 apples");
-    assert_eq!(result, Ok((5, " apples")));
-
-    let result = parser.parse("abc");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_generic_verbose() {
-    let parser = CharParser { expected: 'x' };
-
-    // Must specify types explicitly - annoying!
-    let result: char = run_parser_generic::<char, _>(parser, "xyz").unwrap();
-    assert_eq!(result, 'x');
-}
-```
 
 
 **Starter Code**:
@@ -173,6 +142,40 @@ fn run_parser_generic<Output, P: ParserGeneric<Output>>(
 }
 ```
 
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_char_parser() {
+    let parser = CharParser { expected: 'a' };
+
+    let result = parser.parse("abc");
+    assert_eq!(result, Ok(('a', "bc")));
+
+    let result = parser.parse("xyz");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_digit_parser() {
+    let parser = DigitParser;
+
+    let result = parser.parse("5 apples");
+    assert_eq!(result, Ok((5, " apples")));
+
+    let result = parser.parse("abc");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_generic_verbose() {
+    let parser = CharParser { expected: 'x' };
+
+    // Must specify types explicitly - annoying!
+    let result: char = run_parser_generic::<char, _>(parser, "xyz").unwrap();
+    assert_eq!(result, 'x');
+}
+```
+
 
 **Check Your Understanding**:
 - Why do we need to specify `<char, _>` when calling `run_parser_generic`?
@@ -181,7 +184,7 @@ fn run_parser_generic<Output, P: ParserGeneric<Output>>(
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### 🔄 Why Milestone 1 Isn't Enough
 
 **Limitations with Generics**:
 1. **Verbose call sites**: Must specify types with turbofish `::<>`
@@ -210,44 +213,6 @@ fn run_parser_generic<Output, P: ParserGeneric<Output>>(
 ### Milestone 2: Refactor to Associated Types
 
 **Goal**: Change the trait to use associated types for better ergonomics.
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_associated_type_inference() {
-    let parser = CharParser { expected: 'x' };
-
-    // No turbofish needed! Compiler infers Output = char
-    let result = run_parser(parser, "xyz").unwrap();
-    assert_eq!(result, 'x');
-}
-
-#[test]
-fn test_string_parser() {
-    let parser = StringParser {
-        expected: "hello".to_string(),
-    };
-
-    let result = parser.parse("hello world");
-    assert_eq!(result, Ok(("hello".to_string(), " world")));
-
-    let result = parser.parse("goodbye");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_output_type_inference() {
-    let char_parser = CharParser { expected: 'a' };
-    let digit_parser = DigitParser;
-
-    // Types inferred from parser!
-    let c = run_parser(char_parser, "abc").unwrap();
-    let n = run_parser(digit_parser, "123").unwrap();
-
-    assert_eq!(c, 'a');
-    assert_eq!(n, 1);
-}
-```
 
 
 **Starter Code**:
@@ -301,6 +266,44 @@ impl Parser for StringParser {
     }
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_associated_type_inference() {
+    let parser = CharParser { expected: 'x' };
+
+    // No turbofish needed! Compiler infers Output = char
+    let result = run_parser(parser, "xyz").unwrap();
+    assert_eq!(result, 'x');
+}
+
+#[test]
+fn test_string_parser() {
+    let parser = StringParser {
+        expected: "hello".to_string(),
+    };
+
+    let result = parser.parse("hello world");
+    assert_eq!(result, Ok(("hello".to_string(), " world")));
+
+    let result = parser.parse("goodbye");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_output_type_inference() {
+    let char_parser = CharParser { expected: 'a' };
+    let digit_parser = DigitParser;
+
+    // Types inferred from parser!
+    let c = run_parser(char_parser, "abc").unwrap();
+    let n = run_parser(digit_parser, "123").unwrap();
+
+    assert_eq!(c, 'a');
+    assert_eq!(n, 1);
+}
+```
+
 
 
 **Check Your Understanding**:
@@ -338,58 +341,6 @@ impl Parser for StringParser {
 **Goal**: Implement combinator functions that compose parsers.
 
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_map_combinator() {
-    let parser = DigitParser
-        .map(|d| format!("Digit: {}", d));
-
-    let result = run_parser(parser, "5 apples").unwrap();
-    assert_eq!(result, "Digit: 5");
-}
-
-#[test]
-fn test_and_then_combinator() {
-    let parser = CharParser { expected: 'a' }
-        .and_then(CharParser { expected: 'b' });
-
-    let result = parser.parse("abc");
-    assert_eq!(result, Ok((('a', 'b'), "c")));
-
-    let result = parser.parse("axc");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_number_parser() {
-    let parser = NumberParser;
-
-    let result = parser.parse("42 answer");
-    assert_eq!(result, Ok((42, " answer")));
-
-    let result = parser.parse("0");
-    assert_eq!(result, Ok((0, "")));
-}
-
-#[test]
-fn test_parse_addition() {
-    assert_eq!(parse_addition("5+3"), Ok(8));
-    assert_eq!(parse_addition("100+200"), Ok(300));
-    assert!(parse_addition("abc").is_err());
-}
-
-#[test]
-fn test_combinator_composition() {
-    // Parse "x5" -> (char, u32)
-    let parser = CharParser { expected: 'x' }
-        .and_then(DigitParser)
-        .map(|(c, d)| format!("{}{}", c, d));
-
-    let result = run_parser(parser, "x5 items").unwrap();
-    assert_eq!(result, "x5");
-}
-```
 **Starter Code**:
 ```rust
 // Combinator: Map parser output using function
@@ -479,6 +430,58 @@ fn parse_addition(input: &str) -> Result<u32, ParseError> {
 }
 ```
 
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_map_combinator() {
+    let parser = DigitParser
+        .map(|d| format!("Digit: {}", d));
+
+    let result = run_parser(parser, "5 apples").unwrap();
+    assert_eq!(result, "Digit: 5");
+}
+
+#[test]
+fn test_and_then_combinator() {
+    let parser = CharParser { expected: 'a' }
+        .and_then(CharParser { expected: 'b' });
+
+    let result = parser.parse("abc");
+    assert_eq!(result, Ok((('a', 'b'), "c")));
+
+    let result = parser.parse("axc");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_number_parser() {
+    let parser = NumberParser;
+
+    let result = parser.parse("42 answer");
+    assert_eq!(result, Ok((42, " answer")));
+
+    let result = parser.parse("0");
+    assert_eq!(result, Ok((0, "")));
+}
+
+#[test]
+fn test_parse_addition() {
+    assert_eq!(parse_addition("5+3"), Ok(8));
+    assert_eq!(parse_addition("100+200"), Ok(300));
+    assert!(parse_addition("abc").is_err());
+}
+
+#[test]
+fn test_combinator_composition() {
+    // Parse "x5" -> (char, u32)
+    let parser = CharParser { expected: 'x' }
+        .and_then(DigitParser)
+        .map(|(c, d)| format!("{}{}", c, d));
+
+    let result = run_parser(parser, "x5 items").unwrap();
+    assert_eq!(result, "x5");
+}
+```
 
 **Check Your Understanding**:
 - Why does `map` return `MapParser<Self, F>` instead of changing Self?

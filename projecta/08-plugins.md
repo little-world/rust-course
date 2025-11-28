@@ -49,12 +49,16 @@ fn process(plugin: &dyn Plugin) {
 - **Binary size**: Static = N × function_size, Dynamic = 1 × function_size
 - **Compilation**: Static = slower (more monomorphization), Dynamic = faster
 
-**Real Production Examples**:
-- **Rust compiler plugins**: Procedural macros loaded dynamically
-- **Game engines**: Entity components, rendering pipelines
-- **Web servers**: Middleware chains (auth, logging, compression)
-- **Editors**: VSCode extensions, Vim plugins
-- **Browsers**: Firefox WebExtensions, Chrome extensions
+### Learning Goals
+
+By completing this project, you will:
+
+1. **Master trait objects**: Understand dyn Trait and how dynamic dispatch works
+2. **Work with heterogeneous collections**: Store different types implementing the same trait
+3. **Understand vtables**: Learn how Rust implements runtime polymorphism
+4. **Practice object safety**: Learn which traits can be used as trait objects
+5. **Compare dispatch strategies**: Understand trade-offs between static and dynamic dispatch
+6. **Build extensible systems**: Design plugin architectures that support runtime loading
 
 
 **Dynamic Dispatch is Critical When**:
@@ -78,54 +82,29 @@ fn process(plugin: &dyn Plugin) {
 
 **Goal**: Define a plugin trait and implement it for several types.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_greeter_plugin() {
-    let plugin = GreeterPlugin {
-        greeting: "Hello, World!".to_string(),
-    };
 
-    assert_eq!(plugin.name(), "Greeter");
-    assert_eq!(plugin.version(), "1.0.0");
-    assert!(plugin.execute().is_ok());
-}
 
-#[test]
-fn test_calculator_plugin() {
-    let plugin = CalculatorPlugin;
-    let result = plugin.execute().unwrap();
-    assert!(result.contains("="));  // Should have calculation result
-}
 
-#[test]
-fn test_static_dispatch() {
-    let greeter = GreeterPlugin {
-        greeting: "Hi!".to_string(),
-    };
-    let calculator = CalculatorPlugin;
+**Architecture**
+**trait** `Plugin`
+**functions**
+- `fn name()`  - for logging and plugin registry lookups
+- `fn version()` - version compatibility checks and debugging
+- `fn execute()` -  executes plugin, returns success message or error
 
-    // Static dispatch - each call is to a different monomorphized function
-    run_plugin(&greeter);
-    run_plugin(&calculator);
-}
-```
+**structs**  - impl Trait
+- `GreeterPlugin`
+   - **field**: `greeting` - customizable greeting message to display
+- `CalculatorPlugin`
+
+**functions**
+- `fn run_plugin(plugin: &T)` - runs plugin, dispatches based on plugin type
 
 **Starter Code**:
 ```rust
-// Plugin: Core trait defining the plugin interface
-// Role: Provides uniform API that all plugins must implement
 trait Plugin {
-    // name: Returns the plugin's identifier
-    // Role: Used for logging and plugin registry lookups
     fn name(&self) -> &str;
-
-    // version: Returns semantic version string
-    // Role: Version compatibility checks and debugging
     fn version(&self) -> &str;
-
-    // execute: Runs the plugin's main functionality
-    // Role: Executes plugin logic, returns success message or error
     fn execute(&self) -> Result<String, String>;
 }
 
@@ -190,6 +169,38 @@ fn run_plugin<T: Plugin>(plugin: &T) {
     todo!()
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_greeter_plugin() {
+    let plugin = GreeterPlugin {
+        greeting: "Hello, World!".to_string(),
+    };
+
+    assert_eq!(plugin.name(), "Greeter");
+    assert_eq!(plugin.version(), "1.0.0");
+    assert!(plugin.execute().is_ok());
+}
+
+#[test]
+fn test_calculator_plugin() {
+    let plugin = CalculatorPlugin;
+    let result = plugin.execute().unwrap();
+    assert!(result.contains("="));  // Should have calculation result
+}
+
+#[test]
+fn test_static_dispatch() {
+    let greeter = GreeterPlugin {
+        greeting: "Hi!".to_string(),
+    };
+    let calculator = CalculatorPlugin;
+
+    // Static dispatch - each call is to a different monomorphized function
+    run_plugin(&greeter);
+    run_plugin(&calculator);
+}
+```
 
 **Check Your Understanding**:
 - How many versions of `run_plugin` does the compiler generate?
@@ -198,7 +209,7 @@ fn run_plugin<T: Plugin>(plugin: &T) {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### 🔄 Why Milestone 1 Isn't Enough
 
 **Critical Limitations**:
 1. **Can't store mixed types**: `Vec<Plugin>` doesn't work - Plugin isn't sized
@@ -229,51 +240,6 @@ fn run_plugin<T: Plugin>(plugin: &T) {
 
 **Goal**: Use trait objects to store different plugin types in one collection.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_heterogeneous_collection() {
-    let plugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(GreeterPlugin { greeting: "Hello!".to_string() }),
-        Box::new(CalculatorPlugin),
-        Box::new(FileReaderPlugin { path: "data.txt".to_string() }),
-    ];
-
-    assert_eq!(plugins.len(), 3);
-
-    // Can call methods on trait objects
-    for plugin in &plugins {
-        println!("Running: {}", plugin.name());
-        let _ = plugin.execute();
-    }
-}
-
-#[test]
-fn test_plugin_manager() {
-    let mut manager = PluginManager::new();
-
-    manager.register(Box::new(GreeterPlugin { greeting: "Hi!".to_string() }));
-    manager.register(Box::new(CalculatorPlugin));
-
-    // Should have 2 plugins
-    assert_eq!(manager.plugins.len(), 2);
-
-    // Can find by name
-    assert!(manager.get_plugin("Greeter").is_some());
-    assert!(manager.get_plugin("Unknown").is_none());
-
-    manager.run_all();
-}
-
-#[test]
-fn test_dynamic_dispatch() {
-    let plugin: &dyn Plugin = &GreeterPlugin { greeting: "Test".to_string() };
-
-    // Uses vtable lookup
-    assert_eq!(plugin.name(), "Greeter");
-    let _ = plugin.execute();
-}
-```
 
 **Starter Code**:
 ```rust
@@ -360,6 +326,51 @@ impl PluginManager {
     }
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_heterogeneous_collection() {
+    let plugins: Vec<Box<dyn Plugin>> = vec![
+        Box::new(GreeterPlugin { greeting: "Hello!".to_string() }),
+        Box::new(CalculatorPlugin),
+        Box::new(FileReaderPlugin { path: "data.txt".to_string() }),
+    ];
+
+    assert_eq!(plugins.len(), 3);
+
+    // Can call methods on trait objects
+    for plugin in &plugins {
+        println!("Running: {}", plugin.name());
+        let _ = plugin.execute();
+    }
+}
+
+#[test]
+fn test_plugin_manager() {
+    let mut manager = PluginManager::new();
+
+    manager.register(Box::new(GreeterPlugin { greeting: "Hi!".to_string() }));
+    manager.register(Box::new(CalculatorPlugin));
+
+    // Should have 2 plugins
+    assert_eq!(manager.plugins.len(), 2);
+
+    // Can find by name
+    assert!(manager.get_plugin("Greeter").is_some());
+    assert!(manager.get_plugin("Unknown").is_none());
+
+    manager.run_all();
+}
+
+#[test]
+fn test_dynamic_dispatch() {
+    let plugin: &dyn Plugin = &GreeterPlugin { greeting: "Test".to_string() };
+
+    // Uses vtable lookup
+    assert_eq!(plugin.name(), "Greeter");
+    let _ = plugin.execute();
+}
+```
 
 **Check Your Understanding**:
 - What's the size of `&dyn Plugin` vs `&GreeterPlugin`? (Hint: 16 bytes vs 8 bytes)
@@ -369,7 +380,7 @@ impl PluginManager {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+### 🔄 Why Milestone 2 Isn't Enough
 
 **Remaining Issues**:
 1. **No plugin metadata**: Can't query capabilities, dependencies, etc.
@@ -396,62 +407,6 @@ impl PluginManager {
 
 **Goal**: Build a production-ready plugin system with initialization, configuration, and metadata.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_plugin_lifecycle() {
-    let mut plugin = LoggingPlugin::new();
-
-    // Not initialized yet
-    assert!(!plugin.initialized);
-
-    // Initialize with config
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "DEBUG".to_string());
-
-    assert!(plugin.initialize(&config).is_ok());
-    assert!(plugin.initialized);
-    assert_eq!(plugin.log_level, "DEBUG");
-
-    // Execute should work now
-    assert!(plugin.execute().is_ok());
-
-    // Cleanup
-    assert!(plugin.cleanup().is_ok());
-    assert!(!plugin.initialized);
-}
-
-#[test]
-fn test_enhanced_manager() {
-    let mut manager = EnhancedPluginManager::new();
-
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "INFO".to_string());
-
-    // Register and initialize
-    let plugin = Box::new(LoggingPlugin::new());
-    assert!(manager.register_and_init(plugin, &config).is_ok());
-
-    // Execute by name
-    let result = manager.execute_plugin("Logger");
-    assert!(result.is_ok());
-
-    // Shutdown
-    let errors = manager.shutdown();
-    assert!(errors.is_empty());
-    assert_eq!(manager.plugins.len(), 0);
-}
-
-#[test]
-fn test_metadata() {
-    let plugin = LoggingPlugin::new();
-
-    // Check metadata
-    assert_eq!(plugin.author(), "Plugin Team");
-    assert!(!plugin.description().is_empty());
-    assert_eq!(plugin.dependencies().len(), 0);
-}
-```
 
 **Starter Code**:
 ```rust
@@ -652,6 +607,64 @@ impl EnhancedPluginManager {
     }
 }
 ```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_plugin_lifecycle() {
+    let mut plugin = LoggingPlugin::new();
+
+    // Not initialized yet
+    assert!(!plugin.initialized);
+
+    // Initialize with config
+    let mut config = PluginConfig::new();
+    config.set("log_level".to_string(), "DEBUG".to_string());
+
+    assert!(plugin.initialize(&config).is_ok());
+    assert!(plugin.initialized);
+    assert_eq!(plugin.log_level, "DEBUG");
+
+    // Execute should work now
+    assert!(plugin.execute().is_ok());
+
+    // Cleanup
+    assert!(plugin.cleanup().is_ok());
+    assert!(!plugin.initialized);
+}
+
+#[test]
+fn test_enhanced_manager() {
+    let mut manager = EnhancedPluginManager::new();
+
+    let mut config = PluginConfig::new();
+    config.set("log_level".to_string(), "INFO".to_string());
+
+    // Register and initialize
+    let plugin = Box::new(LoggingPlugin::new());
+    assert!(manager.register_and_init(plugin, &config).is_ok());
+
+    // Execute by name
+    let result = manager.execute_plugin("Logger");
+    assert!(result.is_ok());
+
+    // Shutdown
+    let errors = manager.shutdown();
+    assert!(errors.is_empty());
+    assert_eq!(manager.plugins.len(), 0);
+}
+
+#[test]
+fn test_metadata() {
+    let plugin = LoggingPlugin::new();
+
+    // Check metadata
+    assert_eq!(plugin.author(), "Plugin Team");
+    assert!(!plugin.description().is_empty());
+    assert_eq!(plugin.dependencies().len(), 0);
+}
+```
+
 
 **Check Your Understanding**:
 ```rust

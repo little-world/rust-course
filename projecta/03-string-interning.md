@@ -48,23 +48,21 @@ Build a string interning system that stores unique strings once and reuses them.
 
 ### Learning Goals
 
-- Understand `Cow<'_, T>` and when to use it for zero-copy
-- Implement string interning for memory optimization
-- Build generational indices for safe handles (no lifetime issues)
-- Measure memory savings and performance improvements
-- Learn trade-offs: when interning helps vs hurts
+By completing this project, you will:
+
+1. **Master Clone-on-Write (Cow) pattern**: Understand zero-copy optimization and when to borrow vs own
+2. **Work with HashSet and lifetime management**: Practice storing references with proper lifetime annotations
+3. **Understand string interning**: Learn memory optimization techniques used in compilers and databases
+4. **Practice generic programming**: Build APIs that work with both borrowed and owned data
+5. **Implement efficient deduplication**: Learn hashing techniques and pointer-based equality
+6. **Design ergonomic APIs**: Create flexible interfaces using Cow that minimize unnecessary allocations
 
 ---
 
 ### Milestone 1: Understand Cow Basics
 
-**Goal**: Learn how `Cow` (Clone-on-Write) works through hands-on examples that demonstrate zero-copy optimization.
+ Learn how `Cow` (Clone-on-Write) works through hands-on examples that demonstrate zero-copy optimization.
 
-**Why This Milestone Matters**:
-
-`Cow<'_, T>` is one of Rust's most elegant patterns for performance optimization. It solves a common dilemma: **"Should my function return a borrowed reference or an owned value?"**
-
-The answer is often: **"It depends on the input!"**
 
 **The Problem `Cow` Solves**:
 
@@ -138,36 +136,45 @@ Consider processing 10,000 log lines, normalizing whitespace:
 - ~75ns each = **75,000ns = 0.075ms**
 - **10x faster!**
 
-**Common `Cow` Use Cases**:
 
-1. **Text processing**: Escaping, normalization, case conversion
-    - Most strings don't need escaping → return borrowed
-    - HTML special chars found → return owned (escaped version)
+**Architecture**:
 
-2. **Path manipulation**: Canonicalization, directory separators
-    - Already canonical → return borrowed
-    - Needs normalization → return owned
-
-3. **Configuration loading**: Environment variable expansion
-    - No variables like `${FOO}` → return borrowed
-    - Variables present → return owned (expanded version)
-
-4. **Data validation**: Trimming, sanitization
-    - Already valid → return borrowed
-    - Needs fixes → return owned
-
-**Key Concepts**:
-
-1. **`normalize_whitespace(text: &str) -> Cow<str>`**
+**functions**:
+- `normalize_whitespace(text: &str) -> Cow<str>`
     - Checks for double spaces or tabs
     - If found: replace with single spaces (allocate)
     - If not found: return original (zero-copy)
 
-2. **`maybe_escape_html(text: &str) -> Cow<str>`**
+- `maybe_escape_html(text: &str) -> Cow<str>`
     - Checks for `<`, `>`, `&` characters
     - If found: escape to `&lt;`, `&gt;`, `&amp;` (allocate)
     - If not found: return original (zero-copy)
 
+
+
+**Starter Code**:
+```rust
+use std::borrow::Cow;
+
+// Exercise 1: Function that sometimes modifies input
+fn normalize_whitespace(text: &str) -> Cow<str> {
+    if text.contains("  ") || text.contains('\t') {
+        // Need to modify - return Owned
+    } else {
+        // No modification needed - return Borrowed
+    }
+}
+
+// Exercise 2: Function that might escape HTML
+// replace: '&' -> &amp;  '<' -> &lt;  '>' -> &gt;
+fn maybe_escape_html(text: &str) -> Cow<str> {
+    if text.contains('<') || text.contains('>') || text.contains('&') {
+        // TODO replace
+    } else {
+        // TODO
+    }
+}
+```
 
 **Checkpoint Tests**:
 ```rust
@@ -199,30 +206,6 @@ fn test_escape_with_html() {
 }
 ```
 
-**Exercises**:
-```rust
-use std::borrow::Cow;
-
-// Exercise 1: Function that sometimes modifies input
-fn normalize_whitespace(text: &str) -> Cow<str> {
-    if text.contains("  ") || text.contains('\t') {
-        // Need to modify - return Owned
-    } else {
-        // No modification needed - return Borrowed
-    }
-}
-
-// Exercise 2: Function that might escape HTML
-// replace: '&' -> &amp;  '<' -> &lt;  '>' -> &gt;
-fn maybe_escape_html(text: &str) -> Cow<str> {
-    if text.contains('<') || text.contains('>') || text.contains('&') {
-        // TODO replace
-    } else {
-        // TODO
-    }
-}
-```
-
 **Check Your Understanding**:
 - When should you return `Cow::Borrowed` vs `Cow::Owned`?
 - What's the benefit of returning `Cow` vs always returning `String`?
@@ -230,7 +213,7 @@ fn maybe_escape_html(text: &str) -> Cow<str> {
 
 ---
 
-### Why Milestone 1 Isn't Enough → Moving to Milestone 2
+#### Why Milestone 1 Isn't Enough
 
 **Limitation**: `Cow` shows us *when* to avoid allocations, but doesn't actually *store* strings for reuse. Each call still checks/modifies independently.
 
@@ -260,9 +243,8 @@ fn maybe_escape_html(text: &str) -> Cow<str> {
 
 ### Milestone 2: Basic String Interner
 
-**Goal**: Implement a string interner that stores each unique string once and returns references to deduplicated storage.
+Implement a string interner that stores each unique string once and returns references to deduplicated storage.
 
-**Why This Milestone Matters**:
 
 Now that we understand `Cow` for conditional allocation, let's tackle a bigger problem: **string duplication across your entire program**. String interning is a powerful technique that trades lookup time for dramatic memory savings.
 
@@ -273,13 +255,22 @@ String interning is a technique where:
 2. **Duplicates return references**: Subsequent occurrences return pointer to existing storage
 3. **Pointer equality works**: Can compare strings with `ptr::eq()` instead of `strcmp()`
 
-**The Core Design**:
+**Architecture**:
 
+**struct**:
 ```rust
 struct StringInterner {
     strings: HashSet<Box<str>>,  // Set of unique strings
 }
 ```
+**functions**:
+- `new() -> Self` - Create empty interner with empty HashSet
+- `intern(&mut self, s: &str) -> &str` - Add string to set if new, return reference
+- `contains(&self, s: &str) -> bool` - Check if string is interned
+- `len(&self) -> usize` - Number of unique strings stored
+- `total_bytes(&self) -> usize` - Total bytes used by all strings
+
+
 
 **The `intern()` Algorithm**:
 
@@ -324,59 +315,8 @@ assert!(std::ptr::eq(s1, s2));
 // assert_eq!(s1, s2);  // Not needed anymore!
 ```
 
-**The Methods You'll Implement**:
-
-1. **`new() -> Self`**: Create empty interner with empty HashSet
-2. **`intern(&mut self, s: &str) -> &str`**: Add string to set if new, return reference
-3. **`contains(&self, s: &str) -> bool`**: Check if string is interned
-4. **`len(&self) -> usize`**: Number of unique strings stored
-5. **`total_bytes(&self) -> usize`**: Total bytes used by all strings
 
 
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_intern_basic() {
-    let mut interner = StringInterner::new();
-
-    let s1 = interner.intern("hello");
-    let s2 = interner.intern("hello");
-
-    // Should be same pointer (no second allocation)
-    assert!(std::ptr::eq(s1, s2));
-    assert_eq!(interner.len(), 1);
-}
-
-#[test]
-fn test_intern_different() {
-    let mut interner = StringInterner::new();
-
-    let s1 = interner.intern("hello");
-    let s2 = interner.intern("world");
-
-    assert!(!std::ptr::eq(s1, s2));
-    assert_eq!(interner.len(), 2);
-}
-
-#[test]
-fn test_contains() {
-    let mut interner = StringInterner::new();
-    interner.intern("hello");
-
-    assert!(interner.contains("hello"));
-    assert!(!interner.contains("world"));
-}
-
-#[test]
-fn test_total_bytes() {
-    let mut interner = StringInterner::new();
-    interner.intern("hi");     // 2 bytes
-    interner.intern("hello");  // 5 bytes
-
-    assert_eq!(interner.total_bytes(), 7);
-}
-```
 **Starter Code**:
 ```rust
 use std::collections::HashSet;
@@ -422,6 +362,51 @@ impl StringInterner {
 }
 ```
 
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_intern_basic() {
+    let mut interner = StringInterner::new();
+
+    let s1 = interner.intern("hello");
+    let s2 = interner.intern("hello");
+
+    // Should be same pointer (no second allocation)
+    assert!(std::ptr::eq(s1, s2));
+    assert_eq!(interner.len(), 1);
+}
+
+#[test]
+fn test_intern_different() {
+    let mut interner = StringInterner::new();
+
+    let s1 = interner.intern("hello");
+    let s2 = interner.intern("world");
+
+    assert!(!std::ptr::eq(s1, s2));
+    assert_eq!(interner.len(), 2);
+}
+
+#[test]
+fn test_contains() {
+    let mut interner = StringInterner::new();
+    interner.intern("hello");
+
+    assert!(interner.contains("hello"));
+    assert!(!interner.contains("world"));
+}
+
+#[test]
+fn test_total_bytes() {
+    let mut interner = StringInterner::new();
+    interner.intern("hi");     // 2 bytes
+    interner.intern("hello");  // 5 bytes
+
+    assert_eq!(interner.total_bytes(), 7);
+}
+```
+
 **Check Your Understanding**:
 - Why do we use `Box<str>` instead of `String`?
 - Why can we return `&str` from intern even though it takes `&mut self`?
@@ -431,13 +416,11 @@ impl StringInterner {
 
 ### Milestone 3: Add Cow-based API
 
-**Goal**: Combine the `Cow` pattern from Milestone 1 with the interner from Milestone 2 to create an API that communicates allocation status.
+ Combine the `Cow` pattern from Milestone 1 with the interner from Milestone 2 to create an API that communicates allocation status.
 
-**Why This Milestone Matters**:
 
 In Milestone 1, we learned that `Cow` communicates **"did we allocate or not?"** to the caller. In Milestone 2, we built an interner but lost that information—`intern()` always returns `&str`, hiding whether allocation happened.
 
-Let's bring these concepts together!
 
 **The Problem with `intern()`**:
 
@@ -461,7 +444,7 @@ fn get_or_intern(&mut self, s: &str) -> Cow<str> {
 }
 ```
 
-**Wait, why always `Cow::Borrowed`?**
+**Why always `Cow::Borrowed`?**
 
 Good question! You might expect:
 ```rust
@@ -492,6 +475,26 @@ This milestone illustrates that **`Cow` isn't always the right tool**. It's perf
 
 
 
+**Starter Code**:
+```rust
+impl StringInterner {
+    fn get_or_intern(&mut self, s: &str) -> Cow<str> {
+        // TODO: Check if string is already interned
+        if todo!("self.contains(s)") {
+            // TODO: Return Cow::Borrowed with reference from HashSet
+            // Hint: Cow::Borrowed(self.strings.get(s).unwrap())
+            todo!()
+        } else {
+            // TODO: Insert the string into HashSet
+            todo!();
+            // TODO: Return Cow::Borrowed with reference to newly inserted string
+            todo!()
+        }
+    }
+}
+```
+
+
 **Checkpoint Tests**:
 ```rust
 #[test]
@@ -513,24 +516,6 @@ fn test_cow_new_string() {
     assert_eq!(interner.len(), 1);
 }
 ```
-**Code**:
-```rust
-impl StringInterner {
-    fn get_or_intern(&mut self, s: &str) -> Cow<str> {
-        // TODO: Check if string is already interned
-        if todo!("self.contains(s)") {
-            // TODO: Return Cow::Borrowed with reference from HashSet
-            // Hint: Cow::Borrowed(self.strings.get(s).unwrap())
-            todo!()
-        } else {
-            // TODO: Insert the string into HashSet
-            todo!();
-            // TODO: Return Cow::Borrowed with reference to newly inserted string
-            todo!()
-        }
-    }
-}
-```
 
 **Check Your Understanding**:
 - Why does `get_or_intern` always return `Cow::Borrowed`?
@@ -540,10 +525,7 @@ impl StringInterner {
 ---
 
 ### Milestone 4: Add Statistics Tracking
-
-**Goal**: Add comprehensive statistics to measure interner effectiveness and understand allocation patterns.
-
-**Why This Milestone Matters**:
+ Add comprehensive statistics to measure interner effectiveness and understand allocation patterns.
 
 As we learned in Milestone 3, `Cow` isn't the ideal way to track string interner performance. What we really need is **aggregate statistics** that answer questions like:
 
@@ -552,19 +534,12 @@ As we learned in Milestone 3, `Cow` isn't the ideal way to track string interner
 - **Memory saved**: Compare `total_bytes` vs. `(allocations + lookups) × average_length`
 - **Performance tuning**: Identify which strings are duplicated most
 
-**The Problem Without Statistics**:
-
-```rust
-let mut interner = StringInterner::new();
-// ... 10,000 intern calls later ...
-// ❓ How many were duplicates?
-// ❓ How much memory did we save?
-// ❓ Is the interner actually helping?
-```
+**Architecture**:
 
 Without stats, you're flying blind. You don't know if the interner is paying for itself!
 
-**What We're Adding: `InternerStats` struct**:
+**struct**:
+- `InternerStats` 
 
 ```rust
 struct InternerStats {
@@ -574,73 +549,7 @@ struct InternerStats {
     lookups: usize,         // How many duplicate strings found
 }
 ```
-
-**Key Metrics**:
-
-1. **Hit Rate**: `lookups / (allocations + lookups)`
-    - High hit rate (>50%) = interner is valuable
-    - Low hit rate (<10%) = mostly unique strings, overhead may not be worth it
-
-2. **Memory Efficiency**: Compare actual memory vs. without interning
-    - Without: `(allocations + lookups) × average_string_length`
-    - With: `total_bytes` (only unique strings)
-    - Savings: `(without - with) / without × 100%`
-
-3. **Allocation Ratio**: `allocations / total_calls`
-    - Low ratio = lots of reuse (good for interning)
-    - High ratio = mostly unique (bad for interning)
-
-**Real-World Example: Web Server Logs**:
-
-Imagine processing 100,000 HTTP log entries:
-```
-GET /api/users 200
-GET /api/users 200
-GET /api/posts 404
-GET /api/users 200
-...
-```
-
-**Expected pattern**:
-- 10,000 unique strings (paths, status codes, methods)
-- 100,000 total strings
-- Hit rate: 90% (90,000 lookups, 10,000 allocations)
-
-**Statistics would show**:
-```rust
-InternerStats {
-    total_strings: 10_000,     // 10K unique
-    total_bytes: 250_000,      // ~25 bytes average
-    allocations: 10_000,       // 10K new strings
-    lookups: 90_000,           // 90K duplicates found!
-}
-```
-
-**Analysis**:
-- **Hit rate**: 90,000 / 100,000 = 90% ✅ Excellent!
-- **Memory without interning**: 100,000 × 25 = 2.5MB
-- **Memory with interning**: 250KB
-- **Savings**: (2.5MB - 250KB) / 2.5MB = **90% memory saved!** 🎉
-
-**When Statistics Show Interning Is NOT Worth It**:
-
-```rust
-// Processing unique user comments (no duplicates)
-InternerStats {
-    total_strings: 100_000,
-    total_bytes: 5_000_000,    // 50 bytes average
-    allocations: 100_000,      // Every string is new
-    lookups: 0,                // No hits!
-}
-```
-
-**Analysis**:
-- **Hit rate**: 0% ❌ Terrible!
-- **Overhead**: Hash computation + HashSet storage + lookup time
-- **Verdict**: Remove the interner, just use `String` directly
-
-**Implementing Statistics**:
-
+**functions**:
 The stats need to be updated in `intern()`:
 
 ```rust
@@ -661,17 +570,6 @@ fn intern(&mut self, s: &str) -> &str {
 
 **Production Monitoring**:
 
-In real systems, you'd export these stats to monitoring:
-
-```rust
-// Export to Prometheus
-gauge!("interner.total_strings", interner.stats.total_strings as f64);
-gauge!("interner.total_bytes", interner.stats.total_bytes as f64);
-counter!("interner.allocations", interner.stats.allocations as u64);
-counter!("interner.lookups", interner.stats.lookups as u64);
-```
-
-This lets you graph hit rate over time, alert on low efficiency, etc.
 
 **Why Track Both `total_strings` AND `allocations`?**
 
@@ -694,45 +592,8 @@ Adding stats is cheap:
 
 The cost is negligible compared to the HashSet lookup (~50ns).
 
-**Alternative: Separate `StatsInterner` Type?**
-
-Some designs use generics to make statistics optional:
-
-```rust
-struct StringInterner<S = NoStats> {
-    strings: HashSet<Box<str>>,
-    stats: S,
-}
-```
-
-This avoids overhead for users who don't need stats, but adds API complexity. For learning, we'll just always include stats (overhead is tiny anyway).
 
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_stats() {
-    let mut interner = StringInterner::new();
-
-    interner.intern("hello");  // allocation
-    interner.intern("world");  // allocation
-    interner.intern("hello");  // lookup
-
-    let stats = interner.statistics();
-    assert_eq!(stats.total_strings, 2);
-    assert_eq!(stats.total_bytes, 10);  // 5 + 5
-    assert_eq!(stats.allocations, 2);
-    assert_eq!(stats.lookups, 1);
-}
-
-#[test]
-fn test_stats_empty() {
-    let interner = StringInterner::new();
-    let stats = interner.statistics();
-    assert_eq!(stats.total_strings, 0);
-    assert_eq!(stats.allocations, 0);
-}
-```
 **Starter Code**:
 ```rust
 #[derive(Debug, PartialEq)]
@@ -772,13 +633,39 @@ impl StringInterner {
 }
 ```
 
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_stats() {
+    let mut interner = StringInterner::new();
+
+    interner.intern("hello");  // allocation
+    interner.intern("world");  // allocation
+    interner.intern("hello");  // lookup
+
+    let stats = interner.statistics();
+    assert_eq!(stats.total_strings, 2);
+    assert_eq!(stats.total_bytes, 10);  // 5 + 5
+    assert_eq!(stats.allocations, 2);
+    assert_eq!(stats.lookups, 1);
+}
+
+#[test]
+fn test_stats_empty() {
+    let interner = StringInterner::new();
+    let stats = interner.statistics();
+    assert_eq!(stats.total_strings, 0);
+    assert_eq!(stats.allocations, 0);
+}
+```
+
 **Check Your Understanding**:
 - Why track both allocations and lookups?
 - How does this help evaluate interner effectiveness?
 
 ---
 
-### 🔄 Why Milestone 4 Isn't Enough → Moving to Milestone 5
+#### Why Milestone 4 Isn't Enough 
 
 Our interner from Milestone 4 has a critical flaw: **lifetime hell**. Every interned string reference is tied to the interner's lifetime, making it nearly impossible to use in real applications.
 
@@ -828,10 +715,10 @@ fn parse<'intern>(source: &str, interner: &'intern mut StringInterner)
 
 ### Milestone 5: Symbol-Based Access with Generational Indices
 
-**Goal**: Replace lifetime-bound references with `Copy` handles that work anywhere, using the generational index pattern to detect stale handles safely.
+Replace lifetime-bound references with `Copy` handles that work anywhere, using the generational index pattern to detect stale handles safely.
 
 
-**Handles Instead of References**:
+**Architecture**:
 
 Instead of returning `&str` (with lifetime), return a `Symbol` handle (no lifetime):
 
@@ -972,24 +859,8 @@ SymbolInterner:
 - Performance-critical tight loop (avoid indirection)
 - Simple codebase where lifetimes aren't a burden
 
-**Real-World Examples**:
 
-1. **Rust compiler**: Uses `Symbol` for identifiers (from `rustc_span::symbol`)
-    - 100,000s of identifiers across compilation
-    - Stored in AST nodes, type tables, name resolution tables
-    - Serialized to incremental compilation cache
-
-2. **Game engines (Bevy, Amethyst)**: Entity IDs are generational indices
-    - Entities can be despawned and IDs reused
-    - Systems store entity references without lifetimes
-    - Generation catches "use after despawn" bugs
-
-3. **GUI frameworks (Druid, Iced)**: Widget IDs
-    - Widgets destroyed and recreated frequently
-    - Event handlers store widget IDs across frames
-    - Stale IDs safely ignored
-
-**Implementation Strategy**:
+**functions**:
 
 1. **`intern(s: &str) -> Symbol`**:
     - Check if string already exists (linear search through slots)
@@ -1012,68 +883,6 @@ SymbolInterner:
     - Push index to `free_list`
 
 
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_symbol_intern() {
-    let mut interner = SymbolInterner::new();
-
-    let sym1 = interner.intern("hello");
-    let sym2 = interner.intern("hello");
-
-    // Same string should have same symbol
-    assert_eq!(sym1, sym2);
-    assert_eq!(interner.resolve(sym1), Some("hello"));
-}
-
-#[test]
-fn test_symbol_resolve() {
-    let mut interner = SymbolInterner::new();
-
-    let sym = interner.intern("test");
-    assert_eq!(interner.resolve(sym), Some("test"));
-}
-
-#[test]
-fn test_stale_symbol() {
-    let mut interner = SymbolInterner::new();
-
-    let sym1 = interner.intern("test");
-    interner.clear();
-
-    // sym1 is now stale
-    assert_eq!(interner.resolve(sym1), None);
-}
-
-#[test]
-fn test_generation_reuse() {
-    let mut interner = SymbolInterner::new();
-
-    let sym1 = interner.intern("test");
-    let index1 = sym1.index;
-    let gen1 = sym1.generation;
-
-    interner.remove(sym1);
-
-    // Interning again should reuse slot but increment generation
-    let sym2 = interner.intern("test");
-    assert_eq!(sym2.index, index1);  // Same slot
-    assert_ne!(sym2.generation, gen1);  // Different generation
-}
-
-#[test]
-fn test_symbol_lifetime_safety() {
-    let mut interner = SymbolInterner::new();
-    let sym = interner.intern("test");
-
-    // Symbol can outlive the borrow of interner
-    drop(interner);
-
-    // This is safe - we just can't resolve it anymore
-    let _copy = sym;  // Symbol is Copy
-}
-```
 
 
 **Starter Code**:
@@ -1155,6 +964,70 @@ impl SymbolInterner {
     }
 }
 ```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_symbol_intern() {
+    let mut interner = SymbolInterner::new();
+
+    let sym1 = interner.intern("hello");
+    let sym2 = interner.intern("hello");
+
+    // Same string should have same symbol
+    assert_eq!(sym1, sym2);
+    assert_eq!(interner.resolve(sym1), Some("hello"));
+}
+
+#[test]
+fn test_symbol_resolve() {
+    let mut interner = SymbolInterner::new();
+
+    let sym = interner.intern("test");
+    assert_eq!(interner.resolve(sym), Some("test"));
+}
+
+#[test]
+fn test_stale_symbol() {
+    let mut interner = SymbolInterner::new();
+
+    let sym1 = interner.intern("test");
+    interner.clear();
+
+    // sym1 is now stale
+    assert_eq!(interner.resolve(sym1), None);
+}
+
+#[test]
+fn test_generation_reuse() {
+    let mut interner = SymbolInterner::new();
+
+    let sym1 = interner.intern("test");
+    let index1 = sym1.index;
+    let gen1 = sym1.generation;
+
+    interner.remove(sym1);
+
+    // Interning again should reuse slot but increment generation
+    let sym2 = interner.intern("test");
+    assert_eq!(sym2.index, index1);  // Same slot
+    assert_ne!(sym2.generation, gen1);  // Different generation
+}
+
+#[test]
+fn test_symbol_lifetime_safety() {
+    let mut interner = SymbolInterner::new();
+    let sym = interner.intern("test");
+
+    // Symbol can outlive the borrow of interner
+    drop(interner);
+
+    // This is safe - we just can't resolve it anymore
+    let _copy = sym;  // Symbol is Copy
+}
+```
+
+
 
 **Check Your Understanding**:
 - Why use symbols instead of direct string references?

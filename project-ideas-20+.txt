@@ -1,0 +1,319 @@
+
+  Project 1: Log Aggregator with Rotation and Compression
+
+  Focus: Buffered I/O, file operations, directory traversal
+
+  Build a log aggregation system that monitors multiple log files, rotates
+  them based on size, and compresses old logs. Students implement:
+  - BufReader to tail multiple log files efficiently
+  - BufWriter with explicit flush() for critical writes
+  - File rotation: when log exceeds threshold, rename to .1, .2, etc.
+  - Compress old logs using std::process::Command to call gzip
+  - Directory traversal to find and clean up logs older than N days
+  - OpenOptions with .append(true) for safe concurrent log writing
+  - Handle file locking/atomic operations for multi-process safety
+
+  Why it matters: Log rotation is critical for production systems. Teaches
+  buffered I/O performance benefits, atomic file operations, process
+  spawning, and real-world file management patterns used in servers and
+  daemons.
+
+  ---
+  Project 2: File Synchronization Tool (Simplified rsync)
+
+  Focus: Directory traversal, metadata comparison, buffered copying
+
+  Build a tool that syncs files between two directories, copying only
+  changed files. Students implement:
+  - Recursive directory traversal with symlink cycle detection
+  - Metadata comparison (modification time, size, checksums)
+  - Efficient file copying using BufReader/BufWriter
+  - Progress reporting to stdout using Write::flush()
+  - Filtering by file extension/glob patterns
+  - Handle errors gracefully (permission denied, disk full)
+  - Optional: parallel copying using thread pool
+  - Dry-run mode that shows what would be synced
+
+  Why it matters: File syncing is fundamental to backup tools, deployment
+  systems, and build tools. Teaches efficient directory walking, metadata
+  operations, and how to avoid O(N²) performance pitfalls.
+
+  ---
+  Project 3: Build System Pipeline Executor
+
+  Focus: Process spawning, piping, stream handling
+
+  Build a simple build system that executes compilation pipelines and
+  captures output. Students implement:
+  - Command::new() with .spawn() for parallel execution
+  - Pipe stdout from one process to stdin of next (implementing cat | grep |
+   wc style)
+  - Thread-based concurrent reading of stdout/stderr to avoid deadlocks
+  - Streaming output to terminal while also buffering for later analysis
+  - Environment variable propagation and working directory control
+  - Timeout handling for hung processes
+  - Exit code checking and error reporting
+  - Parse and colorize compiler output (errors/warnings)
+
+  Why it matters: Build systems are core to software development. Teaches
+  process orchestration, avoiding pipe deadlocks, stream multiplexing, and
+  how tools like cargo, make, and CI systems work internally.
+
+  ---
+  All three projects are unique compared to the existing workbook projects
+  and comprehensively cover Chapter 20's patterns: buffered I/O, file
+  operations, directory traversal, and process spawning/piping.
+
+
+
+  ---
+  Project 1: Async HTTP Proxy Server with Connection Pooling
+
+  Focus: TCP networking, connection pooling, buffered streams, backpressure
+
+  Build an HTTP proxy server that forwards requests to backend servers using
+   connection pooling. Students implement:
+  - TcpListener::accept() in a loop, spawning tasks with tokio::spawn
+  - Connection pool for backend servers (reuse connections instead of
+  creating new ones)
+  - BufReader/BufWriter for efficient HTTP header parsing and writing
+  - Backpressure handling with bounded channels to prevent memory exhaustion
+  - Timeout handling for both client and backend connections
+  - Health checks to detect and remove stale connections from pool
+  - Graceful shutdown using CancellationToken
+  - Optional: TLS support with tokio-rustls
+
+  Why it matters: Proxies are fundamental to microservices, load balancers,
+  and API gateways. Teaches connection pooling (critical for database/HTTP
+  clients), efficient stream processing, and how to prevent resource leaks.
+  Real-world patterns used in production reverse proxies.
+
+  ---
+  Project 2: Chat Server with Broadcast and Backpressure
+
+  Focus: Async networking, broadcast patterns, bounded channels, line-based
+  protocol
+
+  Build a multi-client chat server that broadcasts messages to all connected
+   clients with proper backpressure. Students implement:
+  - TcpListener accepting multiple client connections concurrently
+  - Broadcast channel or manual mpsc per client for message distribution
+  - Line-based protocol using BufReader::lines() for message parsing
+  - Bounded channels with backpressure to prevent fast senders overwhelming
+  slow receivers
+  - Per-client timeout and idle disconnect detection
+  - Handle client disconnections gracefully (remove from broadcast list)
+  - Commands: /name, /list, /whisper, /quit
+  - Username registry to prevent duplicates
+
+  Why it matters: Chat servers demonstrate async broadcasting, handling
+  heterogeneous client speeds (slow clients can't block fast ones), and
+  graceful degradation under load. Patterns apply to WebSocket servers,
+  pub/sub systems, and real-time applications.
+
+  ---
+  Project 3: Multi-Source Log Aggregator with Rate Limiting
+
+  Focus: Concurrent file I/O, async streams, rate limiting, timeout handling
+
+  Build a log aggregator that tails multiple log files concurrently, merges
+  them with timestamps, and writes to a central output with rate limiting.
+  Students implement:
+  - tokio::fs::File to read multiple log files concurrently
+  - BufReader::lines() for efficient line-by-line reading
+  - Async stream merging with timestamp ordering
+  - Rate limiting using tokio::time::interval() to prevent overwhelming
+  output
+  - Backpressure with bounded channels between readers and writer
+  - File rotation detection (watch for new files, detect truncation)
+  - Timeout handling for stuck file reads
+  - Filtering and pattern matching (include/exclude patterns)
+  - Graceful shutdown on Ctrl+C using tokio::signal
+
+  Why it matters: Log aggregation is critical for distributed systems (think
+   Splunk, ELK stack). Teaches concurrent file I/O without blocking the
+  runtime, stream merging with ordering, rate limiting to prevent downstream
+   overload, and handling file system changes asynchronously.
+
+  ---
+  All three projects comprehensively cover Chapter 21's patterns while being
+   distinct from existing Chapter 15 projects. They emphasize:
+  - Pattern 1 (Tokio I/O): TCP and file operations
+  - Pattern 2 (Buffered Streams): BufReader/BufWriter for efficiency
+  - Pattern 3 (Backpressure): Bounded channels, flow control
+  - Pattern 4 (Connection Pooling): Reusing expensive resources
+  - Pattern 5 (Timeout/Cancellation): Preventing hung operations and
+  graceful shutdown
+  
+  
+  
+  ---
+  Project 1: Multi-Format Config Manager with Schema Evolution
+
+  Focus: Serde field attributes, schema evolution, format comparison
+
+  Build a configuration management system that handles multiple formats
+  (JSON, TOML, YAML) and gracefully evolves schemas across versions.
+  Students implement:
+  - Support reading config from multiple formats using format detection
+  - Schema versioning with #[serde(tag = "version")] enum variants
+  - #[serde(default)] for backward-compatible field additions
+  - #[serde(alias)] to accept both old and new field names during migration
+  - #[serde(rename_all)] for case conversion (camelCase/snake_case)
+  - #[serde(flatten)] for merging nested configurations
+  - Config validation with custom deserialize functions
+  - Migration tool that upgrades old configs to new schema
+  - Export to different formats (read TOML, write JSON)
+
+  Why it matters: Config evolution is critical for production systems during
+   rolling deployments. Teaches how to maintain backward compatibility,
+  handle multiple formats with same types, and use serde attributes for
+  real-world API versioning. Applicable to REST APIs, database migrations,
+  and microservices.
+
+  ---
+  Project 2: Zero-Copy Log Parser with Streaming
+
+  Focus: Zero-copy deserialization, streaming serialization, performance
+  optimization
+
+  Build a high-performance log parser that processes GB-sized log files
+  using zero-copy deserialization and streaming. Students implement:
+  - Zero-copy parsing with &'a str fields and #[serde(borrow)]
+  - Cow<'a, str> for flexible ownership when escaping is needed
+  - Streaming JSON Lines (newline-delimited JSON) reader
+  - Memory-mapped file reading for zero-copy from disk
+  - Benchmark comparing owned (String) vs borrowed (&str) performance
+  - Filter and transform logs while streaming (don't load all into memory)
+  - Aggregate statistics (error counts, warn levels) with O(1) memory
+  - Output streaming: write filtered results as JSON Lines without buffering
+  - Compare formats: JSON vs MessagePack vs Bincode for size/speed
+
+  Why it matters: Zero-copy is essential for high-throughput systems
+  processing millions of records. Teaches lifetime management, borrowing
+  from input buffers, and streaming for constant memory usage. Real-world
+  pattern used in log aggregators, protocol parsers, and analytics
+  pipelines.
+
+  ---
+  Project 3: Binary Protocol RPC Framework
+
+  Focus: Binary formats, custom serialization, protocol design
+
+  Build a simple RPC (Remote Procedure Call) framework using binary
+  serialization for efficient inter-service communication. Students
+  implement:
+  - Define RPC message protocol with request/response enums
+  - Support multiple binary formats: bincode (fastest), MessagePack
+  (cross-language), CBOR
+  - Custom serialization with #[serde(serialize_with)] for special types
+  - Length-prefixed framing (4-byte length + payload) for TCP streaming
+  - Versioned protocol using #[serde(tag)] for backward compatibility
+  - Compression comparison (serialize then compress with flate2)
+  - Benchmark: JSON vs bincode vs MessagePack for size and parse speed
+  - Error handling with custom error types
+  - Client/Server implementation over TCP with async/await
+  - Optional: Add authentication with serialized tokens
+
+  Why it matters: Binary RPC is fundamental to microservices (gRPC, Thrift)
+  and high-performance systems. Teaches format selection trade-offs,
+  protocol framing, and how to build efficient wire protocols. Students see
+  concrete performance differences between text and binary formats.
+
+  ---
+  All three projects comprehensively cover Chapter 22's patterns while being
+   distinct from existing configuration projects:
+  - Pattern 1 (Serde Patterns): Field attributes, container attributes,
+  derive macros
+  - Pattern 2 (Zero-Copy): Borrowing with lifetimes, Cow, performance
+  optimization
+  - Pattern 3 (Schema Evolution): Versioning, backward compatibility,
+  migrations
+  - Pattern 4 (Binary vs Text): Format comparison, trade-offs, performance
+  benchmarks
+  - Pattern 5 (Streaming): Incremental processing, constant memory, JSON
+  Lines
+  
+  
+  
+  ---
+  Project 1: Testing Framework DSL with assert_matches!
+
+  Focus: Pattern matching, repetition, DSL construction, hygiene
+
+  Build a custom testing framework with assertion macros that provide better
+   error messages than standard assertions. Students implement:
+  - assert_matches!(value, pattern) macro for pattern matching assertions
+  - assert_approx!(a, b, epsilon) for floating point comparisons
+  - test_cases! macro for parameterized testing (generate multiple #[test]
+  functions)
+  - mock! macro to generate mock implementations of traits
+  - Variadic assert_all! and assert_any! for multiple conditions
+  - Custom error messages with stringify! to show what was tested
+  - Hygiene: ensure temporary variables don't collide
+  - Debug macros to trace expansion during development
+
+  Why it matters: Testing DSLs make test code more readable and
+  maintainable. Teaches macro repetition patterns, fragment specifiers
+  (expr, pat, ident), and hygiene. Students see how popular testing crates
+  like assert_matches work internally. Real-world pattern used in production
+   test suites.
+
+  ---
+  Project 2: Query Builder DSL for Collections
+
+  Focus: DSL construction, nested repetition, code generation
+
+  Build a SQL-like DSL that compiles to efficient iterator chains for
+  in-memory collections. Students implement:
+  - select!(field1, field2 from collection where condition) syntax
+  - order_by!(field asc/desc) for sorting
+  - group_by!(field) with aggregations (count, sum, avg)
+  - join!(left on left.id == right.id) for combining collections
+  - Nested repetition for multiple fields and conditions
+  - Compile-time type checking (fields must exist on struct)
+  - Compare macro-generated code to hand-written iterator chains using cargo
+   expand
+  - Optional: limit! and offset! for pagination
+  - Performance benchmarks showing zero-cost abstraction
+
+  Why it matters: DSLs demonstrate how to create domain-specific syntax
+  that's more readable than raw Rust. Teaches complex pattern matching,
+  nested repetitions, and how to translate custom syntax to efficient code.
+  Foundation for understanding ORMs and query builders like Diesel.
+
+  ---
+  Project 3: Bitflags Generator and Getters/Setters Macro
+
+  Focus: Code generation, trait implementations, multiple rules
+
+  Build code generation macros that eliminate boilerplate for common
+  patterns. Students implement:
+  - bitflags! macro to generate flag enums with bit operations (|, &, !)
+  - impl_for_primitives! to implement trait for all numeric types
+  - accessors! macro that generates getters/setters/builders for structs
+  - enum_conversions! to generate From, TryFrom, Display for enum variants
+  - Multiple macro rules for different syntax variations
+  - Use paste! crate for identifier concatenation (get_, set_, _mut
+  suffixes)
+  - Generate trait implementations in bulk (reduce 100 lines to 10)
+  - Demonstrate hygiene with internal temporary variables
+
+  Why it matters: Code generation is one of the most practical uses of
+  macros in production Rust. Teaches how to generate repetitive
+  implementations automatically, reducing bugs and maintenance burden.
+  Students see how bitflags, strum, and derive macros work internally.
+  Essential pattern for library authors.
+
+  ---
+  All three projects comprehensively cover Chapter 23's patterns:
+  - Pattern 1 (Patterns & Repetition): Fragment specifiers, $(...)*,
+  $(...)+, separators
+  - Pattern 2 (Hygiene & Scoping): Hygienic variables, $crate, ident for
+  breaking hygiene
+  - Pattern 3 (DSL Construction): Custom syntax, compile-time parsing,
+  zero-cost abstractions
+  - Pattern 4 (Code Generation): Trait implementations, accessor generation,
+   eliminating boilerplate
+  - Pattern 5 (Debugging): cargo expand, trace_macros!, compile_error!,
+  debugging techniques

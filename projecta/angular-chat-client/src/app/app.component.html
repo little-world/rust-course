@@ -1,0 +1,97 @@
+<div class="chat-container">
+  <div class="chat-header">
+    <h1>{{ title }}</h1>
+    <div class="connection-status" [ngClass]="getConnectionStatusClass()">
+      <span class="status-dot"></span>
+      {{ getConnectionStatusText() }}
+    </div>
+  </div>
+
+  <div class="chat-controls">
+    <div class="control-group">
+      <input
+        type="text"
+        [(ngModel)]="usernameInput"
+        placeholder="Enter username"
+        class="input-field"
+        (keypress)="$event.key === 'Enter' && setUsername()"
+      />
+      <button (click)="setUsername()" class="btn btn-primary">
+        Set Username
+      </button>
+    </div>
+
+    <div class="control-buttons">
+      <button (click)="listUsers()" class="btn btn-secondary">
+        <span class="icon">👥</span> List Users
+      </button>
+      <button (click)="showStats()" class="btn btn-secondary">
+        <span class="icon">📊</span> Stats
+      </button>
+      <button (click)="clearMessages()" class="btn btn-secondary">
+        <span class="icon">🗑️</span> Clear
+      </button>
+    </div>
+  </div>
+
+  <div class="messages-container" #messagesContainer>
+    <div
+      *ngFor="let message of messages"
+      class="message"
+      [ngClass]="getMessageClass(message.type)"
+    >
+      <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
+      <span class="content">{{ message.content }}</span>
+    </div>
+
+    <div *ngIf="messages.length === 0" class="empty-state">
+      <p>No messages yet. Start chatting!</p>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <input
+      type="text"
+      [(ngModel)]="messageInput"
+      placeholder="Type a message..."
+      class="message-input"
+      (keypress)="onKeyPress($event)"
+      [disabled]="connectionStatus !== ConnectionStatus.Connected"
+    />
+    <button
+      (click)="sendMessage()"
+      class="btn btn-send"
+      [disabled]="connectionStatus !== ConnectionStatus.Connected || !messageInput.trim()"
+    >
+      <span class="icon">📤</span> Send
+    </button>
+  </div>
+
+  <div class="connection-controls">
+    <button
+      *ngIf="connectionStatus === ConnectionStatus.Disconnected"
+      (click)="connect()"
+      class="btn btn-success"
+    >
+      Connect
+    </button>
+    <button
+      *ngIf="connectionStatus === ConnectionStatus.Connected"
+      (click)="disconnect()"
+      class="btn btn-danger"
+    >
+      Disconnect
+    </button>
+  </div>
+
+  <div class="footer">
+    <p class="help-text">
+      <strong>Commands:</strong>
+      <code>/name &lt;username&gt;</code>
+      <code>/list</code>
+      <code>/whisper &lt;user&gt; &lt;message&gt;</code>
+      <code>/stats</code>
+      <code>/quit</code>
+    </p>
+  </div>
+</div>

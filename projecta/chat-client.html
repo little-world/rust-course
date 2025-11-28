@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Chat Client</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+
+        #connection-status {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        #connection-status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        #connection-status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        #controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        #controls input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button.danger {
+            background-color: #dc3545;
+        }
+
+        button.danger:hover {
+            background-color: #c82333;
+        }
+
+        #messages {
+            border: 1px solid #ddd;
+            height: 450px;
+            overflow-y: scroll;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #fafafa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        .message {
+            margin: 8px 0;
+            padding: 6px 10px;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+
+        .system {
+            background-color: #e7f3ff;
+            color: #004085;
+            font-style: italic;
+        }
+
+        .received {
+            background-color: #fff;
+            border-left: 3px solid #007bff;
+            padding-left: 10px;
+        }
+
+        .sent {
+            background-color: #e8f5e9;
+            border-left: 3px solid #28a745;
+            padding-left: 10px;
+        }
+
+        .whisper {
+            background-color: #fff3cd;
+            border-left: 3px solid #ffc107;
+            padding-left: 10px;
+        }
+
+        #input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #messageInput:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 5px;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 11px;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Chat Client</h1>
+
+    <div class="container">
+        <div id="connection-status" class="disconnected">
+            Disconnected
+        </div>
+
+        <div id="controls">
+            <input type="text" id="usernameInput" placeholder="Enter username">
+            <button onclick="setUsername()">Set Username</button>
+            <button onclick="listUsers()">List Users</button>
+            <button onclick="showStats()">Stats</button>
+        </div>
+
+        <div id="messages"></div>
+
+        <div id="input-area">
+            <input
+                type="text"
+                id="messageInput"
+                placeholder="Type a message..."
+                onkeypress="handleKeyPress(event)"
+                autocomplete="off"
+            >
+            <div class="button-group">
+                <button onclick="sendMessage()">Send</button>
+                <button class="danger" onclick="disconnect()">Disconnect</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const SERVER_URL = 'ws://127.0.0.1:8080';
+
+        // Connect to WebSocket server
+        function connect() {
+            ws = new WebSocket(SERVER_URL);
+
+            ws.onopen = () => {
+                updateConnectionStatus(true);
+                addMessage('Connected to server', 'system');
+            };
+
+            ws.onmessage = (event) => {
+                // Determine message type and style accordingly
+                const message = event.data;
+
+                if (message.includes('Whisper')) {
+                    addMessage(message, 'whisper');
+                } else if (message.startsWith('Error:') || message.includes('not found')) {
+                    addMessage(message, 'system');
+                } else {
+                    addMessage(message, 'received');
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                addMessage('WebSocket error occurred', 'system');
+            };
+
+            ws.onclose = () => {
+                updateConnectionStatus(false);
+                addMessage('Disconnected from server', 'system');
+
+                // Attempt to reconnect after 3 seconds
+                setTimeout(() => {
+                    addMessage('Attempting to reconnect...', 'system');
+                    connect();
+                }, 3000);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDiv = document.getElementById('connection-status');
+            if (connected) {
+                statusDiv.textContent = 'Connected';
+                statusDiv.className = 'connected';
+            } else {
+                statusDiv.textContent = 'Disconnected';
+                statusDiv.className = 'disconnected';
+            }
+        }
+
+        function addMessage(text, className) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${className}`;
+
+            // Add timestamp
+            const now = new Date();
+            const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'timestamp';
+            timestampSpan.textContent = `[${timestamp}] `;
+
+            const textNode = document.createTextNode(text);
+
+            messageDiv.appendChild(timestampSpan);
+            messageDiv.appendChild(textNode);
+            messagesDiv.appendChild(messageDiv);
+
+            // Auto-scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (message && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+
+                // Show sent message locally (if not a command)
+                if (!message.startsWith('/')) {
+                    addMessage(`You: ${message}`, 'sent');
+                }
+
+                input.value = '';
+                input.focus();
+            } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('Not connected to server', 'system');
+            }
+        }
+
+        function setUsername() {
+            const username = document.getElementById('usernameInput').value.trim();
+            if (username) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('/name ' + username);
+                    document.getElementById('usernameInput').value = '';
+                } else {
+                    addMessage('Not connected to server', 'system');
+                }
+            }
+        }
+
+        function listUsers() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('/list');
+            } else {
+                addMessage('Not connected to server', 'system');
+            }
+        }
+
+        function showStats() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('/stats');
+            } else {
+                addMessage('Not connected to server', 'system');
+            }
+        }
+
+        function disconnect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('/quit');
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Whisper helper function (for future enhancement)
+        function whisper(username, message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(`/whisper ${username} ${message}`);
+            }
+        }
+
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            connect();
+        });
+
+        // Prevent accidental page close
+        window.addEventListener('beforeunload', (e) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                e.preventDefault();
+                e.returnValue = 'You are still connected to the chat. Are you sure you want to leave?';
+            }
+        });
+    </script>
+</body>
+</html>

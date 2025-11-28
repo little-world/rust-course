@@ -18,11 +18,15 @@ For each next step tell why the previous step is not enough and why we need anot
 look at workbook/workbook-projects.md for previous project subject 
 at new project on different subjects
 
-start with chp 08-iterator-*
+
+on each milestone start with an introdction then the names of structs/traits, the fields and the functions with the role they play the 'checkpoint tests' and thebn do the 'starter code' 
 
 
-start with chp 02-struct* 
-in the projects on each milestone do the 'starter code' after 'checkpoint tests' 
-start the with the names structs/traits the fields and the functions with the role they play
+in the projects on each milestone do a introduction  after 'checkpoint tests' then 'starter code'
+>>>>>>> External Changes
 
 put a complete working example at the end the project
+
+write the projects in 3 separate files
+
+start with src/18-smart-pointers

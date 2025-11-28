@@ -17,8 +17,6 @@ Wew go from simple expression enums to lexer to parser
 
 ### Why It Matters
 
-**Real-World Impact**: Compilers, parsers, and interpreters allocate millions of small objects (AST nodes, tokens, symbols). Traditional `malloc`/`free` becomes a bottleneck:
-
 **Performance Disaster with Box<T>**:
 - Parsing 10,000 expressions with `Box<Expr>`: Each node = 1 malloc call
 - Expression `(1+2)*(3+4)` = 7 nodes = 7 malloc calls
@@ -45,21 +43,23 @@ Wew go from simple expression enums to lexer to parser
 
 ### Milestone 1: Define AST Types
 
-**Goal**: Create the expression tree data structures that represent arithmetic expressions.
+ Create the expression tree data structures that represent arithmetic expressions.
 
-**Key Concepts**:
+**Architecture**:
+- **enum**: `Expr` - Expression Type
+  - **field**: `Literal` - a literal number
+  - **field**: `BinOp`   - needs to store: the operator and left and right sub-expressions
 
-1. **Expression Type** (`Expr`):
-    - Should represent either a literal number or a binary operation
-    - For binary operations, needs to store: the operator type and references to left and right sub-expressions
-
-2. **Operator Type** (`OpType`):
-    - Should represent the four arithmetic operations: addition, subtraction, multiplication, and division
-
-3. **Evaluation**:
-    - Implement an `eval()` method on `OpType` that takes two numbers and returns the result
+- **enum**: `OpType` - Operator Type
+  - **field**: `Add` - addition
+  - **field**: `Sub` - subtraction
+  - **field**: `Mul` - multiplication
+  - **field**: `Div` - division
+ 
+**functions**:
+- `eval()` method on `OpType` that takes two numbers and returns the result
     - Handle division by zero by returning a `Result<i64, String>`
-    - Implement an `eval()` method on `Expr` that recursively evaluates the expression tree
+- `eval()` method on `Expr` that recursively evaluates the expression tree
     - For binary operations, evaluate both sides first, then apply the operator
 
 **Design Hints**:
@@ -72,6 +72,7 @@ Wew go from simple expression enums to lexer to parser
 - Use pattern matching to handle different expression types
 - For recursive evaluation, use the `?` operator to propagate errors
 - Return appropriate error messages for invalid operations
+
 
 
 **Checkpoint Tests**:
@@ -191,7 +192,7 @@ impl<'arena> Expr<'arena> {
 
 ---
 
-### Why Milestone 1 Isn't Enough → Moving to Milestone 2
+#### Why Milestone 1 Isn't Enough 
 
 **Limitation**: We've defined the types, but how do we actually create these AST nodes? Using stack allocation limits us to small, fixed-size trees. We need heap allocation.
 
@@ -201,65 +202,17 @@ impl<'arena> Expr<'arena> {
 
 ### Milestone 2: Box-Based Expression Trees
 
-**Goal**: Implement expressions using `Box<Expr>` to understand traditional heap allocation.
+Implement expressions using `Box<Expr>` to understand traditional heap allocation.
 
-**Key Concepts**:
+**Architecture**:
 - Each AST node gets its own heap allocation via `Box::new()`
 - Each node has its own drop when the tree is freed
 - This is the "normal" approach used in many programming languages
 
 **Design Changes**:
-Instead of using references with lifetimes, we'll use `Box` pointers:
+Instead of using references with lifetimes for `left` and `right`, we'll use `Box` pointers:
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_box_expr_literal() {
-    let expr = BoxExprBuilder::literal(42);
-    assert_eq!(expr.eval(), Ok(42));
-}
 
-#[test]
-fn test_box_expr_addition() {
-    let expr = BoxExprBuilder::add(
-        BoxExprBuilder::literal(10),
-        BoxExprBuilder::literal(5),
-    );
-    assert_eq!(expr.eval(), Ok(15));
-}
-
-#[test]
-fn test_box_expr_nested() {
-    // Build: (2 + 3) * 4 = 20
-    let expr = BoxExprBuilder::mul(
-        BoxExprBuilder::add(
-            BoxExprBuilder::literal(2),
-            BoxExprBuilder::literal(3),
-        ),
-        BoxExprBuilder::literal(4),
-    );
-    assert_eq!(expr.eval(), Ok(20));
-}
-
-#[test]
-fn test_box_expr_complex() {
-    // Build: ((10 - 5) * 2) + (8 / 4) = 12
-    let expr = BoxExprBuilder::add(
-        BoxExprBuilder::mul(
-            BoxExprBuilder::sub(
-                BoxExprBuilder::literal(10),
-                BoxExprBuilder::literal(5),
-            ),
-            BoxExprBuilder::literal(2),
-        ),
-        BoxExprBuilder::div(
-            BoxExprBuilder::literal(8),
-            BoxExprBuilder::literal(4),
-        ),
-    );
-    assert_eq!(expr.eval(), Ok(12));
-}
-```
 **solution**
 ```rust
 #[derive(Debug, PartialEq)]
@@ -322,7 +275,55 @@ impl BoxExprBuilder {
     }
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_box_expr_literal() {
+    let expr = BoxExprBuilder::literal(42);
+    assert_eq!(expr.eval(), Ok(42));
+}
 
+#[test]
+fn test_box_expr_addition() {
+    let expr = BoxExprBuilder::add(
+        BoxExprBuilder::literal(10),
+        BoxExprBuilder::literal(5),
+    );
+    assert_eq!(expr.eval(), Ok(15));
+}
+
+#[test]
+fn test_box_expr_nested() {
+    // Build: (2 + 3) * 4 = 20
+    let expr = BoxExprBuilder::mul(
+        BoxExprBuilder::add(
+            BoxExprBuilder::literal(2),
+            BoxExprBuilder::literal(3),
+        ),
+        BoxExprBuilder::literal(4),
+    );
+    assert_eq!(expr.eval(), Ok(20));
+}
+
+#[test]
+fn test_box_expr_complex() {
+    // Build: ((10 - 5) * 2) + (8 / 4) = 12
+    let expr = BoxExprBuilder::add(
+        BoxExprBuilder::mul(
+            BoxExprBuilder::sub(
+                BoxExprBuilder::literal(10),
+                BoxExprBuilder::literal(5),
+            ),
+            BoxExprBuilder::literal(2),
+        ),
+        BoxExprBuilder::div(
+            BoxExprBuilder::literal(8),
+            BoxExprBuilder::literal(4),
+        ),
+    );
+    assert_eq!(expr.eval(), Ok(12));
+}
+```
 
 **Check Your Understanding**:
 - How many heap allocations occur for the expression `(2 + 3) * 4`?
@@ -332,7 +333,7 @@ impl BoxExprBuilder {
 
 ---
 
-### Why Milestone 2 Isn't Enough → Moving to Milestone 3
+#### Why Milestone 2 Isn't Enough 
 
 **Performance Problem**: Every single AST node requires a separate heap allocation with `Box::new()`. Let's analyze the cost:
 
@@ -377,58 +378,16 @@ Contrast with `Box<T>` per node:
 
 ### Milestone 3: Simple Bump Allocator
 
-**Goal**: Implement a basic arena that can allocate objects.
+Implement a basic arena that can allocate objects.
 
-
-**Key Concepts**
-struct: `Arena`
-fields: `storage`: RefCell<Vec<u8>>
-functions:
-- `new() `
+**Architecture**
+- **struct**: `Arena`  
+    - **field**: `storage`: RefCell<Vec<u8>>
+**functions**:
+- `new() ` 
 - `alloc()`
 
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_arena_alloc_int() {
-    let arena = Arena::new();
-    let x = arena.alloc(42);
-    assert_eq!(*x, 42);
-
-    *x = 100;
-    assert_eq!(*x, 100);
-}
-
-#[test]
-fn test_arena_multiple_allocs() {
-    let arena = Arena::new();
-    let x = arena.alloc(1);
-    let y = arena.alloc(2);
-    let z = arena.alloc(3);
-
-    assert_eq!(*x, 1);
-    assert_eq!(*y, 2);
-    assert_eq!(*z, 3);
-}
-
-#[test]
-fn test_arena_alloc_string() {
-    let arena = Arena::new();
-    let s = arena.alloc(String::from("hello"));
-    assert_eq!(s, "hello");
-}
-
-#[test]
-fn test_arena_alignment() {
-    let arena = Arena::new();
-    let _byte = arena.alloc(1u8);
-    let num = arena.alloc(1234u64);  // Needs 8-byte alignment
-
-    let ptr = num as *const u64 as usize;
-    assert_eq!(ptr % 8, 0, "u64 should be 8-byte aligned");
-}
-```
 
 **Starter Code**:
 ```rust
@@ -479,6 +438,50 @@ impl Arena {
 }
 ```
 
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_arena_alloc_int() {
+    let arena = Arena::new();
+    let x = arena.alloc(42);
+    assert_eq!(*x, 42);
+
+    *x = 100;
+    assert_eq!(*x, 100);
+}
+
+#[test]
+fn test_arena_multiple_allocs() {
+    let arena = Arena::new();
+    let x = arena.alloc(1);
+    let y = arena.alloc(2);
+    let z = arena.alloc(3);
+
+    assert_eq!(*x, 1);
+    assert_eq!(*y, 2);
+    assert_eq!(*z, 3);
+}
+
+#[test]
+fn test_arena_alloc_string() {
+    let arena = Arena::new();
+    let s = arena.alloc(String::from("hello"));
+    assert_eq!(s, "hello");
+}
+
+#[test]
+fn test_arena_alignment() {
+    let arena = Arena::new();
+    let _byte = arena.alloc(1u8);
+    let num = arena.alloc(1234u64);  // Needs 8-byte alignment
+
+    let ptr = num as *const u64 as usize;
+    assert_eq!(ptr % 8, 0, "u64 should be 8-byte aligned");
+}
+```
+
+
 **Check Your Understanding**:
 - Why do we need alignment?
 - What does `std::ptr::write` do?
@@ -489,9 +492,8 @@ impl Arena {
 
 ### Milestone 4: Build Expressions in Arena
 
-**Goal**: Use the arena allocator to create expression trees with the builder pattern.
+Use the arena allocator to create expression trees with the builder pattern.
 
-**Why This Milestone Matters**:
 
 Now that we have a working arena allocator (Milestone 3), we need a clean API to use it. Directly calling `arena.alloc()` everywhere would be verbose and error-prone. The **Builder Pattern** provides a fluent, type-safe interface for constructing expression trees.
 
@@ -515,7 +517,7 @@ let three = builder.literal(3);
 let sum = builder.add(two, three);
 ```
 
-**Key Design Decisions**:
+**Design Decisions**:
 
 1. **Builder holds `&'arena Arena`**: The builder doesn't own the arena—it just borrows it. This allows multiple builders to share one arena if needed.
 
@@ -530,52 +532,16 @@ Notice the signature: `fn literal(&self, n: i64) -> &'arena Expr<'arena>`. We ta
 - We allocate in that arena
 - The returned reference lives as long as the arena, not the builder
 
-**Key Concepts**:
+#### Architecture
 
-**Struct**: `ExprBuilder<'arena>`
-- **Fields**: `arena: &'arena Arena`
-- **Methods**:
-    - `new(arena: &'arena Arena) -> Self` - Creates builder wrapping arena
-    - `literal(&self, n: i64) -> &'arena Expr<'arena>` - Allocates literal expression
-    - `binary(&self, op: OpType, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena>` - Generic binary operation
-    - `add(...)`, `sub(...)`, `mul(...)`, `div(...)` - Convenience wrappers
+- **Struct**: `ExprBuilder<'arena>`
+  - **Fields**: `arena: &'arena Arena`
+**Functions**:
+- `new(arena: &'arena Arena) -> Self` - Creates builder wrapping arena
+- `literal(&self, n: i64) -> &'arena Expr<'arena>` - Allocates literal expression
+- `binary(&self, op: OpType, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena>` - Generic binary operation
+- `add(...)`, `sub(...)`, `mul(...)`, `div(...)` - Convenience wrappers
 
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_builder() {
-    let arena = Arena::new();
-    let builder = ExprBuilder::new(&arena);
-
-    // Build: (2 + 3) * 4
-    let two = builder.literal(2);
-    let three = builder.literal(3);
-    let four = builder.literal(4);
-
-    let sum = builder.add(two, three);
-    let product = builder.mul(sum, four);
-
-    assert_eq!(product.eval(), Ok(20));
-}
-
-#[test]
-fn test_complex_expression() {
-    let arena = Arena::new();
-    let builder = ExprBuilder::new(&arena);
-
-    // Build: ((10 - 5) * 2) + (8 / 4)
-    let expr = builder.add(
-        builder.mul(
-            builder.sub(builder.literal(10), builder.literal(5)),
-            builder.literal(2)
-        ),
-        builder.div(builder.literal(8), builder.literal(4))
-    );
-
-    assert_eq!(expr.eval(), Ok(12)); // (5 * 2) + 2 = 12
-}
-```
 
 **Starter Code**:
 ```rust
@@ -628,6 +594,42 @@ impl<'arena> ExprBuilder<'arena> {
 }
 ```
 
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_builder() {
+    let arena = Arena::new();
+    let builder = ExprBuilder::new(&arena);
+
+    // Build: (2 + 3) * 4
+    let two = builder.literal(2);
+    let three = builder.literal(3);
+    let four = builder.literal(4);
+
+    let sum = builder.add(two, three);
+    let product = builder.mul(sum, four);
+
+    assert_eq!(product.eval(), Ok(20));
+}
+
+#[test]
+fn test_complex_expression() {
+    let arena = Arena::new();
+    let builder = ExprBuilder::new(&arena);
+
+    // Build: ((10 - 5) * 2) + (8 / 4)
+    let expr = builder.add(
+        builder.mul(
+            builder.sub(builder.literal(10), builder.literal(5)),
+            builder.literal(2)
+        ),
+        builder.div(builder.literal(8), builder.literal(4))
+    );
+
+    assert_eq!(expr.eval(), Ok(12)); // (5 * 2) + 2 = 12
+}
+```
+
 
 **Check Your Understanding**:
 - Why does the builder need a reference to the arena?
@@ -638,9 +640,7 @@ impl<'arena> ExprBuilder<'arena> {
 
 ### Milestone 5: Lexer (Tokenizer)
 
-**Goal**: Transform raw text input into a stream of tokens that the parser can work with.
-
-**Why This Milestone Matters**:
+Transform raw text input into a stream of tokens that the parser can work with.
 
 So far, we've been manually constructing expression trees using the builder. But real parsers work with text input like `"(2 + 3) * 4"`. The **lexer** (also called tokenizer or scanner) is the first stage of parsing that breaks this text into meaningful chunks called **tokens**.
 
@@ -680,14 +680,14 @@ We convert the string to `Vec<char>` because:
 - Handles multi-byte Unicode properly (though our grammar is ASCII-only)
 - Simple `position` counter tracks where we are
 
-**Key Operations**:
+**functions**:
 
-1. **`peek()`**: Look at current character without moving forward
-2. **`advance()`**: Move position forward by one character
-3. **`skip_whitespace()`**: Skip spaces, tabs, newlines
-4. **`read_number()`**: Consume consecutive digits and build an integer
-5. **`next_token()`**: Return the next token from input
-6. **`tokenize()`**: Convert entire input to `Vec<Token>`
+- `peek()` - Look at current character without moving forward
+- `advance()` - Move position forward by one character
+- `skip_whitespace()` - Skip spaces, tabs, newlines
+- `read_number()` - Consume consecutive digits and build an integer
+- `next_token()` - Return the next token from input
+- `tokenize()` - Convert entire input to `Vec<Token>`
 
 **Example Tokenization**:
 
@@ -716,36 +716,6 @@ Result: Err("Unexpected character '&'")
 ```
 
 Returning `Result<Token, String>` allows propagating errors up to the caller.
-
-**Real-World Lexers**:
-
-- **Programming languages**: Every compiler has a lexer (rustc, clang, javac)
-- **Configuration parsers**: JSON, YAML, TOML start with lexing
-- **Text editors**: Syntax highlighting uses lexers to identify token types
-- **Log parsers**: Extract timestamps, levels, messages from log lines
-
-**Performance Considerations**:
-
-Lexing is typically very fast (millions of tokens/second) because:
-- Simple character-by-character scanning
-- No recursion or complex logic
-- Cache-friendly sequential access
-- Can be parallelized for large files (split at whitespace boundaries)
-
-**Design Decision: Why `Vec<Token>` instead of Iterator?**
-
-We return `Vec<Token>` from `tokenize()` for simplicity. Production lexers often use iterators:
-```rust
-// Production style:
-for token in lexer {
-    match token? {
-        Token::Number(n) => ...,
-        ...
-    }
-}
-```
-
-This allows lazy evaluation (don't tokenize entire file upfront), but adds complexity. For learning, the vector approach is clearer.
 
 
 **Checkpoint Tests**:
@@ -876,9 +846,8 @@ impl Lexer {
 
 ### Milestone 6: Recursive Descent Parser
 
-**Goal**: Transform the token stream from the lexer into an Abstract Syntax Tree (AST) stored in the arena, respecting operator precedence and parentheses.
+ Transform the token stream from the lexer into an Abstract Syntax Tree (AST) stored in the arena, respecting operator precedence and parentheses.
 
-**Why This Milestone Matters**:
 
 The parser is the **brain** of the compiler—it understands the **structure** and **meaning** of code. While the lexer breaks text into tokens, the parser answers questions like:
 - Does `2 + 3 * 4` mean `(2 + 3) * 4` or `2 + (3 * 4)`? (Answer: second one, multiplication binds tighter)
@@ -953,7 +922,7 @@ Notice: `parse_term()` consumed `3 * 4` as a unit **before** returning to `parse
     - If `(`: recursively parse expression, expect `)`
     - Otherwise: error
 
-**The Parser State**:
+**Architecture**:
 
 ```rust
 struct Parser<'arena> {
@@ -963,15 +932,15 @@ struct Parser<'arena> {
 }
 ```
 
-**Key Operations**:
+**functions**:
 
-1. **`peek()`**: Look at current token without advancing
-2. **`advance()`**: Move to next token
-3. **`expect(token)`**: Verify current token matches expected, advance, or error
-4. **`parse_factor()`**: Parse numbers and parenthesized expressions
-5. **`parse_term()`**: Parse multiplication and division
-6. **`parse_expr()`**: Parse addition and subtraction
-7. **`parse()`**: Entry point that parses and verifies we consumed all tokens
+- `peek()` - Look at current token without advancing
+- `advance()` - Move to next token
+- `expect(token)` - Verify current token matches expected, advance, or error
+- `parse_factor()` - Parse numbers and parenthesized expressions
+- `parse_term()` - Parse multiplication and division
+- `parse_expr()` - Parse addition and subtraction
+- `parse()` - Entry point that parses and verifies we consumed all tokens
 
 **Detailed Example: Parsing `(2 + 3) * 4`**:
 
@@ -1025,14 +994,6 @@ All parse functions return `Result<&'arena Expr<'arena>, String>` to propagate e
 - **Left recursion**: Can't handle grammars like `Expr → Expr '+' Term` (infinite loop)
 - **Backtracking**: Inefficient for ambiguous grammars (not our case)
 - **Grammar restrictions**: Not all grammars work
-
-**Real-World Recursive Descent Parsers**:
-
-- **Rust compiler**: Uses recursive descent for parsing Rust syntax
-- **Go compiler**: Hand-written recursive descent
-- **JSON parsers**: Most use recursive descent (simple grammar)
-- **Markdown parsers**: Often recursive descent with extensions
-- **Configuration languages**: TOML, INI parsers
 
 **The Connection to Arena Allocation**:
 
@@ -1201,7 +1162,7 @@ fn parse_and_eval(input: &str) -> Result<i64, String> {
 
 ### Milestone 7: Performance Comparison
 
-**Goal**: Compare arena allocation vs Box allocation using the implementations from Milestones 2 and 3.
+Compare arena allocation vs Box allocation using the implementations from Milestones 2 and 3.
 
 **Benchmark Code**:
 ```rust

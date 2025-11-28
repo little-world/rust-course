@@ -11,10 +11,6 @@ Your memory pool should support:
 - Preventing fragmentation
 - Detecting memory leaks and double-frees
 
-### Why It Matters
-
-Memory pools are critical for high-performance systems where allocation patterns are predictable. Game engines, embedded systems, real-time applications, and network servers use memory pools to achieve deterministic performance by avoiding unpredictable heap allocations. Understanding memory pools teaches you about memory layout, alignment, lifetimes, and ownership - core concepts in systems programming.
-
 ### Use Cases
 
 - Game engines: Managing game objects with predictable lifecycles
@@ -23,9 +19,18 @@ Memory pools are critical for high-performance systems where allocation patterns
 - Real-time systems: Avoiding non-deterministic malloc/free
 - Database engines: Managing fixed-size page buffers
 
-### Solution Outline
 
-Your solution should follow these Milestones:
+### Learning Goals
+
+By completing this project, you will:
+
+1. **Master unsafe Rust**: Work with raw pointers, manual memory management, and understand when unsafe code is necessary
+2. **Understand memory layout**: Learn about memory alignment, block allocation, and fragmentation prevention
+3. **Implement RAII patterns**: Create automatic resource management using Drop trait and ownership
+4. **Build thread-safe abstractions**: Use Arc, Mutex, and understand Send/Sync traits for concurrent programming
+5. **Design zero-cost abstractions**: Create safe high-level APIs built on unsafe low-level primitives
+6. **Practice systems programming**: Gain experience with deterministic memory allocation used in performance-critical systems
+
 
 #### Milestone 1: Basic Memory Pool Structure
 **Goal**: Create a memory pool that can allocate and deallocate fixed-size blocks.
@@ -35,18 +40,61 @@ Your solution should follow these Milestones:
 - Track which blocks are free/used
 - Implement basic allocation and deallocation
 
-**Why this Milestone**: Establishes the foundation of pool-based allocation. You'll learn about memory layout and block management.
 
-**Key concepts**:
-- Structs: `MemoryPool`
-- Fields: `memory: Vec<u8>`, `block_size: usize`, `free_list: Vec<usize>`
-- Functions:
-    - `new(total_size: usize, block_size: usize) -> Self` - Creates the pool
-    - `allocate() -> Option<*mut u8>` - Returns pointer to free block
-    - `deallocate(ptr: *mut u8)` - Marks block as free
-
+**Architecture**:
+- **Struct**: `MemoryPool`   - Main allocator structure   
+  - **field**: `memory: Vec<u8>`- The pre-allocated memory buffer
+  - **field**: `block_size: usize` - Size of each allocatable block
+  - **field**: `total_size: usize` - Total size of the pool
+  - **field**: `free_list: Vec<usize>` - Indices of free blocks
+**Functions**:
+- `new()` - Initializes the pool with specified size 
+- `allocate()` - Returns a pointer to a free block   
+- `deallocate()` - Returns a block to the free list  
+- `total_blocks()` - Returns number of blocks in pool
 ---
 
+
+
+**Starter Code**:
+
+```rust
+/// A memory pool allocator that manages fixed-size blocks
+pub struct MemoryPool {
+    memory: Vec<u8>,
+    block_size: usize,
+    total_size: usize,
+    free_list: Vec<usize>,
+}
+
+impl MemoryPool {
+    /// Creates a new memory pool
+    /// Role: Initialize pre-allocated memory and free list
+    pub fn new(total_size: usize, block_size: usize) -> Self {
+        todo!("Implement pool creation")
+    }
+
+    /// Allocates a block from the pool
+    /// Role: Find and return a free block, update free list
+    pub fn allocate(&mut self) -> Option<*mut u8> {
+        todo!("Implement allocation logic")
+    }
+
+    /// Returns a block to the pool
+    /// Role: Mark block as free and add to free list
+    pub fn deallocate(&mut self, ptr: *mut u8) {
+        todo!("Implement deallocation logic")
+    }
+
+    /// Returns total number of blocks
+    /// Role: Calculate capacity of the pool
+    pub fn total_blocks(&self) -> usize {
+        todo!("Implement block counting")
+    }
+}
+```
+
+---
 **Checkpoint Tests**:
 
 ```rust
@@ -91,63 +139,51 @@ mod tests {
 }
 ```
 
----
-
-**Starter Code**:
+---**Checkpoint Tests**:
 
 ```rust
-/// A memory pool allocator that manages fixed-size blocks
-///
-/// Structs:
-/// - MemoryPool: Main allocator structure
-///
-/// Fields:
-/// - memory: Vec<u8> - The pre-allocated memory buffer
-/// - block_size: usize - Size of each allocatable block
-/// - total_size: usize - Total size of the pool
-/// - free_list: Vec<usize> - Indices of free blocks
-///
-/// Functions:
-/// - new() - Initializes the pool with specified size
-/// - allocate() - Returns a pointer to a free block
-/// - deallocate() - Returns a block to the free list
-/// - total_blocks() - Returns number of blocks in pool
-pub struct MemoryPool {
-    memory: Vec<u8>,
-    block_size: usize,
-    total_size: usize,
-    free_list: Vec<usize>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl MemoryPool {
-    /// Creates a new memory pool
-    /// Role: Initialize pre-allocated memory and free list
-    pub fn new(total_size: usize, block_size: usize) -> Self {
-        todo!("Implement pool creation")
+    #[test]
+    fn test_pool_creation() {
+        let pool = MemoryPool::new(1024, 64);
+        assert_eq!(pool.block_size, 64);
+        assert_eq!(pool.total_blocks(), 16);
     }
 
-    /// Allocates a block from the pool
-    /// Role: Find and return a free block, update free list
-    pub fn allocate(&mut self) -> Option<*mut u8> {
-        todo!("Implement allocation logic")
+    #[test]
+    fn test_single_allocation() {
+        let mut pool = MemoryPool::new(1024, 64);
+        let ptr = pool.allocate();
+        assert!(ptr.is_some());
     }
 
-    /// Returns a block to the pool
-    /// Role: Mark block as free and add to free list
-    pub fn deallocate(&mut self, ptr: *mut u8) {
-        todo!("Implement deallocation logic")
+    #[test]
+    fn test_allocation_exhaustion() {
+        let mut pool = MemoryPool::new(256, 64);
+        let p1 = pool.allocate();
+        let p2 = pool.allocate();
+        let p3 = pool.allocate();
+        let p4 = pool.allocate();
+        let p5 = pool.allocate(); // Should fail - only 4 blocks available
+        assert!(p5.is_none());
     }
 
-    /// Returns total number of blocks
-    /// Role: Calculate capacity of the pool
-    pub fn total_blocks(&self) -> usize {
-        todo!("Implement block counting")
+    #[test]
+    fn test_deallocation_and_reuse() {
+        let mut pool = MemoryPool::new(256, 64);
+        let ptr1 = pool.allocate().unwrap();
+        pool.deallocate(ptr1);
+        let ptr2 = pool.allocate();
+        assert!(ptr2.is_some());
+        // Should reuse the deallocated block
     }
 }
 ```
 
 ---
-
 #### Milestone 2: Safe Wrapper with Ownership Tracking
 **Goal**: Create a safe API that prevents use-after-free and double-free bugs.
 
@@ -156,64 +192,19 @@ impl MemoryPool {
 **What's the improvement**: Introduce typed blocks with RAII (Resource Acquisition Is Initialization). When a `Block<T>` is dropped, memory is automatically returned to the pool.
 
 **Key concepts**:
-- Structs: `Block<T>`, `TypedPool<T>`
-- Traits: `Drop` for automatic cleanup
-- Fields: `data: *mut T`, `pool: *mut TypedPool<T>`, `marker: PhantomData<T>`
-- Functions:
-    - `TypedPool::new(capacity: usize) -> Self` - Creates typed pool
-    - `allocate(&mut self, value: T) -> Option<Block<T>>` - Returns owned block
-    - `Drop::drop(&mut self)` - Auto-returns block to pool
+- **Struct**: `TypedPool<T>` - Type-safe memory pool
+  - **Field**: `pool: MemoryPool` - Underlying raw pool
+  - **Field**: `_marker: PhantomData<T>` - Zero-size type marker
+- **Struct**: `Block<T>` - RAII wrapper for allocated memory
+  - **Field**: `data: *mut T` - Pointer to the allocated object
+  - **Field**: `pool: *mut TypedPool<T>` - Pointer back to owning pool
+- **Trait**: `Drop` - Ensures automatic cleanup on drop
 
----
+- **Function**: `TypedPool::new(capacity: usize) -> Self` - Creates typed pool
+- **Function**: `allocate(&mut self, value: T) -> Option<Block<T>>` - Returns owned block
+- **Function**: `Drop::drop(&mut self)` - Auto-returns block to pool
 
-**Checkpoint Tests**:
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_typed_allocation() {
-        let mut pool = TypedPool::<u64>::new(10);
-        let block = pool.allocate(42);
-        assert!(block.is_some());
-        assert_eq!(*block.unwrap(), 42);
-    }
-
-    #[test]
-    fn test_automatic_deallocation() {
-        let mut pool = TypedPool::<u64>::new(2);
-        {
-            let _b1 = pool.allocate(10).unwrap();
-            let _b2 = pool.allocate(20).unwrap();
-            // Both blocks allocated
-            assert_eq!(pool.available(), 0);
-        } // Both blocks dropped here
-
-        assert_eq!(pool.available(), 2);
-    }
-
-    #[test]
-    fn test_block_access() {
-        let mut pool = TypedPool::<String>::new(5);
-        let mut block = pool.allocate(String::from("hello")).unwrap();
-        block.push_str(" world");
-        assert_eq!(&*block, "hello world");
-    }
-
-    #[test]
-    fn test_prevents_double_free() {
-        let mut pool = TypedPool::<i32>::new(5);
-        let block = pool.allocate(100).unwrap();
-        drop(block);
-        // Block is already freed - can't free again
-        // Rust's type system prevents this at compile time
-    }
-}
-```
-
----
 
 **Starter Code**:
 
@@ -222,25 +213,6 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 /// A typed memory pool for type T
-///
-/// Structs:
-/// - TypedPool<T>: Type-safe memory pool
-/// - Block<T>: RAII wrapper for allocated memory
-///
-/// TypedPool Fields:
-/// - pool: MemoryPool - Underlying raw pool
-/// - _marker: PhantomData<T> - Zero-size type marker
-///
-/// Block Fields:
-/// - data: *mut T - Pointer to the allocated object
-/// - pool: *mut TypedPool<T> - Pointer back to owning pool
-/// - _marker: PhantomData<T> - Ensures proper Drop behavior
-///
-/// Functions:
-/// - TypedPool::new(capacity) - Creates pool for T
-/// - allocate(value: T) - Allocates and initializes a block
-/// - available() - Returns number of free blocks
-/// - Block::drop() - Automatically returns memory on drop
 pub struct TypedPool<T> {
     pool: MemoryPool,
     _marker: PhantomData<T>,
@@ -300,6 +272,55 @@ impl<T> Drop for Block<'_, T> {
 
 ---
 
+**Checkpoint Tests**:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_typed_allocation() {
+        let mut pool = TypedPool::<u64>::new(10);
+        let block = pool.allocate(42);
+        assert!(block.is_some());
+        assert_eq!(*block.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_automatic_deallocation() {
+        let mut pool = TypedPool::<u64>::new(2);
+        {
+            let _b1 = pool.allocate(10).unwrap();
+            let _b2 = pool.allocate(20).unwrap();
+            // Both blocks allocated
+            assert_eq!(pool.available(), 0);
+        } // Both blocks dropped here
+
+        assert_eq!(pool.available(), 2);
+    }
+
+    #[test]
+    fn test_block_access() {
+        let mut pool = TypedPool::<String>::new(5);
+        let mut block = pool.allocate(String::from("hello")).unwrap();
+        block.push_str(" world");
+        assert_eq!(&*block, "hello world");
+    }
+
+    #[test]
+    fn test_prevents_double_free() {
+        let mut pool = TypedPool::<i32>::new(5);
+        let block = pool.allocate(100).unwrap();
+        drop(block);
+        // Block is already freed - can't free again
+        // Rust's type system prevents this at compile time
+    }
+}
+```
+
+---
+
 #### Milestone 3: Thread-Safe Pool with Arc and Mutex
 **Goal**: Make the memory pool usable across threads.
 
@@ -307,78 +328,21 @@ impl<T> Drop for Block<'_, T> {
 
 **What's the improvement**: Wrap pool in `Arc<Mutex<>>` to enable safe sharing across threads. Blocks now hold an `Arc` reference to keep the pool alive.
 
-**Key concepts**:
-- Structs: `SharedPool<T>`, `SharedBlock<T>`
-- Traits: `Send`, `Sync` bounds
-- Fields: `pool: Arc<Mutex<TypedPool<T>>>`
-- Functions:
-    - `SharedPool::new(capacity)` - Creates thread-safe pool
-    - `allocate(value)` - Locks pool and allocates
-    - `clone()` - Shares pool across threads
+**Architecture**:
+**Structs**:
+- `SharedPool<T>`: Clone-able, thread-safe pool
+  - **field**: `inner: Arc<Mutex<TypedPool<T>>> `- Shared, locked pool           
+- `SharedBlock<T>`: Block that holds Arc reference
+  - **field**: `data: *mut T` - Pointer to data
+  - *field**: `pool: Arc<Mutex<TypedPool<T>>>` - Keeps pool alive
+  - *field**: `_marker: PhantomData<T> `
 
+**Functions**:
+- `SharedPool::new(capacity)` - Creates shareable pool
+- `clone()` - Creates another reference to same pool
+- `allocate(value)` - Thread-safe allocation
+- `available()` - Returns free block count
 ---
-
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread;
-
-    #[test]
-    fn test_shared_pool_creation() {
-        let pool = SharedPool::<i32>::new(10);
-        let block = pool.allocate(42);
-        assert!(block.is_some());
-    }
-
-    #[test]
-    fn test_concurrent_allocation() {
-        let pool = SharedPool::<u64>::new(100);
-        let mut handles = vec![];
-
-        for i in 0..10 {
-            let pool_clone = pool.clone();
-            let handle = thread::spawn(move || {
-                let mut blocks = vec![];
-                for j in 0..10 {
-                    if let Some(block) = pool_clone.allocate(i * 10 + j) {
-                        blocks.push(block);
-                    }
-                }
-                blocks
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        // All allocations should succeed
-        assert_eq!(pool.available(), 0);
-    }
-
-    #[test]
-    fn test_pool_survives_block_thread() {
-        let pool = SharedPool::<String>::new(5);
-
-        let block = pool.allocate(String::from("thread-safe")).unwrap();
-        let pool_clone = pool.clone();
-
-        let handle = thread::spawn(move || {
-            let _block2 = pool_clone.allocate(String::from("another")).unwrap();
-            // pool_clone dropped here but pool still lives
-        });
-
-        handle.join().unwrap();
-
-        // Original block still valid
-        assert_eq!(&*block, "thread-safe");
-    }
-}
-```
 
 ---
 
@@ -388,24 +352,6 @@ mod tests {
 use std::sync::{Arc, Mutex};
 
 /// Thread-safe shared memory pool
-///
-/// Structs:
-/// - SharedPool<T>: Clone-able, thread-safe pool
-/// - SharedBlock<T>: Block that holds Arc reference
-///
-/// SharedPool Fields:
-/// - inner: Arc<Mutex<TypedPool<T>>> - Shared, locked pool
-///
-/// SharedBlock Fields:
-/// - data: *mut T - Pointer to data
-/// - pool: Arc<Mutex<TypedPool<T>>> - Keeps pool alive
-/// - _marker: PhantomData<T>
-///
-/// Functions:
-/// - SharedPool::new(capacity) - Creates shareable pool
-/// - clone() - Creates another reference to same pool
-/// - allocate(value) - Thread-safe allocation
-/// - available() - Returns free block count
 pub struct SharedPool<T> {
     inner: Arc<Mutex<TypedPool<T>>>,
 }
@@ -473,6 +419,70 @@ impl<T> Drop for SharedBlock<T> {
 ```
 
 ---
+
+
+**Checkpoint Tests**:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn test_shared_pool_creation() {
+        let pool = SharedPool::<i32>::new(10);
+        let block = pool.allocate(42);
+        assert!(block.is_some());
+    }
+
+    #[test]
+    fn test_concurrent_allocation() {
+        let pool = SharedPool::<u64>::new(100);
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let pool_clone = pool.clone();
+            let handle = thread::spawn(move || {
+                let mut blocks = vec![];
+                for j in 0..10 {
+                    if let Some(block) = pool_clone.allocate(i * 10 + j) {
+                        blocks.push(block);
+                    }
+                }
+                blocks
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // All allocations should succeed
+        assert_eq!(pool.available(), 0);
+    }
+
+    #[test]
+    fn test_pool_survives_block_thread() {
+        let pool = SharedPool::<String>::new(5);
+
+        let block = pool.allocate(String::from("thread-safe")).unwrap();
+        let pool_clone = pool.clone();
+
+        let handle = thread::spawn(move || {
+            let _block2 = pool_clone.allocate(String::from("another")).unwrap();
+            // pool_clone dropped here but pool still lives
+        });
+
+        handle.join().unwrap();
+
+        // Original block still valid
+        assert_eq!(&*block, "thread-safe");
+    }
+}
+```
+
 
 ### Testing Strategies
 

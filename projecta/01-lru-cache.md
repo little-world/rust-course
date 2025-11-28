@@ -6,7 +6,6 @@ Implement a Least Recently Used (LRU) cache that tracks the most recently access
 
 ### Use Cases
 
-**When you need this pattern**:
 1. **Web application request handlers** - Multiple handlers share a cache
 2. **Multithreaded servers** - Threads need concurrent access to shared cache (hits: read, misses: write, evictions: write)
 3. **Game engines** - Asset cache shared across systems, texture cache for renderer
@@ -19,12 +18,6 @@ Implement a Least Recently Used (LRU) cache that tracks the most recently access
 
 **Rust-Specific Challenge**: Traditional caches in other languages use mutable references everywhere. Rust's ownership system forces us to think differently—we need interior mutability patterns to mutate cache contents through shared references. This project teaches you how to work *with* Rust's ownership rather than fighting it.
 
-
-**Real Examples**:
-- Redis (in-memory cache) uses similar eviction strategies
-- Linux kernel page cache uses LRU for memory management
-- Chrome V8 uses LRU for inline caches
-- Rust compiler uses LRU for incremental compilation cache
 
 ### Learning Goals
 
@@ -48,14 +41,51 @@ Implement a Least Recently Used (LRU) cache that tracks the most recently access
 
 **Goal**: Create a simple counter
 
-**Key concepts**:
-- Structs: `StatsTracker`,
-- Fields:  `hits`, `misses`
-- Functions:
-    - `new(value: T) -> StatsTracker<` - Allocates and initializes
-    - `record_hit`  - Count the hits
-    - `record_miss`  - Count the misses
-    - `get_stats` - Returns both
+#### Architecture
+**Structs:**
+- `StatsTracker` - manages the counters
+  - **Field**:  `hits` - counts the hits
+  - **Field**:  `misses` - counts the misses
+  
+**Functions**:
+- `new(value: T) -> StatsTracker<` - Allocates and initializes
+- `record_hit`  - Count the hits
+- `record_miss`  - Count the misses
+- `get_stats` - Returns both
+
+
+**Starter Code**:
+```rust
+use std::cell::Cell;
+
+struct StatsTracker {
+    hits: Cell<usize>,
+    misses: Cell<usize>,
+}
+
+impl StatsTracker {
+    fn new() -> Self {
+        // TODO: Initialize with zero hits and misses
+        todo!()
+    }
+
+    fn record_hit(&self) {
+        // TODO: Increment hits using Cell::get and Cell::set
+        todo!()
+    }
+
+    fn record_miss(&self) {
+        // TODO: Increment misses
+        todo!()
+    }
+
+    fn get_stats(&self) -> (usize, usize) {
+        // TODO: Return (hits, misses)
+        todo!()
+    }
+}
+```
+
 
 **Checkpoint Tests**:
 ```rust
@@ -91,37 +121,6 @@ mod tests {
 ```
 
 
-**Starter Code**:
-```rust
-use std::cell::Cell;
-
-struct StatsTracker {
-    hits: Cell<usize>,
-    misses: Cell<usize>,
-}
-
-impl StatsTracker {
-    fn new() -> Self {
-        // TODO: Initialize with zero hits and misses
-        todo!()
-    }
-
-    fn record_hit(&self) {
-        // TODO: Increment hits using Cell::get and Cell::set
-        todo!()
-    }
-
-    fn record_miss(&self) {
-        // TODO: Increment misses
-        todo!()
-    }
-
-    fn get_stats(&self) -> (usize, usize) {
-        // TODO: Return (hits, misses)
-        todo!()
-    }
-}
-```
 
 **Check Your Understanding**:
 - Why can we call `record_hit(&self)` without `&mut self`?
@@ -130,7 +129,7 @@ impl StatsTracker {
 
 ---
 
-### Why Milestone 1 Isn't Enough → Moving to Milestone 2
+#### Why Milestone 1 Isn't Enough
 
 **Limitation**: `Cell<T>` only works with `Copy` types (like `usize`, `bool`, `i32`). For caching, we need to store complex data structures like `HashMap<K, V>`, which don't implement `Copy`.
 
@@ -147,14 +146,56 @@ impl StatsTracker {
 
 **Goal**: Create a cache using `RefCell<HashMap>` that can insert and retrieve values.
 
-**Key concepts**:
-- Structs: `SimpleCache`
-- Fields: `data: RefCell<HashMap<K, V>>`,
-- Functions:
-    - `new() -> SimpleCache<K, V>` - Allocates and initializes
-    - `get(&self, key: &K)`  - return a value if present
-    - `put(&self, key: K, value: V)` - insert the key-value pair
-    - `len(&self)` - return number of items in cache
+**Architcture**:
+- **Structs**: `SimpleCache`
+  - **Field**: `data: RefCell<HashMap<K, V>>`
+
+**Functions**:
+- `new() -> SimpleCache<K, V>` - Allocates and initializes
+- `get(&self, key: &K)`  - return a value if present
+- `put(&self, key: K, value: V)` - insert the key-value pair
+- `len(&self)` - return number of items in cache
+
+
+**Starter Code**:
+```rust
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+struct SimpleCache<K, V> {
+    data: RefCell<HashMap<K, V>>,
+}
+
+impl<K, V> SimpleCache<K, V>
+where
+    K: Eq + std::hash::Hash,
+    V: Clone,
+{
+    fn new() -> Self {
+        // TODO: Create cache with empty HashMap wrapped in RefCell
+        todo!()
+    }
+
+    fn get(&self, key: &K) -> Option<V> {
+        // TODO: Use borrow() to get read access to HashMap
+        // Return cloned value if present
+        todo!()
+    }
+
+    fn put(&self, key: K, value: V) {
+        // TODO: Use borrow_mut() to get write access to HashMap
+        // Insert the key-value pair
+        todo!()
+    }
+
+    fn len(&self) -> usize {
+        // TODO: Return number of items in cache
+        todo!()
+    }
+}
+```
+
+
 
 **Checkpoint Tests**:
 ```rust
@@ -199,45 +240,6 @@ mod tests {
 ```
 
 
-**Starter Code**:
-```rust
-use std::cell::RefCell;
-use std::collections::HashMap;
-
-struct SimpleCache<K, V> {
-    data: RefCell<HashMap<K, V>>,
-}
-
-impl<K, V> SimpleCache<K, V>
-where
-    K: Eq + std::hash::Hash,
-    V: Clone,
-{
-    fn new() -> Self {
-        // TODO: Create cache with empty HashMap wrapped in RefCell
-        todo!()
-    }
-
-    fn get(&self, key: &K) -> Option<V> {
-        // TODO: Use borrow() to get read access to HashMap
-        // Return cloned value if present
-        todo!()
-    }
-
-    fn put(&self, key: K, value: V) {
-        // TODO: Use borrow_mut() to get write access to HashMap
-        // Insert the key-value pair
-        todo!()
-    }
-
-    fn len(&self) -> usize {
-        // TODO: Return number of items in cache
-        todo!()
-    }
-}
-```
-
-
 **Check Your Understanding**:
 - What's the difference between `borrow()` and `borrow_mut()`?
 - When is the borrow automatically released?
@@ -246,7 +248,7 @@ where
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+#### Why Milestone 2 Isn't Enough
 
 **Limitation**: Our cache grows unbounded! A cache without eviction will eventually consume all memory. In production, this causes OOM (Out Of Memory) kills.
 
@@ -261,16 +263,13 @@ where
 - **Algorithm**: O(1) eviction (remove front of VecDeque)
 - **Complexity**: Need to manage two data structures in sync (HashMap + VecDeque)
 
-**Real-world importance**: Redis has maxmemory settings with eviction policies. Without eviction, caches become memory leaks that crash servers.
-
----
 
 ### Milestone 3: LRU Cache with Fixed Capacity
 
-**Goal**: Add capacity limit and eviction logic. Use `VecDeque` to track access order.
+ Add capacity limit and eviction logic. Use `VecDeque` to track access order.
 
-**Key Concepts**
-Change `SimpleCache` to `LRUCache` below
+**Architecture**
+**struct** `LRUCache` 
 ```rust
 struct LRUCache<K, V> {
   capacity: usize,
@@ -278,80 +277,12 @@ struct LRUCache<K, V> {
   order: RefCell<VecDeque<K>>,  // Most recent at back
 }
 ```
-The same functions with different implementations
+**functions** (different implementations)
 - `new() -> LRUCache<K, V>` - Allocates and initializes
 - `get(&self, key: &K)`  - return a value if present
 - `put(&self, key: K, value: V)` - insert the key-value pair
 - `len(&self)` - return number of items in cache
 
-**Checkpoint Tests**:
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_lru_basic() {
-        let cache = LRUCache::new(2);
-        cache.put("a", 1);
-        cache.put("b", 2);
-
-        assert_eq!(cache.get(&"a"), Some(1));
-        assert_eq!(cache.get(&"b"), Some(2));
-        assert_eq!(cache.len(), 2);
-    }
-
-    #[test]
-    fn test_lru_eviction() {
-        let cache = LRUCache::new(2);
-        cache.put("a", 1);
-        cache.put("b", 2);
-        cache.put("c", 3);  // Should evict "a"
-
-        assert_eq!(cache.get(&"a"), None);  // "a" was evicted
-        assert_eq!(cache.get(&"b"), Some(2));
-        assert_eq!(cache.get(&"c"), Some(3));
-        assert_eq!(cache.len(), 2);
-    }
-
-    #[test]
-    fn test_lru_access_order() {
-        let cache = LRUCache::new(2);
-        cache.put("a", 1);
-        cache.put("b", 2);
-
-        // Access "a" to make it more recent
-        assert_eq!(cache.get(&"a"), Some(1));
-
-        // Insert "c" - should evict "b" (now least recent)
-        cache.put("c", 3);
-
-        assert_eq!(cache.get(&"a"), Some(1));
-        assert_eq!(cache.get(&"b"), None);  // "b" was evicted
-        assert_eq!(cache.get(&"c"), Some(3));
-    }
-
-    #[test]
-    fn test_update_existing() {
-        let cache = LRUCache::new(2);
-        cache.put("a", 1);
-        cache.put("a", 10);  // Update
-
-        assert_eq!(cache.get(&"a"), Some(10));
-        assert_eq!(cache.len(), 1);
-    }
-
-    #[test]
-    fn test_capacity_one() {
-        let cache = LRUCache::new(1);
-        cache.put("a", 1);
-        cache.put("b", 2);
-
-        assert_eq!(cache.get(&"a"), None);
-        assert_eq!(cache.get(&"b"), Some(2));
-    }
-}
-```
 
 **Starter Code**:
 ```rust
@@ -431,7 +362,7 @@ where
 
 ---
 
-### Why Milestone 3 Isn't Enough → Moving to Milestone 4
+#### Why Milestone 3 Isn't Enough
 
 **Limitation**: We have no visibility into cache performance! Without metrics, we can't answer:
 - Is the cache effective? (high hit rate = good, low = wasting memory)
@@ -449,16 +380,31 @@ where
 - **Production monitoring**: Export metrics to Prometheus/Grafana
 - **Cost**: Minimal—just two `Cell<usize>` increments per access
 
-**Real-world example**: Redis `INFO stats` command shows hit/miss ratios. A 90% hit rate means the cache is doing its job; 10% means you need more capacity or better eviction.
-
 ---
 
 ### Milestone 4: Add Statistics Tracking
 
-**Goal**: Integrate the stats tracker from Milestone 1.
+Integrate the stats tracker from Milestone 1.
 
-**Task**: Modify your `LRUCache` to include a field `StatsTracker` field and update `get()` to record hits/misses. Add two functions to `LRUCache`: `stats` and `clear`
+**Architecture**: 
+**struct**: Modify your `LRUCache` to include a field `StatsTracker` field and update 
+**functions**: 
+- `get()` to record hits/misses. 
+- `stats()`  wrapper of `get_stats()`
+- `clear()` clear `data` and `order`
+ 
+**New method to add**:
+```rust
+fn stats(&self) -> (usize, usize) {
+    self.stats_tracker.get_stats()
+}
 
+fn clear(&self) {
+    self.data.borrow_mut().clear();
+    self.order.borrow_mut().clear();
+    // Don't clear stats - they persist across clears
+}
+```
 
 **Checkpoint Tests**:
 ```rust
@@ -492,18 +438,7 @@ fn test_clear() {
     assert_eq!(misses, 1);
 }
 ```
-**New method to add**:
-```rust
-fn stats(&self) -> (usize, usize) {
-    self.stats_tracker.get_stats()
-}
 
-fn clear(&self) {
-    self.data.borrow_mut().clear();
-    self.order.borrow_mut().clear();
-    // Don't clear stats - they persist across clears
-}
-```
 
 **Check Your Understanding**:
 - Why don't we clear stats when clearing the cache?
@@ -511,7 +446,7 @@ fn clear(&self) {
 
 ---
 
-### Why Milestone 4 Isn't Enough → Moving to Milestone 5
+#### Why Milestone 4 Isn't Enough
 
 **Critical Limitation**: `RefCell` is **NOT thread-safe**! If two threads access it simultaneously, your program exhibits **undefined behavior** (data races, memory corruption).
 
@@ -531,7 +466,6 @@ fn clear(&self) {
 - **Parallelism**: Multiple threads can now safely access cache (but serialized by lock)
 - **Contention**: Under high concurrent load, threads wait for locks (reduced throughput)
 
-**Real numbers**: Single-threaded `RefCell` cache: 50M ops/sec. Multi-threaded `Mutex` cache with 4 threads: 5M ops/sec per thread = 20M ops/sec total (worse due to contention).
 
 **When it's worth it**: When you have concurrent access. Single-threaded? Stick with `RefCell`.
 
@@ -539,13 +473,34 @@ fn clear(&self) {
 
 ### Milestone 5: Thread-Safe Version with Mutex
 
-**Goal**: Create a thread-safe version using `Mutex` instead of `RefCell`.
+ Create a thread-safe version using `Mutex` instead of `RefCell`.
 
 
-**Hints**:
+**Architecture**:
 - Use `self.inner.lock().unwrap()` to get a `MutexGuard`
 - The guard automatically releases when dropped
 - For thread-safety, `StatsTracker` needs `AtomicUsize` instead of `Cell<usize>`
+
+
+**Starter Code**:
+```rust
+use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, VecDeque};
+
+struct ThreadSafeLRUCache<K, V> {
+    capacity: usize,
+    inner: Mutex<CacheInner<K, V>>,
+    // Stats need atomic operations or separate mutex
+    stats: StatsTracker,  // From Milestone 1 - uses Cell (NOT thread-safe!)
+}
+
+struct CacheInner<K, V> {
+    data: HashMap<K, V>,
+    order: VecDeque<K>,
+}
+
+// TODO: Implement similar methods but using .lock().unwrap() instead of .borrow()
+```
 
 **Checkpoint Tests**:
 ```rust
@@ -584,25 +539,7 @@ fn test_concurrent_access() {
     assert_eq!(cache.len(), 100);
 }
 ```
-**Starter Code**:
-```rust
-use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, VecDeque};
 
-struct ThreadSafeLRUCache<K, V> {
-    capacity: usize,
-    inner: Mutex<CacheInner<K, V>>,
-    // Stats need atomic operations or separate mutex
-    stats: StatsTracker,  // From Milestone 1 - uses Cell (NOT thread-safe!)
-}
-
-struct CacheInner<K, V> {
-    data: HashMap<K, V>,
-    order: VecDeque<K>,
-}
-
-// TODO: Implement similar methods but using .lock().unwrap() instead of .borrow()
-```
 
 **Check Your Understanding**:
 - What's the difference between `Mutex` and `RefCell`?
@@ -612,7 +549,7 @@ struct CacheInner<K, V> {
 
 ---
 
-### 🔄 Why Milestone 5 Isn't Enough → Moving to Milestone 6
+#### Why Milestone 5 Isn't Enough 
 
 **Limitation**: `Mutex` allows only **one** thread at a time. Even for reads! This serializes all cache access, wasting CPU cores.
 
@@ -650,37 +587,6 @@ struct CacheInner<K, V> {
 **Key Insight**: **Algorithm choice affects concurrency potential**. True LRU requires write-on-read, limiting parallelism. Alternative algorithms (LRU-K, segmented LRU) offer better concurrency.
 
 ---
-
-### Milestone 6 (Advanced): Use RwLock for Better Concurrency
-
-**Goal**: Replace `Mutex` with `RwLock` to allow multiple concurrent reads.
-
-**Key Changes**:
-```rust
-use std::sync::RwLock;
-
-struct ThreadSafeLRUCache<K, V> {
-    capacity: usize,
-    inner: RwLock<CacheInner<K, V>>,
-    stats: AtomicStats,
-}
-
-// In get():
-let data = self.inner.read().unwrap();
-// Problem: We need write access to update order!
-// Solution approaches:
-// 1. Use separate RwLock for data and order
-// 2. Upgrade read to write when needed (requires releasing read lock first)
-// 3. Accept that get() needs write access in LRU (write-on-read)
-```
-
-**Challenge**: LRU caches have "write-on-read" behavior because accessing an item updates its position. Think about the trade-offs:
-- Should `get()` take a write lock every time?
-- Or use a more complex two-lock design?
-- What are the performance implications?
-
----
-
 ### Complete Project Summary
 
 **What You Built**:
@@ -688,7 +594,6 @@ let data = self.inner.read().unwrap();
 2. Simple cache with `RefCell<HashMap>`
 3. LRU eviction logic with `VecDeque`
 4. Thread-safe version with `Mutex`
-5. (Optional) `RwLock` optimization with trade-offs
 
 **Key Concepts Practiced**:
 - Interior mutability: `Cell`, `RefCell`, `Mutex`, `RwLock`

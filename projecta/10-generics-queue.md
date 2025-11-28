@@ -22,6 +22,17 @@ Priority queues are fundamental data structures used in:
 
 Understanding how to implement generic collections with trait bounds teaches you how Rust's standard library works internally. You'll learn why `BinaryHeap<T>` requires `T: Ord` and how to design APIs that are both flexible and type-safe.
 
+### Learning Goals
+
+By completing this project, you will:
+
+1. **Master generic programming**: Build data structures that work with any type satisfying trait bounds
+2. **Understand trait bounds**: Learn when to use Ord, PartialOrd, and custom traits
+3. **Work with phantom types**: Use PhantomData for zero-cost type-level distinctions
+4. **Implement heap algorithms**: Understand sift-up, sift-down, and heap properties
+5. **Design flexible APIs**: Support both min-heap and max-heap with the same implementation
+6. **Practice zero-cost abstractions**: Build ergonomic APIs with no runtime overhead
+
 ### Use Cases
 
 1. **Task Scheduler**: Schedule tasks by priority, deadline, or custom business logic
@@ -103,8 +114,6 @@ fn test_generic_types() {
 
 ---
 
-## Milestone-by-Milestone Implementation Guide
-
 ### Milestone 1: Basic Generic Structure with Vec Backend
 
 ### Introduction
@@ -150,6 +159,39 @@ functions:
 - `peek() -> Option<&T>` - View highest priority element
 - `len()`, `is_empty()` - Basic queries
 
+
+
+**Starter Code**
+```rust
+pub struct PriorityQueue<T> {
+    items: Vec<T>,
+}
+
+impl<T: Ord> PriorityQueue<T> {
+    pub fn new() -> Self {
+       todo!()
+    }
+
+    pub fn push(&mut self, item: T) {
+       todo!()
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+       todo!()  // Takes from end (highest priority after sorting)
+    }
+
+    pub fn peek(&self) -> Option<&T> {
+        todo!()
+    }
+
+    pub fn len(&self) -> usize {
+        todo!()
+
+    pub fn is_empty(&self) -> bool {
+       todo!()
+    }
+}
+```
 
 **Checkpoint Tests:**
 
@@ -268,39 +310,6 @@ fn test_repeated_elements() {
 }
 ```
 
-**Starter Code**
-```rust
-pub struct PriorityQueue<T> {
-    items: Vec<T>,
-}
-
-impl<T: Ord> PriorityQueue<T> {
-    pub fn new() -> Self {
-       todo!()
-    }
-
-    pub fn push(&mut self, item: T) {
-       todo!()
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-       todo!()  // Takes from end (highest priority after sorting)
-    }
-
-    pub fn peek(&self) -> Option<&T> {
-        todo!()
-    }
-
-    pub fn len(&self) -> usize {
-        todo!()
-
-    pub fn is_empty(&self) -> bool {
-       todo!()
-    }
-}
-```
-
-
 **Why this isn't enough:**
 
 The naive approach sorts the entire vector on every insertion, giving **O(n log n)** insertion time. For a priority queue processing thousands of events per second, this is unacceptable:
@@ -318,8 +327,6 @@ The naive approach becomes unusable with even moderate load. Next milestone impl
 ---
 
 ### Milestone 2: Implement Binary Heap Structure (Sift Operations)
-
-### Introduction
 
 Replace the naive sorting approach with a proper binary heap data structure. A binary heap maintains a partial ordering where each parent node is less than (min-heap) or greater than (max-heap) its children, enabling O(log n) operations instead of O(n log n).
 
@@ -369,6 +376,50 @@ functions
 change `push()` and `pop()` to use the `sift` functions
 
 **What to improve:**
+**Starter Code**
+
+```rust
+impl<T: Ord> PriorityQueue<T> {
+    // Helper: Calculate parent index
+    fn parent(i: usize) -> usize {
+        todo!()
+    }
+
+    // Helper: Calculate left child index
+    fn left_child(i: usize) -> usize {
+        todo!()
+    }
+
+    // Helper: Calculate right child index
+    fn right_child(i: usize) -> usize {
+       todo!()
+    }
+
+    // Sift up: bubble element at index i upward to restore heap property
+    fn sift_up(&mut self, mut i: usize) {
+        todo!()
+    }
+
+    // Sift down: bubble element at index i downward to restore heap property
+    fn sift_down(&mut self, mut i: usize) {
+        loop {
+            let left = Self::left_child(i);
+            let right = Self::right_child(i);
+            
+            todo!()
+        }
+    }
+
+    pub fn push(&mut self, item: T) { 
+        todo!()        // Restore heap property: 
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        todo!()
+    }
+}
+```
+
 
 
 **Checkpoint Tests:**
@@ -519,127 +570,6 @@ fn test_two_elements() {
 }
 ```
 
-```rust
-impl<T: Ord> PriorityQueue<T> {
-    // Helper: Calculate parent index
-    fn parent(i: usize) -> usize {
-        (i - 1) / 2
-    }
-
-    // Helper: Calculate left child index
-    fn left_child(i: usize) -> usize {
-        2 * i + 1
-    }
-
-    // Helper: Calculate right child index
-    fn right_child(i: usize) -> usize {
-        2 * i + 2
-    }
-
-    // Sift up: bubble element at index i upward to restore heap property
-    fn sift_up(&mut self, mut i: usize) {
-        while i > 0 {
-            let parent = Self::parent(i);
-            if self.items[i] <= self.items[parent] {
-                break;  // Heap property satisfied
-            }
-            self.items.swap(i, parent);
-            i = parent;
-        }
-    }
-
-    // Sift down: bubble element at index i downward to restore heap property
-    fn sift_down(&mut self, mut i: usize) {
-        loop {
-            let left = Self::left_child(i);
-            let right = Self::right_child(i);
-            let mut largest = i;
-
-            // Find largest among node, left child, right child
-            if left < self.items.len() && self.items[left] > self.items[largest] {
-                largest = left;
-            }
-            if right < self.items.len() && self.items[right] > self.items[largest] {
-                largest = right;
-            }
-
-            if largest == i {
-                break;  // Heap property satisfied
-            }
-
-            self.items.swap(i, largest);
-            i = largest;
-        }
-    }
-
-    pub fn push(&mut self, item: T) {
-        self.items.push(item);          // Add to end
-        let last_idx = self.items.len() - 1;
-        self.sift_up(last_idx);         // Restore heap property: O(log n)
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.items.is_empty() {
-            return None;
-        }
-
-        let len = self.items.len();
-        self.items.swap(0, len - 1);    // Move root to end
-        let result = self.items.pop();  // Remove old root
-
-        if !self.items.is_empty() {
-            self.sift_down(0);          // Restore heap property: O(log n)
-        }
-
-        result
-    }
-}
-```
-
-**Starter Code**
-
-```rust
-impl<T: Ord> PriorityQueue<T> {
-    // Helper: Calculate parent index
-    fn parent(i: usize) -> usize {
-        todo!()
-    }
-
-    // Helper: Calculate left child index
-    fn left_child(i: usize) -> usize {
-        todo!()
-    }
-
-    // Helper: Calculate right child index
-    fn right_child(i: usize) -> usize {
-       todo!()
-    }
-
-    // Sift up: bubble element at index i upward to restore heap property
-    fn sift_up(&mut self, mut i: usize) {
-        todo!()
-    }
-
-    // Sift down: bubble element at index i downward to restore heap property
-    fn sift_down(&mut self, mut i: usize) {
-        loop {
-            let left = Self::left_child(i);
-            let right = Self::right_child(i);
-            
-            todo!()
-        }
-    }
-
-    pub fn push(&mut self, item: T) { 
-        todo!()        // Restore heap property: 
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        todo!()
-    }
-}
-```
-
 
 **Solution**
 
@@ -735,7 +665,6 @@ The current design can't handle these without code duplication (copying the enti
 
 ### Milestone 3: Add Phantom Types for Min/Max Heap Variants
 
-### Introduction
 
 Use phantom types to parameterize the heap ordering strategy at compile time. This allows the same code to work as either a min-heap or max-heap without runtime overhead or code duplication.
 
@@ -798,6 +727,106 @@ Same machine (code), different module (type parameter), but the module is just a
 **Goal:** Use phantom types to support both min-heap and max-heap at compile time.
 
 **What to improve:**
+
+
+**Starter Code**
+
+```rust
+use std::marker::PhantomData;
+use std::cmp::Ordering;
+
+// Marker types for ordering
+
+
+// Trait defining heap ordering behavior
+pub trait HeapOrder {
+    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool;
+}
+
+impl HeapOrder for MinHeap {
+    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
+        //TODO: Min heap: parent should be ≤ child
+    }
+}
+
+impl HeapOrder for MaxHeap {
+    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
+        // TODO: Max heap: parent should be ≥ child
+    }
+}
+
+// Generic priority queue with default ordering
+pub struct PriorityQueue<T, Order = MinHeap> {
+    heap: Vec<T>,
+    _order: PhantomData<Order>,
+}
+
+impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
+    pub fn new() -> Self {
+        PriorityQueue {
+            heap: Vec::new(),
+            _order: PhantomData,
+        }
+    }
+
+    fn parent(i: usize) -> usize {
+        (i - 1) / 2
+    }
+
+    fn left_child(i: usize) -> usize {
+        2 * i + 1
+    }
+
+    fn right_child(i: usize) -> usize {
+        2 * i + 2
+    }
+
+    fn sift_up(&mut self, mut i: usize) {
+        while i > 0 {
+            let parent = Self::parent(i);
+            // TODO: Use HeapOrder trait instead of hardcoded comparison
+           
+        }
+    }
+
+    fn sift_down(&mut self, mut i: usize) {
+        loop {
+            let left = Self::left_child(i);
+            let right = Self::right_child(i);
+            let mut swap_with = i;
+
+            // TODO: Use HeapOrder trait instead of hardcoded comparison
+
+            if swap_with == i {
+                break;
+            }
+
+            self.heap.swap(i, swap_with);
+            i = swap_with;
+        }
+    }
+
+    pub fn push(&mut self, item: T) {
+       todo!()
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        todo!()
+    }
+
+    pub fn peek(&self) -> Option<&T> {
+        self.heap.first()
+    }
+
+    pub fn len(&self) -> usize {
+        self.heap.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+}
+```
 
 **Checkpoint Tests:**
 
@@ -921,105 +950,6 @@ fn test_peek_respects_ordering() {
     max_heap.push(15);
 
     assert_eq!(max_heap.peek(), Some(&15));  // Largest at top
-}
-```
-
-**Starter Code**
-
-```rust
-use std::marker::PhantomData;
-use std::cmp::Ordering;
-
-// Marker types for ordering
-
-
-// Trait defining heap ordering behavior
-pub trait HeapOrder {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool;
-}
-
-impl HeapOrder for MinHeap {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
-        //TODO: Min heap: parent should be ≤ child
-    }
-}
-
-impl HeapOrder for MaxHeap {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
-        // TODO: Max heap: parent should be ≥ child
-    }
-}
-
-// Generic priority queue with default ordering
-pub struct PriorityQueue<T, Order = MinHeap> {
-    heap: Vec<T>,
-    _order: PhantomData<Order>,
-}
-
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    pub fn new() -> Self {
-        PriorityQueue {
-            heap: Vec::new(),
-            _order: PhantomData,
-        }
-    }
-
-    fn parent(i: usize) -> usize {
-        (i - 1) / 2
-    }
-
-    fn left_child(i: usize) -> usize {
-        2 * i + 1
-    }
-
-    fn right_child(i: usize) -> usize {
-        2 * i + 2
-    }
-
-    fn sift_up(&mut self, mut i: usize) {
-        while i > 0 {
-            let parent = Self::parent(i);
-            // TODO: Use HeapOrder trait instead of hardcoded comparison
-           
-        }
-    }
-
-    fn sift_down(&mut self, mut i: usize) {
-        loop {
-            let left = Self::left_child(i);
-            let right = Self::right_child(i);
-            let mut swap_with = i;
-
-            // TODO: Use HeapOrder trait instead of hardcoded comparison
-
-            if swap_with == i {
-                break;
-            }
-
-            self.heap.swap(i, swap_with);
-            i = swap_with;
-        }
-    }
-
-    pub fn push(&mut self, item: T) {
-       todo!()
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        todo!()
-    }
-
-    pub fn peek(&self) -> Option<&T> {
-        self.heap.first()
-    }
-
-    pub fn len(&self) -> usize {
-        self.heap.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.heap.is_empty()
-    }
 }
 ```
 
@@ -1164,7 +1094,6 @@ The next milestone solves this with wrapper types that implement custom `Ord`.
 
 ### Milestone 4: Support Custom Orderings with Wrapper Types
 
-### Introduction
 
 Enable custom comparison strategies by wrapping elements in types that implement their own `Ord`. This allows sorting by specific fields, reversing orderings, or applying complex multi-criteria comparisons—all while keeping the priority queue implementation unchanged.
 
@@ -1222,6 +1151,82 @@ Same documents, same filing system, just different comparison rules.
 
 **Goal:** Allow custom comparison strategies while maintaining type safety.
 
+
+**Starter Code**
+
+```rust
+use std::cmp::Ordering;
+
+// 1. Reverse wrapper - inverts natural ordering
+// TODO: #[derive(..)]
+pub struct Reverse<T>(pub T);
+
+impl<T: Ord> Ord for Reverse<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for Reverse<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+// 2. Priority by field - extract key for comparison
+// TODO: #[derive(..)]
+pub struct ByField<T, F> {
+    pub item: T,
+    key_fn: F,
+}
+
+impl<T, F> ByField<T, F> {
+    pub fn new(item: T, key_fn: F) -> Self {
+       todo!()
+    }
+}
+
+impl<T, K: Ord, F: Fn(&T) -> K> Ord for ByField<T, F> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
+}
+
+impl<T, K: Ord, F: Fn(&T) -> K> PartialOrd for ByField<T, F> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl<T, K: Eq, F: Fn(&T) -> K> Eq for ByField<T, F> {}
+
+impl<T, K: Eq, F: Fn(&T) -> K> PartialEq for ByField<T, F> {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+// 3. Example: Task with multiple fields
+// TODO: #[derive(..)]
+pub struct Task {
+    pub name: String,
+    pub priority: u8,
+    pub deadline: u64,
+}
+
+// Default Ord: lexicographic by name
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
+}
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+```
 **Checkpoint Tests:**
 
 ```rust
@@ -1382,82 +1387,6 @@ fn test_chained_wrappers() {
 ```
 
 
-**Starter Code**
-
-```rust
-use std::cmp::Ordering;
-
-// 1. Reverse wrapper - inverts natural ordering
-// TODO: #[derive(..)]
-pub struct Reverse<T>(pub T);
-
-impl<T: Ord> Ord for Reverse<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
-    }
-}
-
-impl<T: PartialOrd> PartialOrd for Reverse<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-
-// 2. Priority by field - extract key for comparison
-// TODO: #[derive(..)]
-pub struct ByField<T, F> {
-    pub item: T,
-    key_fn: F,
-}
-
-impl<T, F> ByField<T, F> {
-    pub fn new(item: T, key_fn: F) -> Self {
-       todo!()
-    }
-}
-
-impl<T, K: Ord, F: Fn(&T) -> K> Ord for ByField<T, F> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
-    }
-}
-
-impl<T, K: Ord, F: Fn(&T) -> K> PartialOrd for ByField<T, F> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-
-impl<T, K: Eq, F: Fn(&T) -> K> Eq for ByField<T, F> {}
-
-impl<T, K: Eq, F: Fn(&T) -> K> PartialEq for ByField<T, F> {
-    fn eq(&self, other: &Self) -> bool {
-        todo!()
-    }
-}
-
-// 3. Example: Task with multiple fields
-// TODO: #[derive(..)]
-pub struct Task {
-    pub name: String,
-    pub priority: u8,
-    pub deadline: u64,
-}
-
-// Default Ord: lexicographic by name
-impl Ord for Task {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
-    }
-}
-
-impl PartialOrd for Task {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-```
-
 **Solution**
 
 
@@ -1553,7 +1482,6 @@ For 100,000 items, this does ~1.6 million comparisons. There's a more efficient 
 
 ### Milestone 5: Implement Efficient Heapify (O(n) from Vec)
 
-### Introduction
 
 Implement Floyd's bottom-up heapify algorithm to build a heap from an existing `Vec<T>` in O(n) time instead of O(n log n). This is critical for performance when initializing a priority queue from a large dataset.
 
@@ -1612,56 +1540,7 @@ impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
     }
 }
 ```
-**solution**
-```rust
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    /// Build heap from existing vector in O(n) time
-   Self {
-        if vec.is_empty() {
-            return Self::new();
-        }
-
-        // Start from last non-leaf node and sift down all parents
-        let last_parent = (vec.len() / 2).saturating_sub(1);
-
-        for i in (0..=last_parent).rev() {
-            Self::sift_down_from(&mut vec, i);
-        }
-
-        PriorityQueue {
-            heap: vec,
-            _order: PhantomData,
-        }
-    }
-
-    /// Sift down element at index i (standalone version for heapify)
-    fn sift_down_from(heap: &mut Vec<T>, mut i: usize) {
-        let len = heap.len();
-
-        loop {
-            let left = 2 * i + 1;
-            let right = 2 * i + 2;
-            let mut swap_with = i;
-
-            if left < len && Order::should_swap(&heap[swap_with], &heap[left]) {
-                swap_with = left;
-            }
-            if right < len && Order::should_swap(&heap[swap_with], &heap[right]) {
-                swap_with = right;
-            }
-
-            if swap_with == i {
-                break;
-            }
-
-            heap.swap(i, swap_with);
-            i = swap_with;
-        }
-    }
-}
-```
-
-**Checkpoint Tests:**
+**Checkpoint Test**
 
 ```rust
 #[test]
@@ -1769,6 +1648,56 @@ fn test_from_vec_large_dataset() {
 }
 ```
 
+**solution**
+```rust
+impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
+    /// Build heap from existing vector in O(n) time
+   Self {
+        if vec.is_empty() {
+            return Self::new();
+        }
+
+        // Start from last non-leaf node and sift down all parents
+        let last_parent = (vec.len() / 2).saturating_sub(1);
+
+        for i in (0..=last_parent).rev() {
+            Self::sift_down_from(&mut vec, i);
+        }
+
+        PriorityQueue {
+            heap: vec,
+            _order: PhantomData,
+        }
+    }
+
+    /// Sift down element at index i (standalone version for heapify)
+    fn sift_down_from(heap: &mut Vec<T>, mut i: usize) {
+        let len = heap.len();
+
+        loop {
+            let left = 2 * i + 1;
+            let right = 2 * i + 2;
+            let mut swap_with = i;
+
+            if left < len && Order::should_swap(&heap[swap_with], &heap[left]) {
+                swap_with = left;
+            }
+            if right < len && Order::should_swap(&heap[swap_with], &heap[right]) {
+                swap_with = right;
+            }
+
+            if swap_with == i {
+                break;
+            }
+
+            heap.swap(i, swap_with);
+            i = swap_with;
+        }
+    }
+}
+```
+
+
 **Why this isn't enough:**
 
 Performance is good, but integration with Rust's ecosystem is missing:
@@ -1827,6 +1756,83 @@ Pre-allocation prevents reallocations during growth:
 - With `with_capacity(10_000)`: Push 10,000 items → 0 reallocations
 
 **Goal:** Make the priority queue work with Rust's iterator ecosystem and optimize memory usage.
+**Starter Code**
+
+```rust
+// 1. IntoIterator - consume queue, iterate in sorted order
+impl<T, Order> IntoIterator for PriorityQueue<T, Order>
+where
+    T: Ord,
+    Order: HeapOrder,
+{
+    type Item = T;
+    type IntoIter = IntoIter<T, Order>;
+
+    fn into_iter(self) -> Self::IntoIter {
+       todo!()
+    }
+}
+
+pub struct IntoIter<T, Order> {
+    queue: PriorityQueue<T, Order>,
+}
+
+impl<T: Ord, Order: HeapOrder> Iterator for IntoIter<T, Order> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+      todo!()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+       todo!()
+    }
+}
+
+impl<T: Ord, Order: HeapOrder> ExactSizeIterator for IntoIter<T, Order> {}
+
+// 2. FromIterator - build queue from iterator
+impl<T: Ord, Order: HeapOrder> FromIterator<T> for PriorityQueue<T, Order> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+       todo!()
+}
+
+// 3. Extend - add elements from iterator
+impl<T: Ord, Order: HeapOrder> Extend<T> for PriorityQueue<T, Order> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        todo!()
+        // Could optimize: collect, heapify, then merge
+    }
+}
+
+// 4. Memory management
+impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
+    /// Create with pre-allocated capacity
+    pub fn with_capacity(capacity: usize) -> Self {
+      todo!()
+    }
+
+    /// Current capacity (allocated space)
+    pub fn capacity(&self) -> usize {
+        todo!()
+    }
+
+    /// Reserve space for at least `additional` more elements
+    pub fn reserve(&mut self, additional: usize) {
+       todo!()
+    }
+
+    /// Shrink capacity to fit current length
+    pub fn shrink_to_fit(&mut self) {
+        todo!()
+    }
+
+    /// Remove all elements
+    pub fn clear(&mut self) {
+        todo!()
+    }
+}
+```
 
 
 **Checkpoint Tests:**
@@ -1981,83 +1987,6 @@ fn test_exact_size_iterator() {
 
     // ExactSizeIterator provides len()
     assert_eq!(iter.len(), 3);
-}
-```
-**Starter Code**
-
-```rust
-// 1. IntoIterator - consume queue, iterate in sorted order
-impl<T, Order> IntoIterator for PriorityQueue<T, Order>
-where
-    T: Ord,
-    Order: HeapOrder,
-{
-    type Item = T;
-    type IntoIter = IntoIter<T, Order>;
-
-    fn into_iter(self) -> Self::IntoIter {
-       todo!()
-    }
-}
-
-pub struct IntoIter<T, Order> {
-    queue: PriorityQueue<T, Order>,
-}
-
-impl<T: Ord, Order: HeapOrder> Iterator for IntoIter<T, Order> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-      todo!()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-       todo!()
-    }
-}
-
-impl<T: Ord, Order: HeapOrder> ExactSizeIterator for IntoIter<T, Order> {}
-
-// 2. FromIterator - build queue from iterator
-impl<T: Ord, Order: HeapOrder> FromIterator<T> for PriorityQueue<T, Order> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-       todo!()
-}
-
-// 3. Extend - add elements from iterator
-impl<T: Ord, Order: HeapOrder> Extend<T> for PriorityQueue<T, Order> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        todo!()
-        // Could optimize: collect, heapify, then merge
-    }
-}
-
-// 4. Memory management
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    /// Create with pre-allocated capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-      todo!()
-    }
-
-    /// Current capacity (allocated space)
-    pub fn capacity(&self) -> usize {
-        todo!()
-    }
-
-    /// Reserve space for at least `additional` more elements
-    pub fn reserve(&mut self, additional: usize) {
-       todo!()
-    }
-
-    /// Shrink capacity to fit current length
-    pub fn shrink_to_fit(&mut self) {
-        todo!()
-    }
-
-    /// Remove all elements
-    pub fn clear(&mut self) {
-        todo!()
-    }
 }
 ```
 

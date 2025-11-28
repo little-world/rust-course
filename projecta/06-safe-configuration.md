@@ -71,88 +71,35 @@ connect(Port(8080), Hostname("localhost")); // ❌ Compile error!
 
 ### Learning Goals
 
-- Understand newtype pattern for compile-time type safety
-- Implement validated types that enforce invariants
-- Build smart constructors that prevent invalid states
-- Create fluent builder APIs with method chaining
-- Use `Deref` for ergonomic access to wrapped values
-- Hide sensitive data in `Debug` implementations
+By completing this project, you will:
+
+1. **Master the newtype pattern**: Create zero-cost type wrappers for compile-time safety
+2. **Implement validated types**: Build smart constructors that enforce invariants
+3. **Design builder APIs**: Create fluent, ergonomic configuration builders with method chaining
+4. **Use Deref trait effectively**: Provide transparent access to wrapped values
+5. **Secure sensitive data**: Implement custom Debug to hide credentials
+6. **Understand phantom types**: Use zero-sized types for compile-time state tracking
+
 
 ---
 
 ### Milestone 1: Basic Configuration Struct
 
-**Goal**: Create a basic configuration struct `ServerConfig` with named fields to group related configuration data together.
+**Goal**: Create a basic configuration struct `ServerConfig` with named fields to group related configuration data
 
-**Why This Milestone Matters**:
+**struct** ServerConfig
+- **field**: host: String,           // Server hostname/IP address (e.g., "localhost", "0.0.0.0")
+- **field**: port: u16,             // TCP port number (1-65535)
+- **field**: timeout_seconds: u64,  // Connection timeout duration in seconds
+- **field**: max_connections: u32,  // Maximum concurrent client connections allowed
 
-This milestone establishes the **foundation** for type-safe configuration. Even though we'll identify problems with this approach, understanding the baseline is crucial for appreciating the improvements in later milestones.
-
-**What We're Building**:
-
-A simple struct that groups all server configuration parameters:
-
-```rust
-struct ServerConfig {
-    host: String,
-    port: u16,
-    timeout_seconds: u64,
-    max_connections: u32,
-}
-```
-
-**Why Use Structs Instead of Individual Parameters?**
-
-**Without struct** (parameter soup):
-```rust
-fn start_server(
-    host: String,
-    port: u16,
-    timeout: u64,
-    max_conn: u32,
-    buffer_size: usize,
-    threads: usize,
-    // ... 20 more parameters ...
-) { }
-
-// Easy to swap parameters accidentally:
-start_server(
-    "localhost".to_string(),
-    30,      // Oops! Passed timeout as port
-    8080,    // Oops! Passed port as timeout
-    100,
-    4096,
-    4,
-);
-```
-
-**With struct** (grouped data):
-```rust
-fn start_server(config: ServerConfig) { }
-
-let config = ServerConfig {
-    host: "localhost".to_string(),
-    port: 8080,
-    timeout_seconds: 30,
-    max_connections: 100,
-};
-start_server(config); // Named fields prevent mistakes
-```
-
-**Benefits of Basic Structs**:
-
-1. **Named fields**: `config.port` is clearer than function parameter #2
-2. **Single unit**: Pass one `ServerConfig` instead of 10 parameters
-3. **Default values**: Can implement `Default` trait
-4. **Extensibility**: Add fields without breaking function signatures
-5. **Documentation**: Struct definition documents all configuration options
 
 
 **Memory Layout**:
 
 ```rust
 ServerConfig:
-  host: String          [24 bytes: ptr + len + capacity]
+  host: String         [24 bytes: ptr + len + capacity]
   port: u16            [2 bytes]
   timeout_seconds: u64 [8 bytes]
   max_connections: u32 [4 bytes]
@@ -161,13 +108,6 @@ Total: ~44 bytes
 ```
 
 No runtime overhead for grouping is just the sum of field sizes plus alignment.
-
-**Key Learning Points**:
-
-- **Structs are product types**: Contain all fields simultaneously (AND relationship)
-- **Field naming**: Makes code self-documenting
-- **Ownership**: Struct owns its fields
-- **Move semantics**: Moving struct moves all fields
 
 **Checkpoint Tests**:
 ```rust
@@ -228,7 +168,7 @@ impl ServerConfig {
 
 ---
 
-### Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### Why Milestone 1 Isn't Enough 
 
 **Critical Limitations**:
 1. **No type safety**: Can swap `host` and `database_url` parameters - both are `String`
@@ -255,9 +195,6 @@ impl ServerConfig {
 
 **Goal**: Wrap each configuration field in a distinct newtype to prevent accidental mixing and enable field-specific validation.
 
-**Why This Milestone Matters**:
-
-This is where Rust's **zero-cost abstractions** shine. The newtype pattern lets us add compile-time safety without any runtime overhead—it's pure compile-time magic!
 
 **The Core Problem: Primitive Obsession**:
 
@@ -311,118 +248,6 @@ Four newtype wrappers with validation:
 3. **`Timeout(Duration)`**: Positive duration with clear units
 4. **`MaxConnections(NonZeroU32)`**: Guaranteed positive connection limit
 
-**The Newtype Pattern Explained**:
-
-A newtype is a tuple struct with a single field:
-
-```rust
-struct Port(u16);  // New type wrapping u16
-
-impl Port {
-    fn new(port: u16) -> Result<Self, String> {
-        if port == 0 {
-            Err("Port must be > 0".to_string())
-        } else {
-            Ok(Port(port))  // Wrap the validated value
-        }
-    }
-
-    fn get(&self) -> u16 {
-        self.0  // Access tuple field
-    }
-}
-```
-
-**Why Use `NonZeroU32`?**
-
-`std::num::NonZeroU32` is a standard library type that **guarantees** non-zero at the type level:
-
-```rust
-// Without NonZeroU32 - runtime check every time
-struct MaxConnections(u32);
-impl MaxConnections {
-    fn get(&self) -> u32 {
-        assert!(self.0 > 0);  // Runtime check!
-        self.0
-    }
-}
-
-// With NonZeroU32 - guaranteed by type system
-struct MaxConnections(NonZeroU32);
-impl MaxConnections {
-    fn get(&self) -> u32 {
-        self.0.get()  // No check needed!
-    }
-}
-```
-
-**Compiler optimizations**: `Option<NonZeroU32>` is same size as `u32` (niche optimization)!
-
-**Smart Constructors**:
-
-Newtypes use **smart constructors** that validate inputs:
-
-```rust
-impl Port {
-    fn new(port: u16) -> Result<Self, String> {
-        // Validation logic here
-        if port == 0 {
-            Err("Port must be greater than 0".to_string())
-        } else {
-            Ok(Port(port))
-        }
-    }
-}
-```
-
-This ensures **invalid values can't be constructed**—the only way to get a `Port` is through the validated `new` function.
-
-**Type Safety in Action**:
-
-```rust
-// Before: These are all u16, compiler treats them identically
-let port: u16 = 8080;
-let pool_size: u16 = 100;
-start_server(pool_size, port);  // Oops! Swapped, but compiles
-
-// After: These are distinct types
-let port: Port = Port::new(8080).unwrap();
-let pool_size: PoolSize = PoolSize::new(100).unwrap();
-start_server(pool_size, port);  // ❌ Compile error!
-```
-
-**Zero Runtime Cost**:
-
-Newtype wrappers have **zero memory overhead**:
-
-```rust
-assert_eq!(
-    std::mem::size_of::<u16>(),
-    std::mem::size_of::<Port>()
-);  // Both are 2 bytes!
-```
-
-The wrapper only exists at compile-time. At runtime, `Port(8080)` is just `8080` in memory.
-
-**Pattern Matching Works**:
-
-```rust
-let port = Port::new(8080).unwrap();
-
-match port {
-    Port(8080) => println!("Standard HTTP"),
-    Port(443) => println!("HTTPS"),
-    Port(p) => println!("Custom port: {}", p),
-}
-```
-
-**Common Newtype Use Cases**:
-
-- **Units**: `Meters(f64)`, `Kilograms(f64)` - prevent mixing units
-- **IDs**: `UserId(u64)`, `ProductId(u64)` - prevent mixing ID types
-- **Handles**: `FileDescriptor(i32)`, `SocketHandle(u32)` - type-safe resource handles
-- **Validated strings**: `Email(String)`, `Url(String)` - guarantee format validity
-- **Currencies**: `USD(f64)`, `EUR(f64)` - prevent mixing monetary values
 
 **The Validation Strategy**:
 
@@ -436,25 +261,6 @@ impl Port {
             return Err("Port must be > 0".to_string());
         }
         Ok(Port(port))
-    }
-}
-
-impl Timeout {
-    fn from_secs(secs: u64) -> Result<Self, String> {
-        // Positivity check
-        if secs == 0 {
-            return Err("Timeout must be > 0 seconds".to_string());
-        }
-        Ok(Timeout(Duration::from_secs(secs)))
-    }
-}
-
-impl MaxConnections {
-    fn new(count: u32) -> Result<Self, String> {
-        // Use type system for validation
-        NonZeroU32::new(count)
-            .map(MaxConnections)
-            .ok_or_else(|| "Connection count must be > 0".to_string())
     }
 }
 ```
@@ -471,47 +277,6 @@ fn start_server(port: Port) {
 }
 ```
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_port_validation() {
-    assert!(Port::new(8080).is_ok());
-    assert!(Port::new(0).is_err());  // Invalid port
-    assert!(Port::new(65535).is_ok()); // Max valid port
-}
-
-#[test]
-fn test_cannot_swap_types() {
-    // This won't compile - demonstrates type safety!
-    // let port = Port::new(8080).unwrap();
-    // let host = Hostname("localhost".to_string());
-    // let config = ServerConfig::new(port, host, ...); // ❌ Type error!
-}
-
-#[test]
-fn test_timeout_validation() {
-    assert!(Timeout::from_secs(30).is_ok());
-    assert!(Timeout::from_secs(0).is_err()); // Zero timeout invalid
-}
-
-#[test]
-fn test_max_connections() {
-    assert!(MaxConnections::new(100).is_ok());
-    assert!(MaxConnections::new(0).is_err()); // Zero connections invalid
-}
-
-#[test]
-fn test_valid_config() {
-    let config = ServerConfig::new(
-        Hostname("localhost".to_string()),
-        Port::new(8080).unwrap(),
-        Timeout::from_secs(30).unwrap(),
-        MaxConnections::new(100).unwrap(),
-    );
-
-    assert_eq!(config.port.get(), 8080);
-}
-```
 
 **Starter Code**:
 ```rust
@@ -615,6 +380,47 @@ impl ServerConfig {
     }
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_port_validation() {
+    assert!(Port::new(8080).is_ok());
+    assert!(Port::new(0).is_err());  // Invalid port
+    assert!(Port::new(65535).is_ok()); // Max valid port
+}
+
+#[test]
+fn test_cannot_swap_types() {
+    // This won't compile - demonstrates type safety!
+    // let port = Port::new(8080).unwrap();
+    // let host = Hostname("localhost".to_string());
+    // let config = ServerConfig::new(port, host, ...); // ❌ Type error!
+}
+
+#[test]
+fn test_timeout_validation() {
+    assert!(Timeout::from_secs(30).is_ok());
+    assert!(Timeout::from_secs(0).is_err()); // Zero timeout invalid
+}
+
+#[test]
+fn test_max_connections() {
+    assert!(MaxConnections::new(100).is_ok());
+    assert!(MaxConnections::new(0).is_err()); // Zero connections invalid
+}
+
+#[test]
+fn test_valid_config() {
+    let config = ServerConfig::new(
+        Hostname("localhost".to_string()),
+        Port::new(8080).unwrap(),
+        Timeout::from_secs(30).unwrap(),
+        MaxConnections::new(100).unwrap(),
+    );
+
+    assert_eq!(config.port.get(), 8080);
+}
+```
 
 **Check Your Understanding**:
 - Why can't you accidentally swap `Port` and `MaxConnections` now?
@@ -624,7 +430,7 @@ impl ServerConfig {
 
 ---
 
-### Why Milestone 2 Isn't Enough → Moving to Milestone 3
+### Why Milestone 2 Isn't Enough 
 
 **Remaining Issues**:
 1. **Verbose construction**: Must call `.unwrap()` multiple times, lots of `Result` handling
@@ -651,8 +457,6 @@ impl ServerConfig {
 **Goal**: Create a fluent builder API that makes construction ergonomic, provides sensible defaults, and collects all validation errors at once.
 
 **Why This Milestone Matters**:
-
-Milestone 2 gave us type safety, but the API is **clunky**. Creating a config requires many `.unwrap()` calls and looks ugly. The **builder pattern** solves this by providing a fluent, chainable API that's pleasant to use while maintaining all our safety guarantees.
 
 **The Ergonomics Problem**:
 
@@ -952,56 +756,6 @@ impl ServerConfigBuilder<HasHost> {
 }
 ```
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_builder_fluent_api() {
-    let config = ServerConfig::builder()
-        .host("localhost")
-        .port(8080)
-        .timeout_secs(30)
-        .max_connections(100)
-        .build()
-        .unwrap();
-
-    assert_eq!(*config.port, 8080); // Deref in action
-}
-
-#[test]
-fn test_builder_defaults() {
-    let config = ServerConfig::builder()
-        .host("localhost")
-        .build()
-        .unwrap();
-
-    // Should use default values
-    assert_eq!(*config.port, 8080);
-    assert_eq!(*config.max_connections, 100);
-}
-
-#[test]
-fn test_builder_validation_errors() {
-    let result = ServerConfig::builder()
-        .port(0)  // Invalid
-        .timeout_secs(0)  // Invalid
-        .build();
-
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors.len() >= 2); // At least port and timeout errors
-}
-
-#[test]
-fn test_builder_missing_required() {
-    let result = ServerConfig::builder()
-        .port(8080)
-        .build();
-
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors.iter().any(|e| e.contains("Host")));
-}
-```
 
 **Starter Code**:
 ```rust
@@ -1122,6 +876,58 @@ impl ServerConfig {
     }
 }
 ```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_builder_fluent_api() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .port(8080)
+        .timeout_secs(30)
+        .max_connections(100)
+        .build()
+        .unwrap();
+
+    assert_eq!(*config.port, 8080); // Deref in action
+}
+
+#[test]
+fn test_builder_defaults() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .build()
+        .unwrap();
+
+    // Should use default values
+    assert_eq!(*config.port, 8080);
+    assert_eq!(*config.max_connections, 100);
+}
+
+#[test]
+fn test_builder_validation_errors() {
+    let result = ServerConfig::builder()
+        .port(0)  // Invalid
+        .timeout_secs(0)  // Invalid
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.len() >= 2); // At least port and timeout errors
+}
+
+#[test]
+fn test_builder_missing_required() {
+    let result = ServerConfig::builder()
+        .port(8080)
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("Host")));
+}
+```
+
 
 **Check Your Understanding**:
 - How does `Deref` allow `*config.port` to work?

@@ -25,6 +25,8 @@ Build a type-safe order processing system that uses enums to model state transit
 - **E-commerce**: Ship orders that were cancelled, refund orders not yet paid
 - **Booking systems**: Double-book resources, allow modifications after confirmation
 
+
+
 **Without Type-Safe States**:
 ```rust
 struct Order {
@@ -43,6 +45,7 @@ fn ship_order(order: &mut Order) {
     // What if state was "cancelled"? Silent failure!
 }
 ```
+
 
 **With Enum State Machine**:
 ```rust
@@ -118,74 +121,6 @@ enum LoginState {
 }
 ```
 
-**The Problem We're Solving**:
-
-**Bad approach** (struct with optional fields):
-```rust
-struct Order {
-    id: u64,
-    state: String,  // "pending", "paid", "shipped"
-    items: Option<Vec<Item>>,         // Only in pending
-    payment_id: Option<String>,       // Only in paid/shipped
-    tracking_number: Option<String>,  // Only in shipped
-}
-```
-
-**Problems**:
-1. **Impossible states are possible**: What if `payment_id` is Some but `state` is "pending"?
-2. **Runtime checks everywhere**: Must check `state` string before accessing fields
-3. **Easy to forget**: Nothing forces you to handle all states
-4. **Typos**: `state == "shiped"` compiles but is wrong!
-
-**Good approach** (enum with variants):
-```rust
-enum OrderState {
-    Pending {
-        items: Vec<Item>,
-        customer_id: u64,
-    },
-    Paid {
-        order_id: u64,
-        payment_id: String,
-        amount: f64,
-    },
-    Shipped {
-        order_id: u64,
-        tracking_number: String,
-    },
-}
-```
-
-**Benefits**:
-1. **Impossible states impossible**: Can't have `payment_id` without being `Paid`
-2. **Exhaustive matching**: Compiler forces handling all variants
-3. **Type-safe**: Typos in variant names caught at compile-time
-4. **Self-documenting**: All states visible in type definition
-
-**What We're Building**:
-
-Five order states representing the complete order lifecycle:
-
-1. **`Pending`**: Order created, awaiting payment
-    - Contains: `items`, `customer_id`
-    - Can transition to: `Paid`, `Cancelled`
-
-2. **`Paid`**: Payment received, awaiting shipment
-    - Contains: `order_id`, `payment_id`, `amount`
-    - Can transition to: `Shipped`, `Cancelled`
-
-3. **`Shipped`**: Package shipped, in transit
-    - Contains: `order_id`, `tracking_number`
-    - Can transition to: `Delivered`
-
-4. **`Delivered`**: Package delivered to customer
-    - Contains: `order_id`, `delivered_at`
-    - Terminal state (no further transitions)
-
-5. **`Cancelled`**: Order cancelled
-    - Contains: `order_id`, `reason`
-    - Terminal state
-
 **Enum Syntax**:
 
 ```rust
@@ -205,6 +140,9 @@ enum OrderState {
 ```
 
 We use **struct variants** for clarity—named fields are self-documenting.
+
+
+
 
 **Pattern Matching**:
 
@@ -278,118 +216,30 @@ All variants share the same memory space. Only one is active at a time.
 
 Enums are **perfect** for this! Each variant = one state, pattern matching = transitions.
 
-**Real-World State Machine Examples**:
+**What We're Building**:
 
-1. **HTTP connections**:
-   ```rust
-   enum Connection {
-       Idle,
-       Connecting { start_time: Instant },
-       Connected { socket: TcpStream },
-       Closing,
-       Closed,
-   }
-   ```
+Five order states representing the complete order lifecycle:
 
-2. **File uploads**:
-   ```rust
-   enum Upload {
-       Pending { file_name: String, size: u64 },
-       Uploading { bytes_sent: u64, total: u64 },
-       Processing { job_id: String },
-       Complete { url: String },
-       Failed { error: String },
-   }
-   ```
+1. **`Pending`**: Order created, awaiting payment
+   - Contains: `items`, `customer_id`
+   - Can transition to: `Paid`, `Cancelled`
 
-3. **Game states**:
-   ```rust
-   enum GameState {
-       MainMenu,
-       Playing { level: u32, score: u64 },
-       Paused { saved_state: Box<PlayingState> },
-       GameOver { final_score: u64 },
-   }
-   ```
+2. **`Paid`**: Payment received, awaiting shipment
+   - Contains: `order_id`, `payment_id`, `amount`
+   - Can transition to: `Shipped`, `Cancelled`
 
-**Common Methods on Enums**:
+3. **`Shipped`**: Package shipped, in transit
+   - Contains: `order_id`, `tracking_number`
+   - Can transition to: `Delivered`
 
-```rust
-impl OrderState {
-    // Query method - doesn't consume self
-    fn status_string(&self) -> &str {
-        match self {
-            OrderState::Pending { .. } => "Pending",
-            OrderState::Paid { .. } => "Paid",
-            // ...
-        }
-    }
+4. **`Delivered`**: Package delivered to customer
+   - Contains: `order_id`, `delivered_at`
+   - Terminal state (no further transitions)
 
-    // Check variant type
-    fn is_paid(&self) -> bool {
-        matches!(self, OrderState::Paid { .. })
-    }
+5. **`Cancelled`**: Order cancelled
+   - Contains: `order_id`, `reason`
+   - Terminal state
 
-    // Extract data (if specific variant)
-    fn get_tracking_number(&self) -> Option<&str> {
-        match self {
-            OrderState::Shipped { tracking_number, .. } => Some(tracking_number),
-            _ => None,
-        }
-    }
-}
-```
-
-**Key Design Principle: Make Illegal States Unrepresentable**:
-
-With enums, you **can't create** invalid combinations:
-
-```rust
-// ❌ Can't do this with enums!
-let order = OrderState::Pending {
-    items: vec![],
-    payment_id: "PAY123".to_string(),  // ❌ Pending has no payment_id field!
-};
-
-// ❌ Can't have two variants at once!
-let order = OrderState::Paid { .. } | OrderState::Shipped { .. };  // ❌ Not possible!
-```
-
-Compare to the struct approach where these are possible (and bugs)!
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_create_pending_order() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-    let order = OrderState::new_pending(items, 123);
-
-    assert_eq!(order.status_string(), "Pending");
-}
-
-#[test]
-fn test_all_states() {
-    // TODO: Test creating each state variant
-    let pending = OrderState::Pending {
-        items: vec![],
-        customer_id: 1,
-    };
-
-    let paid = OrderState::Paid {
-        order_id: 1,
-        payment_id: "pay_123".to_string(),
-        amount: 99.99,
-    };
-
-    // Test pattern matching works
-    match pending {
-        OrderState::Pending { .. } => { /* OK */ }
-        _ => panic!("Should be pending"),
-    }
-}
-```
 
 **Starter Code**:
 ```rust
@@ -434,6 +284,39 @@ impl OrderState {
     }
 }
 ```
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_create_pending_order() {
+    let items = vec![
+        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
+    ];
+    let order = OrderState::new_pending(items, 123);
+
+    assert_eq!(order.status_string(), "Pending");
+}
+
+#[test]
+fn test_all_states() {
+    // TODO: Test creating each state variant
+    let pending = OrderState::Pending {
+        items: vec![],
+        customer_id: 1,
+    };
+
+    let paid = OrderState::Paid {
+        order_id: 1,
+        payment_id: "pay_123".to_string(),
+        amount: 99.99,
+    };
+
+    // Test pattern matching works
+    match pending {
+        OrderState::Pending { .. } => { /* OK */ }
+        _ => panic!("Should be pending"),
+    }
+}
+```
 
 **Check Your Understanding**:
 - Why does each variant have different associated data?
@@ -442,7 +325,7 @@ impl OrderState {
 
 ---
 
-###  Why Milestone 1 Isn't Enough → Moving to Milestone 2
+###  Why Milestone 1 Isn't Enough 
 
 **Limitations**:
 1. **No state transitions**: Can create any state, but can't safely transition between them
@@ -468,11 +351,7 @@ impl OrderState {
 
 **Goal**: Implement methods that transition between states with validation, using pattern matching to consume states and enforce valid transitions.
 
-**Why This Milestone Matters**:
-
-Milestone 1 gave us **type-safe state representation**, but states just sit there—we can create any state directly! This milestone adds **controlled transitions**—the only way to move from `Pending` to `Paid` is through the `pay()` method, which enforces business rules.
-
-**The Uncontrolled State Problem**:
+**Problem: Uncontrolled State**:
 
 ```rust
 // Milestone 1 - can create any state directly!
@@ -490,13 +369,13 @@ order = OrderState::Shipped {  // Skip payment entirely!
 };
 ```
 
-**Problems**:
+**Issues**:
 1. **No validation**: Can create `Paid` state without actually processing payment
 2. **Skip steps**: Can go directly from `Pending` to `Shipped`, bypassing payment
 3. **No business logic**: Amount calculation, inventory checks, fraud detection—all missing
 4. **Manual construction**: Easy to forget required fields or use wrong data
 
-**The Controlled Transition Solution**:
+**Solution: Controlled Transition**:
 
 ```rust
 impl OrderState {
@@ -691,77 +570,6 @@ Each transition method performs three tasks:
    })
    ```
 
-**Real-World State Transition Examples**:
-
-1. **Payment processing**:
-   ```rust
-   enum PaymentState {
-       Created { amount: f64 },
-       Authorized { auth_code: String },
-       Captured { transaction_id: String },
-       Refunded { refund_id: String },
-   }
-
-   impl PaymentState {
-       fn authorize(self, auth_code: String) -> Result<Self, String> {
-           match self {
-               PaymentState::Created { amount } => {
-                   // Call payment gateway
-                   Ok(PaymentState::Authorized { auth_code })
-               }
-               _ => Err("Can only authorize created payments"),
-           }
-       }
-   }
-   ```
-
-2. **Document workflow**:
-   ```rust
-   enum DocumentState {
-       Draft { content: String },
-       InReview { content: String, reviewers: Vec<String> },
-       Approved { content: String, approver: String },
-       Published { url: String },
-   }
-
-   impl DocumentState {
-       fn submit_for_review(self, reviewers: Vec<String>) -> Result<Self, String> {
-           match self {
-               DocumentState::Draft { content } => {
-                   if content.is_empty() {
-                       return Err("Cannot submit empty document");
-                   }
-                   Ok(DocumentState::InReview { content, reviewers })
-               }
-               _ => Err("Can only submit drafts for review"),
-           }
-       }
-   }
-   ```
-
-3. **Connection lifecycle**:
-   ```rust
-   enum Connection {
-       Idle,
-       Connecting { address: String },
-       Connected { socket: TcpStream },
-       Closing,
-       Closed { reason: String },
-   }
-
-   impl Connection {
-       fn connect(self, address: String) -> Result<Self, IoError> {
-           match self {
-               Connection::Idle => {
-                   // Initiate connection
-                   Ok(Connection::Connecting { address })
-               }
-               _ => Err(IoError::new(ErrorKind::Other, "Already connecting")),
-           }
-       }
-   }
-   ```
-
 **Error Handling Design**:
 
 ```rust
@@ -845,6 +653,67 @@ impl OrderState {
 - IDE shows all methods on all states (no compile-time filtering)
 - Can store mixed states in collections but lose type info
 
+
+**Starter Code**:
+```rust
+impl OrderState {
+    // pay: Transitions from Pending to Paid state
+    // Role: Processes payment, validates items, calculates total
+    // Consumes Pending state, returns Paid state or error
+    fn pay(self, payment_id: String) -> Result<Self, String> {
+        // Match on current state to enforce valid transitions
+        match self {
+            OrderState::Pending { items, customer_id } => {
+                // TODO: Validate items not empty
+                // TODO: Calculate total amount by summing item prices
+                // TODO: Return Paid variant with order_id, payment_id, amount
+                // Hint: Generate order_id from customer_id (e.g., customer_id as order_id)
+                todo!()
+            }
+            _ => Err("Can only pay for pending orders".to_string()),
+        }
+    }
+
+    // ship: Transitions from Paid to Shipped state
+    // Role: Records shipment with tracking number
+    // Consumes Paid state, returns Shipped state or error
+    fn ship(self, tracking_number: String) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Paid: extract order_id, return Shipped with order_id and tracking_number
+        // - Otherwise: return Err("Can only ship paid orders")
+        todo!()
+    }
+
+    // deliver: Transitions from Shipped to Delivered state
+    // Role: Marks order as delivered with timestamp
+    // Consumes Shipped state, returns Delivered state or error
+    fn deliver(self) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Shipped: extract order_id, return Delivered with order_id and Instant::now()
+        // - Otherwise: return Err("Can only deliver shipped orders")
+        todo!()
+    }
+
+    // cancel: Transitions to Cancelled state (only from Pending/Paid)
+    // Role: Cancels order with reason, enforces business rules
+    // Consumes current state, returns Cancelled state or error
+    fn cancel(self, reason: String) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Pending or Paid: extract order_id (or use customer_id), return Cancelled
+        // - If Shipped or Delivered: return Err("Cannot cancel after shipping")
+        // Hint: Use | to match multiple variants: OrderState::Pending { .. } | OrderState::Paid { .. }
+        todo!()
+    }
+
+    // can_cancel: Checks if order can be cancelled
+    // Role: Query method that doesn't consume state
+    fn can_cancel(&self) -> bool {
+        // TODO: Return true only for Pending or Paid states
+        // Hint: Use matches! macro: matches!(self, OrderState::Pending { .. } | OrderState::Paid { .. })
+        todo!()
+    }
+}
+```
 **Checkpoint Tests**:
 ```rust
 #[test]
@@ -910,67 +779,6 @@ fn test_cancellation_rules() {
 }
 ```
 
-**Starter Code**:
-```rust
-impl OrderState {
-    // pay: Transitions from Pending to Paid state
-    // Role: Processes payment, validates items, calculates total
-    // Consumes Pending state, returns Paid state or error
-    fn pay(self, payment_id: String) -> Result<Self, String> {
-        // Match on current state to enforce valid transitions
-        match self {
-            OrderState::Pending { items, customer_id } => {
-                // TODO: Validate items not empty
-                // TODO: Calculate total amount by summing item prices
-                // TODO: Return Paid variant with order_id, payment_id, amount
-                // Hint: Generate order_id from customer_id (e.g., customer_id as order_id)
-                todo!()
-            }
-            _ => Err("Can only pay for pending orders".to_string()),
-        }
-    }
-
-    // ship: Transitions from Paid to Shipped state
-    // Role: Records shipment with tracking number
-    // Consumes Paid state, returns Shipped state or error
-    fn ship(self, tracking_number: String) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Paid: extract order_id, return Shipped with order_id and tracking_number
-        // - Otherwise: return Err("Can only ship paid orders")
-        todo!()
-    }
-
-    // deliver: Transitions from Shipped to Delivered state
-    // Role: Marks order as delivered with timestamp
-    // Consumes Shipped state, returns Delivered state or error
-    fn deliver(self) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Shipped: extract order_id, return Delivered with order_id and Instant::now()
-        // - Otherwise: return Err("Can only deliver shipped orders")
-        todo!()
-    }
-
-    // cancel: Transitions to Cancelled state (only from Pending/Paid)
-    // Role: Cancels order with reason, enforces business rules
-    // Consumes current state, returns Cancelled state or error
-    fn cancel(self, reason: String) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Pending or Paid: extract order_id (or use customer_id), return Cancelled
-        // - If Shipped or Delivered: return Err("Cannot cancel after shipping")
-        // Hint: Use | to match multiple variants: OrderState::Pending { .. } | OrderState::Paid { .. }
-        todo!()
-    }
-
-    // can_cancel: Checks if order can be cancelled
-    // Role: Query method that doesn't consume state
-    fn can_cancel(&self) -> bool {
-        // TODO: Return true only for Pending or Paid states
-        // Hint: Use matches! macro: matches!(self, OrderState::Pending { .. } | OrderState::Paid { .. })
-        todo!()
-    }
-}
-```
-
 **Check Your Understanding**:
 - Why do transition methods take `self` (ownership) instead of `&self`?
 - How does the compiler help you handle all possible current states?
@@ -979,7 +787,7 @@ impl OrderState {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+### Why Milestone 2 Isn't Enough 
 
 **Remaining Issues**:
 1. **Runtime checks**: Still possible to call wrong method at runtime, just returns `Err`
@@ -1010,11 +818,7 @@ impl OrderState {
 
 **Goal**: Use phantom types to encode states in the type system, making invalid state transitions impossible to compile rather than just returning errors at runtime.
 
-**Why This Milestone Matters**:
-
-Milestone 2 gave us **runtime safety** through `Result` types, but the type system doesn't help—`order.ship()` compiles even on a `Pending` order, it just returns `Err` at runtime. The **typestate pattern** moves state checking from runtime to **compile-time**—invalid transitions won't even compile!
-
-**The Runtime Checking Problem**:
+**Problem: Runtime Checking**:
 
 ```rust
 // Milestone 2 - compiles but fails at runtime
@@ -1035,7 +839,7 @@ pending_order.ship("TRACK_123".to_string())?;
 4. **Lost type information**: `Vec<OrderState>` loses which specific state each order is in
 5. **Runtime cost**: Every transition checks state discriminant
 
-**The Compile-Time Solution: Typestate Pattern**:
+**Solution: Compile-Time Check: Typestate Pattern**:
 
 ```rust
 // Different type for each state!
@@ -1290,92 +1094,6 @@ pending.ship("TRACK_123");
 //    = help: consider calling `.pay()` first to transition to the Paid state
 ```
 
-**Real-World Typestate Pattern Examples**:
-
-1. **Database connections**:
-   ```rust
-   struct Connecting;
-   struct Connected;
-   struct Closed;
-
-   struct DbConnection<State> {
-       config: DbConfig,
-       _state: PhantomData<State>,
-   }
-
-   impl DbConnection<Connecting> {
-       fn connect() -> Result<DbConnection<Connected>, Error> { /* ... */ }
-   }
-
-   impl DbConnection<Connected> {
-       fn execute(&self, query: &str) -> Result<Vec<Row>, Error> { /* ... */ }
-       fn close(self) -> DbConnection<Closed> { /* ... */ }
-   }
-
-   impl DbConnection<Closed> {
-       // No methods! Can't use closed connection
-   }
-
-   // Won't compile:
-   let conn = DbConnection::connect()?;
-   conn.close();
-   conn.execute("SELECT * FROM users")?;  // ❌ conn is Closed!
-   ```
-
-2. **File handles**:
-   ```rust
-   struct ReadOnly;
-   struct WriteOnly;
-   struct ReadWrite;
-
-   struct File<Mode> {
-       handle: RawHandle,
-       _mode: PhantomData<Mode>,
-   }
-
-   impl File<ReadOnly> {
-       fn read(&mut self, buf: &mut [u8]) -> Result<usize> { /* ... */ }
-       // NO write() method! ✅
-   }
-
-   impl File<WriteOnly> {
-       fn write(&mut self, buf: &[u8]) -> Result<usize> { /* ... */ }
-       // NO read() method! ✅
-   }
-
-   impl File<ReadWrite> {
-       fn read(&mut self, buf: &mut [u8]) -> Result<usize> { /* ... */ }
-       fn write(&mut self, buf: &[u8]) -> Result<usize> { /* ... */ }
-   }
-   ```
-
-3. **HTTP request builder** (like `reqwest`):
-   ```rust
-   struct NoUrl;
-   struct HasUrl;
-
-   struct RequestBuilder<State> {
-       url: Option<String>,
-       headers: HashMap<String, String>,
-       _state: PhantomData<State>,
-   }
-
-   impl RequestBuilder<NoUrl> {
-       fn new() -> Self { /* ... */ }
-       fn url(self, url: impl Into<String>) -> RequestBuilder<HasUrl> { /* ... */ }
-       // NO send() method! Must set URL first ✅
-   }
-
-   impl RequestBuilder<HasUrl> {
-       fn send(self) -> Result<Response> { /* ... */ }
-       // Only available after URL is set! ✅
-   }
-
-   // Won't compile:
-   let request = RequestBuilder::new();
-   request.send()?;  // ❌ No send() on RequestBuilder<NoUrl>
-   ```
-
 **Advantages of Typestate Pattern**:
 
 ✅ **Compile-time safety**: Invalid transitions caught before runtime
@@ -1431,77 +1149,6 @@ let orders: Vec<AnyOrder> = vec![
 ];
 ```
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_typestate_valid_flow() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let order = Order::<Pending>::new(1, items).unwrap();
-    let order = order.pay("payment_123".to_string()).unwrap();
-    let order = order.ship("TRACK123".to_string());
-    let order = order.deliver();
-
-    // order is now Order<Delivered>
-    assert_eq!(order.customer_id(), 1);
-}
-
-#[test]
-fn test_compile_time_enforcement() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let pending_order = Order::<Pending>::new(1, items).unwrap();
-
-    // These won't compile! Uncomment to see errors:
-    // pending_order.ship("TRACK123".to_string()); // ❌ No ship method on Pending
-    // pending_order.deliver(); // ❌ No deliver method on Pending
-
-    let paid_order = pending_order.pay("payment_123".to_string()).unwrap();
-    // paid_order.pay("payment_456".to_string()); // ❌ No pay method on Paid (consumed)
-
-    let shipped_order = paid_order.ship("TRACK123".to_string());
-    // shipped_order.cancel("Oops".to_string()); // ❌ No cancel method on Shipped!
-}
-
-#[test]
-fn test_cancellation_only_early_states() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    // Can cancel pending
-    let order = Order::<Pending>::new(1, items.clone()).unwrap();
-    let _cancelled = order.cancel("Customer request".to_string());
-
-    // Can cancel paid
-    let order = Order::<Pending>::new(1, items).unwrap();
-    let order = order.pay("payment_123".to_string()).unwrap();
-    let _cancelled = order.cancel("Changed mind".to_string());
-
-    // Shipped orders don't have cancel method - compile-time enforcement!
-}
-
-#[test]
-fn test_common_methods_all_states() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let pending = Order::<Pending>::new(1, items.clone()).unwrap();
-    assert_eq!(pending.customer_id(), 1);
-
-    let paid = Order::<Pending>::new(1, items).unwrap()
-        .pay("payment_123".to_string())
-        .unwrap();
-    assert_eq!(paid.customer_id(), 1);
-
-    // Common methods available in all states
-}
-```
 
 **Starter Code**:
 ```rust
@@ -1616,6 +1263,79 @@ impl<State> Order<State> {
     }
 }
 ```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_typestate_valid_flow() {
+    let items = vec![
+        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
+    ];
+
+    let order = Order::<Pending>::new(1, items).unwrap();
+    let order = order.pay("payment_123".to_string()).unwrap();
+    let order = order.ship("TRACK123".to_string());
+    let order = order.deliver();
+
+    // order is now Order<Delivered>
+    assert_eq!(order.customer_id(), 1);
+}
+
+#[test]
+fn test_compile_time_enforcement() {
+    let items = vec![
+        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
+    ];
+
+    let pending_order = Order::<Pending>::new(1, items).unwrap();
+
+    // These won't compile! Uncomment to see errors:
+    // pending_order.ship("TRACK123".to_string()); // ❌ No ship method on Pending
+    // pending_order.deliver(); // ❌ No deliver method on Pending
+
+    let paid_order = pending_order.pay("payment_123".to_string()).unwrap();
+    // paid_order.pay("payment_456".to_string()); // ❌ No pay method on Paid (consumed)
+
+    let shipped_order = paid_order.ship("TRACK123".to_string());
+    // shipped_order.cancel("Oops".to_string()); // ❌ No cancel method on Shipped!
+}
+
+#[test]
+fn test_cancellation_only_early_states() {
+    let items = vec![
+        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
+    ];
+
+    // Can cancel pending
+    let order = Order::<Pending>::new(1, items.clone()).unwrap();
+    let _cancelled = order.cancel("Customer request".to_string());
+
+    // Can cancel paid
+    let order = Order::<Pending>::new(1, items).unwrap();
+    let order = order.pay("payment_123".to_string()).unwrap();
+    let _cancelled = order.cancel("Changed mind".to_string());
+
+    // Shipped orders don't have cancel method - compile-time enforcement!
+}
+
+#[test]
+fn test_common_methods_all_states() {
+    let items = vec![
+        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
+    ];
+
+    let pending = Order::<Pending>::new(1, items.clone()).unwrap();
+    assert_eq!(pending.customer_id(), 1);
+
+    let paid = Order::<Pending>::new(1, items).unwrap()
+        .pay("payment_123".to_string())
+        .unwrap();
+    assert_eq!(paid.customer_id(), 1);
+
+    // Common methods available in all states
+}
+```
+
 
 **Check Your Understanding**:
 - Why is `_state: PhantomData<State>` needed?

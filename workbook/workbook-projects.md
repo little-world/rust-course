@@ -24,3 +24,32 @@
 ## Project 2: Network Packet Inspector with Binary Pattern Matching
 ## Project 3: Business Rule Engine with Enum-Driven Architecture
 
+## Chapter 15: Async Runtime Patterns
+## Project 1: Concurrent Web Scraper with Rate Limiting
+## Project 2: Real-Time Event Stream Processor
+## Project 3: Priority-Based Async Task Scheduler
+## Project 4: Concurrent Image Processing Pipeline
+
+## Chapter 16: Atomic Operations
+## Project 1: Lock-Free Metrics Collector
+## Project 2: Lock-Free Stack (Treiber Stack)
+## Project 3: Wait-Free Ring Buffer (Bounded Queue)
+
+## Chapter 17: Advanced String Processing
+## Project: High-Performance Text Tokenizer for Neural Networks
+
+## Chapter 18: High-Performance Computing
+## Project: Optimized Matrix Multiplication from Naive to GPU
+
+## Chapter 19: CPU Performance Optimization
+## Project: High-Performance Image Convolution with CPU Optimizations
+
+## Chapter 17: Parallel Programming (3 Projects)
+
+### Project 1: Parallel Sorting Algorithms Suite
+
+### Project 2: Parallel Graph Processing Engine
+
+### Project 3: Map-Reduce Framework for Log Analysis
+
+
