@@ -46,36 +46,33 @@ iter.all(|x| x > 0)             // Check if all match
 iter.find(|x| *x == target)     // Find first match
 ```
 
-## Pattern 1: Custom Iterators and IntoIterator
+## Pattern 1: Custom Iterators and `IntoIterator`
 
-**Problem**: Returning `Vec` from collection methods forces immediate allocation and copying—even if the caller only needs the first few elements. Exposing internal structure breaks encapsulation. External iteration with manual indexing is error-prone and doesn't work with custom data structures (graphs, trees, generators). Standard for-loops require allocating collections first.
+**Problem**: You have a custom data structure (like a tree, graph, or a special-purpose buffer) and you want to allow users to loop over it using a standard `for` loop. Returning a `Vec` of items is inefficient as it requires allocating memory for all items at once.
 
-**Solution**: Implement the `Iterator` trait for custom types to enable lazy, composable iteration. Implement `IntoIterator` for owned, borrowed (`&T`), and mutable (`&mut T`) forms to enable for-loop syntax. Use iterator adapters (wrapping other iterators) to extend functionality. Return `impl Iterator` from functions to hide implementation details while enabling zero-allocation iteration.
+**Solution**: Implement the `Iterator` trait for a helper struct that holds the iteration state. Then, implement the `IntoIterator` trait for your main data structure, which creates and returns an instance of your iterator struct. This makes your type directly usable in a `for` loop.
 
-**Why It Matters**: Custom iterators eliminate unnecessary allocations—a function returning "first 10 primes" as `Vec<u64>` allocates even if caller only checks the first. Iterators are lazy: `Fibonacci::new().take(10)` computes 10 values, not infinite. They compose: `.filter().map().take()` chains without intermediate vectors. This is transformative for API design: libraries can expose iteration without committing to storage format, and code using them gets full iterator method access (map, filter, fold, etc.) for free.
+**Why It Matters**: This pattern provides a clean, idiomatic, and efficient way to expose the contents of your data structures. Because iterators are lazy, no computation or allocation happens until the caller actually starts consuming items. This allows users to chain other iterator methods (`.map`, `.filter`, etc.) for free, leading to highly composable and performant APIs.
 
-**Use Cases**: Custom collections (trees, graphs, circular buffers), infinite sequences (Fibonacci, primes, random numbers), computed ranges (2D coordinates, date ranges), stateful generators, adapters for external APIs, zero-copy views into data structures.
+**Use Cases**:
+-   Custom collections like trees, graphs, or ring buffers.
+-   Infinite or procedurally generated sequences (e.g., Fibonacci numbers, prime numbers).
+-   Stateful generators that compute values on the fly.
+-   Adapters for external data sources or APIs.
 
-### Examples
+### Example 1: A Basic Custom Iterator
+
+This `Counter` struct demonstrates the simplest form of a custom iterator. It iterates from 0 up to a maximum value.
 
 ```rust
-//===============================
-// Pattern: Basic custom iterator
-//===============================
 struct Counter {
     current: u32,
     max: u32,
 }
 
-impl Counter {
-    fn new(max: u32) -> Self {
-        Counter { current: 0, max }
-    }
-}
-
 impl Iterator for Counter {
     type Item = u32;
-    
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.current < self.max {
             let result = self.current;
@@ -85,80 +82,57 @@ impl Iterator for Counter {
             None
         }
     }
-    
-    // Optional: provide size_hint for optimization
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = (self.max - self.current) as usize;
-        (remaining, Some(remaining))
-    }
 }
 
-//=============================================
-// Pattern: IntoIterator for custom collections
-//=============================================
+// You can now use `Counter` with any iterator methods.
+let sum: u32 = Counter { current: 0, max: 5 }.sum();
+assert_eq!(sum, 10); // 0 + 1 + 2 + 3 + 4
+```
+
+### Example 2: Implementing `IntoIterator` for a Custom Collection
+
+To make a custom collection work with `for` loops, you need to implement `IntoIterator`. Here, we implement it for a `RingBuffer` for owned, borrowed, and mutably borrowed iteration.
+
+```rust
 struct RingBuffer<T> {
     data: Vec<T>,
-    capacity: usize,
 }
 
-impl<T> RingBuffer<T> {
-    fn new(capacity: usize) -> Self {
-        RingBuffer {
-            data: Vec::new(),
-            capacity,
-        }
-    }
-}
-
-// Implement IntoIterator for owned consumption
+// For `for item in my_buffer` (consumes the buffer)
 impl<T> IntoIterator for RingBuffer<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
-    
     fn into_iter(self) -> Self::IntoIter {
         self.data.into_iter()
     }
 }
 
-// Implement IntoIterator for borrowing
+// For `for item in &my_buffer` (borrows the buffer)
 impl<'a, T> IntoIterator for &'a RingBuffer<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
-    
     fn into_iter(self) -> Self::IntoIter {
         self.data.iter()
     }
 }
+```
 
-// Implement IntoIterator for mutable borrowing
-impl<'a, T> IntoIterator for &'a mut RingBuffer<T> {
-    type Item = &'a mut T;
-    type IntoIter = std::slice::IterMut<'a, T>;
-    
-    fn into_iter(self) -> Self::IntoIter {
-        self.data.iter_mut()
-    }
-}
+### Example 3: An Infinite Iterator
 
-//======================================
-// Pattern: Iterator with internal state
-//======================================
+Iterators can represent infinite sequences because they are lazy. This `Fibonacci` iterator will produce numbers forever until the sequence overflows or is stopped by an adapter like `.take()`.
+
+```rust
 struct Fibonacci {
     current: u64,
     next: u64,
 }
 
-impl Fibonacci {
-    fn new() -> Self {
-        Fibonacci { current: 0, next: 1 }
-    }
-}
-
 impl Iterator for Fibonacci {
     type Item = u64;
-    
+
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.current;
+        // Use `checked_add` to handle potential overflow gracefully.
         let new_next = self.current.checked_add(self.next)?;
         self.current = self.next;
         self.next = new_next;
@@ -166,106 +140,9 @@ impl Iterator for Fibonacci {
     }
 }
 
-//================================================
-// Pattern: Stateful iterator with filtering logic
-//================================================
-struct PrimeNumbers {
-    current: u64,
-    primes: Vec<u64>,
-}
-
-impl PrimeNumbers {
-    fn new() -> Self {
-        PrimeNumbers {
-            current: 2,
-            primes: Vec::new(),
-        }
-    }
-    
-    fn is_prime(&self, n: u64) -> bool {
-        for &p in &self.primes {
-            if p * p > n {
-                break;
-            }
-            if n % p == 0 {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl Iterator for PrimeNumbers {
-    type Item = u64;
-    
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.is_prime(self.current) {
-                let result = self.current;
-                self.primes.push(result);
-                self.current += if self.current == 2 { 1 } else { 2 };
-                return Some(result);
-            }
-            self.current += if self.current == 2 { 1 } else { 2 };
-        }
-    }
-}
-
-//===================================================
-// Pattern: Iterator adapter (wraps another iterator)
-//===================================================
-struct Batched<I>
-where
-    I: Iterator,
-{
-    iter: I,
-    batch_size: usize,
-}
-
-impl<I> Batched<I>
-where
-    I: Iterator,
-{
-    fn new(iter: I, batch_size: usize) -> Self {
-        Batched { iter, batch_size }
-    }
-}
-
-impl<I> Iterator for Batched<I>
-where
-    I: Iterator,
-{
-    type Item = Vec<I::Item>;
-    
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut batch = Vec::with_capacity(self.batch_size);
-        
-        for _ in 0..self.batch_size {
-            match self.iter.next() {
-                Some(item) => batch.push(item),
-                None => break,
-            }
-        }
-        
-        if batch.is_empty() {
-            None
-        } else {
-            Some(batch)
-        }
-    }
-}
-
-// Extension trait for batching
-trait BatchedExt: Iterator {
-    fn batched(self, batch_size: usize) -> Batched<Self>
-    where
-        Self: Sized,
-    {
-        Batched::new(self, batch_size)
-    }
-}
-
-impl<I: Iterator> BatchedExt for I {}
+// We can take the first 10 Fibonacci numbers.
+let fibs: Vec<_> = Fibonacci { current: 0, next: 1 }.take(10).collect();
+assert_eq!(fibs, vec![0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);
 ```
 
 **Custom iterator guidelines:**
@@ -277,139 +154,54 @@ impl<I: Iterator> BatchedExt for I {}
 
 ## Pattern 2: Zero-Allocation Iteration
 
-**Problem**: Processing collections with intermediate steps typically requires allocating temporary vectors: `filter` → allocate Vec → `map` → allocate another Vec → `collect`. For large datasets or hot paths, these allocations dominate runtime. Calling `.collect()` after every transformation step wastes memory. Manual loops avoid allocation but lose composability and are verbose.
+**Problem**: When processing large datasets, chaining operations like `map` and `filter` can be inefficient if each step allocates a new, intermediate collection. This can lead to high memory usage and poor cache performance.
 
-**Solution**: Chain iterator adapters without calling `.collect()` until the final result. Use `.iter()` for borrowing instead of `.into_iter()` which consumes. Leverage `fold` and `try_fold` for custom reductions without temporary storage. Use `from_fn` for stateful generators. Employ `.windows()` and `.chunks()` for sliding operations without copying data. Return `impl Iterator` to avoid boxing or collecting.
+**Solution**: Chain iterator adapters together without calling `.collect()` until the very end. Iterators in Rust are "lazy," meaning they don't do any work until a "consuming" method like `collect()`, `sum()`, or `count()` is called. This allows the compiler to fuse the chain of operations into a single, highly optimized loop that processes items one by one without intermediate allocations.
 
-**Why It Matters**: Zero-allocation iteration can be 10-100x faster than collecting intermediate results. Processing 1M elements with 3 transformations: naive approach allocates 3M+ elements across temporary vectors. Iterator chains allocate zero intermediates—just iterate once, applying transformations on-the-fly. For data pipelines, this means gigabytes saved and cache-friendly sequential access. The compiler often optimizes iterator chains to the same machine code as hand-written loops, giving you high-level abstraction at zero cost.
+**Why It Matters**: This pattern is fundamental to writing high-performance data processing code in Rust. It allows you to write high-level, declarative code that is just as fast as a hand-written, low-level loop. For large datasets, the performance difference can be orders of magnitude.
 
-**Use Cases**: Data processing pipelines (ETL, analytics), filtering and transforming large datasets, hot path operations in servers, parsing without intermediate buffers, mathematical computations on sequences, real-time stream processing.
+**Use Cases**:
+-   Data processing pipelines (e.g., in ETL jobs or data analysis).
+-   Filtering, transforming, and aggregating data from large files or databases.
+-   High-performance code in hot paths, such as in network servers or game engines.
+-   Parsing and stream processing.
 
-### Examples
+### Example 1: Chaining Adapters without Intermediate Collections
+
+This function processes a slice of numbers by filtering positive numbers, squaring them, filtering again, and finally summing the result. No intermediate `Vec` is created.
 
 ```rust
-//===================================================
-// Pattern: Chaining without intermediate collections
-//===================================================
 fn process_numbers(input: &[i32]) -> i32 {
     input
         .iter()
         .filter(|&&x| x > 0)
         .map(|&x| x * x)
         .filter(|&x| x < 1000)
-        .sum()
+        .sum() // The iterator is consumed only at the end.
 }
+```
 
-//========================================================
-// Pattern: Iterator windows for sliding window algorithms
-//========================================================
+### Example 2: Using `windows` for Sliding Window Operations
+
+The `.windows()` method creates an iterator that yields overlapping slices of the original data. This is a zero-allocation way to implement sliding window algorithms.
+
+```rust
 fn moving_average(data: &[f64], window_size: usize) -> Vec<f64> {
     data.windows(window_size)
-        .map(|w| w.iter().sum::<f64>() / window_size as f64)
+        .map(|window| window.iter().sum::<f64>() / window_size as f64)
         .collect()
 }
+```
 
-//======================================
-// Pattern: Avoiding collect() with fold
-//======================================
-fn count_matches<T>(iter: impl Iterator<Item = T>, predicate: impl Fn(&T) -> bool) -> usize {
-    // Instead of: iter.filter(predicate).count()
-    iter.fold(0, |count, item| {
-        if predicate(&item) {
-            count + 1
-        } else {
-            count
-        }
-    })
-}
+### Example 3: `fold` for Custom Reductions
 
-//=======================================================
-// Pattern: Iterator over computed values (no allocation)
-//=======================================================
-struct Range2D {
-    x: i32,
-    y: i32,
-    max_x: i32,
-    max_y: i32,
-}
+Instead of creating a new collection just to count items, `fold` can be used to perform custom aggregations in a single pass with no allocations.
 
-impl Range2D {
-    fn new(max_x: i32, max_y: i32) -> Self {
-        Range2D { x: 0, y: 0, max_x, max_y }
-    }
-}
-
-impl Iterator for Range2D {
-    type Item = (i32, i32);
-    
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.y >= self.max_y {
-            return None;
-        }
-        
-        let result = (self.x, self.y);
-        
-        self.x += 1;
-        if self.x >= self.max_x {
-            self.x = 0;
-            self.y += 1;
-        }
-        
-        Some(result)
-    }
-}
-
-//================================================
-// Pattern: Generator-like iteration with closures
-//================================================
-fn generate<T>(mut state: impl FnMut() -> Option<T>) -> impl Iterator<Item = T> {
-    std::iter::from_fn(move || state())
-}
-
-//=========================================
-// Usage: infinite iterator without storage
-//=========================================
-fn random_numbers() -> impl Iterator<Item = u32> {
-    let mut seed = 12345u32;
-    generate(move || {
-        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-        Some(seed)
-    })
-}
-
-//============================================
-// Pattern: Chain iterators without collecting
-//============================================
-fn process_multiple_sources(a: &[i32], b: &[i32], c: &[i32]) -> i32 {
-    a.iter()
-        .chain(b.iter())
-        .chain(c.iter())
-        .filter(|&&x| x % 2 == 0)
-        .sum()
-}
-
-//==========================================================
-// Pattern: Flat-map for nested iteration without allocation
-//==========================================================
-fn expand_ranges(ranges: &[(i32, i32)]) -> impl Iterator<Item = i32> + '_ {
-    ranges.iter().flat_map(|&(start, end)| start..end)
-}
-
-//====================================================
-// Pattern: Try-fold for early exit without allocation
-//====================================================
-fn find_sum_exceeding(numbers: &[i32], threshold: i32) -> Option<i32> {
-    numbers
+```rust
+fn count_long_strings(strings: &[&str]) -> usize {
+    strings
         .iter()
-        .try_fold(0, |sum, &x| {
-            let new_sum = sum + x;
-            if new_sum > threshold {
-                Err(new_sum)
-            } else {
-                Ok(new_sum)
-            }
-        })
-        .err()
+        .fold(0, |count, &s| if s.len() > 10 { count + 1 } else { count })
 }
 ```
 
@@ -419,18 +211,24 @@ fn find_sum_exceeding(numbers: &[i32], threshold: i32) -> Option<i32> {
 3. **Leverage from_fn for stateful generation**: No need for custom iterator types
 4. **Prefer borrowed iteration**: Use .iter() over .into_iter() when possible
 5. **Iterator::flatten and flat_map**: Flatten nested structures without intermediate Vec
+## Pattern 3: Advanced Iterator Composition
 
-## Pattern 3: Iterator Adapter Composition
+**Problem**: Standard iterator adapters cover many use cases, but sometimes you need more specialized logic, such as stateful transformations, lookahead, or custom grouping, without resorting to manual loops.
 
-**Problem**: Complex data transformations expressed as nested loops are hard to read and error-prone. Breaking transformations into separate functions with intermediate collections wastes memory. State machines for parsing or grouping require manual bookkeeping. Expressing operations like "group by key", "interleave two sequences", or "cartesian product" requires custom code that can't leverage standard library optimizations.
+**Solution**: Use more advanced adapters like `.scan()`, `.peekable()`, and `.flat_map()` to build complex, declarative data processing pipelines. `.scan()` is perfect for stateful transformations like cumulative sums. `.peekable()` allows you to look at the next item without consuming it, which is essential for parsing. `.flat_map()` is great for transforming one item into many.
 
-**Solution**: Compose transformations using iterator adapters: `.map()`, `.filter()`, `.flat_map()`, `.scan()`, `.take_while()`, `.skip_while()`, `.zip()`, `.chain()`, `.peekable()`, etc. Build custom adapters for domain-specific operations. Use `.scan()` for stateful transformations and `.peekable()` for lookahead. Combine adapters to express complex operations declaratively.
+**Why It Matters**: These advanced tools allow you to express complex logic while staying within the iterator paradigm. This keeps your code declarative, composable, and often more performant than a manual implementation, as the compiler can still optimize the entire iterator chain.
 
-**Why It Matters**: Iterator composition turns imperative procedural code into declarative pipelines that document intent. A log analysis pipeline: `logs.filter(errors).filter(recent).group_by(level).count()` reads like a specification. Custom adapters (interleave, batch, group_by) compose with standard ones, building a vocabulary for your domain. The compiler optimizes these chains: a 5-adapter pipeline often compiles to a single loop. This enables writing code that is simultaneously readable, composable, and fast.
+**Use Cases**:
+-   Log analysis and data transformation pipelines.
+-   Parsers that need lookahead.
+-   Grouping and aggregating data by a key.
+-   Generating cumulative statistics or running totals.
+-   Interleaving or merging multiple data streams.
 
-**Use Cases**: Log analysis pipelines, data transformation ETL, parsers with lookahead (peekable), grouping and aggregation, mathematical sequences, interleaving or merging streams, batching for bulk processing, complex filtering logic.
+### Example 1: `scan` for Stateful Transformations
 
-### Examples
+`.scan()` is like `fold`, but it yields a value at each step. It's perfect for calculating cumulative sums or any other running total.
 
 ```rust
 use std::collections::HashMap;
@@ -896,71 +694,35 @@ fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
 }
 ```
 
-**Streaming algorithm principles:**
-1. **Process one element at a time**: Never load entire dataset into memory
-2. **Use BufReader for files**: Efficiently reads line-by-line or in chunks
-3. **Maintain minimal state**: Only store aggregates, not raw data
-4. **Combine with fold/scan**: Build running computations
-5. **Leverage lazy evaluation**: Transformations happen on-demand
+## Pattern 4: Parallel Iteration with Rayon
 
-## Pattern 5: Parallel Iteration with Rayon
+**Problem**: Processing a large collection sequentially can be slow, leaving multiple CPU cores idle. Manually writing multi-threaded code to parallelize such tasks is complex, error-prone, and requires careful synchronization.
 
-**Problem**: Sequential iteration leaves CPU cores idle—processing 1M elements on an 8-core machine uses 12.5% capacity. Manual threading with channels and thread pools is complex and error-prone. Partitioning work across threads requires careful load balancing. Race conditions and deadlocks plague hand-written parallel code. Data parallelism seems to require giving up iterator abstractions.
+**Solution**: Use the **Rayon** library. By simply changing `.iter()` to `.par_iter()`, Rayon can automatically parallelize your iterator chain across all available CPU cores. It uses a work-stealing scheduler to efficiently balance the load between threads.
 
-**Solution**: Replace `.iter()` with `.par_iter()` from Rayon to enable automatic parallelization. Use `.par_chunks()` for better cache locality. Apply `fold` + `reduce` for parallel aggregation. Use `par_sort` for automatic parallel sorting. Let Rayon's work-stealing scheduler balance load. Use `par_bridge()` to parallelize sequential iterators. Leverage `scope` for fine-grained control when needed.
+**Why It Matters**: Rayon offers a massive performance boost for data-parallel tasks with minimal code changes. For a CPU-bound task, you can often achieve a near-linear speedup with the number of cores. It makes parallel programming in Rust incredibly accessible and safe.
 
-**Why It Matters**: Parallel iteration provides near-linear speedup with CPU cores—8 cores can process 7-8x faster with a single character change (`.par_iter()`). Rayon automatically handles work distribution, load balancing, and thread management. The work-stealing scheduler prevents idle threads while maintaining cache efficiency. This enables writing high-level declarative code that runs at maximum hardware speed. For data processing (image processing, log analysis, simulations), parallelization is often free performance: change one word, get 8x speedup.
+**Use Cases**:
+-   Data-intensive computations like image processing or scientific simulations.
+-   Batch processing of large numbers of files or database records.
+-   Sorting and searching very large datasets.
+-   Any "embarrassingly parallel" task that can be broken down into independent chunks.
 
-**Use Cases**: Data-intensive computations (matrix operations, image/video processing), batch processing (file processing, database imports), scientific computing (simulations, Monte Carlo), sorting and searching large datasets, map-reduce patterns, parallel validation, embarrassingly parallel workloads.
+### Example 1: Basic Parallel Iteration
 
-### Examples
+By changing `.iter()` to `.par_iter()`, this function becomes a parallel operation. Rayon handles all the complexity of threading and data distribution.
 
 ```rust
 use rayon::prelude::*;
 
-//==================================
-// Pattern: Basic parallel iteration
-//==================================
-fn parallel_sum(numbers: &[i32]) -> i32 {
-    numbers.par_iter().sum()
-}
-
-fn parallel_map(numbers: &[i32]) -> Vec<i32> {
-    numbers.par_iter().map(|&x| x * x).collect()
-}
-
-//===============================================
-// Pattern: Parallel filtering and transformation
-//===============================================
-#[derive(Debug, Clone)]
-struct Record {
-    id: u64,
-    value: f64,
-    category: String,
-}
-
-fn parallel_process_records(records: &[Record], threshold: f64) -> Vec<Record> {
-    records
-        .par_iter()
-        .filter(|r| r.value > threshold)
-        .filter(|r| r.category == "active")
-        .cloned()
-        .collect()
-}
-
-//===============================================
-// Pattern: Parallel reduce with custom operation
-//===============================================
-fn parallel_max(numbers: &[i32]) -> Option<i32> {
-    numbers.par_iter().copied().max()
-}
-
-fn parallel_custom_reduce(numbers: &[i32]) -> i32 {
+// This function will run in parallel across multiple cores.
+fn parallel_sum_of_squares(numbers: &[i64]) -> i64 {
     numbers
-        .par_iter()
-        .fold(|| 0, |acc, &x| acc + x * x)
+        .par_iter() // The only change needed for parallelization!
+        .map(|&x| x * x)
         .sum()
 }
+```
 
 //=======================
 // Pattern: Parallel sort

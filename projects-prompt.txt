@@ -18,7 +18,7 @@ For each next step tell why the previous step is not enough and why we need anot
 look at workbook/workbook-projects.md for previous project subject 
 at new project on different subjects
 
-look at 15-async-runtime-* for example template
+look at 01-memory-* for example template
 
 on each milestone start with an introdction then the names of structs/traits, the fields and the functions with the role they play the 'checkpoint tests' and thebn do the 'starter code' 
 
@@ -27,4 +27,4 @@ put a complete working example at the end the project
 
 write the projects in 3 separate files
 
-read 22-serialization-* in the src directory
+read 25-ffi-c* in the src directory

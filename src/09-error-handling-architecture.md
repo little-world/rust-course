@@ -6,47 +6,36 @@ For programmers, mastering Rust's error handling means understanding not just th
 
 The key insight is that error handling in Rust is not just about reporting failures—it's about encoding your program's error domain in the type system, making impossible states unrepresentable, and providing excellent diagnostics when things go wrong.
 
+## Pattern 1: Custom Error Enums for Libraries
 
-## Pattern 1: Error Type Design Principles
+**Problem**: Returning simple strings or a generic `Box<dyn Error>` from a library is not ideal. A `String` error loses all type information, making it impossible for a caller to programmatically handle different kinds of failures. A generic error type hides the specific errors that can occur, forcing users to guess or read the source code.
 
-**Problem**: String error messages (`Result<T, String>`) lose type information and can't be programmatically inspected. Generic error types (`Box<dyn Error>`) hide what can actually fail, forcing callers to read documentation or source code. Libraries that return overly broad errors prevent callers from handling specific failures differently (retry on timeout, abort on auth failure).
+**Solution**: Define a custom `enum` for your library's errors. Each variant of the enum represents a distinct failure mode. Use the `thiserror` crate to easily derive the standard `Error` and `Display` traits, reducing boilerplate.
 
-**Solution**: Design custom error enums with variants for each distinct failure mode. Use `thiserror` to derive `Display` and `Error` implementations. Include relevant context in variant fields (file paths, invalid values). Preserve error chains with `#[source]`. Use `#[non_exhaustive]` for public library errors to allow adding variants without breaking compatibility.
+**Why It Matters**: A custom error enum makes your library's API transparent and robust. It allows users to `match` on specific error variants and handle them appropriately—for example, retrying a `Timeout` error but aborting on a `PermissionDenied` error. This makes the consuming code more reliable and user-friendly.
 
-**Why It Matters**: Type-safe error handling enables callers to match on specific errors and handle them appropriately. A database library that returns `QueryError::Timeout` vs `QueryError::PermissionDenied` lets callers retry timeouts but not permission errors. Preserving error chains (source errors) enables debugging—you see not just "parse failed" but "parse failed because file read failed because permission denied". Good error types turn runtime debugging sessions into compile-time error handling.
+**Use Cases**:
+-   Public libraries where callers need to distinguish between different failure modes.
+-   Systems with complex or domain-specific errors, such as network protocols, database clients, or parsers.
+-   Any situation where an error is an expected part of the program's control flow.
 
-**Use Cases**: Library APIs where callers need to distinguish errors, systems with complex failure modes (databases, network protocols), parsers and compilers (syntax errors with location), validation frameworks (multiple validation failures).
+### Example 1: A Simple Custom Error Enum
 
-### Examples
+This shows a basic error enum for a parsing function. Each variant represents a specific reason the parsing could fail.
 
 ```rust
-//=========================================
-//  Pattern: Simple enum for library errors
-//=========================================
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Error, Debug, PartialEq)]
 pub enum ParseError {
+    #[error("the input was empty")]
     EmptyInput,
+    #[error("the input format was invalid")]
     InvalidFormat,
+    #[error("the number was too large")]
     NumberTooLarge,
-    UnexpectedCharacter(char),
 }
 
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParseError::EmptyInput => write!(f, "Input string is empty"),
-            ParseError::InvalidFormat => write!(f, "Invalid format"),
-            ParseError::NumberTooLarge => write!(f, "Number exceeds maximum value"),
-            ParseError::UnexpectedCharacter(c) => {
-                write!(f, "Unexpected character: '{}'", c)
-            }
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
-
-// Usage
 fn parse_number(input: &str) -> Result<i32, ParseError> {
     if input.is_empty() {
         return Err(ParseError::EmptyInput);
@@ -55,114 +44,58 @@ fn parse_number(input: &str) -> Result<i32, ParseError> {
     input.parse().map_err(|_| ParseError::InvalidFormat)
 }
 
-//=================================
-// Pattern: Error with source chain
-//=================================
-#[derive(Debug)]
-pub enum IoError {
-    FileNotFound { path: String },
-    PermissionDenied { path: String },
-    ReadFailed { path: String, source: std::io::Error },
+#[derive(Error, Debug)]
+pub enum DataError {
+    #[error("failed to read data")]
+    Io(#[from] io::Error),
+    #[error("failed to parse number")]
+    Parse(#[from] ParseIntError),
 }
 
-impl std::fmt::Display for IoError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IoError::FileNotFound { path } => {
-                write!(f, "File not found: {}", path)
-            }
-            IoError::PermissionDenied { path } => {
-                write!(f, "Permission denied: {}", path)
-            }
-            IoError::ReadFailed { path, .. } => {
-                write!(f, "Failed to read file: {}", path)
-            }
-        }
-    }
+fn load_and_parse_number(path: &str) -> Result<i32, DataError> {
+    // The `?` operator will automatically convert `io::Error` and `ParseIntError`
+    // into `DataError` because of the `#[from]` attributes.
+    let content = std::fs::read_to_string(path)?;
+    let number = content.trim().parse()?;
+    Ok(number)
 }
+```
 
-impl std::error::Error for IoError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            IoError::ReadFailed { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-}
+### Example 3: `#[non_exhaustive]` for Library Stability
 
-//=====================================================
-// Pattern: Non-exhaustive errors for library stability
-//=====================================================
+When publishing a library, you may want to add new error variants in the future without it being a breaking change. The `#[non_exhaustive]` attribute tells users of your library that they must include a wildcard `_` arm in their match statements, ensuring their code won't break if you add a new variant.
+
+```rust
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ApiError {
+    #[error("the network request failed")]
     NetworkError,
+    #[error("the request timed out")]
     Timeout,
-    InvalidResponse,
-    // Can add variants without breaking compatibility
+    // A new variant could be added here in a future version.
 }
+```
 
-//============================================
-// Pattern: Error with context using thiserror
-//============================================
-use thiserror::Error;
+## Pattern 2: `anyhow` for Application-Level Errors
 
-#[derive(Error, Debug)]
-pub enum DatabaseError {
-    #[error("Connection failed: {0}")]
-    ConnectionFailed(String),
+**Problem**: In application code (as opposed to library code), you often don't need to handle each specific error type. Your main goal is to understand *why* an operation failed and report it to the user or a logging service. Chaining many different error types (`io::Error`, `serde_json::Error`, etc.) can be cumbersome.
 
-    #[error("Query failed: {query}")]
-    QueryFailed {
-        query: String,
-        #[source]
-        source: sqlx::Error,
-    },
+**Solution**: Use the `anyhow` crate. `anyhow::Result` is a type alias for `Result<T, anyhow::Error>`, where `anyhow::Error` is a dynamic error type that can hold any error that implements `std::error::Error`. The `.context()` method lets you add human-readable context to errors as they propagate up the call stack.
 
-    #[error("Transaction failed")]
-    TransactionFailed(#[from] TransactionError),
+**Why It Matters**: `anyhow` provides the convenience of a single, easy-to-use error type for your application while preserving the full chain of underlying causes. It strikes a balance between ease of use and detailed diagnostics, which is perfect for the top levels of an application.
 
-    #[error("Record not found: {table}:{id}")]
-    NotFound { table: String, id: i64 },
-}
+**Use Cases**:
+-   The main logic of CLI tools, web servers, and other applications.
+-   Any situation where you care more about the error *message* and *context* than the specific error *type*.
+-   Prototyping and writing examples where detailed error handling is not the main focus.
 
-//==========================
-// Pattern: Mock for example
-//==========================
-#[derive(Error, Debug)]
-#[error("transaction error")]
-pub struct TransactionError;
+### Example 1: Using `anyhow::Result` and `context`
 
-mod sqlx {
-    use std::fmt;
-    #[derive(Debug)]
-    pub struct Error;
-    impl fmt::Display for Error {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "sqlx error")
-        }
-    }
-    impl std::error::Error for Error {}
-}
+This function shows how `anyhow` can be used to handle errors from different libraries (`std::fs` and `serde_json`) and add context to them.
 
-//======================================================
-// Pattern: Opaque error for applications (using anyhow)
-//======================================================
+```rust
 use anyhow::{Context, Result};
-
-fn read_config(path: &str) -> Result<String> {
-    std::fs::read_to_string(path)
-        .context("Failed to read configuration file")?;
-
-    // More operations with automatic error conversion
-    Ok("config".to_string())
-}
-
-fn parse_config(content: &str) -> Result<Config> {
-    serde_json::from_str(content)
-        .context(format!("Failed to parse config with {} bytes", content.len()))?;
-    Ok(Config)
-}
 
 struct Config;
 
