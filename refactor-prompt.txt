@@ -1,0 +1,7 @@
+this is the first chapter from a book for experience programmer "patterns in rust"
+can you give me suggestions how the improve it
+
+
+
+> refactor the file so that the pattern sections in de rust code will become
+  separate example with a small introduction and explanation
