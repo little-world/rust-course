@@ -3,13 +3,13 @@ This chapter explores struct and enum patterns for type-safe data modeling: choo
 
 ## Pattern 1: Struct Design Patterns
 
-**Problem**: Confusion about when to use named field structs vs tuple structs vs unit structs. Named fields verbose for simple types (Point needs x, y, z names). Tuple structs unclear which field is which (Point3D(1.0, 2.0, 3.0)—which is x?). No semantic distinction between similar types (both u64 but UserId vs OrderId). Zero-sized marker types need PhantomData but compiler warns about unused type parameters. Want compile-time state tracking without runtime cost.
-
-**Solution**: Use named field structs for data models where field names add clarity (`struct User { id: u64, username: String }`). Use tuple structs for simple types where position conveys meaning (`struct Point3D(f64, f64, f64)`) and newtype pattern (`struct UserId(u64)`). Use unit structs for zero-sized markers in typestate pattern (`struct Authenticated;`). PhantomData for phantom type parameters (`PhantomData<State>`). Choose based on: need for field names, distinctness requirements, zero-size marker needs.
-
-**Why It Matters**: Named fields self-document: `user.email` is clear, `user.2` is not. Tuple structs create distinct types: UserId(1) and OrderId(1) are different types despite both wrapping u64. Unit structs enable typestate pattern at zero runtime cost: `Database<Authenticated>` vs `Database<Unauthenticated>` enforced at compile-time. Field reordering: named fields can reorder without breaking code, tuple fields can't. Memory layout: all three have same efficiency, choice is semantic not performance. Clarity vs brevity trade-off: named for complex data, tuple for simple wrappers.
-
-**Use Cases**: Named field structs for data models (User, Config, Request/Response), domain entities, API types, database models, complex state. Tuple structs for newtype pattern (UserId, Kilometers), coordinates (Point3D, Color RGB), simple wrappers, creating distinct types from primitives. Unit structs for typestate markers (Authenticated, Open/Closed), phantom type parameters, zero-cost compile-time tags, capability markers (ReadPermission), builder pattern states.
+*   **Problem**: It's often unclear when to use a named-field struct, a tuple struct, or a unit struct. Named fields can be verbose for simple types (`Point { x: f64, y: f64 }`), while tuple structs can be ambiguous (`Point(1.0, 2.0)`). Furthermore, primitive types lack domain-specific meaning, leading to potential mix-ups (e.g., `UserId(1)` vs. `OrderId(1)`).
+*   **Solution**: Use named-field structs for complex data models where clarity is key. Use tuple structs for simple wrappers and the newtype pattern to create distinct types from primitives. Use unit structs as zero-sized markers for compile-time state tracking (the typestate pattern).
+*   **Why It Matters**: This choice enhances type safety and code clarity. Named fields are self-documenting. Tuple structs create new, distinct types at zero runtime cost, preventing logical errors like mixing up different kinds of IDs. Unit structs enable powerful compile-time guarantees, making invalid states unrepresentable in your program.
+*   **Use Cases**:
+    *   **Named-Field Structs**: Data models, configuration objects, domain entities.
+    *   **Tuple Structs**: The newtype pattern (`struct UserId(u64)`), coordinates (`struct Point(i32, i32)`), color values.
+    *   **Unit Structs**: State markers for the typestate pattern (`Authenticated`, `Disconnected`), generic markers.
 
 ### Example: Named Field Structs
 
@@ -131,13 +131,10 @@ let results = db.query("SELECT * FROM users"); // Now this works
 
 ## Pattern 2: Newtype and Wrapper Patterns
 
-**Problem**: Mixing incompatible types causes bugs—UserId(42) and OrderId(42) both u64, accidentally pass OrderId to get_user(). No invariant enforcement: PositiveInteger is just i32, negative values slip through. Raw primitives lack domain meaning: is this u64 a UserId, timestamp, or count? Can't implement external traits on external types (orphan rule): want `impl Display for Vec<T>` but can't. Defensive validation everywhere: every function checks if number is positive. Type aliases don't create new types: `type UserId = u64` doesn't prevent mixing.
-
-**Solution**: Newtype pattern: `struct UserId(u64)` creates distinct type wrapping u64. Validated wrappers enforce invariants: `PositiveInteger::new()` returns Result, guarantees positivity. Smart constructors prevent invalid construction. Deref trait for transparent access: `impl Deref for Validated<T>` allows calling T's methods. Derive traits to propagate functionality (Debug, Clone, PartialEq). Accessor methods (`.get()`) when direct field access undesired. Workaround orphan rule: wrap external type to impl external trait.
-
-**Why It Matters**: Type safety prevents bugs: compiler rejects `get_user(order_id)`, catches at compile-time not runtime. Invariants in types: once you have PositiveInteger, it's guaranteed positive—no defensive checks needed. Zero runtime cost: newtype compiles to same representation as wrapped type. Self-documenting code: UserId vs u64 shows intent. Orphan rule workaround: `struct Wrapper(Vec<T>)` lets you `impl Display for Wrapper`. API clarity: domain types vs primitives makes interfaces clearer. Eliminates entire bug classes: no mixing IDs, no invalid states.
-
-**Use Cases**: Domain-specific IDs (UserId, OrderId, ProductId—prevent mixing), units (Kilometers, Miles, Seconds—prevent unit confusion), validated types (PositiveInteger, NonEmptyString, Email—enforce invariants), semantic wrappers (ConnectionString, Password—hide internals), orphan rule workaround (wrap external type to impl trait), database handles (ConnectionId, SessionId), newtype index pattern (prevent indexing wrong Vec), sensitive data (Password type hides value in Debug).
+*   **Problem**: Using raw primitive types like `u64` for different kinds of IDs (`UserId`, `OrderId`) can lead to bugs where they are accidentally mixed up. Primitives can't enforce invariants (e.g., a `String` that must be non-empty) and lack domain-specific meaning. Furthermore, the "orphan rule" prevents implementing external traits on external types.
+*   **Solution**: Wrap primitive types in a tuple struct (e.g., `struct UserId(u64)`). This creates a new, distinct type that cannot be mixed with other types, even if they wrap the same primitive. This "newtype" can have its own methods and can enforce invariants through a private field and a "smart constructor."
+*   **Why It Matters**: This pattern provides compile-time type safety at zero runtime cost. It prevents logical errors like passing an `OrderId` to a function expecting a `UserId`. It makes code self-documenting and allows you to attach domain-specific logic to a type. It is also the standard way to work around the orphan rule.
+*   **Use Cases**: Creating domain-specific IDs, enforcing units of measure, creating validated types (`NonEmptyString`, `PositiveI32`), and working around the orphan rule by wrapping an external type to implement an external trait.
 
 ### Example: Newtype
 ```rust
@@ -232,19 +229,16 @@ println!("Age: {:?}", validated_string.age());  // Validated method
 
 ## Pattern 3: Struct Memory and Update Patterns
 
-**Problem**: Understanding struct memory layout and update syntax. Struct update syntax (`..other`) can cause partial moves. Efficient struct transformations unclear. Copy vs Move field interaction confusing. Immutable update patterns feel clumsy.
-
-**Solution**: Struct update syntax `..other` copies/moves remaining fields. Understand Copy fields copy, non-Copy fields move. Clone before update to preserve original. Builder-style methods consume `self`, return `Self`. Use `mut self` for in-place transformation chains.
-
-**Why It Matters**: Enables ergonomic immutable updates. Prevents accidental partial moves. Foundation for builder patterns (see Chapter 5). Memory layout awareness prevents surprises. Functional-style transformations possible.
-
-**Use Cases**: Configuration updates, immutable data patterns, fluent method chains, functional-style transformations, struct cloning with modifications.
+*   **Problem**: Understanding struct update syntax (`..other`) can lead to confusion about ownership and partial moves. Creating variations of a struct immutably can feel clumsy, and the interaction between `Copy` and non-`Copy` fields during updates is not always intuitive.
+*   **Solution**: Use the struct update syntax `..other` to create a new struct instance from an old one. Be aware that this will *move* any non-`Copy` fields, making the original struct partially unusable. To preserve the original, `clone()` it before the update. For more complex transformations, builder-style methods that consume and return `self` are a good pattern.
+*   **Why It Matters**: This syntax enables ergonomic, immutable updates. A clear understanding of the move semantics involved prevents surprising compile-time ownership errors. This pattern is a fundamental building block for creating fluent APIs and builder patterns.
+*   **Use Cases**: Updating configuration objects, creating slightly modified copies of a struct, functional-style data transformation, and as the foundation for builder patterns.
 
 > **Note**: For compile-time state checking with phantom types and typestate patterns, see **Chapter 4: Pattern 6 (Phantom Types)** and **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
-### Example: Struct Update Syntax and Partial Moves
+### Example: Struct Update Syntax
 
-Rust's struct update syntax enables elegant immutable updates while understanding partial moves is crucial for ownership:
+The struct update syntax `..` is a convenient way to create a new instance of a struct using the values from another instance. Fields that implement the `Copy` trait are copied, while non-`Copy` fields are moved. Because a move occurs, the original instance can no longer be used. To preserve the original, you must `clone()` it.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -252,55 +246,37 @@ struct Config {
     host: String,
     port: u16,
     timeout_ms: u64,
-    retry_count: u32,
 }
 
-impl Config {
-    fn with_port(self, port: u16) -> Self {
-        Config { port, ..self }
-    }
-
-    fn with_timeout(mut self, timeout_ms: u64) -> Self {
-        self.timeout_ms = timeout_ms;
-        self
-    }
-}
-
-// Builder-style updates
-let config = Config {
+// Usage with move (original is consumed)
+let config1 = Config {
     host: "localhost".to_string(),
     port: 8080,
     timeout_ms: 5000,
-    retry_count: 3,
 };
 
-let new_config = Config {
+let config2 = Config {
     port: 9090,
-    ..config // Moves non-Copy fields!
+    ..config1 // `config1.host` is moved, `timeout_ms` is copied.
 };
+// println!("{:?}", config1); // ERROR: `host` field was moved.
 
-// config is now partially moved - can't use it anymore
-// println!("{:?}", config); // Error!
-
-// Safe pattern: clone when needed
-let config = Config {
+// Usage with clone (original is preserved)
+let config3 = Config {
     host: "localhost".to_string(),
     port: 8080,
     timeout_ms: 5000,
-    retry_count: 3,
 };
-
-let new_config = Config {
-    host: "production.example.com".to_string(),
-    ..config.clone()
+let config4 = Config {
+    port: 9090,
+    ..config3.clone() // Clones the `host` string.
 };
-
-// Both configs are usable
-println!("Old: {:?}", config);
-println!("New: {:?}", new_config);
+println!("Original: {:?}", config3); // OK
+println!("New: {:?}", config4);
 ```
 
-**Understanding partial moves:**
+### Example: Understanding Partial Moves
+You can move specific fields out of a struct. If a field does not implement `Copy` (like `String`), moving it means the original struct can no longer be fully accessed, as it is now "partially moved". You can still access the remaining `Copy` fields, but you cannot move the struct as a whole.
 
 ```rust
 struct Data {
@@ -313,26 +289,25 @@ let data = Data {
     moveable: "hello".to_string(),
 };
 
-// Partial move
-let s = data.moveable;  // Moves String out
-let n = data.copyable;  // Copies i32
+// Move the non-Copy field out of the struct.
+let s = data.moveable;
+println!("Moved string: {}", s);
 
-// data.moveable is moved, but data.copyable is still accessible
-println!("Copyable: {}", data.copyable); // OK
-// println!("{}", data.moveable); // Error: value borrowed after move
+// You can still access the Copy field.
+println!("Copyable field: {}", data.copyable);
+
+// But you cannot use the whole struct anymore, as it's partially moved.
+// let moved_data = data; // ERROR: use of partially moved value: `data`
 ```
 
-**The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming self and returning Self, or use `&mut self` for in-place updates. For full builder pattern coverage, see **Chapter 5: Builder & API Design**.
+**The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming `self` and returning `Self`, or use `&mut self` for in-place updates. For full builder pattern coverage, see **Chapter 5: Builder & API Design**.
 
 ## Pattern 4: Enum Design Patterns
 
-**Problem**: Multiple related types without relationship (Circle, Rectangle, Triangle all separate). Optional data represented as separate Option fields messy. State machines unclear: is connection open or closed? Error types need context but String loses structure. No way to represent "one of several types". Exhaustive handling not enforced (forgot to handle variant). Multiple return types require Result<Box<dyn Trait>, Error>.
-
-**Solution**: Enums for variants: `enum Shape { Circle(f64), Rectangle(f64, f64), Triangle(f64, f64, f64) }`. Pattern matching enforces exhaustiveness—compiler ensures all variants handled. Option<T>/Result<T, E> built-in enums. State machines as enums: `enum ConnectionState { Connecting, Connected, Disconnected }`. Custom error types as enums with context. Methods on enums via impl blocks. Exhaustive match prevents forgetting cases.
-
-**Why It Matters**: Exhaustive matching catches all cases: adding enum variant causes compile errors in incomplete matches. Impossible states unrepresentable: can't have both Ok and Err simultaneously. Zero-cost abstraction: enum memory = size of largest variant + discriminant (usually 1 byte). Clear intent: enum shows all possibilities. Type-safe state machines: state transitions enforced. Error handling with context: custom error enum better than String. Pattern matching provides compile-time guarantees.
-
-**Use Cases**: State machines (ConnectionState, HttpRequestState), error types (custom Error enums with variants), optional values (Option<T> replacement), message types (WebSocket messages, RPC calls), command patterns (Command enum with variants), AST nodes (expression trees, parse trees), protocol parsing (packet types), event handling (Event enum), sum types (Either, Result).
+*   **Problem**: Representing a value that can be one of several related kinds is difficult with structs alone. Using `Option` for optional fields can create invalid states (e.g., a "shipped" order with no shipping address). Representing state machines or structured errors with simple types is not type-safe.
+*   **Solution**: Use an `enum` to define a type that can be one of several variants. Each variant can have its own associated data. Use `match` expressions to handle each variant exhaustively, guaranteeing that all cases are considered at compile time.
+*   **Why It Matters**: Enums make impossible states unrepresentable. The compiler's exhaustive checking for `match` statements prevents bugs from forgotten cases. This is a zero-cost abstraction: an enum's size is only as large as its largest variant plus a small tag. This allows for creating clear, type-safe state machines and rich error types with context.
+*   **Use Cases**: State machines (`ConnectionState`), custom error types, message passing (e.g., for actor systems or UI events), representing abstract syntax trees (ASTs) in compilers, and modeling any data that can be one of a fixed set of variants.
 
 ### Example: Basic Enum with Pattern Matching
 
@@ -423,81 +398,11 @@ impl OrderStatus {
 
 ## Pattern 5: Advanced Enum Techniques
 
-**Problem**: Large enum variants waste memory—enum size = largest variant + discriminant, small variants waste space. Recursive enums (AST nodes with children) have infinite size—compiler error. Need interior mutability in enum. Want to extend enum behavior without modifying definition. Conversions between related types verbose. Enum size unpredictable affecting performance. Can't determine variant without matching.
+*   **Problem**: Enums can have issues with memory usage if one variant is much larger than the others. Recursive enums (like a tree where a node contains other nodes) are impossible to define directly. Adding behavior or performing conversions can also be verbose.
+*   **Solution**: Use `Box<T>` to heap-allocate the data for large or recursive variants. This makes the size of the variant a pointer size, not the size of the data itself. Implement methods directly on the enum using an `impl` block to encapsulate logic. Use the `From` and `TryFrom` traits for ergonomic conversions.
+*   **Why It Matters**: Boxing variants is crucial for two reasons: it makes recursive enum definitions possible, and it makes enums with large variants memory-efficient, improving cache performance. Implementing methods and conversion traits on enums leads to cleaner, more idiomatic, and more reusable code.
+*   **Use Cases**: Defining abstract syntax trees (ASTs), implementing linked lists, optimizing memory for state machines or message types with large "payload" variants, and creating ergonomic error type conversions.
 
-**Solution**: Box large variants to reduce enum size: `enum Message { Small(u8), Large(Box<HugeStruct>) }` makes enum smaller. Box for recursive enums: `enum Node { Leaf(i32), Branch(Box<Node>, Box<Node>) }` breaks infinite size. Implement methods on enums with impl blocks. Match expressions for transformation. From/TryFrom traits for conversions. Use #[repr(u8)] for explicit discriminant. mem::size_of to check enum size. `matches!` macro for simple checks.
-
-**Why It Matters**: Memory efficiency: boxing large variants reduces enum from size of largest to size of pointer. Recursion enabled: Box breaks infinite size allowing AST nodes, linked lists. Method dispatch via match: same interface different behavior per variant. Ergonomic APIs: methods on enums cleaner than separate functions. Conversion patterns: From/TryFrom standardize conversions. Performance: smaller enums = better cache locality. Discriminant control: #[repr] ensures layout for FFI. Variant checking: matches! avoids full match.
-
-**Use Cases**: AST nodes (Box for child nodes), large variant optimization (Box rarely-used variants), state machines (methods for transitions), protocol handlers (dispatch via match), command dispatch (Command enum with execute() method), Option/Result extensions (custom enums), recursive data structures (trees, lists), error conversion (From for error types), enum-based visitor pattern.
-
-### Example: Enum as Contract
-
-```rust
-// Model HTTP responses precisely
-enum HttpResponse {
-    Ok { body: String, headers: Vec<(String, String)> },
-    Created { id: u64, location: String },
-    NoContent,
-    BadRequest { error: String },
-    Unauthorized,
-    NotFound,
-    ServerError { message: String, details: Option<String> },
-}
-
-impl HttpResponse {
-    fn status_code(&self) -> u16 {
-        match self {
-            HttpResponse::Ok { .. } => 200,
-            HttpResponse::Created { .. } => 201,
-            HttpResponse::NoContent => 204,
-            HttpResponse::BadRequest { .. } => 400,
-            HttpResponse::Unauthorized => 401,
-            HttpResponse::NotFound => 404,
-            HttpResponse::ServerError { .. } => 500,
-        }
-    }
-
-    fn format(&self) -> String {
-        match self {
-            HttpResponse::Ok { body, .. } => body.clone(),
-            HttpResponse::Created { id, location } => {
-                format!("Created resource {} at {}", id, location)
-            }
-            HttpResponse::NoContent => String::new(),
-            HttpResponse::BadRequest { error } => {
-                format!("Bad request: {}", error)
-            }
-            HttpResponse::Unauthorized => "Unauthorized".to_string(),
-            HttpResponse::NotFound => "Not found".to_string(),
-            HttpResponse::ServerError { message, details } => {
-                if let Some(d) = details {
-                    format!("Error: {} ({})", message, d)
-                } else {
-                    format!("Error: {}", message)
-                }
-            }
-        }
-    }
-}
-
-// Usage
-fn handle_request(path: &str) -> HttpResponse {
-    match path {
-        "/users" => HttpResponse::Ok {
-            body: "[{\"id\": 1, \"name\": \"Alice\"}]".to_string(),
-            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
-        },
-        "/users/create" => HttpResponse::Created {
-            id: 123,
-            location: "/users/123".to_string(),
-        },
-        _ => HttpResponse::NotFound,
-    }
-}
-```
-
-**The power:** Each variant can carry exactly the data it needs. There's no `null` or `undefined` - if a variant needs an ID, it has one.
 
 ### Example: Recursive Enums with Box
 
@@ -564,7 +469,15 @@ fn check_sizes() {
 
 ## Pattern 6: Visitor Pattern with Enums
 
-The visitor pattern in Rust leverages enums for traversing complex structures:
+*   **Problem**: You have a complex, tree-like data structure, such as an Abstract Syntax Tree (AST). You want to perform various operations on this structure (e.g., pretty-printing, evaluation, type-checking) without cluttering the data structure's definition with all of this logic.
+*   **Solution**: Define a `Visitor` trait with a `visit` method for each variant of your enum-based data structure. Each operation is then implemented as a separate struct that implements the `Visitor` trait. The original data structure's methods simply accept a visitor and dispatch to the correct `visit` method.
+*   **Why It Matters**: This pattern decouples the logic of an operation from the data structure it operates on. This makes it easy to add new operations (just add a new visitor struct) without modifying the (potentially complex) data structure code. It's a clean, maintainable way to handle complex, multi-pass operations.
+*   **Use Cases**: Compilers and interpreters (pretty-printing, code generation, optimization passes), traversing file systems, processing complex configuration (e.g., validating and transforming a config tree), and any scenario involving operations on a tree-like data structure.
+
+The visitor pattern in Rust leverages enums for traversing complex structures. It involves three parts: the data structure, the visitor trait, and one or more visitor implementations.
+
+### 1. The Data Structure (AST)
+First, define the enum that represents the tree-like structure. For a simple expression language, this is the Abstract Syntax Tree (AST). Note the use of `Box<Expr>` to handle recursion.
 
 ```rust
 // AST for a simple expression language
@@ -593,7 +506,38 @@ enum UnOp {
     Negate,
     Abs,
 }
+```
 
+### 2. The Visitor Trait
+Next, define the `ExprVisitor` trait. It has a `visit` method for each variant of the `Expr` enum. The `visit` method on the trait itself handles dispatching to the correct specific method.
+
+```rust
+// AST for a simple expression language
+enum Expr {
+    Number(f64),
+    Variable(String),
+    BinaryOp {
+        op: BinOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    UnaryOp {
+        op: UnOp,
+        expr: Box<Expr>,
+    },
+}
+
+enum BinOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+enum UnOp {
+    Negate,
+    Abs,
+}
 // Visitor trait
 trait ExprVisitor {
     type Output;
@@ -601,7 +545,7 @@ trait ExprVisitor {
     fn visit(&mut self, expr: &Expr) -> Self::Output {
         match expr {
             Expr::Number(n) => self.visit_number(*n),
-            Expr::Variable(name) => self.visit_variable(name),
+            Expr.Variable(name) => self.visit_variable(name),
             Expr::BinaryOp { op, left, right } => {
                 self.visit_binary_op(op, left, right)
             }
@@ -616,43 +560,81 @@ trait ExprVisitor {
     fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output;
     fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output;
 }
+```
+
+### 3. Visitor Implementations
+Finally, implement the visitors. Each visitor is a separate struct that implements the `ExprVisitor` trait, providing concrete logic for each `visit_*` method. This separates the concerns of pretty-printing and evaluation from the data structure itself.
+
+```rust
+# // AST for a simple expression language
+# enum Expr {
+#     Number(f64),
+#     Variable(String),
+#     BinaryOp {
+#         op: BinOp,
+#         left: Box<Expr>,
+#         right: Box<Expr>,
+#     },
+#     UnaryOp {
+#         op: UnOp,
+#         expr: Box<Expr>,
+#     },
+# }
+# 
+# enum BinOp {
+#     Add,
+#     Subtract,
+#     Multiply,
+#     Divide,
+# }
+# 
+# enum UnOp {
+#     Negate,
+#     Abs,
+# }
+# 
+# // Visitor trait
+# trait ExprVisitor {
+#     type Output;
+# 
+#     fn visit(&mut self, expr: &Expr) -> Self::Output {
+#         match expr {
+#             Expr::Number(n) => self.visit_number(*n),
+#             Expr::Variable(name) => self.visit_variable(name),
+#             Expr::BinaryOp { op, left, right } => {
+#                 self.visit_binary_op(op, left, right)
+#             }
+#             Expr::UnaryOp { op, expr } => {
+#                 self.visit_unary_op(op, expr)
+#             }
+#         }
+#     }
+# 
+#     fn visit_number(&mut self, n: f64) -> Self::Output;
+#     fn visit_variable(&mut self, name: &str) -> Self::Output;
+#     fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output;
+#     fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output;
+# }
 
 // Pretty printer visitor
-struct PrettyPrinter {
-    indent: usize,
-}
+struct PrettyPrinter;
 
 impl ExprVisitor for PrettyPrinter {
     type Output = String;
 
-    fn visit_number(&mut self, n: f64) -> String {
-        n.to_string()
-    }
-
-    fn visit_variable(&mut self, name: &str) -> String {
-        name.to_string()
-    }
+    fn visit_number(&mut self, n: f64) -> String { n.to_string() }
+    fn visit_variable(&mut self, name: &str) -> String { name.to_string() }
 
     fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> String {
         let op_str = match op {
-            BinOp::Add => "+",
-            BinOp::Subtract => "-",
-            BinOp::Multiply => "*",
-            BinOp::Divide => "/",
+            BinOp::Add => "+", BinOp::Subtract => "-",
+            BinOp::Multiply => "*", BinOp::Divide => "/",
         };
-
-        format!("({} {} {})",
-            self.visit(left),
-            op_str,
-            self.visit(right))
+        format!("({} {} {})", self.visit(left), op_str, self.visit(right))
     }
 
     fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> String {
-        let op_str = match op {
-            UnOp::Negate => "-",
-            UnOp::Abs => "abs",
-        };
-
+        let op_str = match op { UnOp::Negate => "-", UnOp::Abs => "abs" };
         format!("{}({})", op_str, self.visit(expr))
     }
 }
@@ -665,31 +647,20 @@ struct Evaluator {
 impl ExprVisitor for Evaluator {
     type Output = Result<f64, String>;
 
-    fn visit_number(&mut self, n: f64) -> Self::Output {
-        Ok(n)
-    }
+    fn visit_number(&mut self, n: f64) -> Self::Output { Ok(n) }
 
     fn visit_variable(&mut self, name: &str) -> Self::Output {
-        self.variables.get(name)
-            .copied()
-            .ok_or_else(|| format!("Undefined variable: {}", name))
+        self.variables.get(name).copied().ok_or_else(|| format!("Undefined variable: {}", name))
     }
 
     fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output {
         let left_val = self.visit(left)?;
         let right_val = self.visit(right)?;
-
         match op {
             BinOp::Add => Ok(left_val + right_val),
             BinOp::Subtract => Ok(left_val - right_val),
             BinOp::Multiply => Ok(left_val * right_val),
-            BinOp::Divide => {
-                if right_val == 0.0 {
-                    Err("Division by zero".to_string())
-                } else {
-                    Ok(left_val / right_val)
-                }
-            }
+            BinOp::Divide => Ok(left_val / right_val),
         }
     }
 
@@ -699,31 +670,6 @@ impl ExprVisitor for Evaluator {
             UnOp::Negate => Ok(-val),
             UnOp::Abs => Ok(val.abs()),
         }
-    }
-}
-
-// Usage
-fn demo_visitor() {
-    // (3 + 4) * 2
-    let expr = Expr::BinaryOp {
-        op: BinOp::Multiply,
-        left: Box::new(Expr::BinaryOp {
-            op: BinOp::Add,
-            left: Box::new(Expr::Number(3.0)),
-            right: Box::new(Expr::Number(4.0)),
-        }),
-        right: Box::new(Expr::Number(2.0)),
-    };
-
-    let mut printer = PrettyPrinter { indent: 0 };
-    println!("Expression: {}", printer.visit(&expr));
-
-    let mut evaluator = Evaluator {
-        variables: std::collections::HashMap::new(),
-    };
-    match evaluator.visit(&expr) {
-        Ok(result) => println!("Result: {}", result),
-        Err(e) => println!("Error: {}", e),
     }
 }
 ```
@@ -783,3 +729,1548 @@ This chapter covered struct and enum patterns for type-safe data modeling:
 - Type aliases for distinct types (`type UserId = u64` doesn't prevent mixing)
 
 > **See Also**: For compile-time state machines (typestate pattern) and phantom types, see **Chapter 4: Pattern 6** and **Chapter 5: Pattern 2**.
+
+
+### Struct Cheat Sheet
+```rust
+// ===== BASIC STRUCTS =====
+// Named field struct
+struct User {
+    username: String,
+    email: String,
+    age: u32,
+    active: bool,
+}
+
+// Create instance
+fn basic_struct_example() {
+    let user = User {
+        username: String::from("alice"),
+        email: String::from("alice@example.com"),
+        age: 30,
+        active: true,
+    };
+    
+    // Access fields
+    println!("Username: {}", user.username);
+    println!("Email: {}", user.email);
+}
+
+// Mutable struct
+fn mutable_struct() {
+    let mut user = User {
+        username: String::from("bob"),
+        email: String::from("bob@example.com"),
+        age: 25,
+        active: true,
+    };
+    
+    // Modify fields
+    user.email = String::from("bob_new@example.com");
+    user.age += 1;
+}
+
+// ===== TUPLE STRUCTS =====
+// Tuple struct (fields without names)
+struct Color(u8, u8, u8);
+struct Point(i32, i32, i32);
+
+fn tuple_struct_example() {
+    let black = Color(0, 0, 0);
+    let origin = Point(0, 0, 0);
+    
+    // Access by index
+    println!("Red: {}", black.0);
+    println!("X: {}", origin.0);
+    
+    // Pattern matching
+    let Color(r, g, b) = black;
+    println!("RGB: ({}, {}, {})", r, g, b);
+}
+
+// ===== UNIT-LIKE STRUCTS =====
+// Struct with no fields
+struct Marker;
+struct AlwaysEqual;
+
+fn unit_struct_example() {
+    let marker = Marker;
+    let equal1 = AlwaysEqual;
+    let equal2 = AlwaysEqual;
+}
+
+// ===== FIELD INIT SHORTHAND =====
+fn build_user(email: String, username: String) -> User {
+    User {
+        username,                                            // Shorthand when variable name matches field
+        email,
+        age: 0,
+        active: true,
+    }
+}
+
+// ===== STRUCT UPDATE SYNTAX =====
+fn struct_update_example() {
+    let user1 = User {
+        username: String::from("alice"),
+        email: String::from("alice@example.com"),
+        age: 30,
+        active: true,
+    };
+    
+    // Create new struct using fields from another
+    let user2 = User {
+        email: String::from("alice2@example.com"),
+        ..user1                                              // Copy remaining fields
+    };
+    
+    // Note: user1.username and user1.email are moved to user2
+    // Can still use user1.age and user1.active (Copy types)
+}
+
+// ===== STRUCT METHODS =====
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    // Method (takes &self)
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+    
+    // Method with mutable self
+    fn scale(&mut self, factor: u32) {
+        self.width *= factor;
+        self.height *= factor;
+    }
+    
+    // Method that takes ownership
+    fn into_square(self) -> Square {
+        Square {
+            side: self.width.min(self.height),
+        }
+    }
+    
+    // Method with parameters
+    fn can_hold(&self, other: &Rectangle) -> bool {
+        self.width > other.width && self.height > other.height
+    }
+}
+
+struct Square {
+    side: u32,
+}
+
+fn method_example() {
+    let mut rect = Rectangle {
+        width: 30,
+        height: 50,
+    };
+    
+    println!("Area: {}", rect.area());
+    
+    rect.scale(2);
+    println!("New width: {}", rect.width);
+    
+    let square = rect.into_square();
+    // rect is now invalid (moved)
+}
+
+// ===== ASSOCIATED FUNCTIONS =====
+impl Rectangle {
+    // Associated function (no self parameter)
+    fn new(width: u32, height: u32) -> Rectangle {
+        Rectangle { width, height }
+    }
+    
+    // Another constructor
+    fn square(size: u32) -> Rectangle {
+        Rectangle {
+            width: size,
+            height: size,
+        }
+    }
+}
+
+fn associated_function_example() {
+    let rect = Rectangle::new(30, 50);
+    let square = Rectangle::square(10);
+}
+
+// ===== MULTIPLE IMPL BLOCKS =====
+impl Rectangle {
+    fn perimeter(&self) -> u32 {
+        2 * (self.width + self.height)
+    }
+}
+
+impl Rectangle {
+    fn is_square(&self) -> bool {
+        self.width == self.height
+    }
+}
+
+// ===== GENERIC STRUCTS =====
+struct Point2D<T> {
+    x: T,
+    y: T,
+}
+
+impl<T> Point2D<T> {
+    fn x(&self) -> &T {
+        &self.x
+    }
+}
+
+// Implementation for specific type
+impl Point2D<f64> {
+    fn distance_from_origin(&self) -> f64 {
+        (self.x.powi(2) + self.y.powi(2)).sqrt()
+    }
+}
+
+// Multiple generic parameters
+struct Point3D<T, U> {
+    x: T,
+    y: T,
+    z: U,
+}
+
+impl<T, U> Point3D<T, U> {
+    fn mixup<V, W>(self, other: Point3D<V, W>) -> Point3D<T, W> {
+        Point3D {
+            x: self.x,
+            y: self.y,
+            z: other.z,
+        }
+    }
+}
+
+fn generic_struct_example() {
+    let integer_point = Point2D { x: 5, y: 10 };
+    let float_point = Point2D { x: 1.0, y: 4.0 };
+    
+    let p1 = Point3D { x: 5, y: 10, z: 1.5 };
+    let p2 = Point3D { x: "Hello", y: "World", z: 'c' };
+    
+    let p3 = p1.mixup(p2);
+    // p3 has type Point3D<i32, char>
+}
+
+// ===== STRUCT WITH LIFETIMES =====
+struct ImportantExcerpt<'a> {
+    part: &'a str,
+}
+
+impl<'a> ImportantExcerpt<'a> {
+    fn level(&self) -> i32 {
+        3
+    }
+    
+    fn announce_and_return_part(&self, announcement: &str) -> &str {
+        println!("Attention: {}", announcement);
+        self.part
+    }
+}
+
+fn lifetime_struct_example() {
+    let novel = String::from("Call me Ishmael. Some years ago...");
+    let first_sentence = novel.split('.').next().expect("Could not find a '.'");
+    
+    let excerpt = ImportantExcerpt {
+        part: first_sentence,
+    };
+}
+
+// ===== PRIVATE AND PUBLIC FIELDS =====
+mod my_module {
+    pub struct PublicStruct {
+        pub public_field: String,
+        private_field: i32,                              // Private by default
+    }
+    
+    impl PublicStruct {
+        pub fn new(public_field: String) -> PublicStruct {
+            PublicStruct {
+                public_field,
+                private_field: 0,
+            }
+        }
+        
+        pub fn get_private(&self) -> i32 {
+            self.private_field
+        }
+    }
+}
+
+fn visibility_example() {
+    let s = my_module::PublicStruct::new(String::from("hello"));
+    println!("{}", s.public_field);
+    // println!("{}", s.private_field);                 // ERROR: private field
+}
+
+// ===== DESTRUCTURING =====
+fn destructuring_example() {
+    let user = User {
+        username: String::from("alice"),
+        email: String::from("alice@example.com"),
+        age: 30,
+        active: true,
+    };
+    
+    // Destructure all fields
+    let User { username, email, age, active } = user;
+    
+    // Destructure some fields
+    let User { username, email, .. } = user;
+    
+    // Rename fields during destructuring
+    let User { username: name, email: mail, .. } = user;
+}
+
+// ===== DERIVE MACROS =====
+#[derive(Debug)]                                         // Auto-implement Debug
+struct DebugStruct {
+    field: i32,
+}
+
+#[derive(Clone)]                                         // Auto-implement Clone
+struct CloneStruct {
+    data: Vec<i32>,
+}
+
+#[derive(Copy, Clone)]                                   // Copy requires Clone
+struct CopyStruct {
+    value: i32,
+}
+
+#[derive(PartialEq, Eq)]                                // Equality comparison
+struct EqStruct {
+    id: i32,
+}
+
+#[derive(PartialOrd, Ord, PartialEq, Eq)]               // Ordering
+struct OrdStruct {
+    priority: i32,
+}
+
+#[derive(Default)]                                       // Default values
+struct DefaultStruct {
+    count: i32,
+    name: String,
+}
+
+#[derive(Hash)]                                          // Hashing
+struct HashStruct {
+    id: i32,
+}
+
+// Multiple derives
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MultiDeriveStruct {
+    id: i32,
+    name: String,
+}
+
+fn derive_example() {
+    let s = DebugStruct { field: 42 };
+    println!("{:?}", s);                                 // Uses Debug
+    
+    let default: DefaultStruct = Default::default();
+    println!("{}", default.count);                       // 0
+}
+
+// ===== PATTERN MATCHING WITH STRUCTS =====
+fn pattern_matching() {
+    let user = User {
+        username: String::from("alice"),
+        email: String::from("alice@example.com"),
+        age: 30,
+        active: true,
+    };
+    
+    match user {
+        User { active: true, age, .. } => {
+            println!("Active user, age: {}", age);
+        }
+        User { active: false, .. } => {
+            println!("Inactive user");
+        }
+    }
+    
+    // If let pattern
+    if let User { username, .. } = user {
+        println!("Username: {}", username);
+    }
+}
+
+// ===== BUILDER PATTERN =====
+#[derive(Debug)]
+struct Config {
+    host: String,
+    port: u16,
+    timeout: u64,
+    retries: u32,
+}
+
+struct ConfigBuilder {
+    host: Option<String>,
+    port: Option<u16>,
+    timeout: Option<u64>,
+    retries: Option<u32>,
+}
+
+impl ConfigBuilder {
+    fn new() -> Self {
+        ConfigBuilder {
+            host: None,
+            port: None,
+            timeout: None,
+            retries: None,
+        }
+    }
+    
+    fn host(mut self, host: &str) -> Self {
+        self.host = Some(host.to_string());
+        self
+    }
+    
+    fn port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+    
+    fn timeout(mut self, timeout: u64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+    
+    fn retries(mut self, retries: u32) -> Self {
+        self.retries = Some(retries);
+        self
+    }
+    
+    fn build(self) -> Result<Config, String> {
+        Ok(Config {
+            host: self.host.ok_or("host is required")?,
+            port: self.port.unwrap_or(8080),
+            timeout: self.timeout.unwrap_or(30),
+            retries: self.retries.unwrap_or(3),
+        })
+    }
+}
+
+fn builder_example() {
+    let config = ConfigBuilder::new()
+        .host("localhost")
+        .port(3000)
+        .timeout(60)
+        .build()
+        .unwrap();
+    
+    println!("{:?}", config);
+}
+
+// ===== NEWTYPE PATTERN =====
+struct Meters(f64);
+struct Kilometers(f64);
+
+impl Meters {
+    fn to_kilometers(&self) -> Kilometers {
+        Kilometers(self.0 / 1000.0)
+    }
+}
+
+impl Kilometers {
+    fn to_meters(&self) -> Meters {
+        Meters(self.0 * 1000.0)
+    }
+}
+
+fn newtype_example() {
+    let distance = Meters(5000.0);
+    let km = distance.to_kilometers();
+    
+    // Cannot accidentally mix Meters and Kilometers
+    // let sum = Meters(100.0) + Kilometers(1.0);       // ERROR
+}
+
+// ===== INTERIOR MUTABILITY =====
+use std::cell::{Cell, RefCell};
+
+struct Counter {
+    count: Cell<i32>,
+}
+
+impl Counter {
+    fn new() -> Self {
+        Counter {
+            count: Cell::new(0),
+        }
+    }
+    
+    fn increment(&self) {                                // Takes &self, not &mut self
+        self.count.set(self.count.get() + 1);
+    }
+    
+    fn get(&self) -> i32 {
+        self.count.get()
+    }
+}
+
+struct Container {
+    data: RefCell<Vec<i32>>,
+}
+
+impl Container {
+    fn add(&self, value: i32) {                          // Takes &self
+        self.data.borrow_mut().push(value);
+    }
+    
+    fn get(&self, index: usize) -> Option<i32> {
+        self.data.borrow().get(index).copied()
+    }
+}
+
+// ===== ZERO-SIZED TYPES =====
+struct ZeroSized;
+
+fn zero_sized_example() {
+    let zst = ZeroSized;
+    println!("Size: {}", std::mem::size_of::<ZeroSized>());  // 0
+    
+    // Useful as markers or tokens
+    let vec: Vec<ZeroSized> = vec![ZeroSized; 1000];
+    // Takes no heap memory!
+}
+
+// ===== PHANTOM DATA =====
+use std::marker::PhantomData;
+
+struct PhantomStruct<T> {
+    data: i32,
+    _marker: PhantomData<T>,                             // Zero-sized
+}
+
+impl<T> PhantomStruct<T> {
+    fn new(data: i32) -> Self {
+        PhantomStruct {
+            data,
+            _marker: PhantomData,
+        }
+    }
+}
+
+// Different types even with same data
+fn phantom_example() {
+    let p1: PhantomStruct<i32> = PhantomStruct::new(42);
+    let p2: PhantomStruct<String> = PhantomStruct::new(42);
+    
+    // p1 and p2 are different types
+}
+
+// ===== STRUCT WITH ARRAYS =====
+struct Grid {
+    cells: [[i32; 10]; 10],
+}
+
+impl Grid {
+    fn new() -> Self {
+        Grid {
+            cells: [[0; 10]; 10],
+        }
+    }
+    
+    fn get(&self, x: usize, y: usize) -> i32 {
+        self.cells[x][y]
+    }
+    
+    fn set(&mut self, x: usize, y: usize, value: i32) {
+        self.cells[x][y] = value;
+    }
+}
+
+// ===== STRUCT WITH FUNCTIONS =====
+struct Operation {
+    name: String,
+    func: fn(i32, i32) -> i32,
+}
+
+impl Operation {
+    fn execute(&self, a: i32, b: i32) -> i32 {
+        (self.func)(a, b)
+    }
+}
+
+fn struct_with_function_example() {
+    let add_op = Operation {
+        name: String::from("add"),
+        func: |a, b| a + b,
+    };
+    
+    println!("Result: {}", add_op.execute(5, 3));
+}
+
+// ===== CONST GENERICS =====
+struct FixedArray<T, const N: usize> {
+    data: [T; N],
+}
+
+impl<T: Default + Copy, const N: usize> FixedArray<T, N> {
+    fn new() -> Self {
+        FixedArray {
+            data: [T::default(); N],
+        }
+    }
+}
+
+fn const_generic_example() {
+    let arr: FixedArray<i32, 5> = FixedArray::new();
+    let arr2: FixedArray<i32, 10> = FixedArray::new();
+    
+    // arr and arr2 are different types
+}
+
+// ===== SELF-REFERENTIAL STRUCTS =====
+use std::pin::Pin;
+
+// Simple self-referential (unsafe)
+struct SelfRef {
+    data: String,
+    ptr: *const String,                                  // Points to data
+}
+
+impl SelfRef {
+    fn new(s: String) -> Pin<Box<Self>> {
+        let mut boxed = Box::pin(SelfRef {
+            data: s,
+            ptr: std::ptr::null(),
+        });
+        
+        let ptr = &boxed.data as *const String;
+        unsafe {
+            let mut_ref = Pin::as_mut(&mut boxed);
+            Pin::get_unchecked_mut(mut_ref).ptr = ptr;
+        }
+        
+        boxed
+    }
+}
+
+// ===== COMMON PATTERNS =====
+
+// Pattern 1: State machine using structs
+struct Locked;
+struct Unlocked;
+
+struct Door<State> {
+    _state: PhantomData<State>,
+}
+
+impl Door<Locked> {
+    fn new() -> Self {
+        Door { _state: PhantomData }
+    }
+    
+    fn unlock(self) -> Door<Unlocked> {
+        Door { _state: PhantomData }
+    }
+}
+
+impl Door<Unlocked> {
+    fn lock(self) -> Door<Locked> {
+        Door { _state: PhantomData }
+    }
+    
+    fn open(&self) {
+        println!("Door opened");
+    }
+}
+
+fn state_machine_example() {
+    let door = Door::<Locked>::new();
+    let door = door.unlock();
+    door.open();
+    let door = door.lock();
+    // door.open();                                     // ERROR: door is locked
+}
+
+// Pattern 2: Wrapper for external types
+struct Wrapper(Vec<i32>);
+
+impl Wrapper {
+    fn sum(&self) -> i32 {
+        self.0.iter().sum()
+    }
+}
+
+// Pattern 3: Type-safe IDs
+struct UserId(u32);
+struct PostId(u32);
+
+fn get_user(id: UserId) -> String {
+    format!("User {}", id.0)
+}
+
+fn id_example() {
+    let user_id = UserId(1);
+    let post_id = PostId(1);
+    
+    get_user(user_id);
+    // get_user(post_id);                               // ERROR: type mismatch
+}
+
+// Pattern 4: Cached computation
+struct Cached<T> {
+    value: Option<T>,
+    computation: fn() -> T,
+}
+
+impl<T> Cached<T> {
+    fn new(computation: fn() -> T) -> Self {
+        Cached {
+            value: None,
+            computation,
+        }
+    }
+    
+    fn get(&mut self) -> &T {
+        if self.value.is_none() {
+            self.value = Some((self.computation)());
+        }
+        self.value.as_ref().unwrap()
+    }
+}
+
+// Pattern 5: Struct with validation
+struct Email {
+    address: String,
+}
+
+impl Email {
+    fn new(address: String) -> Result<Self, String> {
+        if address.contains('@') {
+            Ok(Email { address })
+        } else {
+            Err("Invalid email format".to_string())
+        }
+    }
+    
+    fn as_str(&self) -> &str {
+        &self.address
+    }
+}
+
+// Pattern 6: Composed structs
+struct Address {
+    street: String,
+    city: String,
+    country: String,
+}
+
+struct Person {
+    name: String,
+    address: Address,
+}
+
+// Pattern 7: Optional fields with builder
+#[derive(Default)]
+struct Options {
+    verbose: bool,
+    debug: bool,
+    output: Option<String>,
+}
+
+impl Options {
+    fn verbose(mut self) -> Self {
+        self.verbose = true;
+        self
+    }
+    
+    fn debug(mut self) -> Self {
+        self.debug = true;
+        self
+    }
+    
+    fn output(mut self, path: String) -> Self {
+        self.output = Some(path);
+        self
+    }
+}
+
+fn options_example() {
+    let opts = Options::default()
+        .verbose()
+        .debug()
+        .output(String::from("output.txt"));
+}
+
+// Pattern 8: Tagged union (enum alternative)
+struct Tagged<T> {
+    tag: String,
+    data: T,
+}
+
+impl<T> Tagged<T> {
+    fn new(tag: &str, data: T) -> Self {
+        Tagged {
+            tag: tag.to_string(),
+            data,
+        }
+    }
+}
+```
+
+
+
+### Enum Cheat Sheet
+
+```rust
+// ===== BASIC ENUMS =====
+// Simple enum
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+fn basic_enum_example() {
+    let dir = Direction::North;
+    
+    match dir {
+        Direction::North => println!("Going north"),
+        Direction::South => println!("Going south"),
+        Direction::East => println!("Going east"),
+        Direction::West => println!("Going west"),
+    }
+}
+
+// ===== ENUMS WITH DATA =====
+// Each variant can hold different types and amounts of data
+enum Message {
+    Quit,                                                // No data
+    Move { x: i32, y: i32 },                            // Named fields
+    Write(String),                                       // Single value
+    ChangeColor(u8, u8, u8),                            // Multiple values
+}
+
+fn enum_with_data_example() {
+    let msg1 = Message::Quit;
+    let msg2 = Message::Move { x: 10, y: 20 };
+    let msg3 = Message::Write(String::from("Hello"));
+    let msg4 = Message::ChangeColor(255, 0, 0);
+}
+
+// ===== PATTERN MATCHING =====
+fn process_message(msg: Message) {
+    match msg {
+        Message::Quit => {
+            println!("Quitting");
+        }
+        Message::Move { x, y } => {
+            println!("Moving to ({}, {})", x, y);
+        }
+        Message::Write(text) => {
+            println!("Writing: {}", text);
+        }
+        Message::ChangeColor(r, g, b) => {
+            println!("Changing color to RGB({}, {}, {})", r, g, b);
+        }
+    }
+}
+
+// Match with guards
+fn match_with_guard(msg: Message) {
+    match msg {
+        Message::Move { x, y } if x > 0 && y > 0 => {
+            println!("Moving to positive quadrant");
+        }
+        Message::Move { x, y } => {
+            println!("Moving to ({}, {})", x, y);
+        }
+        _ => {}
+    }
+}
+
+// ===== OPTION ENUM =====
+// Option<T> is defined in standard library as:
+// enum Option<T> {
+//     Some(T),
+//     None,
+// }
+
+fn option_example() {
+    let some_number = Some(5);
+    let some_string = Some("Hello");
+    let absent_number: Option<i32> = None;
+    
+    // Pattern matching
+    match some_number {
+        Some(n) => println!("Number: {}", n),
+        None => println!("No number"),
+    }
+    
+    // if let
+    if let Some(n) = some_number {
+        println!("Got number: {}", n);
+    }
+    
+    // Unwrap (panics if None)
+    let n = some_number.unwrap();
+    
+    // Unwrap with default
+    let n = absent_number.unwrap_or(0);
+    
+    // Unwrap with closure
+    let n = absent_number.unwrap_or_else(|| 10);
+    
+    // Map
+    let doubled = some_number.map(|n| n * 2);
+    
+    // And then (flatMap)
+    let result = some_number.and_then(|n| Some(n * 2));
+}
+
+// ===== RESULT ENUM =====
+// Result<T, E> is defined as:
+// enum Result<T, E> {
+//     Ok(T),
+//     Err(E),
+// }
+
+fn divide(a: i32, b: i32) -> Result<i32, String> {
+    if b == 0 {
+        Err(String::from("Division by zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn result_example() {
+    let result = divide(10, 2);
+    
+    // Pattern matching
+    match result {
+        Ok(value) => println!("Result: {}", value),
+        Err(e) => println!("Error: {}", e),
+    }
+    
+    // Unwrap (panics on Err)
+    let value = divide(10, 2).unwrap();
+    
+    // Expect (custom panic message)
+    let value = divide(10, 2).expect("Division failed");
+    
+    // Unwrap or default
+    let value = divide(10, 0).unwrap_or(0);
+    
+    // Question mark operator
+    fn propagate_error() -> Result<i32, String> {
+        let result = divide(10, 2)?;                     // Returns Err early
+        Ok(result * 2)
+    }
+    
+    // Map
+    let doubled = divide(10, 2).map(|n| n * 2);
+    
+    // Map error
+    let result = divide(10, 0).map_err(|e| format!("Error: {}", e));
+}
+
+// ===== ENUM METHODS =====
+impl Message {
+    fn call(&self) {
+        match self {
+            Message::Quit => println!("Quit called"),
+            Message::Move { x, y } => println!("Move to ({}, {})", x, y),
+            Message::Write(text) => println!("Write: {}", text),
+            Message::ChangeColor(r, g, b) => println!("Color: RGB({}, {}, {})", r, g, b),
+        }
+    }
+    
+    fn is_quit(&self) -> bool {
+        matches!(self, Message::Quit)
+    }
+}
+
+fn enum_methods_example() {
+    let msg = Message::Write(String::from("Hello"));
+    msg.call();
+    println!("Is quit: {}", msg.is_quit());
+}
+
+// ===== GENERIC ENUMS =====
+enum Result2<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+enum Option2<T> {
+    Some(T),
+    None,
+}
+
+// Multiple generic parameters
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+fn generic_enum_example() {
+    let left: Either<i32, String> = Either::Left(42);
+    let right: Either<i32, String> = Either::Right(String::from("Hello"));
+    
+    match left {
+        Either::Left(n) => println!("Number: {}", n),
+        Either::Right(s) => println!("String: {}", s),
+    }
+}
+
+// ===== IF LET =====
+fn if_let_example() {
+    let some_value = Some(3);
+    
+    // Instead of match
+    if let Some(n) = some_value {
+        println!("Number: {}", n);
+    }
+    
+    // With else
+    if let Some(n) = some_value {
+        println!("Number: {}", n);
+    } else {
+        println!("No number");
+    }
+    
+    // Multiple if let
+    let msg = Message::Move { x: 10, y: 20 };
+    
+    if let Message::Move { x, y } = msg {
+        println!("Move to ({}, {})", x, y);
+    } else if let Message::Write(text) = msg {
+        println!("Write: {}", text);
+    } else {
+        println!("Other message");
+    }
+}
+
+// ===== WHILE LET =====
+fn while_let_example() {
+    let mut stack = vec![1, 2, 3, 4, 5];
+    
+    while let Some(top) = stack.pop() {
+        println!("{}", top);
+    }
+}
+
+// ===== MATCHES! MACRO =====
+fn matches_example() {
+    let msg = Message::Write(String::from("Hello"));
+    
+    // Check if matches pattern
+    if matches!(msg, Message::Write(_)) {
+        println!("It's a Write message");
+    }
+    
+    // With guard
+    let num = Some(4);
+    if matches!(num, Some(x) if x < 5) {
+        println!("Number is less than 5");
+    }
+}
+
+// ===== ENUM DISCRIMINANTS =====
+#[repr(u8)]
+enum Status {
+    Active = 1,
+    Inactive = 2,
+    Pending = 3,
+}
+
+fn discriminant_example() {
+    let status = Status::Active;
+    let value = status as u8;
+    println!("Status value: {}", value);
+}
+
+// ===== C-LIKE ENUMS =====
+#[repr(C)]
+enum Color {
+    Red = 0xFF0000,
+    Green = 0x00FF00,
+    Blue = 0x0000FF,
+}
+
+#[repr(i32)]
+enum ErrorCode {
+    Success = 0,
+    NotFound = -1,
+    PermissionDenied = -2,
+    InternalError = -500,
+}
+
+// ===== DERIVE MACROS FOR ENUMS =====
+#[derive(Debug)]
+enum LogLevel {
+    Error,
+    Warning,
+    Info,
+}
+
+#[derive(Clone, Copy)]
+enum Direction2 {
+    North,
+    South,
+    East,
+    West,
+}
+
+#[derive(PartialEq, Eq)]
+enum State {
+    Active,
+    Inactive,
+}
+
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+enum Priority {
+    Low,
+    Medium,
+    High,
+}
+
+fn derive_example() {
+    let level = LogLevel::Info;
+    println!("{:?}", level);
+    
+    let state1 = State::Active;
+    let state2 = State::Active;
+    println!("Equal: {}", state1 == state2);
+    
+    let p1 = Priority::Low;
+    let p2 = Priority::High;
+    println!("p1 < p2: {}", p1 < p2);
+}
+
+// ===== ENUMS WITH LIFETIMES =====
+enum Cow<'a> {
+    Borrowed(&'a str),
+    Owned(String),
+}
+
+fn lifetime_enum_example() {
+    let borrowed = Cow::Borrowed("Hello");
+    let owned = Cow::Owned(String::from("World"));
+}
+
+// ===== RECURSIVE ENUMS =====
+// Requires Box for indirection
+enum List {
+    Cons(i32, Box<List>),
+    Nil,
+}
+
+impl List {
+    fn new() -> Self {
+        List::Nil
+    }
+    
+    fn prepend(self, elem: i32) -> Self {
+        List::Cons(elem, Box::new(self))
+    }
+    
+    fn len(&self) -> usize {
+        match self {
+            List::Cons(_, tail) => 1 + tail.len(),
+            List::Nil => 0,
+        }
+    }
+}
+
+fn recursive_enum_example() {
+    let list = List::new()
+        .prepend(1)
+        .prepend(2)
+        .prepend(3);
+    
+    println!("Length: {}", list.len());
+}
+
+// Binary tree
+enum Tree<T> {
+    Leaf(T),
+    Node {
+        value: T,
+        left: Box<Tree<T>>,
+        right: Box<Tree<T>>,
+    },
+}
+
+// ===== ENUM AS STATE MACHINE =====
+enum ConnectionState {
+    Disconnected,
+    Connecting { retry_count: u32 },
+    Connected { session_id: String },
+    Error { message: String },
+}
+
+impl ConnectionState {
+    fn connect(self) -> Self {
+        match self {
+            ConnectionState::Disconnected => {
+                ConnectionState::Connecting { retry_count: 0 }
+            }
+            _ => self,
+        }
+    }
+    
+    fn establish(self, session_id: String) -> Self {
+        match self {
+            ConnectionState::Connecting { .. } => {
+                ConnectionState::Connected { session_id }
+            }
+            _ => self,
+        }
+    }
+    
+    fn disconnect(self) -> Self {
+        ConnectionState::Disconnected
+    }
+}
+
+// ===== ENUM WITH ASSOCIATED DATA PATTERNS =====
+// Linked list
+enum LinkedList<T> {
+    Empty,
+    Node(T, Box<LinkedList<T>>),
+}
+
+// JSON-like value
+#[derive(Debug)]
+enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(std::collections::HashMap<String, JsonValue>),
+}
+
+fn json_example() {
+    use std::collections::HashMap;
+    
+    let mut obj = HashMap::new();
+    obj.insert(String::from("name"), JsonValue::String(String::from("Alice")));
+    obj.insert(String::from("age"), JsonValue::Number(30.0));
+    obj.insert(String::from("active"), JsonValue::Bool(true));
+    
+    let json = JsonValue::Object(obj);
+    println!("{:?}", json);
+}
+
+// ===== NESTED ENUMS =====
+enum OuterMessage {
+    Inner(InnerMessage),
+    Other,
+}
+
+enum InnerMessage {
+    Data(i32),
+    Text(String),
+}
+
+fn nested_enum_example() {
+    let msg = OuterMessage::Inner(InnerMessage::Data(42));
+    
+    match msg {
+        OuterMessage::Inner(InnerMessage::Data(n)) => {
+            println!("Data: {}", n);
+        }
+        OuterMessage::Inner(InnerMessage::Text(s)) => {
+            println!("Text: {}", s);
+        }
+        OuterMessage::Other => {
+            println!("Other");
+        }
+    }
+}
+
+// ===== ENUM SIZE AND LAYOUT =====
+fn enum_size() {
+    println!("Option<i32> size: {}", std::mem::size_of::<Option<i32>>());
+    println!("Result<i32, String> size: {}", std::mem::size_of::<Result<i32, String>>());
+    
+    // Enum size is size of largest variant + discriminant
+    enum Large {
+        Small(u8),
+        Large([u8; 100]),
+    }
+    
+    println!("Large enum size: {}", std::mem::size_of::<Large>());
+}
+
+// ===== ENUM DESTRUCTURING =====
+fn destructure_enum() {
+    let msg = Message::ChangeColor(255, 0, 0);
+    
+    // Destructure in match
+    match msg {
+        Message::ChangeColor(r, g, b) => {
+            println!("R: {}, G: {}, B: {}", r, g, b);
+        }
+        _ => {}
+    }
+    
+    // Destructure in let
+    if let Message::ChangeColor(r, g, b) = msg {
+        println!("R: {}, G: {}, B: {}", r, g, b);
+    }
+    
+    // Destructure struct variant
+    let msg = Message::Move { x: 10, y: 20 };
+    if let Message::Move { x, y } = msg {
+        println!("X: {}, Y: {}", x, y);
+    }
+}
+
+// ===== ENUM CONVERSIONS =====
+// From/Into implementations
+impl From<bool> for Status {
+    fn from(active: bool) -> Self {
+        if active {
+            Status::Active
+        } else {
+            Status::Inactive
+        }
+    }
+}
+
+fn conversion_example() {
+    let status: Status = true.into();
+}
+
+// TryFrom for fallible conversions
+use std::convert::TryFrom;
+
+impl TryFrom<i32> for Status {
+    type Error = String;
+    
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Status::Active),
+            2 => Ok(Status::Inactive),
+            3 => Ok(Status::Pending),
+            _ => Err(format!("Invalid status code: {}", value)),
+        }
+    }
+}
+
+// ===== NON-EXHAUSTIVE ENUMS =====
+#[non_exhaustive]
+pub enum ApiError {
+    NotFound,
+    Unauthorized,
+    InternalError,
+}
+
+// Users must use _ pattern to handle future variants
+fn handle_error(error: ApiError) {
+    match error {
+        ApiError::NotFound => println!("Not found"),
+        ApiError::Unauthorized => println!("Unauthorized"),
+        ApiError::InternalError => println!("Internal error"),
+        _ => println!("Unknown error"),                 // Required for non_exhaustive
+    }
+}
+
+// ===== COMMON PATTERNS =====
+
+// Pattern 1: Option chaining
+fn option_chaining() {
+    let value = Some(5)
+        .map(|x| x * 2)
+        .and_then(|x| if x > 5 { Some(x) } else { None })
+        .unwrap_or(0);
+    
+    println!("Value: {}", value);
+}
+
+// Pattern 2: Result chaining
+fn result_chaining() -> Result<i32, String> {
+    divide(10, 2)?
+        .checked_mul(3)
+        .ok_or_else(|| "Overflow".to_string())
+}
+
+// Pattern 3: Custom error enum
+#[derive(Debug)]
+enum AppError {
+    IoError(std::io::Error),
+    ParseError(std::num::ParseIntError),
+    CustomError(String),
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(error: std::io::Error) -> Self {
+        AppError::IoError(error)
+    }
+}
+
+impl From<std::num::ParseIntError> for AppError {
+    fn from(error: std::num::ParseIntError) -> Self {
+        AppError::ParseError(error)
+    }
+}
+
+fn app_function() -> Result<i32, AppError> {
+    let contents = std::fs::read_to_string("file.txt")?;
+    let number = contents.trim().parse::<i32>()?;
+    Ok(number)
+}
+
+// Pattern 4: Event system
+#[derive(Debug)]
+enum Event {
+    KeyPress(char),
+    MouseClick { x: i32, y: i32 },
+    Resize { width: u32, height: u32 },
+    Quit,
+}
+
+fn handle_event(event: Event) {
+    match event {
+        Event::KeyPress(c) => println!("Key pressed: {}", c),
+        Event::MouseClick { x, y } => println!("Mouse clicked at ({}, {})", x, y),
+        Event::Resize { width, height } => println!("Resized to {}x{}", width, height),
+        Event::Quit => println!("Quitting"),
+    }
+}
+
+// Pattern 5: Command pattern
+enum Command {
+    Create { name: String },
+    Update { id: u32, name: String },
+    Delete { id: u32 },
+    List,
+}
+
+impl Command {
+    fn execute(&self) {
+        match self {
+            Command::Create { name } => println!("Creating: {}", name),
+            Command::Update { id, name } => println!("Updating {} to {}", id, name),
+            Command::Delete { id } => println!("Deleting {}", id),
+            Command::List => println!("Listing all"),
+        }
+    }
+}
+
+// Pattern 6: Parser result
+enum ParseResult<T> {
+    Success(T, usize),                                   // value, bytes consumed
+    Incomplete(usize),                                   // bytes needed
+    Error(String),
+}
+
+// Pattern 7: Cow-like enum
+enum MaybeOwned<'a> {
+    Borrowed(&'a str),
+    Owned(String),
+}
+
+impl<'a> MaybeOwned<'a> {
+    fn as_str(&self) -> &str {
+        match self {
+            MaybeOwned::Borrowed(s) => s,
+            MaybeOwned::Owned(s) => s.as_str(),
+        }
+    }
+}
+
+// Pattern 8: Validation result
+enum Validation<T, E> {
+    Valid(T),
+    Invalid(Vec<E>),
+}
+
+impl<T, E> Validation<T, E> {
+    fn is_valid(&self) -> bool {
+        matches!(self, Validation::Valid(_))
+    }
+    
+    fn errors(&self) -> Option<&Vec<E>> {
+        match self {
+            Validation::Invalid(errors) => Some(errors),
+            _ => None,
+        }
+    }
+}
+
+// Pattern 9: Notification system
+#[derive(Debug)]
+enum Notification {
+    Email { to: String, subject: String, body: String },
+    Sms { to: String, message: String },
+    Push { device_id: String, title: String, body: String },
+}
+
+impl Notification {
+    fn send(&self) {
+        match self {
+            Notification::Email { to, subject, .. } => {
+                println!("Sending email to {} with subject: {}", to, subject);
+            }
+            Notification::Sms { to, message } => {
+                println!("Sending SMS to {}: {}", to, message);
+            }
+            Notification::Push { device_id, title, .. } => {
+                println!("Sending push to {}: {}", device_id, title);
+            }
+        }
+    }
+}
+
+// Pattern 10: AST (Abstract Syntax Tree)
+enum Expr {
+    Number(i32),
+    Add(Box<Expr>, Box<Expr>),
+    Subtract(Box<Expr>, Box<Expr>),
+    Multiply(Box<Expr>, Box<Expr>),
+    Divide(Box<Expr>, Box<Expr>),
+}
+
+impl Expr {
+    fn eval(&self) -> Result<i32, String> {
+        match self {
+            Expr::Number(n) => Ok(*n),
+            Expr::Add(left, right) => Ok(left.eval()? + right.eval()?),
+            Expr::Subtract(left, right) => Ok(left.eval()? - right.eval()?),
+            Expr::Multiply(left, right) => Ok(left.eval()? * right.eval()?),
+            Expr::Divide(left, right) => {
+                let r = right.eval()?;
+                if r == 0 {
+                    Err("Division by zero".to_string())
+                } else {
+                    Ok(left.eval()? / r)
+                }
+            }
+        }
+    }
+}
+
+fn ast_example() {
+    // (2 + 3) * 4
+    let expr = Expr::Multiply(
+        Box::new(Expr::Add(
+            Box::new(Expr::Number(2)),
+            Box::new(Expr::Number(3)),
+        )),
+        Box::new(Expr::Number(4)),
+    );
+    
+    println!("Result: {}", expr.eval().unwrap());
+}
+```
+

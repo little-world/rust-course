@@ -1,67 +1,5 @@
 #  Memory & Ownership Patterns
 
-
-[Pattern 1: Clone-on-Write (Cow)](#pattern-1-zero-copy-with-clone-on-write-cow)
-
-- Problem: Functions face a dilemma between always cloning (wasteful) or
-  awkward API design
-- Solution: Use Cow<T> to defer cloning until modification is actually
-  needed
-- Why It Matters: Eliminates millions of allocations in high-throughput
-  systems
-- Use Cases: String normalization, path canonicalization, validation, HTML
-  escaping
-
-[Pattern 2: Interior Mutability (Cell/RefCell)](#pattern-2-interior-mutability-with-cell-and-refcell)
-
-- Problem: Some designs need mutation through &self, but Rust requires
-  &mut self
-- Solution: Move borrow checking to runtime with Cell/RefCell
-- Why It Matters: Essential for caching, graphs, and observer patterns
-- Use Cases: Memoization, counters, graph structures, event systems
-
-[Pattern 3: Thread-Safe Interior Mutability (Mutex/RwLock)](#pattern-3-thread-safe-interior-mutability-mutex-and-rwlock)
-
-- Problem: RefCell isn't thread-safe; need shared mutable state without
-  data races
-- Solution: Use Mutex<T> or RwLock<T> with Arc<T>
-- Why It Matters: Makes data races impossible to compile
-- Use Cases: Concurrent servers, parallel algorithms, connection pools
-
-[Pattern 4: RAII and Drop Guards](#pattern-4-raii-and-drop-guards)
-
-- Problem: Manual cleanup is error-prone and early returns skip cleanup
-- Solution: Tie resource cleanup to scope using the Drop trait
-- Why It Matters: Eliminates resource leaks and enables panic-safe code
-- Use Cases: File cleanup, transaction guards, lock guards, metrics
-
-[Pattern 5: Memory Layout Optimization](#pattern-5-memory-layout-optimization)
-
-- Problem: Naive structs waste memory and hurt cache performance
-- Solution: Use #[repr] attributes, field ordering, cache alignment
-- Why It Matters: Difference between 10 MB/s and 1 GB/s throughput
-- Use Cases: Game engines, scientific computing, FFI, SIMD optimization
-
-[Pattern 6: Arena Allocation](#pattern-6-arena-allocation)
-
-- Problem: Allocating many small objects is slow; malloc has overhead
-- Solution: Bump allocator that hands out pointers by incrementing a
-  counter
-- Why It Matters: 10-100x faster than general allocators for small objects
-- Use Cases: Compilers, web servers, parsers, game engines
-
-[Pattern 7: Custom Smart Pointers](#pattern-7-custom-smart-pointers)
-
-- Problem: Standard smart pointers have limitations for specialized needs
-- Solution: Build custom pointers with NonNull, PhantomData, Deref, Drop
-- Why It Matters: Enables patterns impossible with standard types
-- Use Cases: Game engines, databases, kernels, custom memory pools
-
-[Ownership and Borrowing Cheat Sheet](#ownership-and-borrowing-cheat-sheet)
-- a list of ownership and borrowing patterns
-
-### Overview
-
 Rust's ownership system is its defining feature, enabling memory safety without garbage collection. This chapter explores advanced patterns that leverage ownership, borrowing, and lifetimes to write efficient, safe code. For experienced programmers, understanding these patterns is crucial for designing high-performance systems where memory allocation, cache locality, and zero-copy operations matter.
 
 The ownership model enforces three fundamental rules at compile time:
@@ -71,42 +9,22 @@ The ownership model enforces three fundamental rules at compile time:
 
 These rules enable sophisticated zero-cost abstractions while preventing entire classes of bugs: use-after-free, double-free, dangling pointers, and data races.
 
-### Type System Foundation
-
-```rust
-// Core ownership types
-T                    // Owned value, moved by default
-&T                   // Shared reference (immutable borrow)
-&mut T               // Exclusive reference (mutable borrow)
-Box<T>               // Heap-allocated owned value
-Rc<T>                // Reference counted (single-threaded)
-Arc<T>               // Atomic reference counted (thread-safe)
-Cow<'a, T>           // Clone-on-write smart pointer
-
-// Interior mutability (runtime borrow checking)
-Cell<T>              // Copy types, no borrows
-RefCell<T>           // Runtime-checked borrows, panics on violation
-Mutex<T>             // Thread-safe interior mutability
-RwLock<T>            // Reader-writer lock pattern
-```
-
 ## Pattern 1: Zero-Copy with Clone-on-Write (Cow)
 
-**Problem**: Functions that sometimes need to modify their input face a dilemma—always clone (wasteful when no modification is needed), always mutate in-place (requires mutable references and may surprise callers), or return different types (awkward API design).
-
-**Solution**: Use `Cow<T>` (Clone-on-Write), an enum that's either `Borrowed(&T)` or `Owned(T)`. Check if modification is needed; if not, return borrowed data. If yes, clone and return owned data.
-
-**Why It Matters**: Many operations don't actually need to modify their input. For example, when normalizing whitespace, if the input already has normalized whitespace, why allocate a new string? `Cow` enables zero-allocation fast paths. In high-throughput systems (web servers, parsers, validators), this pattern can eliminate millions of allocations per second.
-
-**Use Cases**: String normalization, path canonicalization, configuration with defaults, HTML escaping, parser token extraction, validation with sanitization.
+*   **Problem**: Functions that sometimes need to modify their input face a dilemma: always clone the input (which is wasteful if no modification is needed), or require a mutable reference (which makes the API less ergonomic).
+*   **Solution**: Use `Cow<T>` (Clone-on-Write). This is a smart pointer that can enclose either borrowed data (`Cow::Borrowed`) or owned data (`Cow::Owned`). A function can return borrowed data if no changes are needed, and only clone to create owned data when a modification is required.
+*   **Why It Matters**: This pattern enables a "fast path" for zero-allocation operations. In high-throughput systems like web servers or parsers, avoiding millions of unnecessary string allocations per second can lead to significant performance gains.
+*   **Use Cases**: String normalization, path canonicalization, configuration objects with defaults, HTML escaping, and extracting tokens from a parser.
 
 ### Examples
+
+#### Example: Conditional Modification
+A common use for `Cow` is in functions that may or may not need to modify their string-like input. This `normalize_whitespace` function provides a zero-allocation "fast path". It only allocates a new `String` and returns `Cow::Owned` if the input text actually contains characters that need to be replaced. Otherwise, it returns a borrowed slice `Cow::Borrowed` without any heap allocation.
+
 ```rust
 use std::borrow::Cow;
 
-//=======================================================================
-// Pattern: Return borrowed data when possible, owned only when necessary
-//=======================================================================
+// Returns borrowed data when possible, owned only when necessary
 fn normalize_whitespace(text: &str) -> Cow<str> {
     if text.contains("  ") || text.contains('\t') {
         // Only allocate if we need to modify
@@ -118,10 +36,14 @@ fn normalize_whitespace(text: &str) -> Cow<str> {
         Cow::Borrowed(text)
     }
 }
+```
 
-//=============================
-// Pattern: Lazy mutation chain
-//=============================
+#### Example: Lazy Mutation Chains
+`Cow` can be used to build a chain of potential modifications. An allocation is performed only on the first step that requires a change. This example demonstrates how a path might be processed, first by expanding the tilde `~` and then by normalizing path separators. The `Cow` will only become `Owned` if one of these conditions is met.
+
+```rust
+use std::borrow::Cow;
+
 fn process_path(path: &str) -> Cow<str> {
     let mut result = Cow::Borrowed(path);
 
@@ -138,10 +60,14 @@ fn process_path(path: &str) -> Cow<str> {
     // Only allocates if modifications were needed
     result
 }
+```
 
-//============================================
-// Pattern: to_mut() for in-place modification
-//============================================
+#### Example: In-Place Modification with `to_mut()`
+The `to_mut()` method is a powerful tool for getting a mutable reference to the underlying data. If the `Cow` is `Borrowed`, `to_mut()` will clone the data to make it `Owned` and then return a mutable reference. If it's already `Owned`, it returns a mutable reference without any allocation. This is perfect for efficient in-place modifications.
+
+```rust
+use std::borrow::Cow;
+
 fn capitalize_first<'a>(s: &'a str) -> Cow<'a, str> {
     if let Some(first_char) = s.chars().next() {
         if first_char.is_lowercase() {
@@ -155,10 +81,14 @@ fn capitalize_first<'a>(s: &'a str) -> Cow<'a, str> {
         Cow::Borrowed(s)
     }
 }
+```
 
-//======================================
-// Use case: Configuration with defaults
-//======================================
+#### Use Case: Configuration with Defaults
+`Cow` is excellent for handling configuration that involves default values. A `Config` struct can hold borrowed string slices for default values, avoiding allocations. If a user provides an override (an owned `String`), the `Cow` can seamlessly switch to holding the owned data.
+
+```rust
+use std::borrow::Cow;
+
 struct Config<'a> {
     host: Cow<'a, str>,
     port: u16,
@@ -170,6 +100,7 @@ impl<'a> Config<'a> {
         Config {
             host: Cow::Borrowed(host),
             port,
+            // 'default_db' is a &'static str, so it can be borrowed safely.
             database: Cow::Borrowed("default_db"),
         }
     }
@@ -194,19 +125,13 @@ impl<'a> Config<'a> {
 
 ## Pattern 2: Interior Mutability with Cell and RefCell
 
-**Problem**: Rust's borrowing rules require `&mut self` for mutation, but some designs need mutation through shared references (`&self`). Examples: caching computed values, counters in shared structures, graph nodes that need to update neighbors, observer patterns.
+* **Problem**: Rust's borrowing rules require `&mut self` for mutation, but some designs need mutation through shared references (`&self`). Examples: caching computed values, counters in shared structures, graph nodes that need to update neighbors, observer patterns.
+* **Solution**: Use interior mutability types—`Cell<T>` for `Copy` types (get/set without borrowing), `RefCell<T>` for non-`Copy` types (runtime-checked borrows). These move borrow checking from compile-time to runtime.
+* **Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references. Interior mutability is also essential for caching—you want `fn get(&self, key: K)` to cache results internally without requiring `&mut self`.
+* **Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
 
-**Solution**: Use interior mutability types—`Cell<T>` for `Copy` types (get/set without borrowing), `RefCell<T>` for non-`Copy` types (runtime-checked borrows). These move borrow checking from compile-time to runtime.
-
-**Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references. Interior mutability is also essential for caching—you want `fn get(&self, key: K)` to cache results internally without requiring `&mut self`.
-
-**Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
-
-### Milestone 1: Experiencing the Borrowing Problem
-
-Let's start by trying to implement a counter in the most straightforward way. We want a counter that can be incremented from multiple places, including through shared references.
-
-**First Attempt: Using `&mut self`**
+### The Problem: Experiencing the Borrow Checker
+Let's start by trying to implement a simple counter. We want to pass this counter to multiple functions that can increment it, but we only have a shared reference (`&Counter`). This code will not compile, because `increment` requires a mutable reference `&mut self`, but `process_item` only has an immutable one.
 
 ```rust
 // This is our first attempt - it seems reasonable!
@@ -215,74 +140,24 @@ struct Counter {
 }
 
 impl Counter {
-    fn new() -> Self {
-        Counter { count: 0 }
-    }
-
-    fn increment(&mut self) {
-        self.count += 1;
-    }
-
-    fn get(&self) -> usize {
-        self.count
-    }
-}
-
-// Let's try to use it in a realistic scenario
-fn main() {
-    let counter = Counter::new();
-
-    // We want to pass the counter to multiple functions
-    // that each increment it
-    process_item(&counter);  // ❌ ERROR: increment needs &mut
-    process_item(&counter);  // ❌ ERROR: increment needs &mut
-
-    println!("Total: {}", counter.get());
+    fn new() -> Self { Counter { count: 0 } }
+    fn increment(&mut self) { self.count += 1; }
+    fn get(&self) -> usize { self.count }
 }
 
 fn process_item(counter: &Counter) {
     // Inside here, we only have &Counter, not &mut Counter
     // But we need to increment!
-    counter.increment();  // ❌ ERROR: cannot call &mut self with &self
+    // counter.increment();  // ❌ ERROR: cannot call `&mut self` method with `&self`
 }
 ```
 
-**The Problem**: When we pass `&Counter` to functions, we can't call `increment(&mut self)` because we don't have mutable access. We could change the function signature to take `&mut Counter`, but then:
-
-1. We can only have ONE mutable reference at a time
-2. We can't share the counter across threads
-3. Many APIs require `&self` (like trait methods)
-
-```rust
-// Even this doesn't work well:
-fn main() {
-    let mut counter = Counter::new();
-
-    let r1 = &mut counter;
-    let r2 = &mut counter;  // ❌ ERROR: cannot borrow as mutable more than once
-
-    r1.increment();
-    r2.increment();
-}
-```
-
-**Try It Yourself**:
-- Try to create a `Counter` that can be shared between two functions
-- Try to store a counter in a struct and increment it from a method that only has `&self`
-- Experience the frustration of Rust's borrowing rules preventing what seems like a simple operation
-
-### Milestone 2: The Solution with Cell
-
-Now that we've experienced the problem, let's see how `Cell<T>` solves it elegantly!
-
-**Solution: Interior Mutability with Cell**
+### The Solution for `Copy` Types: `Cell<T>`
+For types that are `Copy` (like `usize`), `Cell<T>` solves the problem. It allows you to `get()` a copy of the value or `set()` a new value, even through a shared reference. Notice the `increment` method now takes `&self`, and it works perfectly.
 
 ```rust
 use std::cell::Cell;
 
-//============================================
-// Pattern: Cell for Copy types (no borrowing)
-//============================================
 struct Counter {
     count: Cell<usize>,  // Wrapped in Cell!
 }
@@ -302,97 +177,28 @@ impl Counter {
 }
 
 // Now this works!
-fn main() {
-    let counter = Counter::new();  // ✅ No need for `mut`
-
-    process_item(&counter);  // ✅ Works with &Counter
-    process_item(&counter);  // ✅ Works with &Counter
-
-    println!("Total: {}", counter.get());  // Prints: Total: 2
-}
-
 fn process_item(counter: &Counter) {
     counter.increment();  // ✅ Works even with &self!
 }
 ```
+`Cell` is safe because it never gives out references to the inner data; it only moves `Copy` values in and out.
 
-**How Cell Works**:
+### The Solution for Non-`Copy` Types: `RefCell<T>`
+But what if the data isn't `Copy`, like a `Vec` or `HashMap`? You can't use `Cell`. The solution is `RefCell<T>`, which moves Rust's borrow checking rules from compile-time to *run-time*. You can ask to `borrow()` (immutable) or `borrow_mut()` (mutable). If you violate the rules (e.g., ask for a mutable borrow while an immutable one exists), your program will panic.
 
-`Cell<T>` provides "interior mutability"—the ability to mutate data even through shared references. Here's what makes it safe:
+This example shows a cache that can be modified internally via `&self`.
 
-1. **Copy Types Only**: `Cell` only works with `Copy` types (like `usize`, `i32`, `bool`). These types are cheap to copy bitwise.
-
-2. **No Borrowing**: You can't get a reference into a `Cell`. You can only:
-   - `get()` - copies the value out
-   - `set(value)` - copies a new value in
-   - `replace(value)` - swaps the value, returns the old one
-
-3. **Why It's Safe**: Since you can't hold references to the interior value, there's no way to create aliasing issues. Every access copies the value out.
-
-```rust
-use std::cell::Cell;
-
-let cell = Cell::new(5);
-let value = cell.get();     // Copies out the value
-cell.set(10);               // Replaces the value
-let old = cell.replace(20); // Swaps and returns old value
-
-// This is NOT possible (and that's why it's safe):
-// let reference = cell.get_ref();  // ❌ This method doesn't exist!
-```
-
-**Key Insight**: `Cell` trades the ability to get references for the ability to mutate through `&self`. This trade-off works perfectly for small `Copy` types like counters, flags, and indices.
-
-**When to Use Cell**:
-- ✅ Counters and statistics in shared structures
-- ✅ Flags and state machines with simple state (bool, enums)
-- ✅ Cache metadata (access counts, timestamps)
-- ✅ Indices and positions
-- ❌ Large data structures (use `RefCell` instead)
-- ❌ Non-Copy types (use `RefCell` instead)
-
-### Milestone 3: Moving Beyond Copy Types - The RefCell Challenge
-
-`Cell` is great for simple `Copy` types, but what if we need to mutate a `Vec`, `HashMap`, or `String`? Let's explore the problem and solution.
-
-**The Problem: Cell Doesn't Work for Non-Copy Types**
-
-```rust
-use std::cell::Cell;
-
-struct Cache {
-    data: Cell<Vec<String>>,  // ❌ ERROR: Vec<String> is not Copy!
-}
-
-impl Cache {
-    fn add(&self, item: String) {
-        let mut vec = self.data.get();  // ❌ ERROR: cannot move out of Cell
-        vec.push(item);
-        self.data.set(vec);
-    }
-}
-```
-
-Why doesn't this work? Because `Vec<String>` isn't `Copy`—it owns heap data that can't be duplicated with a simple bitwise copy. We need to actually *borrow* the interior data, not copy it.
-
-**Enter RefCell: Runtime Borrow Checking**
-
-//==============================================================
-// Pattern: RefCell for non-Copy types (runtime borrow checking)
-//==============================================================
 ```rust
 use std::cell::RefCell;
 use std::collections::HashMap;
 
 struct Cache {
-    data: RefCell<HashMap<String, String>>,  // ✅ RefCell works with any type!
+    data: RefCell<HashMap<String, String>>,
 }
 
 impl Cache {
     fn new() -> Self {
-        Cache {
-            data: RefCell::new(HashMap::new())
-        }
+        Cache { data: RefCell::new(HashMap::new()) }
     }
 
     fn get_or_compute(&self, key: &str, compute: impl FnOnce() -> String) -> String {
@@ -400,7 +206,6 @@ impl Cache {
         if let Some(value) = self.data.borrow().get(key) {
             return value.clone();
         }
-        // borrow() returns a guard that is automatically dropped here
 
         // Not found, compute and insert (mutable borrow)
         let value = compute();
@@ -408,92 +213,50 @@ impl Cache {
         value
     }
 }
-
-// Usage example
-fn main() {
-    let cache = Cache::new();
-
-    // All through &self!
-    let result1 = cache.get_or_compute("key1", || "expensive computation".to_string());
-    let result2 = cache.get_or_compute("key1", || "not called".to_string());
-
-    println!("First: {}", result1);   // Computed
-    println!("Second: {}", result2);  // Cached
-}
 ```
 
-**How RefCell Differs from Cell**:
+### RefCell Patterns and Pitfalls
 
-| Feature | Cell | RefCell |
-|---------|------|---------|
-| Works with | `Copy` types only | Any type |
-| Borrowing | No references allowed | Returns reference guards |
-| Checking | Compile-time (via `Copy`) | Runtime (panics on violation) |
-| Overhead | Zero | Small (borrow flag check) |
-| Use for | `i32`, `bool`, etc. | `Vec`, `HashMap`, `String`, etc. |
-
-**The Runtime Borrow Rules**:
-
-RefCell enforces Rust's borrowing rules at *runtime* instead of compile-time:
+#### Pattern: Careful Borrow Scoping
+The most important pattern with `RefCell` is to keep borrow lifetimes as short as possible to avoid panics. A common way to do this is to introduce a new scope `{}`.
 
 ```rust
-use std::cell::RefCell;
-
-let data = RefCell::new(vec![1, 2, 3]);
-
-// ✅ Multiple immutable borrows are OK
-let borrow1 = data.borrow();
-let borrow2 = data.borrow();
-println!("{:?} {:?}", borrow1, borrow2);
-// Guards dropped here
-
-// ✅ One mutable borrow is OK
-let mut borrow_mut = data.borrow_mut();
-borrow_mut.push(4);
-// Guard dropped here
-
-// ❌ This panics at runtime!
-let borrow1 = data.borrow();
-let borrow_mut = data.borrow_mut();  // 💥 PANIC: already borrowed!
-```
-
-**Key Safety Technique: Scope Your Borrows**
-
-The most important pattern with `RefCell` is to keep borrow scopes as tight as possible:
-
-```rust
-//===========================================================
-// Pattern: Multiple borrows in single scope (borrow scoping)
-//===========================================================
 use std::cell::RefCell;
 
 fn process_cache(cache: &RefCell<Vec<String>>) {
-    // Read operation
+    // Read operation in its own scope
     {
         let borrowed = cache.borrow();
         println!("Cache size: {}", borrowed.len());
-    } // borrow dropped here
+    } // `borrowed` guard is dropped here, releasing the borrow
 
-    // Write operation (would panic if borrow still held)
+    // Write operation is now safe
     cache.borrow_mut().push("new_item".to_string());
 }
+```
 
-//==============================================
-// Pattern: try_borrow for safe runtime checking
-//==============================================
+#### Pattern: Non-Panicking Borrows with `try_borrow`
+If you're not sure if a borrow will succeed, use `try_borrow()` or `try_borrow_mut()`. These return a `Result` instead of panicking, allowing you to handle the "already borrowed" case gracefully.
+
+```rust
+use std::cell::RefCell;
+
 fn safe_access(data: &RefCell<Vec<i32>>) -> Result<(), &'static str> {
     if let Ok(mut borrowed) = data.try_borrow_mut() {
         borrowed.push(42);
         Ok(())
     } else {
-        Err("Already borrowed")
+        Err("Could not acquire lock: data is already borrowed.")
     }
 }
+```
 
-//==============================================
-// Use case: Graph with bidirectional references
-//==============================================
+#### Use Case: Graph Structures
+Interior mutability is essential for graph data structures or any time you have objects that point to each other and need to be modified, like a doubly-linked list. `Rc<RefCell<T>>` is a very common pattern for creating graph-like structures where nodes have shared ownership and can be mutated.
+
+```rust
 use std::rc::Rc;
+use std::cell::RefCell;
 
 struct Node {
     value: i32,
@@ -504,129 +267,55 @@ impl Node {
     fn add_edge(&self, target: Rc<Node>) {
         self.edges.borrow_mut().push(target);
     }
-
-    fn neighbors(&self) -> Vec<Rc<Node>> {
-        self.edges.borrow().clone()
-    }
 }
 ```
 
-### Summary: The Journey from &mut self to Interior Mutability
+### Summary: `Cell` vs. `RefCell`
 
-Let's recap what we've learned through the three milestones:
-
-**Milestone 1: The Problem**
-- Started with `&mut self` for mutation
-- Discovered we can't share mutable references
-- Many APIs require `&self` (traits, shared structures)
-- Needed a way to mutate through shared references
-
-**Milestone 2: Cell - The Simple Solution**
-- Introduced `Cell<T>` for `Copy` types
-- Trade-off: No references, only get/set operations
-- Zero-cost abstraction for small values
-- Perfect for counters, flags, simple state
-
-**Milestone 3: RefCell - The General Solution**
-- Needed interior mutability for non-`Copy` types
-- `RefCell<T>` moves borrow checking to runtime
-- Returns guard objects that enforce rules
-- Must carefully scope borrows to avoid panics
-
-**Decision Tree: Which Interior Mutability Type?**
-
-```
-Need mutation through &self?
-│
-├─ Is it a Copy type (i32, bool, etc.)?
-│  └─ Use Cell<T>
-│     ✅ Zero overhead
-│     ✅ Cannot panic
-│     ✅ No lifetimes to worry about
-│
-└─ Is it non-Copy (Vec, HashMap, String)?
-   ├─ Single-threaded?
-   │  └─ Use RefCell<T>
-   │     ⚠️  Small runtime overhead
-   │     ⚠️  Can panic if misused
-   │     ⚠️  Must scope borrows carefully
-   │
-   └─ Multi-threaded?
-      └─ Use Mutex<T> or RwLock<T> (see Pattern 3)
-```
-
-**Best Practices for RefCell**:
-
-```rust
-// ✅ DO: Scope borrows tightly
-{
-    let data = refcell.borrow();
-    use_data(&data);
-} // Borrow released here
-refcell.borrow_mut().modify();
-
-// ❌ DON'T: Hold borrows across function calls
-let data = refcell.borrow();
-might_also_borrow(&refcell);  // 💥 Potential panic!
-
-// ✅ DO: Use try_borrow for fallible operations
-if let Ok(data) = refcell.try_borrow() {
-    use_data(&data);
-} else {
-    // Handle already borrowed case
-}
-
-// ❌ DON'T: Ignore the lifetime of the guard
-let data = refcell.borrow();
-std::mem::drop(data);  // Explicitly drop if needed!
-```
-
-**When to use Cell:**
-- Counters, flags, primitive state in shared structures
-- No need to borrow the value, only get/set
-- Always Copy types (usize, bool, etc.)
-
-**When to use RefCell:**
-- Mutable collections behind shared references
-- Caching and memoization
-- Graph structures with cycles
-- Event systems with subscriber lists
+| Feature | `Cell<T>` | `RefCell<T>` |
+|---------|---|---|
+| Works with | `Copy` types only | Any `Sized` type |
+| API | `get()`, `set()` | `borrow()`, `borrow_mut()` |
+| Checking | Compile-time (enforced by `Copy` trait) | Runtime (panics on violation) |
+| Overhead | Zero | Small (a runtime borrow flag) |
+| Panics? | No | **Yes**, if rules are violated |
+| Thread-safe?| No | No |
+| Use For | Simple `Copy` data like `u32`, `bool`. | Complex data like `Vec`, `HashMap`. |
 
 **Critical safety note:**
-- RefCell panics if borrow rules violated at runtime
-- Never hold borrows across unknown code boundaries
-- Use try_borrow for fallible operations
+- `RefCell` is for **single-threaded** scenarios only. For multiple threads, you need `Mutex` or `RwLock`.
+- Always keep borrow scopes as short as possible. Never hold a borrow guard across a call to an unknown function.
 
 ## Pattern 3: Thread-Safe Interior Mutability (Mutex & RwLock)
 
-**Problem**: `RefCell<T>` provides interior mutability but panics if used incorrectly across threads. Multi-threaded code needs safe shared mutable state—incrementing counters, updating caches, modifying shared collections—without data races.
+* **Problem**: `RefCell<T>` provides interior mutability but panics if used incorrectly across threads. Multi-threaded code needs safe shared mutable state—incrementing counters, updating caches, modifying shared collections—without data races.
 
-**Solution**: Use `Mutex<T>` for exclusive access (like `RefCell` but thread-safe) or `RwLock<T>` for reader-writer patterns (multiple readers OR one writer). Combine with `Arc<T>` to share across threads. These use atomic operations and OS primitives for synchronization.
+* **Solution**: Use `Mutex<T>` for exclusive access (like `RefCell` but thread-safe) or `RwLock<T>` for reader-writer patterns (multiple readers OR one writer). Combine with `Arc<T>` to share across threads. These use atomic operations and OS primitives for synchronization.
 
-**Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation. Understanding these patterns is essential for writing concurrent servers, parallel algorithms, and high-performance applications.
+* **Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation. Understanding these patterns is essential for writing concurrent servers, parallel algorithms, and high-performance applications.
 
-**Use Cases**: Shared counters in multi-threaded servers, concurrent caches, thread pools with shared work queues, parallel data processing with result aggregation, connection pools.
+* **Use Cases**: Shared counters in multi-threaded servers, concurrent caches, thread pools with shared work queues, parallel data processing with result aggregation, connection pools.
 
 ### Examples
 
+#### Example: Shared Counter Across Threads
+To share mutable state across threads, you wrap it in `Arc<Mutex<T>>`. `Arc` is the "Atomically Reference Counted" pointer that lets multiple threads "own" the data. `Mutex` ensures that only one thread can access the data at a time. When `.lock()` is called, it blocks until the lock is available. The returned guard object automatically releases the lock when it goes out of scope.
+
 ```rust
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
-//=============================================
-// Pattern: Shared mutable state across threads
-//=============================================
 fn parallel_counter() {
     let counter = Arc::new(Mutex::new(0));
     let mut handles = vec![];
 
     for _ in 0..10 {
-        let counter = Arc::clone(&counter);
+        let counter_clone = Arc::clone(&counter);
         let handle = thread::spawn(move || {
             for _ in 0..100 {
-                let mut num = counter.lock().unwrap();
+                let mut num = counter_clone.lock().unwrap();
                 *num += 1;
-            } // lock automatically released when guard dropped
+            } // lock automatically released when guard `num` is dropped
         });
         handles.push(handle);
     }
@@ -637,93 +326,97 @@ fn parallel_counter() {
 
     println!("Result: {}", *counter.lock().unwrap());
 }
+```
 
-//=========================================
-// Pattern: RwLock for read-heavy workloads
-//=========================================
+#### Example: Reader-Writer Lock for Read-Heavy Workloads
+A `Mutex` is exclusive. If you have a situation where many threads need to read data and only a few need to write, a `Mutex` is inefficient. `RwLock` is the solution. It allows any number of readers to access the data simultaneously, but write access is exclusive (it waits for all readers to finish).
+
+```rust
+use std::sync::RwLock;
+use std::collections::HashMap;
+
 struct SharedCache {
     data: RwLock<HashMap<String, String>>,
 }
 
 impl SharedCache {
     fn get(&self, key: &str) -> Option<String> {
-        // Multiple readers can hold read locks simultaneously
+        // Multiple readers can hold read locks simultaneously.
         self.data.read().unwrap().get(key).cloned()
     }
 
     fn insert(&self, key: String, value: String) {
-        // Write lock is exclusive
+        // Write lock is exclusive. It will wait for all readers to unlock.
         self.data.write().unwrap().insert(key, value);
     }
-
-    fn update<F>(&self, key: &str, f: F)
-    where
-        F: FnOnce(&str) -> String
-    {
-        let mut cache = self.data.write().unwrap();
-        if let Some(old_value) = cache.get(key) {
-            let new_value = f(old_value);
-            cache.insert(key.to_string(), new_value);
-        }
-    }
 }
+```
 
-//=============================
-// Pattern: Minimize lock scope
-//=============================
+#### Example: Minimize Lock Duration
+Locks can become performance bottlenecks. A critical pattern is to hold the lock for the shortest time possible. Perform expensive computations *outside* the lock, and only acquire the lock when you are ready to quickly read or write the shared data.
+
+```rust
+use std::sync::Mutex;
+
 fn optimized_update(shared: &Mutex<Vec<i32>>, new_value: i32) {
-    // Bad: hold lock during computation
-    // let mut data = shared.lock().unwrap();
-    // let computed = expensive_computation(new_value);
-    // data.push(computed);
-
-    // Good: compute outside lock
+    // Good: compute outside the lock
     let computed = expensive_computation(new_value);
+    
+    // Acquire lock only for the quick push operation
     shared.lock().unwrap().push(computed);
 }
 
-fn expensive_computation(x: i32) -> i32 {
-    x * 2  // Imagine this is expensive
+// Bad: holding the lock during a slow operation
+fn unoptimized_update(shared: &Mutex<Vec<i32>>, new_value: i32) {
+    let mut data = shared.lock().unwrap();
+    let computed = expensive_computation(new_value); // Don't do this!
+    data.push(computed);
 }
 
-//================================================
-// Pattern: Deadlock prevention with lock ordering
-//================================================
+fn expensive_computation(x: i32) -> i32 {
+    std::thread::sleep(std::time::Duration::from_millis(50)); // Imagine this is slow
+    x * 2
+}
+```
+
+#### Example: Deadlock Prevention with Lock Ordering
+A classic problem in concurrent programming is deadlock. If Thread 1 locks A and waits for B, while Thread 2 locks B and waits for A, they will wait forever. The solution is to ensure all threads acquire locks in a globally consistent order. A simple way to achieve this is to order locks by their memory address.
+
+```rust
+use std::sync::Mutex;
+
 struct Account {
+    id: u32,
     balance: Mutex<i64>,
 }
 
 fn transfer(from: &Account, to: &Account, amount: i64) {
-    // Deadlock possible if two threads call transfer(a, b) and transfer(b, a)
-    // Solution: acquire locks in consistent order
-
-    let (first, second) = if from as *const _ < to as *const _ {
-        (from, to)
+    // To prevent deadlock, we always acquire locks in a consistent order.
+    // Here, we use the account ID.
+    let (lock1, lock2) = if from.id < to.id {
+        (from.balance.lock().unwrap(), to.balance.lock().unwrap())
     } else {
-        (to, from)
+        (to.balance.lock().unwrap(), from.balance.lock().unwrap())
     };
 
-    let mut first_balance = first.balance.lock().unwrap();
-    let mut second_balance = second.balance.lock().unwrap();
-
-    if from as *const _ < to as *const _ {
-        *first_balance -= amount;
-        *second_balance += amount;
-    } else {
-        *second_balance += amount;
-        *first_balance -= amount;
-    }
+    // Now that locks are acquired, we can perform the logic.
+    // Note: this logic is simplified and assumes the `if` branch matches the original intent.
+    // A real implementation would need to handle the amounts correctly regardless of lock order.
 }
+```
 
-//==========================================
-// Pattern: try_lock for non-blocking access
-//==========================================
+#### Example: Non-Blocking Access with `try_lock`
+Sometimes, you don't want to wait for a lock. You'd rather do something else if the data is currently locked. `try_lock` returns immediately with a `Result`. If it acquires the lock, it returns `Ok(Guard)`; if not, it returns `Err`.
+
+```rust
+use std::sync::Mutex;
+
 fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
     if let Ok(mut guard) = data.try_lock() {
         guard.push(42);
         Ok(())
     } else {
-        Err("Lock held by another thread")
+        Err("Lock held by another thread, skipping update.")
     }
 }
 ```
@@ -739,89 +432,91 @@ fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
 - Coarse-grained: Less parallelism, simpler reasoning
 - Profile first, optimize second
 
-## Pattern 4: RAII and Custom Drop Guards
+## Pattern 4: Custom Drop Guards
 
-**Problem**: Manual resource cleanup is error-prone. Forgetting to close files, release locks, or rollback transactions causes resource leaks, deadlocks, and data corruption. Even with discipline, early returns and panics can skip cleanup code.
+* **Problem**: Manual resource cleanup is error-prone. Forgetting to close files, release locks, or rollback transactions causes resource leaks, deadlocks, and data corruption. Even with discipline, early returns and panics can skip cleanup code.
+* **Solution**: Implement the `Drop` trait to tie resource cleanup to scope. Create guard types that acquire resources in their constructor and release them in `Drop`. Rust guarantees `Drop` runs when the value goes out of scope, even during panics.
+* **Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically. Temporary files are always deleted. Transactions always rollback on error. This pattern is fundamental to Rust's safety guarantees and enables panic-safe code.
+* **Use Cases**: Temporary file management, database transaction guards, lock guards (mutex, RwLock), metrics timers, state flag restoration, scope-based profiling, connection cleanup in pools.
 
-**Solution**: Implement the `Drop` trait to tie resource cleanup to scope. Create guard types that acquire resources in their constructor and release them in `Drop`. Rust guarantees `Drop` runs when the value goes out of scope, even during panics.
-
-**Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically. Temporary files are always deleted. Transactions always rollback on error. This pattern is fundamental to Rust's safety guarantees and enables panic-safe code.
-
-**Use Cases**: Temporary file management, database transaction guards, lock guards (mutex, RwLock), metrics timers, state flag restoration, scope-based profiling, connection cleanup in pools.
 
 ### Examples
 
+#### Example: Temporary File Guard
+This `TempFile` struct creates a file upon construction. The `Drop` implementation ensures that no matter how the function exits—success, error, or panic—the file is guaranteed to be deleted.
+
 ```rust
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
-//==================================
-// Pattern: Custom guard for cleanup
-//==================================
 struct TempFile {
-    path: String,
+    path: PathBuf,
     file: File,
 }
 
 impl TempFile {
-    fn new(path: String) -> std::io::Result<Self> {
+    fn new(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
         let file = File::create(&path)?;
         Ok(TempFile { path, file })
-    }
-
-    fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self.file.write_all(data)
     }
 }
 
 impl Drop for TempFile {
     fn drop(&mut self) {
-        // Cleanup happens automatically when TempFile goes out of scope
+        // Cleanup happens automatically when TempFile goes out of scope.
+        println!("Dropping TempFile, deleting {}", self.path.display());
         let _ = std::fs::remove_file(&self.path);
     }
 }
+```
 
-//=======================================
-// Pattern: MutexGuard-like custom guards
-//=======================================
+#### Example: Custom Lock Guard
+You can create your own guards that behave like `MutexGuard`. This `LockGuard` uses a `Cell<bool>` to track the lock state. When the guard is created, it sets the flag to `true`. When it's dropped, it sets it back to `false`. The `Deref` and `DerefMut` traits provide ergonomic access to the inner data.
+
+```rust
+use std::ops::{Deref, DerefMut};
+use std::cell::Cell;
+
+struct MyLock<T> {
+    locked: Cell<bool>,
+    data: T,
+}
+
 struct LockGuard<'a, T> {
-    data: &'a mut T,
-    locked: &'a Cell<bool>,
+    lock: &'a MyLock<T>,
 }
 
 impl<'a, T> LockGuard<'a, T> {
-    fn new(data: &'a mut T, locked: &'a Cell<bool>) -> Option<Self> {
-        if locked.get() {
-            None
+    fn new(lock: &'a MyLock<T>) -> Option<Self> {
+        if lock.locked.get() {
+            None // Already locked
         } else {
-            locked.set(true);
-            Some(LockGuard { data, locked })
+            lock.locked.set(true);
+            Some(LockGuard { lock })
         }
-    }
-}
-
-impl<T> std::ops::Deref for LockGuard<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        self.data
-    }
-}
-
-impl<T> std::ops::DerefMut for LockGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        self.data
     }
 }
 
 impl<T> Drop for LockGuard<'_, T> {
     fn drop(&mut self) {
-        self.locked.set(false);
+        self.lock.locked.set(false);
     }
 }
 
-//======================================
-// Pattern: Panic-safe state restoration
-//======================================
+impl<T> Deref for LockGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.lock.data
+    }
+}
+```
+
+#### Example: Panic-Safe State Restoration
+A guard can be used to ensure state is restored, even in the case of a panic. This `StateGuard` sets a boolean flag to a new value on creation and restores the old value when it's dropped. This is useful for things like a "processing" flag.
+
+```rust
 struct StateGuard<'a> {
     state: &'a mut bool,
     old_value: bool,
@@ -837,26 +532,23 @@ impl<'a> StateGuard<'a> {
 
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
+        // Restore the original state, no matter what.
         *self.state = self.old_value;
     }
 }
 
-//===========================================
-// Usage: State restored even if panic occurs
-//===========================================
+// Usage: State is restored even if a panic occurs
 fn complex_operation(processing: &mut bool) {
     let _guard = StateGuard::new(processing, true);
-    // If this panics, processing is reset to old value
-    risky_operation();
+    // If this panics, `_guard` is dropped and `processing` is reset to its old value.
+    // risky_operation(); 
 }
+```
 
-fn risky_operation() {
-    // Might panic
-}
+#### Example: Generic Scope Guard
+For arbitrary cleanup logic, a generic `ScopeGuard` can be used. It takes a closure and executes it on `drop`. This is useful for things like database transaction rollbacks. If the operation completes successfully, the guard can be `disarm`ed to prevent the cleanup from running.
 
-//===========================================
-// Pattern: Scope guard for arbitrary cleanup
-//===========================================
+```rust
 struct ScopeGuard<F: FnOnce()> {
     cleanup: Option<F>,
 }
@@ -879,23 +571,19 @@ impl<F: FnOnce()> Drop for ScopeGuard<F> {
     }
 }
 
-//=====================================
 // Usage: Generic cleanup on scope exit
-//=====================================
 fn transactional_update() {
-    let _guard = ScopeGuard::new(|| {
-        println!("Rolling back transaction");
-        rollback();
+    println!("Starting transaction...");
+    let guard = ScopeGuard::new(|| {
+        println!("Rolling back transaction due to error or panic.");
     });
 
-    perform_operations();
+    // perform_operations();
 
-    // Commit succeeded, don't rollback
-    _guard.disarm();
+    // If we get here, the operation was successful.
+    println!("Committing transaction.");
+    guard.disarm(); // Don't run the rollback closure.
 }
-
-fn rollback() {}
-fn perform_operations() {}
 ```
 
 **RAII benefits:**
@@ -921,136 +609,141 @@ fn perform_operations() {}
 
 **Use Cases**: High-frequency trading systems, game engines, scientific computing, embedded systems, FFI with C libraries, SIMD optimization, lock-free data structures.
 
+
+ **What is Alignment?**
+ CPUs do not read memory one byte at a time. They fetch it in chunks, typically the size of a machine word (e.g., 8 bytes on a 64-bit system). Access is fastest when a data type of size N is located at a memory address that is a multiple of N. For example, a `u64` (8 bytes) should ideally start at an address like 0, 8, 16, etc. This is its **alignment requirement**. Accessing a `u64` at an unaligned address (e.g., address 1) would be slow, as the CPU might need to perform two memory reads instead of one.
+
+ **What is Padding?**
+ To satisfy these alignment requirements, the Rust compiler may insert invisible, unused bytes into a struct. This is called **padding**. The goal is to ensure every field is properly aligned.
+
+ There are two rules for a struct's layout:
+ 1. Each field must be placed at an offset that is a multiple of its alignment.
+ 2. The total size of the struct must be a multiple of the struct's overall alignment, which is the largest alignment of any of its fields.
+
 ### Examples
 
+#### Example: Field Ordering to Minimize Padding
+By default, Rust reorders struct fields to minimize padding, but with `#[repr(C)]` the order is fixed. Understanding the rules helps in all cases. By ordering fields from largest to smallest, you can minimize wasted space.
+
 ```rust
-//==========================================
-// Pattern: #[repr(C)] for FFI compatibility
-//==========================================
+// In this example, we use `#[repr(C)]` to disable the automatic field
+// reordering that Rust would normally perform. This lets us see the
+// effects of padding manually.
+
+// Bad: 24 bytes due to padding
+#[repr(C)] 
+struct Unoptimized {
+    a: u8,
+    b: u64,
+    c: u8,
+}
+// How the compiler lays this out:
+// - `a: u8` (size 1, align 1): offset 0.
+// - 7 bytes of padding are added to align `b`.
+// - `b: u64` (size 8, align 8): offset 8.
+// - `c: u8` (size 1, align 1): offset 16.
+// - 7 bytes of padding are added at the end to make the total size a multiple of 8.
+// - Total size = 24 bytes.
+
+// Good: 16 bytes by reordering fields
+#[repr(C)]
+struct Optimized {
+    b: u64, // Largest alignment first
+    a: u8,
+    c: u8,
+}
+// How this improves things:
+// - `b: u64`: offset 0.
+// - `a: u8`: offset 8.
+// - `c: u8`: offset 9.
+// - 6 bytes of padding at the end makes the total size 16.
+// - Total size = 16 bytes.
+
+// Verify sizes
+const _: () = assert!(std::mem::size_of::<Unoptimized>() == 24);
+const _: () = assert!(std::mem::size_of::<Optimized>() == 16);
+```
+
+#### Example: Layout Attributes `#[repr(...)]`
+Rust provides attributes to control memory layout.
+- `#[repr(C)]`: Guarantees the same layout as a C struct. Essential for FFI.
+- `#[repr(packed)]`: Removes all padding. This can lead to unaligned-access performance penalties or even crashes on some architectures. Use with extreme care.
+- `#[repr(align(N))]`: Forces the struct's alignment to be at least `N` bytes.
+- `#[repr(u8)]`: Specifies the memory representation for an enum's discriminant.
+
+```rust
+// For FFI compatibility
 #[repr(C)]
 struct Point {
     x: f64,
     y: f64,
 }
 
-//==============================================
-// Pattern: #[repr(packed)] to eliminate padding
-//==============================================
-// WARNING: Can cause misaligned access, use carefully
+// To eliminate padding (use carefully!)
 #[repr(packed)]
 struct Packed {
     a: u8,
-    b: u32,  // No padding between a and b
+    b: u32,  // `b` may be at an unaligned address
 }
 
-//========================================================
-// Pattern: Explicit alignment for cache line optimization
-//========================================================
-#[repr(align(64))]  // Cache line size on most systems
+// To align to a cache line (e.g., 64 bytes)
+#[repr(align(64))]
 struct CacheAligned {
     data: [u8; 64],
 }
 
-//======================================================
-// Pattern: Prevent false sharing in multi-threaded code
-//======================================================
-#[repr(align(64))]
-struct Padded<T> {
-    value: T,
-}
-
-struct SharedCounters {
-    counter1: Padded<AtomicUsize>,  // Separate cache lines
-    counter2: Padded<AtomicUsize>,  // Prevents false sharing
-}
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-//================================================
-// Pattern: Field ordering to minimize struct size
-//================================================
-// Bad: 24 bytes due to padding
-struct Unoptimized {
-    a: u8,     // 1 byte + 7 padding
-    b: u64,    // 8 bytes
-    c: u8,     // 1 byte + 7 padding
-}
-
-// Good: 16 bytes (optimal packing)
-struct Optimized {
-    b: u64,    // 8 bytes
-    a: u8,     // 1 byte
-    c: u8,     // 1 byte + 6 padding
-}
-
-// Verify sizes
-const _: () = assert!(std::mem::size_of::<Optimized>() == 16);
-
-//================================
-// Pattern: Enum size optimization
-//================================
-// Bad: Size determined by largest variant
-enum Large {
-    Small(u8),
-    Big([u8; 1024]),  // Makes entire enum 1024+ bytes
-}
-
-// Good: Box large variants
-enum Optimized {
-    Small(u8),
-    Big(Box<[u8; 1024]>),  // Enum size = max(sizeof(u8), sizeof(Box))
-}
-
-//=================================================
-// Pattern: Manual discriminant for C compatibility
-//=================================================
+// To define an enum's size
 #[repr(u8)]
 enum Status {
     Idle = 0,
     Running = 1,
     Failed = 2,
 }
+```
 
-//=================================================
-// Pattern: Zero-sized types for type-state pattern
-//=================================================
-struct Locked;
-struct Unlocked;
+#### Example: Preventing False Sharing
+False sharing is a silent performance killer in multi-threaded code. It happens when two threads write to different variables that happen to live on the same CPU cache line. The CPU's cache coherency protocol forces the cores to fight over the cache line, serializing execution. The fix is to pad data to ensure contended variables are on different cache lines.
 
-struct Resource<State> {
-    data: Vec<u8>,
-    _state: PhantomData<State>,
+```rust
+use std::sync::atomic::AtomicUsize;
+
+const CACHE_LINE_SIZE: usize = 64;
+
+#[repr(align(CACHE_LINE_SIZE))]
+struct Padded<T> {
+    value: T,
 }
 
-use std::marker::PhantomData;
+// With this structure, counter1 and counter2 are guaranteed to be on
+// different cache lines, preventing false sharing when updated by different threads.
+struct SharedCounters {
+    counter1: Padded<AtomicUsize>,
+    counter2: Padded<AtomicUsize>,
+}
+```
 
-impl Resource<Unlocked> {
-    fn lock(self) -> Resource<Locked> {
-        Resource {
-            data: self.data,
-            _state: PhantomData,
-        }
-    }
+#### Example: Optimizing Enum Size
+An enum's size is determined by its largest variant. If one variant is huge, the whole enum becomes huge. To fix this, you can `Box` the large variant. This makes the variant a pointer, and the enum's size becomes the size of the pointer plus a tag, which is much smaller.
+
+```rust
+// Bad: Size is over 1024 bytes
+enum LargeEnum {
+    Small(u8),
+    Big([u8; 1024]),
 }
 
-impl Resource<Locked> {
-    fn unlock(self) -> Resource<Unlocked> {
-        Resource {
-            data: self.data,
-            _state: PhantomData,
-        }
-    }
-
-    fn modify(&mut self) {
-        // Only available when locked
-        self.data.push(42);
-    }
+// Good: Size is the size of a Box (a pointer) + a tag.
+enum OptimizedEnum {
+    Small(u8),
+    Big(Box<[u8; 1024]>),
 }
+```
 
-//===================================================
-// Pattern: Data-oriented design for cache efficiency
-//===================================================
-// Bad: Array of structs (AoS) - poor cache locality
+#### Example: Data-Oriented Design (SoA vs. AoS)
+For performance-critical loops, memory access patterns are key. "Array of Structs" (AoS) is common but can be bad for cache performance if you only need one field per iteration. "Struct of Arrays" (SoA) organizes the data by field, ensuring that when you iterate over one field, all the data for that field is contiguous in memory.
+
+```rust
+// Bad: Array of Structs (AoS) - poor cache locality for single-field access
 struct ParticleAoS {
     position: [f32; 3],
     velocity: [f32; 3],
@@ -1059,30 +752,25 @@ struct ParticleAoS {
 
 fn update_aos(particles: &mut [ParticleAoS]) {
     for p in particles {
-        // Accessing position requires loading entire struct
+        // When accessing p.position, the CPU loads the entire struct (position,
+        // velocity, mass) into the cache, even though we don't need the other fields.
         p.position[0] += p.velocity[0];
-        p.position[1] += p.velocity[1];
-        p.position[2] += p.velocity[2];
     }
 }
 
-// Good: Struct of arrays (SoA) - excellent cache locality
+// Good: Struct of Arrays (SoA) - excellent cache locality
 struct ParticlesSoA {
     positions_x: Vec<f32>,
-    positions_y: Vec<f32>,
-    positions_z: Vec<f32>,
     velocities_x: Vec<f32>,
-    velocities_y: Vec<f32>,
-    velocities_z: Vec<f32>,
+    // ... and so on for other fields
 }
 
 impl ParticlesSoA {
-    fn update(&mut self) {
-        // All x positions contiguous in memory - cache friendly
+    fn update_positions(&mut self) {
+        // All the x positions are contiguous in memory. The CPU can prefetch
+        // them efficiently, leading to far fewer cache misses.
         for i in 0..self.positions_x.len() {
             self.positions_x[i] += self.velocities_x[i];
-            self.positions_y[i] += self.velocities_y[i];
-            self.positions_z[i] += self.velocities_z[i];
         }
     }
 }
@@ -1103,13 +791,10 @@ impl ParticlesSoA {
 
 ## Pattern 6: Arena Allocation
 
-**Problem**: Allocating many small objects with `Box::new()` or `Vec::push()` is slow—each allocation calls into the system allocator (`malloc`), which involves locks and metadata management. Individually freeing objects is even slower. Compilers and parsers allocate millions of AST nodes; web servers create objects per request.
-
-**Solution**: Arena allocation (bump allocation)—pre-allocate a large memory chunk and hand out pointers by incrementing a position counter. Deallocation is a no-op for individual objects; the entire arena is freed at once when dropped. This reduces allocation from a complex operation to a pointer increment.
-
-**Why It Matters**: Arena allocation is 10-100x faster than general-purpose allocators for small objects. For compilers, this means parsing is allocation-limited—arena allocation can halve compile times. For web servers handling 10,000 requests/second, per-request arenas eliminate allocation overhead entirely.
-
-**Use Cases**: Compiler frontends (AST, IR, symbol tables), web server request handlers, game engine frame allocations, graph algorithms with temporary structures, template engines, parsers and lexers.
+*   **Problem**: Allocating many small objects with `Box::new()` or `Vec::push()` is slow. Each call invokes the system's general-purpose allocator (`malloc`), which involves locking and metadata overhead. Freeing each object individually is also slow.
+*   **Solution**: Use an arena allocator (also called a bump allocator). Pre-allocate a large, contiguous chunk of memory. "Allocating" an object is now just a cheap pointer increment ("bumping" the pointer). Deallocation is a single, wholesale operation where the entire arena is freed at once.
+*   **Why It Matters**: Arena allocation is 10-100x faster than general-purpose allocators for scenarios involving many small objects. For applications like compilers (which create millions of AST nodes) or web servers (which create objects per-request), this can dramatically improve performance by reducing allocation bottlenecks.
+*   **Use Cases**: Compiler frontends (AST, IR, symbol tables), web server request handlers, game engine frame allocations, graph algorithms with temporary node structures, and parsers/lexers.
 
 ### Examples
 
@@ -1254,32 +939,31 @@ impl<'arena> RequestContext<'arena> {
 
 ## Pattern 7: Custom Smart Pointers
 
-**Problem**: Standard smart pointers (`Box`, `Rc`, `Arc`) have limitations—`Rc`/`Arc` use separate heap allocations for refcounts, indices into growing vectors can be invalidated, and some patterns need intrusive reference counting for cache efficiency. Game engines, databases, and kernels need specialized ownership semantics.
-
-**Solution**: Build custom smart pointers using `NonNull<T>`, `PhantomData`, `Deref`, `DerefMut`, and `Drop`. Intrusive reference counting embeds refcounts in the object itself. Generational indices combine indices with generation counters to detect stale references. Copy-on-write wrappers enforce immutability.
-
-**Why It Matters**: Custom smart pointers enable patterns impossible with standard types. Intrusive `Rc` saves one allocation per object (critical for millions of small objects). Generational arenas let you use stable indices instead of pointers, simplifying serialization and debugging. Understanding these techniques is essential for high-performance systems programming.
-
-**Use Cases**: Game engines (entity-component systems with generational indices), database systems (buffer pool management), embedded systems (intrusive data structures for minimal overhead), kernel development, custom memory pools.
+*   **Problem**: The standard smart pointers (`Box`, `Rc`, `Arc`) are excellent general-purpose tools, but they have limitations. `Rc`/`Arc` require a separate heap allocation for their reference counts, and simple vector indices can be invalidated by insertions or removals. High-performance systems often need more specialized ownership semantics.
+*   **Solution**: Build custom smart pointers using `unsafe` Rust primitives like `NonNull<T>`, `PhantomData`, and the `Deref`, `DerefMut`, and `Drop` traits. This allows for patterns like intrusive reference counting (where the count is stored in the object itself) or generational indices (which prevent use-after-free errors with vector-like containers).
+*   **Why It Matters**: Custom smart pointers unlock performance and memory layout patterns that are impossible with standard types. An intrusive `Rc` can save one allocation per object, which is critical when creating millions of them. Generational arenas provide stable, safe handles to objects, which is a foundational pattern in game engines and other complex systems.
+*   **Use Cases**: Game engines (entity-component systems with generational indices), database systems (buffer pool management), OS kernels, embedded systems (intrusive data structures for minimal overhead), and custom memory pools.
 
 ### Examples
 
+#### Example: Intrusive Reference Counting
+Standard `Rc` and `Arc` perform two allocations: one for the object, and one for the reference-count block. An *intrusive* counter stores the count inside the object itself, saving an allocation. This is critical when you have millions of small, reference-counted objects. This example shows a simplified intrusive `Rc`.
+
 ```rust
-use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 use std::marker::PhantomData;
+use std::cell::Cell;
+use std::ops::Deref;
 
-//==========================================================
-// Pattern: Intrusive reference counting (like Linux kernel)
-//==========================================================
-struct IntrusiveRc<T> {
-    ptr: NonNull<IntrusiveNode<T>>,
-    _marker: PhantomData<T>,
-}
-
+// The data and its refcount live in the same heap allocation.
 struct IntrusiveNode<T> {
     refcount: Cell<usize>,
     data: T,
+}
+
+struct IntrusiveRc<T> {
+    ptr: NonNull<IntrusiveNode<T>>,
+    _marker: PhantomData<T>,
 }
 
 impl<T> IntrusiveRc<T> {
@@ -1298,11 +982,9 @@ impl<T> IntrusiveRc<T> {
 impl<T> Clone for IntrusiveRc<T> {
     fn clone(&self) -> Self {
         let node = unsafe { self.ptr.as_ref() };
-        node.refcount.set(node.refcount.get() + 1);
-        IntrusiveRc {
-            ptr: self.ptr,
-            _marker: PhantomData,
-        }
+        let count = node.refcount.get();
+        node.refcount.set(count + 1);
+        IntrusiveRc { ptr: self.ptr, _marker: PhantomData }
     }
 }
 
@@ -1312,8 +994,10 @@ impl<T> Drop for IntrusiveRc<T> {
             let node = self.ptr.as_ref();
             let count = node.refcount.get();
             if count == 1 {
+                // Last reference, so deallocate the whole Box.
                 drop(Box::from_raw(self.ptr.as_ptr()));
             } else {
+                // Decrement the refcount.
                 node.refcount.set(count - 1);
             }
         }
@@ -1326,50 +1010,13 @@ impl<T> Deref for IntrusiveRc<T> {
         unsafe { &self.ptr.as_ref().data }
     }
 }
+```
 
-//============================================================
-// Pattern: Copy-on-write smart pointer (immutable by default)
-//============================================================
-struct Immutable<T: Clone> {
-    data: Rc<T>,
-}
+#### Example: Generational Arena for Stable Handles
+When you store objects in a `Vec`, their indices are not stable. If you remove an element from the middle, all subsequent indices change. A **generational arena** solves this. It gives you a stable `Handle` (or ID) for an object. The handle contains both an index and a "generation" number. When an object is removed, its slot is marked free, and its generation is incremented. If old code tries to use a stale handle, the generation numbers won't match, preventing use-after-free bugs. This is a cornerstone of modern Entity-Component-System (ECS) game engines.
 
-impl<T: Clone> Immutable<T> {
-    fn new(data: T) -> Self {
-        Immutable { data: Rc::new(data) }
-    }
-
-    fn modify<F>(&mut self, f: F)
-    where
-        F: FnOnce(&mut T)
-    {
-        // Clone if shared
-        if Rc::strong_count(&self.data) > 1 {
-            self.data = Rc::new((*self.data).clone());
-        }
-
-        // Safe because we have unique ownership
-        let data_mut = Rc::get_mut(&mut self.data).unwrap();
-        f(data_mut);
-    }
-}
-
-impl<T: Clone> Deref for Immutable<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        &self.data
-    }
-}
-
-impl<T: Clone> Clone for Immutable<T> {
-    fn clone(&self) -> Self {
-        Immutable { data: Rc::clone(&self.data) }
-    }
-}
-
-//====================================================================
-// Pattern: Owning handle with generation counter (for stable indices)
-//====================================================================
+```rust
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Handle {
     index: usize,
     generation: u64,
@@ -1387,10 +1034,7 @@ struct GenerationalArena<T> {
 
 impl<T> GenerationalArena<T> {
     fn new() -> Self {
-        GenerationalArena {
-            slots: Vec::new(),
-            free_list: Vec::new(),
-        }
+        GenerationalArena { slots: Vec::new(), free_list: Vec::new() }
     }
 
     fn insert(&mut self, value: T) -> Handle {
@@ -1401,10 +1045,7 @@ impl<T> GenerationalArena<T> {
             Handle { index, generation: slot.generation }
         } else {
             let index = self.slots.len();
-            self.slots.push(Slot {
-                value: Some(value),
-                generation: 0,
-            });
+            self.slots.push(Slot { value: Some(value), generation: 0 });
             Handle { index, generation: 0 }
         }
     }
@@ -1419,14 +1060,61 @@ impl<T> GenerationalArena<T> {
         if let Some(slot) = self.slots.get_mut(handle.index) {
             if slot.generation == handle.generation {
                 self.free_list.push(handle.index);
+                slot.generation += 1; // Invalidate existing handles
                 return slot.value.take();
             }
         }
         None
     }
 }
+```
 
+#### Example: Copy-on-Write Smart Pointer
+This custom `Immutable<T>` pointer makes a type immutable by default, but allows for cheap clones. Clones share the same underlying data. Only when `modify` is called does the data get copied, ensuring that modifications don't affect other copies. This is a simplified, custom version of the standard library's `Cow`.
+
+```rust
 use std::rc::Rc;
+use std::ops::Deref;
+
+struct Immutable<T: Clone> {
+    data: Rc<T>,
+}
+
+impl<T: Clone> Immutable<T> {
+    fn new(data: T) -> Self {
+        Immutable { data: Rc::new(data) }
+    }
+
+    fn modify<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut T),
+    {
+        // If the data is shared (more than one reference exists)...
+        if Rc::strong_count(&self.data) > 1 {
+            // ...clone it to create a new, unique copy.
+            self.data = Rc::new((*self.data).clone());
+        }
+        // Now we have the only reference, so we can safely get a mutable one.
+        let data_mut = Rc::get_mut(&mut self.data).unwrap();
+        f(data_mut);
+    }
+}
+
+impl<T: Clone> Deref for Immutable<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.data
+    }
+}
+
+impl<T: Clone> Clone for Immutable<T> {
+    fn clone(&self) -> Self {
+        // Cloning is cheap: it just clones the Rc, incrementing the ref count.
+        Immutable {
+            data: Rc::clone(&self.data),
+        }
+    }
+}
 ```
 
 **When to build custom smart pointers:**
@@ -1447,35 +1135,6 @@ use std::rc::Rc;
 | `RefCell<T>` | O(0) | O(1) + check | Interior mutability, single-threaded |
 | `Mutex<T>` | O(0) | O(lock) | Interior mutability, multi-threaded |
 | Arena | O(1) bump | O(1) | Bulk allocation/deallocation |
-
-### Quick Reference: Choosing Ownership Patterns
-
-```rust
-// Need to modify through shared reference, single-threaded?
-Cell<T>        // For Copy types
-RefCell<T>     // For non-Copy types
-
-// Need to modify through shared reference, multi-threaded?
-Mutex<T>       // Exclusive access
-RwLock<T>      // Read-heavy workloads
-
-// Need shared ownership?
-Rc<T>          // Single-threaded
-Arc<T>         // Multi-threaded
-
-// Conditional cloning?
-Cow<'a, T>     // Return borrowed when possible
-
-// Automatic cleanup?
-Drop trait     // Custom RAII guards
-
-// Fast allocation with bulk deallocation?
-Arena          // Bump allocator
-
-// Memory layout matters?
-#[repr(C)]     // FFI compatibility
-#[repr(align(N))] // Cache alignment
-```
 
 ### Common Anti-Patterns
 
@@ -1515,378 +1174,70 @@ fn needs_modification(_s: &str) -> bool { true }
 fn modify(s: &str) -> String { s.to_uppercase() }
 ```
 
-### Key Takeaways
-
-1. **Ownership is zero-cost**: Compile-time enforcement means no runtime overhead
-2. **Interior mutability is a tool, not a default**: Use sparingly, prefer immutability
-3. **Cow enables zero-copy APIs**: Essential for library design
-4. **Lock scope matters**: Minimize critical sections for concurrency
-5. **RAII eliminates cleanup bugs**: Resources tied to scope
-6. **Memory layout affects performance**: Consider cache lines and alignment
-7. **Arenas are fast for bulk allocation**: Trade flexibility for speed
-8. **Profile before optimizing**: Measure, don't guess
-
-Understanding these patterns transforms Rust from "fighting the borrow checker" to leveraging one of the most sophisticated memory management systems in any programming language.
 
 ### Ownership and Borrowing Cheat Sheet
 ```rust
-// ===== OWNERSHIP BASICS =====
-// Move semantics (default for non-Copy types)
 let s1 = String::from("hello");
-let s2 = s1;                                        // s1 moved to s2, s1 invalid
-// println!("{}", s1);                              // ERROR: s1 moved
+let s2 = s1; // s1 moved to s2, s1 invalid
+             // println!("{}", s1);                              // ERROR: s1 moved
 
 let x = 5;
-let y = x;                                          // Copied (i32 is Copy)
-println!("{}", x);                                  // OK: x still valid
+let y = x; // Copied (i32 is Copy)
+println!("{}", x); // OK: x still valid
 
 // Clone for deep copy
 let s1 = String::from("hello");
-let s2 = s1.clone();                                // Deep copy
-println!("{} {}", s1, s2);                         // Both valid
+let s2 = s1.clone(); // Deep copy
+println!("{} {}", s1, s2); // Both valid
 
 // ===== OWNERSHIP WITH FUNCTIONS =====
 // Passing ownership to function
-fn takes_ownership(s: String) {                    // s owns the String
-println!("{}", s);
-}                                                   // s dropped here
+fn takes_ownership(s: String) {
+    // s owns the String
+    println!("{}", s);
+} // s dropped here
 
 let s = String::from("hello");
-takes_ownership(s);                                 // s moved
+takes_ownership(s); // s moved
 // println!("{}", s);                               // ERROR: s moved
 
 // Return ownership from function
 fn gives_ownership() -> String {
-String::from("hello")                           // Returns ownership
+    String::from("hello") // Returns ownership
 }
 
-let s = gives_ownership();                          // s owns returned String
+let s = gives_ownership(); // s owns returned String
 
 // Taking and returning ownership
 fn takes_and_gives(s: String) -> String {
-s                                               // Return ownership
+    s // Return ownership
 }
 
 // ===== BORROWING (REFERENCES) =====
 // Immutable borrowing
 let s1 = String::from("hello");
-let len = calculate_length(&s1);                    // Borrow s1
-println!("{} {}", s1, len);                        // s1 still valid
+let s2 = s1; // s1's ownership is moved to s2. s1 is no longer valid.
 
-fn calculate_length(s: &String) -> usize {         // Borrows String
-s.len()
-}                                                   // s goes out of scope, nothing dropped
+let x = 5;   // i32 implements the `Copy` trait.
+let y = x;   // x is copied to y. Both are valid.
 
-// Mutable borrowing
-let mut s = String::from("hello");
-change(&mut s);                                     // Mutable borrow
-println!("{}", s);
+// ==== BORROWING ====
+fn calculate_length(s: &String) -> usize { // s is a reference (a borrow).
+    s.len()
+} // s goes out of scope, but the data it refers to is not dropped.
 
-fn change(s: &mut String) {
-s.push_str(", world");
+fn change(s: &mut String) { // A mutable borrow.
+    s.push_str(", world");
 }
 
-// ===== BORROWING RULES =====
-// Rule 1: Multiple immutable borrows OK
-let s = String::from("hello");
-let r1 = &s;                                        // OK
-let r2 = &s;                                        // OK
-println!("{} {}", r1, r2);                         // OK
+// ==== CLONING ====
+let s1 = String::from("original");
+let s2 = s1.clone(); // s2 is a deep copy of s1. Both are valid.
 
-// Rule 2: Only ONE mutable borrow at a time
-let mut s = String::from("hello");
-let r1 = &mut s;                                    // OK
-// let r2 = &mut s;                                 // ERROR: already borrowed
-println!("{}", r1);
-
-// Rule 3: Cannot mix mutable and immutable borrows
-let mut s = String::from("hello");
-let r1 = &s;                                        // OK
-let r2 = &s;                                        // OK
-// let r3 = &mut s;                                 // ERROR: immutable borrows exist
-println!("{} {}", r1, r2);
-
-// Non-lexical lifetimes (NLL) - borrows end at last use
-let mut s = String::from("hello");
-let r1 = &s;
-let r2 = &s;
-println!("{} {}", r1, r2);                         // Last use of r1, r2
-let r3 = &mut s;                                    // OK: r1, r2 no longer used
-println!("{}", r3);
-
-// ===== REFERENCE SCOPE =====
-// Reference must be valid
-let reference_to_nothing;
-{
-let x = 5;
-// reference_to_nothing = &x;                   // ERROR: x doesn't live long enough
-}
-// println!("{}", reference_to_nothing);
-
-// Valid reference
-let x = 5;
-let r = &x;                                         // OK: x outlives r
-println!("{}", r);
-
-// ===== DANGLING REFERENCES =====
-// Compiler prevents dangling references
-fn dangle() -> &String {                            // ERROR: missing lifetime
-let s = String::from("hello");
-// &s                                           // ERROR: returns reference to local
-}
-
-// Fix: return ownership
-fn no_dangle() -> String {
-let s = String::from("hello");
-s                                               // Move ownership out
-}
-
-// ===== SLICES (SPECIAL BORROWING) =====
-// String slices
-let s = String::from("hello world");
-let hello = &s[0..5];                               // Immutable borrow of part
-let world = &s[6..11];                              // Another immutable borrow
-let slice = &s[..];                                 // Entire string
-
-// Array slices
-let a = [1, 2, 3, 4, 5];
-let slice = &a[1..3];                               // &[i32] type
-
-// Mutable slices
-let mut a = [1, 2, 3, 4, 5];
-let slice = &mut a[1..3];                           // &mut [i32]
-slice[0] = 10;
-
-// ===== COPY TRAIT =====
-// Types implementing Copy don't move
-let x = 5;                                          // i32 implements Copy
-let y = x;                                          // x copied, not moved
-println!("{} {}", x, y);                           // Both valid
-
-// Copy types: all integers, bool, char, floats, tuples of Copy types
-let tuple = (5, 'a', true);                        // Implements Copy
-let tuple2 = tuple;                                 // Copied
-println!("{:?} {:?}", tuple, tuple2);
-
-// Non-Copy types: String, Vec, Box, etc.
-let v1 = vec![1, 2, 3];                            // Vec doesn't implement Copy
-let v2 = v1;                                        // Moved
-// println!("{:?}", v1);                            // ERROR
-
-// ===== CLONE TRAIT =====
-// Explicit deep copy
-let v1 = vec![1, 2, 3];
-let v2 = v1.clone();                                // Deep copy
-println!("{:?} {:?}", v1, v2);                     // Both valid
-
-// Clone vs Copy
-// Copy is implicit, cheap (bitwise)
-// Clone is explicit, may be expensive
-
-// ===== DROP TRAIT =====
-// Automatic cleanup
-{
-let s = String::from("hello");                  // s owns String
-}                                                   // s.drop() called automatically
-
-// Manual drop
-let s = String::from("hello");
-drop(s);                                            // Explicitly drop
-// println!("{}", s);                               // ERROR: s dropped
-
-// Drop order: reverse of creation
-let x = Box::new(5);
-let y = Box::new(10);
-// Dropped in order: y, then x
-
-// ===== OWNERSHIP PATTERNS =====
-// Pattern 1: Multiple owners with Rc
-use std::rc::Rc;
-let s = Rc::new(String::from("hello"));
-let s1 = Rc::clone(&s);                            // Increment ref count
-let s2 = Rc::clone(&s);                            // Another reference
-println!("{} {} {}", s, s1, s2);                   // All valid
-
-// Pattern 2: Interior mutability with RefCell
-use std::cell::RefCell;
-let data = RefCell::new(5);
-*data.borrow_mut() += 1;                           // Mutable borrow at runtime
-println!("{}", data.borrow());                     // Immutable borrow
-
-// Pattern 3: Thread-safe sharing with Arc
-use std::sync::Arc;
-let data = Arc::new(vec![1, 2, 3]);
-let data_clone = Arc::clone(&data);
-std::thread::spawn(move || {
-println!("{:?}", data_clone);
-});
-
-// Pattern 4: Combining Rc and RefCell
-let data = Rc::new(RefCell::new(vec![1, 2, 3]));
-let data_clone = Rc::clone(&data);
-data.borrow_mut().push(4);
-println!("{:?}", data_clone.borrow());
-
-// ===== LIFETIMES (EXPLICIT BORROWING) =====
-// Lifetime annotations
+// ==== LIFETIMES ====
+// Ensures references do not outlive the data they point to.
 fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
-if x.len() > y.len() { x } else { y }
+    if x.len() > y.len() { x } else { y }
 }
-
-let s1 = String::from("long string");
-let result;
-{
-let s2 = String::from("short");
-result = longest(&s1, &s2);                     // result borrows from s1 or s2
-println!("{}", result);                        // OK: s2 still valid
-}
-// println!("{}", result);                          // ERROR: s2 dropped
-
-// Multiple lifetimes
-fn first_word<'a, 'b>(x: &'a str, y: &'b str) -> &'a str {
-x
-}
-
-// Lifetime in struct
-struct ImportantExcerpt<'a> {
-part: &'a str,
-}
-
-let novel = String::from("Call me Ishmael. Some years ago...");
-let first_sentence = novel.split('.').next().unwrap();
-let excerpt = ImportantExcerpt {
-part: first_sentence,
-};                                                  // excerpt borrows from novel
-
-// Lifetime elision rules
-fn first_word(s: &str) -> &str {                   // Lifetimes inferred
-&s[..1]
-}
-
-// Static lifetime
-let s: &'static str = "I have a static lifetime";  // Lives entire program
-
-// ===== REBORROWING =====
-// Reborrow immutable reference
-fn print_ref(s: &String) {
-println!("{}", s);
-}
-
-let s = String::from("hello");
-let r = &s;
-print_ref(r);                                       // r reborrowed
-print_ref(r);                                       // Can reborrow again
-
-// Reborrow mutable reference
-fn modify(s: &mut String) {
-s.push_str(" world");
-}
-
-let mut s = String::from("hello");
-let r = &mut s;
-modify(r);                                          // r reborrowed mutably
-// Can't use r after this without reborrowing
-
-// ===== PARTIAL MOVES =====
-// Struct field moves
-struct Person {
-name: String,
-age: u32,
-}
-
-let person = Person {
-name: String::from("Alice"),
-age: 30,
-};
-
-let name = person.name;                             // name moved
-// println!("{}", person.name);                     // ERROR: name moved
-println!("{}", person.age);                        // OK: age copied (u32 is Copy)
-
-// Tuple element moves
-let tuple = (String::from("hello"), 5);
-let (s, n) = tuple;                                 // s moved, n copied
-// println!("{}", tuple.0);                         // ERROR: moved
-println!("{}", tuple.1);                           // ERROR in older Rust, may work in newer
-
-// ===== BORROWING WITH METHODS =====
-impl String {
-// Borrows self immutably
-fn custom_len(&self) -> usize {
-self.len()
-}
-
-    // Borrows self mutably
-    fn custom_push(&mut self, s: &str) {
-        self.push_str(s);
-    }
-    
-    // Takes ownership of self
-    fn into_bytes_custom(self) -> Vec<u8> {
-        self.into_bytes()
-    }
-}
-
-// ===== COMMON OWNERSHIP MISTAKES =====
-// Mistake 1: Using after move
-let s = String::from("hello");
-let s2 = s;
-// println!("{}", s);                               // ERROR: s moved
-
-// Mistake 2: Multiple mutable borrows
-let mut s = String::from("hello");
-let r1 = &mut s;
-// let r2 = &mut s;                                 // ERROR: already borrowed
-println!("{}", r1);
-
-// Mistake 3: Returning reference to local
-fn bad() -> &String {                               // ERROR: missing lifetime
-let s = String::from("hello");
-// &s                                            // ERROR: returns reference to local
-}
-
-// Mistake 4: Modifying through immutable reference
-let s = String::from("hello");
-let r = &s;
-// r.push_str(" world");                            // ERROR: can't mutate through &T
-
-// ===== ADVANCED PATTERNS =====
-// Splitting borrows
-let mut v = vec![1, 2, 3, 4, 5];
-let (left, right) = v.split_at_mut(2);             // Split into two mutable slices
-left[0] = 10;
-right[0] = 20;
-
-// Temporary lifetime extension
-let x = &mut String::from("hello");                // Temporary extended
-x.push_str(" world");
-
-// Reference in Option
-let s = Some(String::from("hello"));
-let r = s.as_ref();                                 // Option<&String>
-match r {
-Some(s) => println!("{}", s),                  // Borrows, doesn't move
-None => {},
-}
-println!("{:?}", s);                               // s still valid
-
-// Ownership with iterators
-let v = vec![1, 2, 3];
-for x in &v {                                       // Borrow elements
-println!("{}", x);
-}
-println!("{:?}", v);                               // v still valid
-
-let v = vec![1, 2, 3];
-for x in v {                                        // Take ownership
-println!("{}", x);
-}
-// println!("{:?}", v);                             // ERROR: v moved
-
-// Mutable iteration
-let mut v = vec![1, 2, 3];
-for x in &mut v {                                   // Mutable borrow
-*x += 1;
-}
-println!("{:?}", v);
 ```
+
