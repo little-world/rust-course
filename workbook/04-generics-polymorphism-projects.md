@@ -14,40 +14,6 @@ Build a generic priority queue data structure that can work with any type implem
 
 The priority queue must be fully generic over the element type and provide compile-time guarantees about ordering requirements.
 
-### Why It Matters
-
-Priority queues are fundamental data structures used in:
-- **Operating Systems**: Process scheduling, interrupt handling
-- **Algorithms**: Dijkstra's shortest path, A* search, Huffman coding
-- **Real-time Systems**: Event processing by priority
-- **Resource Management**: Task queuing, load balancing
-
-Understanding how to implement generic collections with trait bounds teaches you how Rust's standard library works internally. You'll learn why `BinaryHeap<T>` requires `T: Ord` and how to design APIs that are both flexible and type-safe.
-
-### Use Cases
-
-1. **Task Scheduler**: Schedule tasks by priority, deadline, or custom business logic
-2. **Event-Driven Systems**: Process events in priority order
-3. **Graph Algorithms**: Implement A*, Dijkstra, Prim's algorithm efficiently
-4. **Median Finding**: Maintain streaming median using two heaps
-5. **Merge K Sorted Lists**: Efficiently merge sorted iterators
-6. **Job Queue Systems**: Background job processing with priority levels
-
-### Solution Outline
-
-**Core Structure:**
-```rust
-// Use phantom type to distinguish min-heap from max-heap
-use std::marker::PhantomData;
-
-struct MinHeap;
-struct MaxHeap;
-
-pub struct PriorityQueue<T, Order = MinHeap> {
-    heap: Vec<T>,
-    _order: PhantomData<Order>,
-}
-```
 
 **Key Methods to Implement:**
 - `new()` - Create empty queue
@@ -68,58 +34,13 @@ pub struct PriorityQueue<T, Order = MinHeap> {
 - **Sift Down**: When removing root, move last element to root and bubble down
 - **Heapify**: Build heap from unordered array in O(n) time
 
-### Testing Hints
 
-**Unit Tests:**
-```rust
-#[test]
-fn test_basic_operations() {
-    let mut pq = PriorityQueue::new();
-    pq.push(5);
-    pq.push(3);
-    pq.push(7);
-    assert_eq!(pq.pop(), Some(3)); // Min heap
-}
-
-#[test]
-fn test_heap_property() {
-    // Verify heap property holds after every operation
-    // Parent should be ≤ children (min heap) or ≥ (max heap)
-}
-
-#[test]
-fn test_generic_types() {
-    // Test with different types: i32, String, custom structs
-}
-```
-
-**Property-Based Testing:**
-- Insertion order shouldn't matter for final sorted output
-- Popping all elements should yield sorted sequence
-- Heap property should hold after any operation
-
-**Performance Tests:**
-- Benchmark insertion of N elements
-- Compare heapify vs individual inserts
-- Test with large datasets (1M+ elements)
-
----
-
-## Milestone-by-Milestone Implementation Guide
 
 ### Milestone 1: Basic Generic Structure with Vec Backend
 
 ### Introduction
 
 Implement a simple priority queue using Rust's `Vec<T>` as the backing storage with a naive approach: sort on every insertion. This milestone focuses on understanding generic type parameters and trait bounds before optimizing for performance.
-
-**Why Start Simple?**
-
-Before building an efficient heap, we need to understand:
-- How generic type parameters work: `<T>` makes code reusable for any type
-- Why trait bounds matter: `T: Ord` ensures elements can be compared
-- How Rust's ownership interacts with generic collections
-- The baseline performance to improve upon in later milestones
 
 **The Naive Approach:**
 
@@ -150,28 +71,30 @@ pub struct PriorityQueue<T> {
 
 impl<T: Ord> PriorityQueue<T> {
     pub fn new() -> Self {
-        PriorityQueue { items: Vec::new() }
+        // TODO: empty queue
     }
 
     pub fn push(&mut self, item: T) {
-        self.items.push(item);
-        self.items.sort();  // Naive: O(n log n)
+        // TODO : add element 
+        // TODO : sort  Naive: O(n log n)
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        self.items.pop()  // Takes from end (highest priority after sorting)
+       //TODO:  Takes from end (highest priority after sorting)
     }
 
     pub fn peek(&self) -> Option<&T> {
-        self.items.last()
+         //TODO: return the last
     }
 
     pub fn len(&self) -> usize {
-        self.items.len()
+       //TODO: return the length
+        
     }
 
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+       //TODO: return if empty
+        
     }
 }
 ```

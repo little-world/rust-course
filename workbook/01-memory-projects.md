@@ -15,21 +15,10 @@ Your memory pool should support:
 
 ### Why It Matters
 
-Memory pools are critical for high-performance systems where allocation patterns are predictable. Game engines, embedded systems, real-time applications, and network servers use memory pools to achieve deterministic performance by avoiding unpredictable heap allocations. Understanding memory pools teaches you about memory layout, alignment, lifetimes, and ownership - core concepts in systems programming.
+Memory pools are critical for high-performance systems where allocation patterns are predictable.  Understanding memory pools teaches you about memory layout, alignment, lifetimes, and ownership - core concepts in systems programming.
 
-### Use Cases
 
-- Game engines: Managing game objects with predictable lifecycles
-- Network servers: Handling connection buffers of uniform size
-- Embedded systems: Operating in constrained memory environments
-- Real-time systems: Avoiding non-deterministic malloc/free
-- Database engines: Managing fixed-size page buffers
-
-### Solution Outline
-
-Your solution should follow these stepping stones:
-
-#### Step 1: Basic Memory Pool Structure
+#### Milestone 1: Basic Memory Pool Structure
 **Goal**: Create a memory pool that can allocate and deallocate fixed-size blocks.
 
 **What to implement**:
@@ -37,15 +26,65 @@ Your solution should follow these stepping stones:
 - Track which blocks are free/used
 - Implement basic allocation and deallocation
 
-**Why this step**: Establishes the foundation of pool-based allocation. You'll learn about memory layout and block management.
-
-**Key concepts**:
+**Architecture**:
 - Structs: `MemoryPool`
 - Fields: `memory: Vec<u8>`, `block_size: usize`, `free_list: Vec<usize>`
 - Functions:
   - `new(total_size: usize, block_size: usize) -> Self` - Creates the pool
   - `allocate() -> Option<*mut u8>` - Returns pointer to free block
   - `deallocate(ptr: *mut u8)` - Marks block as free
+
+---
+
+
+**Starter Code**:
+
+```rust
+/// A memory pool allocator that manages fixed-size blocks
+///
+/// Structs:
+/// - MemoryPool: Main allocator structure
+///
+/// Fields:
+/// - memory: Vec<u8> - The pre-allocated memory buffer
+/// - block_size: usize - Size of each allocatable block
+/// - total_size: usize - Total size of the pool
+/// - free_list: Vec<usize> - Indices of free blocks
+///
+/// Functions:
+/// - new() - Initializes the pool with specified size
+/// - allocate() - Returns a pointer to a free block
+/// - deallocate() - Returns a block to the free list
+/// - total_blocks() - Returns number of blocks in pool
+pub struct MemoryPool {
+    memory: Vec<u8>,
+    block_size: usize,
+    total_size: usize,
+    free_list: Vec<usize>,
+}
+
+impl MemoryPool {
+    ///  Initialize pre-allocated memory and free list
+    pub fn new(total_size: usize, block_size: usize) -> Self {
+        todo!("Implement pool creation")
+    }
+
+    ///  Find and return a free block, update free list
+    pub fn allocate(&mut self) -> Option<*mut u8> {
+        todo!("Implement allocation logic")
+    }
+
+    /// Mark block as free and add to free list
+    pub fn deallocate(&mut self, ptr: *mut u8) {
+        todo!("Implement deallocation logic")
+    }
+
+    /// Calculate capacity of the pool
+    pub fn total_blocks(&self) -> usize {
+        todo!("Implement block counting")
+    }
+}
+```
 
 ---
 
@@ -93,67 +132,11 @@ mod tests {
 }
 ```
 
----
 
-**Starter Code**:
-
-```rust
-/// A memory pool allocator that manages fixed-size blocks
-///
-/// Structs:
-/// - MemoryPool: Main allocator structure
-///
-/// Fields:
-/// - memory: Vec<u8> - The pre-allocated memory buffer
-/// - block_size: usize - Size of each allocatable block
-/// - total_size: usize - Total size of the pool
-/// - free_list: Vec<usize> - Indices of free blocks
-///
-/// Functions:
-/// - new() - Initializes the pool with specified size
-/// - allocate() - Returns a pointer to a free block
-/// - deallocate() - Returns a block to the free list
-/// - total_blocks() - Returns number of blocks in pool
-pub struct MemoryPool {
-    memory: Vec<u8>,
-    block_size: usize,
-    total_size: usize,
-    free_list: Vec<usize>,
-}
-
-impl MemoryPool {
-    /// Creates a new memory pool
-    /// Role: Initialize pre-allocated memory and free list
-    pub fn new(total_size: usize, block_size: usize) -> Self {
-        todo!("Implement pool creation")
-    }
-
-    /// Allocates a block from the pool
-    /// Role: Find and return a free block, update free list
-    pub fn allocate(&mut self) -> Option<*mut u8> {
-        todo!("Implement allocation logic")
-    }
-
-    /// Returns a block to the pool
-    /// Role: Mark block as free and add to free list
-    pub fn deallocate(&mut self, ptr: *mut u8) {
-        todo!("Implement deallocation logic")
-    }
-
-    /// Returns total number of blocks
-    /// Role: Calculate capacity of the pool
-    pub fn total_blocks(&self) -> usize {
-        todo!("Implement block counting")
-    }
-}
-```
-
----
-
-#### Step 2: Safe Wrapper with Ownership Tracking
+#### Milestone 2: Safe Wrapper with Ownership Tracking
 **Goal**: Create a safe API that prevents use-after-free and double-free bugs.
 
-**Why the previous step is not enough**: Raw pointers are unsafe and error-prone. We need ownership tracking to ensure memory safety.
+**Why the previous milestone is not enough**: Raw pointers are unsafe and error-prone. We need ownership tracking to ensure memory safety.
 
 **What's the improvement**: Introduce typed blocks with RAII (Resource Acquisition Is Initialization). When a `Block<T>` is dropped, memory is automatically returned to the pool.
 
@@ -165,6 +148,90 @@ impl MemoryPool {
   - `TypedPool::new(capacity: usize) -> Self` - Creates typed pool
   - `allocate(&mut self, value: T) -> Option<Block<T>>` - Returns owned block
   - `Drop::drop(&mut self)` - Auto-returns block to pool
+
+---
+
+**Starter Code**:
+
+```rust
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+
+/// A typed memory pool for type T
+///
+/// Structs:
+/// - TypedPool<T>: Type-safe memory pool
+/// - Block<T>: RAII wrapper for allocated memory
+///
+/// TypedPool Fields:
+/// - pool: MemoryPool - Underlying raw pool
+/// - _marker: PhantomData<T> - Zero-size type marker
+///
+/// Block Fields:
+/// - data: *mut T - Pointer to the allocated object
+/// - pool: *mut TypedPool<T> - Pointer back to owning pool
+/// - _marker: PhantomData<T> - Ensures proper Drop behavior
+///
+/// Functions:
+/// - TypedPool::new(capacity) - Creates pool for T
+/// - allocate(value: T) - Allocates and initializes a block
+/// - available() - Returns number of free blocks
+/// - Block::drop() - Automatically returns memory on drop
+pub struct TypedPool<T> {
+    pool: MemoryPool,
+    _marker: PhantomData<T>,
+}
+
+pub struct Block<'a, T> {
+    data: *mut T,
+    pool: &'a mut TypedPool<T>,
+}
+
+impl<T> TypedPool<T> {
+    ///  Initialize pool with size based on sizeof(T)
+    pub fn new(capacity: usize) -> Self {
+        todo!("Create pool with appropriate block size for T")
+    }
+
+    /// Allocates and initializes a block
+    /// Role: Get memory from pool and write value into it
+    pub fn allocate(&mut self, value: T) -> Option<Block<T>> {
+        todo!("Allocate block and initialize with value")
+    }
+
+    /// Returns number of available blocks
+    /// Role: Query pool state
+    pub fn available(&self) -> usize {
+        todo!("Count free blocks")
+    }
+}
+
+impl<T> Deref for Block<'_, T> {
+    type Target = T;
+
+    /// Allows treating Block<T> as &T
+    /// Role: Enable transparent access to inner value
+    fn deref(&self) -> &Self::Target {
+        todo!("Return reference to stored value")
+    }
+}
+
+impl<T> DerefMut for Block<'_, T> {
+    /// Allows treating Block<T> as &mut T
+    /// Role: Enable mutable access to inner value
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        todo!("Return mutable reference to stored value")
+    }
+}
+
+impl<T> Drop for Block<'_, T> {
+    /// Automatically returns block to pool when dropped
+    /// Role: RAII cleanup - ensures no memory leaks
+    fn drop(&mut self) {
+        todo!("Drop the value and return memory to pool")
+    }
+}
+```
 
 ---
 
@@ -215,97 +282,11 @@ mod tests {
 }
 ```
 
----
 
-**Starter Code**:
-
-```rust
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-
-/// A typed memory pool for type T
-///
-/// Structs:
-/// - TypedPool<T>: Type-safe memory pool
-/// - Block<T>: RAII wrapper for allocated memory
-///
-/// TypedPool Fields:
-/// - pool: MemoryPool - Underlying raw pool
-/// - _marker: PhantomData<T> - Zero-size type marker
-///
-/// Block Fields:
-/// - data: *mut T - Pointer to the allocated object
-/// - pool: *mut TypedPool<T> - Pointer back to owning pool
-/// - _marker: PhantomData<T> - Ensures proper Drop behavior
-///
-/// Functions:
-/// - TypedPool::new(capacity) - Creates pool for T
-/// - allocate(value: T) - Allocates and initializes a block
-/// - available() - Returns number of free blocks
-/// - Block::drop() - Automatically returns memory on drop
-pub struct TypedPool<T> {
-    pool: MemoryPool,
-    _marker: PhantomData<T>,
-}
-
-pub struct Block<'a, T> {
-    data: *mut T,
-    pool: &'a mut TypedPool<T>,
-}
-
-impl<T> TypedPool<T> {
-    /// Creates a typed pool for type T
-    /// Role: Initialize pool with size based on sizeof(T)
-    pub fn new(capacity: usize) -> Self {
-        todo!("Create pool with appropriate block size for T")
-    }
-
-    /// Allocates and initializes a block
-    /// Role: Get memory from pool and write value into it
-    pub fn allocate(&mut self, value: T) -> Option<Block<T>> {
-        todo!("Allocate block and initialize with value")
-    }
-
-    /// Returns number of available blocks
-    /// Role: Query pool state
-    pub fn available(&self) -> usize {
-        todo!("Count free blocks")
-    }
-}
-
-impl<T> Deref for Block<'_, T> {
-    type Target = T;
-
-    /// Allows treating Block<T> as &T
-    /// Role: Enable transparent access to inner value
-    fn deref(&self) -> &Self::Target {
-        todo!("Return reference to stored value")
-    }
-}
-
-impl<T> DerefMut for Block<'_, T> {
-    /// Allows treating Block<T> as &mut T
-    /// Role: Enable mutable access to inner value
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        todo!("Return mutable reference to stored value")
-    }
-}
-
-impl<T> Drop for Block<'_, T> {
-    /// Automatically returns block to pool when dropped
-    /// Role: RAII cleanup - ensures no memory leaks
-    fn drop(&mut self) {
-        todo!("Drop the value and return memory to pool")
-    }
-}
-```
-
----
-
-#### Step 3: Thread-Safe Pool with Arc and Mutex
+#### Milestone 3: Thread-Safe Pool with Arc and Mutex
 **Goal**: Make the memory pool usable across threads.
 
-**Why the previous step is not enough**: The pool isn't thread-safe - concurrent allocations would cause data races.
+**Why the previous Milestone is not enough**: The pool isn't thread-safe - concurrent allocations would cause data races.
 
 **What's the improvement**: Wrap pool in `Arc<Mutex<>>` to enable safe sharing across threads. Blocks now hold an `Arc` reference to keep the pool alive.
 
@@ -317,70 +298,6 @@ impl<T> Drop for Block<'_, T> {
   - `SharedPool::new(capacity)` - Creates thread-safe pool
   - `allocate(value)` - Locks pool and allocates
   - `clone()` - Shares pool across threads
-
----
-
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread;
-
-    #[test]
-    fn test_shared_pool_creation() {
-        let pool = SharedPool::<i32>::new(10);
-        let block = pool.allocate(42);
-        assert!(block.is_some());
-    }
-
-    #[test]
-    fn test_concurrent_allocation() {
-        let pool = SharedPool::<u64>::new(100);
-        let mut handles = vec![];
-
-        for i in 0..10 {
-            let pool_clone = pool.clone();
-            let handle = thread::spawn(move || {
-                let mut blocks = vec![];
-                for j in 0..10 {
-                    if let Some(block) = pool_clone.allocate(i * 10 + j) {
-                        blocks.push(block);
-                    }
-                }
-                blocks
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        // All allocations should succeed
-        assert_eq!(pool.available(), 0);
-    }
-
-    #[test]
-    fn test_pool_survives_block_thread() {
-        let pool = SharedPool::<String>::new(5);
-
-        let block = pool.allocate(String::from("thread-safe")).unwrap();
-        let pool_clone = pool.clone();
-
-        let handle = thread::spawn(move || {
-            let _block2 = pool_clone.allocate(String::from("another")).unwrap();
-            // pool_clone dropped here but pool still lives
-        });
-
-        handle.join().unwrap();
-
-        // Original block still valid
-        assert_eq!(&*block, "thread-safe");
-    }
-}
-```
 
 ---
 
@@ -475,6 +392,68 @@ impl<T> Drop for SharedBlock<T> {
 ```
 
 ---
+**Checkpoint Tests**:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn test_shared_pool_creation() {
+        let pool = SharedPool::<i32>::new(10);
+        let block = pool.allocate(42);
+        assert!(block.is_some());
+    }
+
+    #[test]
+    fn test_concurrent_allocation() {
+        let pool = SharedPool::<u64>::new(100);
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let pool_clone = pool.clone();
+            let handle = thread::spawn(move || {
+                let mut blocks = vec![];
+                for j in 0..10 {
+                    if let Some(block) = pool_clone.allocate(i * 10 + j) {
+                        blocks.push(block);
+                    }
+                }
+                blocks
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // All allocations should succeed
+        assert_eq!(pool.available(), 0);
+    }
+
+    #[test]
+    fn test_pool_survives_block_thread() {
+        let pool = SharedPool::<String>::new(5);
+
+        let block = pool.allocate(String::from("thread-safe")).unwrap();
+        let pool_clone = pool.clone();
+
+        let handle = thread::spawn(move || {
+            let _block2 = pool_clone.allocate(String::from("another")).unwrap();
+            // pool_clone dropped here but pool still lives
+        });
+
+        handle.join().unwrap();
+
+        // Original block still valid
+        assert_eq!(&*block, "thread-safe");
+    }
+}
+```
+
 
 ### Testing Strategies
 
@@ -950,7 +929,7 @@ The implementation progresses from unsafe low-level memory management to safe, e
 
 ---
 
-## Project 2: Reference-Counted Smart Pointer
+## Project 5: Reference-Counted Smart Pointer
 
 ### Problem Statement
 
@@ -963,21 +942,8 @@ Your smart pointer should support:
 - Interior mutability patterns
 - Clone-on-write optimization
 
-### Why It Matters
 
-Reference counting is fundamental to memory management in languages without garbage collection. Understanding `Rc` and `Arc` teaches you about shared ownership, reference cycles, and the trade-offs between compile-time and runtime safety. These patterns appear in GUI frameworks, graph structures, caches, and any system where data has multiple owners.
-
-### Use Cases
-
-- GUI frameworks: Widgets sharing application state
-- Graph structures: Nodes with multiple incoming edges
-- Caching: Multiple references to cached data
-- Event systems: Subscribers sharing event data
-- Plugin systems: Shared configuration across plugins
-
-### Solution Outline
-
-#### Step 1: Basic Reference Counter
+#### Milestone 1: Basic Reference Counter
 **Goal**: Implement a simple `MyRc<T>` with reference counting.
 
 **What to implement**:
@@ -993,69 +959,6 @@ Reference counting is fundamental to memory management in languages without garb
   - `clone() -> MyRc<T>` - Increments ref count
   - `drop()` - Decrements, frees if zero
   - `strong_count() -> usize` - Returns current count
-
----
-
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_basic_rc_creation() {
-        let rc = MyRc::new(42);
-        assert_eq!(*rc, 42);
-        assert_eq!(MyRc::strong_count(&rc), 1);
-    }
-
-    #[test]
-    fn test_rc_clone_increments_count() {
-        let rc1 = MyRc::new(100);
-        let rc2 = rc1.clone();
-        assert_eq!(MyRc::strong_count(&rc1), 2);
-        assert_eq!(MyRc::strong_count(&rc2), 2);
-        assert_eq!(*rc1, *rc2);
-    }
-
-    #[test]
-    fn test_rc_drop_decrements_count() {
-        let rc1 = MyRc::new(String::from("hello"));
-        {
-            let rc2 = rc1.clone();
-            assert_eq!(MyRc::strong_count(&rc1), 2);
-            drop(rc2);
-        }
-        assert_eq!(MyRc::strong_count(&rc1), 1);
-    }
-
-    #[test]
-    fn test_data_freed_when_count_zero() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Arc;
-
-        let dropped = Arc::new(AtomicBool::new(false));
-
-        struct DropDetector {
-            flag: Arc<AtomicBool>,
-        }
-
-        impl Drop for DropDetector {
-            fn drop(&mut self) {
-                self.flag.store(true, Ordering::SeqCst);
-            }
-        }
-
-        {
-            let rc = MyRc::new(DropDetector { flag: dropped.clone() });
-            let _rc2 = rc.clone();
-        }
-
-        assert!(dropped.load(Ordering::SeqCst));
-    }
-}
-```
 
 ---
 
@@ -1151,11 +1054,72 @@ impl<T> Drop for MyRc<T> {
 ```
 
 ---
+**Checkpoint Tests**:
 
-#### Step 2: Weak References
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_rc_creation() {
+        let rc = MyRc::new(42);
+        assert_eq!(*rc, 42);
+        assert_eq!(MyRc::strong_count(&rc), 1);
+    }
+
+    #[test]
+    fn test_rc_clone_increments_count() {
+        let rc1 = MyRc::new(100);
+        let rc2 = rc1.clone();
+        assert_eq!(MyRc::strong_count(&rc1), 2);
+        assert_eq!(MyRc::strong_count(&rc2), 2);
+        assert_eq!(*rc1, *rc2);
+    }
+
+    #[test]
+    fn test_rc_drop_decrements_count() {
+        let rc1 = MyRc::new(String::from("hello"));
+        {
+            let rc2 = rc1.clone();
+            assert_eq!(MyRc::strong_count(&rc1), 2);
+            drop(rc2);
+        }
+        assert_eq!(MyRc::strong_count(&rc1), 1);
+    }
+
+    #[test]
+    fn test_data_freed_when_count_zero() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let dropped = Arc::new(AtomicBool::new(false));
+
+        struct DropDetector {
+            flag: Arc<AtomicBool>,
+        }
+
+        impl Drop for DropDetector {
+            fn drop(&mut self) {
+                self.flag.store(true, Ordering::SeqCst);
+            }
+        }
+
+        {
+            let rc = MyRc::new(DropDetector { flag: dropped.clone() });
+            let _rc2 = rc.clone();
+        }
+
+        assert!(dropped.load(Ordering::SeqCst));
+    }
+}
+```
+
+
+#### Milestone 2: Weak References
 **Goal**: Add weak references to prevent reference cycles.
 
-**Why the previous step is not enough**: Strong references create cycles (e.g., parent->child, child->parent) that never get freed.
+**Why the previous Milestone is not enough**: Strong references create cycles (e.g., parent->child, child->parent) that never get freed.
 
 **What's the improvement**: `MyWeak<T>` doesn't increment strong count. It can upgrade to `MyRc<T>` if data still exists, or return `None` if data was freed.
 
@@ -1169,6 +1133,89 @@ impl<T> Drop for MyRc<T> {
 
 ---
 
+
+
+**Starter Code**:
+
+```rust
+/// Inner structure now tracks both strong and weak counts
+///
+/// Fields:
+/// - strong_count: usize - Number of MyRc pointers
+/// - weak_count: usize - Number of MyWeak pointers
+/// - data: T - The actual data
+struct RcInner<T> {
+    strong_count: usize,
+    weak_count: usize,
+    data: T,
+}
+
+/// A weak reference that doesn't own the data
+///
+/// Structs:
+/// - MyWeak<T>: Non-owning reference
+///
+/// Fields:
+/// - ptr: NonNull<RcInner<T>> - Pointer to heap data
+///
+/// Functions:
+/// - upgrade() - Try to get MyRc if data alive
+/// - clone() - Increment weak count
+/// - drop() - Decrement weak count
+pub struct MyWeak<T> {
+    ptr: NonNull<RcInner<T>>,
+    _marker: std::marker::PhantomData<RcInner<T>>,
+}
+
+impl<T> MyRc<T> {
+    /// Creates a weak reference
+    /// Role: Create non-owning pointer
+    pub fn downgrade(this: &Self) -> MyWeak<T> {
+        todo!("Increment weak_count, create MyWeak")
+    }
+
+    /// Returns the weak reference count
+    /// Role: Query weak references
+    pub fn weak_count(this: &Self) -> usize {
+        todo!("Read weak_count")
+    }
+}
+
+impl<T> MyWeak<T> {
+    /// Attempts to upgrade to a strong reference
+    /// Role: Convert weak to strong if data exists
+    pub fn upgrade(&self) -> Option<MyRc<T>> {
+        todo!("Check strong_count > 0, increment and return MyRc")
+    }
+
+    /// Returns the strong count if data still exists
+    /// Role: Query without upgrading
+    pub fn strong_count(&self) -> usize {
+        todo!("Read strong_count")
+    }
+}
+
+impl<T> Clone for MyWeak<T> {
+    /// Clone the weak reference
+    /// Role: Share weak reference
+    fn clone(&self) -> Self {
+        todo!("Increment weak_count")
+    }
+}
+
+impl<T> Drop for MyWeak<T> {
+    /// Decrement weak count, free RcInner if both counts are zero
+    /// Role: Cleanup weak reference
+    fn drop(&mut self) {
+        todo!("Decrement weak_count, free if strong=0 and weak=0")
+    }
+}
+
+// Update MyRc::drop to only free data when strong=0,
+// but keep RcInner alive if weak_count > 0
+```
+
+---
 **Checkpoint Tests**:
 
 ```rust
@@ -1261,92 +1308,10 @@ mod tests {
 
 ---
 
-**Starter Code**:
-
-```rust
-/// Inner structure now tracks both strong and weak counts
-///
-/// Fields:
-/// - strong_count: usize - Number of MyRc pointers
-/// - weak_count: usize - Number of MyWeak pointers
-/// - data: T - The actual data
-struct RcInner<T> {
-    strong_count: usize,
-    weak_count: usize,
-    data: T,
-}
-
-/// A weak reference that doesn't own the data
-///
-/// Structs:
-/// - MyWeak<T>: Non-owning reference
-///
-/// Fields:
-/// - ptr: NonNull<RcInner<T>> - Pointer to heap data
-///
-/// Functions:
-/// - upgrade() - Try to get MyRc if data alive
-/// - clone() - Increment weak count
-/// - drop() - Decrement weak count
-pub struct MyWeak<T> {
-    ptr: NonNull<RcInner<T>>,
-    _marker: std::marker::PhantomData<RcInner<T>>,
-}
-
-impl<T> MyRc<T> {
-    /// Creates a weak reference
-    /// Role: Create non-owning pointer
-    pub fn downgrade(this: &Self) -> MyWeak<T> {
-        todo!("Increment weak_count, create MyWeak")
-    }
-
-    /// Returns the weak reference count
-    /// Role: Query weak references
-    pub fn weak_count(this: &Self) -> usize {
-        todo!("Read weak_count")
-    }
-}
-
-impl<T> MyWeak<T> {
-    /// Attempts to upgrade to a strong reference
-    /// Role: Convert weak to strong if data exists
-    pub fn upgrade(&self) -> Option<MyRc<T>> {
-        todo!("Check strong_count > 0, increment and return MyRc")
-    }
-
-    /// Returns the strong count if data still exists
-    /// Role: Query without upgrading
-    pub fn strong_count(&self) -> usize {
-        todo!("Read strong_count")
-    }
-}
-
-impl<T> Clone for MyWeak<T> {
-    /// Clone the weak reference
-    /// Role: Share weak reference
-    fn clone(&self) -> Self {
-        todo!("Increment weak_count")
-    }
-}
-
-impl<T> Drop for MyWeak<T> {
-    /// Decrement weak count, free RcInner if both counts are zero
-    /// Role: Cleanup weak reference
-    fn drop(&mut self) {
-        todo!("Decrement weak_count, free if strong=0 and weak=0")
-    }
-}
-
-// Update MyRc::drop to only free data when strong=0,
-// but keep RcInner alive if weak_count > 0
-```
-
----
-
-#### Step 3: Interior Mutability with RefCell
+#### Milestone 3: Interior Mutability with RefCell
 **Goal**: Combine `MyRc` with interior mutability to allow mutation through shared references.
 
-**Why the previous step is not enough**: `MyRc` gives shared `&T` references. We need `&mut T` even with multiple owners.
+**Why the previous Milestone is not enough**: `MyRc` gives shared `&T` references. We need `&mut T` even with multiple owners.
 
 **What's the improvement**: Implement `MyRefCell<T>` with runtime borrow checking. Track borrows at runtime and panic on violations.
 
@@ -1360,66 +1325,6 @@ impl<T> Drop for MyWeak<T> {
 
 ---
 
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_refcell_basic_borrow() {
-        let cell = MyRefCell::new(42);
-        let borrowed = cell.borrow();
-        assert_eq!(*borrowed, 42);
-    }
-
-    #[test]
-    fn test_refcell_multiple_immutable() {
-        let cell = MyRefCell::new(100);
-        let b1 = cell.borrow();
-        let b2 = cell.borrow();
-        assert_eq!(*b1, *b2);
-    }
-
-    #[test]
-    fn test_refcell_mutable_borrow() {
-        let cell = MyRefCell::new(String::from("hello"));
-        {
-            let mut borrowed = cell.borrow_mut();
-            borrowed.push_str(" world");
-        }
-        assert_eq!(&*cell.borrow(), "hello world");
-    }
-
-    #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn test_refcell_panic_on_double_mut() {
-        let cell = MyRefCell::new(42);
-        let _b1 = cell.borrow_mut();
-        let _b2 = cell.borrow_mut(); // Should panic
-    }
-
-    #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn test_refcell_panic_mut_while_immutable() {
-        let cell = MyRefCell::new(42);
-        let _b1 = cell.borrow();
-        let _b2 = cell.borrow_mut(); // Should panic
-    }
-
-    #[test]
-    fn test_rc_refcell_combination() {
-        let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
-        let data2 = data.clone();
-
-        data.borrow_mut().push(4);
-        assert_eq!(*data2.borrow(), vec![1, 2, 3, 4]);
-    }
-}
-```
-
----
 
 **Starter Code**:
 
@@ -1525,6 +1430,65 @@ unsafe impl<T: Send> Send for MyRefCell<T> {}
 ```
 
 ---
+**Checkpoint Tests**:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_refcell_basic_borrow() {
+        let cell = MyRefCell::new(42);
+        let borrowed = cell.borrow();
+        assert_eq!(*borrowed, 42);
+    }
+
+    #[test]
+    fn test_refcell_multiple_immutable() {
+        let cell = MyRefCell::new(100);
+        let b1 = cell.borrow();
+        let b2 = cell.borrow();
+        assert_eq!(*b1, *b2);
+    }
+
+    #[test]
+    fn test_refcell_mutable_borrow() {
+        let cell = MyRefCell::new(String::from("hello"));
+        {
+            let mut borrowed = cell.borrow_mut();
+            borrowed.push_str(" world");
+        }
+        assert_eq!(&*cell.borrow(), "hello world");
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_on_double_mut() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow_mut();
+        let _b2 = cell.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_mut_while_immutable() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow();
+        let _b2 = cell.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    fn test_rc_refcell_combination() {
+        let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
+        let data2 = data.clone();
+
+        data.borrow_mut().push(4);
+        assert_eq!(*data2.borrow(), vec![1, 2, 3, 4]);
+    }
+}
+```
+
 
 ### Testing Strategies
 

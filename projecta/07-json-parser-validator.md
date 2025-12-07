@@ -46,19 +46,6 @@ fn naive_parse(json: &str) -> HashMap<String, String> {
 - OpenAPI validators: Contract enforcement
 - Database ORMs: Type-safe query results
 
-## Learning Goals
-
-By completing this project, you will:
-
-1. **Master exhaustive enum matching**: Handle all JSON types safely
-2. **Use recursive patterns**: Parse nested structures
-3. **Apply pattern guards**: Express validation rules clearly
-4. **Deep destructuring**: Extract nested values type-safely
-5. **Or-patterns**: Accept multiple valid types
-6. **Let-else patterns**: Handle validation errors gracefully
-7. **matches! macro**: Quick type checking
-
----
 
 ## Milestone 1: JSON Value Representation and Basic Parsing
 
@@ -95,104 +82,76 @@ use std::fmt;
 // TODO: Define Value enum for all JSON types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    // TODO: Add variants for JSON types
-    // Hint: Null
-    // Hint: Bool(bool)
-    // Hint: Number(f64)
-    // Hint: String(String)
-    // Hint: Array(Vec<Value>)
-    // Hint: Object(HashMap<String, Value>)
+    // TODO: Add variants for JSON types: null, bool, number, string, array, objec
 }
 
 impl Value {
     // TODO: Type checking using matches! macro
     pub fn is_null(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::Null)
-        todo!()
+        // TODO: match null
+       todo!()
     }
 
     pub fn is_bool(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::Bool(_))
+       // TODO: match bool
         todo!()
     }
 
     pub fn is_number(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::Number(_))
+       // TODO: match number
         todo!()
     }
 
     pub fn is_string(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::String(_))
+       // TODO: match string
         todo!()
     }
 
     pub fn is_array(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::Array(_))
+       // TODO: match array
         todo!()
     }
 
     pub fn is_object(&self) -> bool {
-        // Pseudocode:
-        // matches!(self, Value::Object(_))
+       // TODO: match object
         todo!()
     }
 
     // TODO: Safe value extraction using let-else patterns
     pub fn as_bool(&self) -> Option<bool> {
-        // Pseudocode:
-        // let Value::Bool(b) = self else { return None };
-        // Some(*b)
-        todo!()
+        let Value::Bool(b) = self else { return None };
+        Some(*b)
     }
 
     pub fn as_number(&self) -> Option<f64> {
-        // Pseudocode:
-        // let Value::Number(n) = self else { return None };
-        // Some(*n)
+        // TODO: see as_bool  as template
         todo!()
     }
 
     pub fn as_string(&self) -> Option<&str> {
-        // Pseudocode:
-        // let Value::String(s) = self else { return None };
-        // Some(s.as_str())
+       // TODO: see as_bool  as template
         todo!()
     }
 
     pub fn as_array(&self) -> Option<&Vec<Value>> {
-        // Pseudocode:
-        // let Value::Array(arr) = self else { return None };
-        // Some(arr)
+       // TODO: see as_bool  as template
         todo!()
     }
 
     pub fn as_object(&self) -> Option<&HashMap<String, Value>> {
-        // Pseudocode:
-        // let Value::Object(obj) = self else { return None };
-        // Some(obj)
+       // TODO: see as_bool  as template
         todo!()
     }
 
     // TODO: Get nested field using pattern matching
     pub fn get(&self, key: &str) -> Option<&Value> {
-        // Pseudocode:
-        // match self:
-        //     Value::Object(map) => map.get(key)
-        //     _ => None
+       // TODO: see as_bool  as template
         todo!()
     }
 
     // TODO: Get array element using pattern matching
     pub fn get_index(&self, index: usize) -> Option<&Value> {
-        // Pseudocode:
-        // match self:
-        //     Value::Array(arr) if index < arr.len() => Some(&arr[index])
-        //     _ => None
+       // TODO: see as_bool  as template
         todo!()
     }
 }
@@ -200,28 +159,24 @@ impl Value {
 // TODO: Define Token enum for lexer
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    // TODO: Add token types
-    // Hint: LeftBrace, RightBrace, LeftBracket, RightBracket
-    // Hint: Colon, Comma
-    // Hint: String(String)
-    // Hint: Number(f64)
-    // Hint: True, False, Null
-    // Hint: Eof
+    LeftBrace, RightBrace, LeftBracket, RightBracket,
+    Colon, Comma,
+    String(String),
+    Number(f64),
+    True, False, Null,
+    Eof
 }
 
 // TODO: Define ParseError for detailed error reporting
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
-    // TODO: Add fields
-    // Hint: message: String
-    // Hint: position: usize
+    // TODO: Add fields: message, position
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: Format error with position
-        // Pseudocode:
-        // write!(f, "Parse error at position {}: {}", self.position, self.message)
+        // write!()
         todo!()
     }
 }
@@ -230,15 +185,12 @@ impl std::error::Error for ParseError {}
 
 // TODO: Tokenizer/Lexer
 pub struct Lexer<'a> {
-    // TODO: Add fields
-    // Hint: input: &'a str
-    // Hint: position: usize
+    // TODO: Add fields: input, position
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
-        // Pseudocode:
-        // Self { input, position: 0 }
+       // TODO: constructor
         todo!()
     }
 
@@ -263,11 +215,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        // Pseudocode:
-        // while position < input.len():
-        //     match input[position]:
-        //         ' ' | '\t' | '\n' | '\r' => position += 1
-        //         _ => break
+        // increment position on whitespace characters
         todo!()
     }
 
@@ -291,13 +239,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn parse_true(&mut self) -> Result<Token, ParseError> {
-        // TODO: Match "true" exactly
-        // Pseudocode:
-        // if input[position..].starts_with("true"):
-        //     position += 4
-        //     return Ok(Token::True)
-        // else:
-        //     return Err(ParseError)
+        // TODO: Match  "true" exactly
         todo!()
     }
 
@@ -312,15 +254,13 @@ impl<'a> Lexer<'a> {
     }
 
     fn current_char(&self) -> Option<char> {
-        // Pseudocode:
-        // self.input.chars().nth(self.position)
+        // TODO: return the character at the current position
         todo!()
     }
 
     fn peek_char(&self, offset: usize) -> Option<char> {
-        // Pseudocode:
-        // self.input.chars().nth(self.position + offset)
-        todo!()
+       // TODO: return the character at the current position + offset
+       todo!()
     }
 }
 
@@ -333,52 +273,20 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str) -> Result<Self, ParseError> {
-        // Pseudocode:
-        // let mut lexer = Lexer::new(input)
-        // let current_token = lexer.next_token()?
-        // Ok(Self { lexer, current_token })
+        // TODO: construct Parser
         todo!()
     }
 
-    // TODO: Parse simple value using exhaustive pattern matching
+    // TODO: Parse simple value by using exhaustive pattern matching
     pub fn parse_value(&mut self) -> Result<Value, ParseError> {
-        // Pseudocode:
-        // match &self.current_token:
-        //     Token::Null => {
-        //         self.advance()?;
-        //         Ok(Value::Null)
-        //     }
-        //     Token::True => {
-        //         self.advance()?;
-        //         Ok(Value::Bool(true))
-        //     }
-        //     Token::False => {
-        //         self.advance()?;
-        //         Ok(Value::Bool(false))
-        //     }
-        //     Token::Number(n) => {
-        //         let num = *n;
-        //         self.advance()?;
-        //         Ok(Value::Number(num))
-        //     }
-        //     Token::String(s) => {
-        //         let string = s.clone();
-        //         self.advance()?;
-        //         Ok(Value::String(string))
-        //     }
-        //     Token::LeftBracket => self.parse_array()
-        //     Token::LeftBrace => self.parse_object()
-        //     _ => Err(ParseError::unexpected_token())
+        // TODO: match current Token convert to Value
+        
         todo!()
     }
 
     fn advance(&mut self) -> Result<(), ParseError> {
-        // Pseudocode:
-        // self.current_token = self.lexer.next_token()?;
-        // Ok(())
-        todo!()
+        // TODO: advance current_token
     }
-
     fn parse_array(&mut self) -> Result<Value, ParseError> {
         // Placeholder for Milestone 2
         todo!()
@@ -392,9 +300,7 @@ impl<'a> Parser<'a> {
 
 // TODO: Convenience function to parse JSON string
 pub fn parse(input: &str) -> Result<Value, ParseError> {
-    // Pseudocode:
-    // let mut parser = Parser::new(input)?;
-    // parser.parse_value()
+    // TODO: instantiate Parser and call parse()
     todo!()
 }
 ```
@@ -518,84 +424,25 @@ fn test_type_checking() {
 impl<'a> Parser<'a> {
     // TODO: Parse array using recursive pattern matching
     fn parse_array(&mut self) -> Result<Value, ParseError> {
-        // Pseudocode:
+        // match current_token
         // Expect LeftBracket token
-        // self.advance()?;
-        //
-        // let mut elements = Vec::new();
-        //
-        // Loop:
-        //     match &self.current_token:
-        //         Token::RightBracket =>
-        //             self.advance()?;
-        //             return Ok(Value::Array(elements))
-        //
-        //         _ =>
-        //             // Parse element recursively
-        //             let value = self.parse_value()?;
-        //             elements.push(value);
-        //
-        //             // Handle comma or closing bracket
-        //             match &self.current_token:
-        //                 Token::Comma =>
-        //                     self.advance()?;
-        //                     continue
-        //                 Token::RightBracket =>
-        //                     self.advance()?;
-        //                     return Ok(Value::Array(elements))
-        //                 _ =>
-        //                     return Err(ParseError::expected(",", "]"))
-        todo!()
+        // Loop: match Comma or RightBracket then return Array
+            todo!()
     }
 
     // TODO: Parse object using recursive pattern matching
     fn parse_object(&mut self) -> Result<Value, ParseError> {
-        // Pseudocode:
-        // Expect LeftBrace token
-        // self.advance()?;
-        //
-        // let mut map = HashMap::new();
-        //
-        // Loop:
-        //     match &self.current_token:
-        //         Token::RightBrace =>
-        //             self.advance()?;
-        //             return Ok(Value::Object(map))
-        //
-        //         Token::String(key) =>
-        //             let key = key.clone();
-        //             self.advance()?;
-        //
-        //             // Expect colon
-        //             match &self.current_token:
-        //                 Token::Colon =>
-        //                     self.advance()?;
-        //                 _ =>
-        //                     return Err(ParseError::expected(":"))
-        //
-        //             // Parse value recursively
-        //             let value = self.parse_value()?;
-        //             map.insert(key, value);
-        //
-        //             // Handle comma or closing brace
-        //             match &self.current_token:
-        //                 Token::Comma =>
-        //                     self.advance()?;
-        //                     continue
-        //                 Token::RightBrace =>
-        //                     self.advance()?;
-        //                     return Ok(Value::Object(map))
-        //                 _ =>
-        //                     return Err(ParseError::expected(",", "}"))
-        //
-        //         _ =>
-        //             return Err(ParseError::expected("string key"))
+       // match current_token
+       // Expect LeftBrace token
+       // Loop: match key: String -> Colon -> parse_value, Comma, RightBrace return Object
+
+      
         todo!()
     }
 
     // TODO: Track nesting depth to prevent stack overflow
     fn parse_value_with_depth(&mut self, depth: usize) -> Result<Value, ParseError> {
-        // Pseudocode:
+        
         // const MAX_DEPTH: usize = 100;
         // if depth > MAX_DEPTH:
         //     return Err(ParseError::too_deeply_nested())
@@ -787,39 +634,33 @@ fn test_malformed_object() {
 // TODO: Define Schema enum for type definitions
 #[derive(Debug, Clone, PartialEq)]
 pub enum Schema {
-    // TODO: Add schema variants
-    // Hint: Null
-    // Hint: Bool
-    // Hint: Number { min: Option<f64>, max: Option<f64>, integer_only: bool }
-    // Hint: String { min_length: Option<usize>, max_length: Option<usize>, pattern: Option<String> }
-    // Hint: Array { items: Box<Schema>, min_items: Option<usize>, max_items: Option<usize> }
-    // Hint: Object { properties: HashMap<String, PropertySchema>, required: Vec<String>, additional_properties: bool }
-    // Hint: Any - accepts any value
-    // Hint: OneOf(Vec<Schema>) - value must match one of the schemas
+    Null,
+    Bool,
+    Number { min: Option<f64>, max: Option<f64>, integer_only: bool },
+    String { min_length: Option<usize>, max_length: Option<usize>, pattern: Option<String> },
+    Array { items: Box<Schema>, min_items: Option<usize>, max_items: Option<usize> },
+    Object { properties: HashMap<String, PropertySchema>, required: Vec<String>, additional_properties: bool },
+    Any, // accepts any value
+    OneOf(Vec<Schema>) // value must match one of the schemas
 }
 
 // TODO: Define PropertySchema for object properties
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertySchema {
-    // TODO: Add fields
-    // Hint: schema: Schema
-    // Hint: required: bool
-    // Hint: default: Option<Value>
+    // TODO: Add fields: schema, required, default
 }
 
 // TODO: Define ValidationError for detailed error reporting
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidationError {
-    // TODO: Add fields
-    // Hint: path: String - JSON path where error occurred
-    // Hint: message: String
+    // TODO: Add fields: path, message
 }
 
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: Format error with path
         // Pseudocode:
-        // write!(f, "Validation error at '{}': {}", self.path, self.message)
+        // write!()
         todo!()
     }
 }
@@ -829,8 +670,7 @@ impl std::error::Error for ValidationError {}
 impl Schema {
     // TODO: Validate value against schema using exhaustive pattern matching
     pub fn validate(&self, value: &Value) -> Result<(), ValidationError> {
-        // Pseudocode:
-        // self.validate_at_path(value, "$")
+         self.validate_at_path(value, "$");
         todo!()
     }
 
@@ -840,113 +680,50 @@ impl Schema {
         //     (Schema::Null, Value::Null) => Ok(())
         //     (Schema::Null, _) => Err(ValidationError::type_mismatch(path, "null"))
         //
-        //     (Schema::Bool, Value::Bool(_)) => Ok(())
-        //     (Schema::Bool, _) => Err(ValidationError::type_mismatch(path, "bool"))
+        // TODO:  Bool
         //
+        // TODO: Number
         //     (Schema::Number { min, max, integer_only }, Value::Number(n)) =>
-        //         // Use pattern guards for constraints
-        //         if *integer_only && n.fract() != 0.0:
-        //             return Err(ValidationError::not_integer(path))
-        //         if let Some(min_val) = min:
-        //             if n < min_val:
-        //                 return Err(ValidationError::below_minimum(path, *min_val))
-        //         if let Some(max_val) = max:
-        //             if n > max_val:
-        //                 return Err(ValidationError::above_maximum(path, *max_val))
-        //         Ok(())
-        //     (Schema::Number { .. }, _) => Err(ValidationError::type_mismatch(path, "number"))
-        //
+        //         - Use pattern guards for constraints
+        // TODO: String 
         //     (Schema::String { min_length, max_length, pattern }, Value::String(s)) =>
-        //         if let Some(min) = min_length:
-        //             if s.len() < *min:
-        //                 return Err(ValidationError::too_short(path, *min))
-        //         if let Some(max) = max_length:
-        //             if s.len() > *max:
-        //                 return Err(ValidationError::too_long(path, *max))
-        //         // TODO: Check regex pattern if present
-        //         Ok(())
-        //     (Schema::String { .. }, _) => Err(ValidationError::type_mismatch(path, "string"))
-        //
+        // TODO: Array
         //     (Schema::Array { items, min_items, max_items }, Value::Array(arr)) =>
-        //         // Validate array constraints
-        //         if let Some(min) = min_items:
-        //             if arr.len() < *min:
-        //                 return Err(ValidationError::too_few_items(path, *min))
-        //         if let Some(max) = max_items:
-        //             if arr.len() > *max:
-        //                 return Err(ValidationError::too_many_items(path, *max))
-        //         // Validate each item recursively
-        //         for (i, item) in arr.iter().enumerate():
-        //             let item_path = format!("{}[{}]", path, i);
-        //             items.validate_at_path(item, &item_path)?;
-        //         Ok(())
-        //     (Schema::Array { .. }, _) => Err(ValidationError::type_mismatch(path, "array"))
-        //
+        //         - Validate array constraints
+        //         - Validate each item recursively
+        //  TODO: Object
         //     (Schema::Object { properties, required, additional_properties }, Value::Object(obj)) =>
-        //         // Check required fields
-        //         for req_field in required:
-        //             if !obj.contains_key(req_field):
-        //                 return Err(ValidationError::missing_field(path, req_field))
-        //
-        //         // Validate each property
-        //         for (key, value) in obj:
-        //             let prop_path = format!("{}.{}", path, key);
-        //             if let Some(prop_schema) = properties.get(key):
-        //                 prop_schema.schema.validate_at_path(value, &prop_path)?;
-        //             else if !additional_properties:
-        //                 return Err(ValidationError::additional_property(path, key))
-        //         Ok(())
-        //     (Schema::Object { .. }, _) => Err(ValidationError::type_mismatch(path, "object"))
-        //
+        //        - Check required fields
+        //        - Validate each property
+        // TODO: Any
         //     (Schema::Any, _) => Ok(())
-        //
+        // TODO: OneOf
         //     (Schema::OneOf(schemas), value) =>
-        //         // Try each schema, succeed if any matches
-        //         for schema in schemas:
-        //             if schema.validate_at_path(value, path).is_ok():
-        //                 return Ok(())
-        //         Err(ValidationError::no_schema_matched(path))
-        todo!()
+        //        - Try each schema, succeed if any matches
+           todo!()
     }
 
     // TODO: Builder methods for common schemas
     pub fn string() -> Self {
-        // Pseudocode:
-        // Schema::String {
-        //     min_length: None,
-        //     max_length: None,
-        //     pattern: None,
-        // }
-        todo!()
+        Schema::String {
+            min_length: None,
+            max_length: None,
+            pattern: None,
+        }
     }
 
     pub fn number() -> Self {
-        // Pseudocode:
-        // Schema::Number {
-        //     min: None,
-        //     max: None,
-        //     integer_only: false,
-        // }
+        // TODO: Number 
         todo!()
     }
 
     pub fn integer() -> Self {
-        // Pseudocode:
-        // Schema::Number {
-        //     min: None,
-        //     max: None,
-        //     integer_only: true,
-        // }
+       // TODO: Number 
         todo!()
     }
 
     pub fn array(items: Schema) -> Self {
-        // Pseudocode:
-        // Schema::Array {
-        //     items: Box::new(items),
-        //     min_items: None,
-        //     max_items: None,
-        // }
+       // TODO: Array
         todo!()
     }
 
@@ -957,13 +734,11 @@ impl Schema {
 
     // TODO: Chainable constraint methods
     pub fn min(mut self, min: f64) -> Self {
-        // Pseudocode:
-        // match &mut self:
-        //     Schema::Number { min: min_field, .. } =>
-        //         *min_field = Some(min);
-        //     _ => panic!("min() only valid for Number schema")
-        // self
-        todo!()
+        match &mut self {
+            Schema::Number { min: min_field, .. } => *min_field = Some(min);
+            _ => panic!("min() only valid for Number schema")
+        }
+        self
     }
 
     pub fn max(mut self, max: f64) -> Self {
@@ -992,39 +767,22 @@ pub struct ObjectSchemaBuilder {
 
 impl ObjectSchemaBuilder {
     pub fn property(mut self, name: impl Into<String>, schema: Schema) -> Self {
-        // Pseudocode:
-        // self.properties.insert(name.into(), PropertySchema {
-        //     schema,
-        //     required: false,
-        //     default: None,
-        // });
-        // self
+       // TODO: add property to properties
         todo!()
     }
 
     pub fn required_property(mut self, name: impl Into<String>, schema: Schema) -> Self {
-        // Pseudocode:
-        // let name_str = name.into();
-        // self.properties.insert(name_str.clone(), PropertySchema { ... });
-        // self.required.push(name_str);
-        // self
+       // TODO: add property to properties and required
         todo!()
     }
 
     pub fn allow_additional(mut self) -> Self {
-        // Pseudocode:
-        // self.additional_properties = true;
-        // self
+        // TODO set additional_properties
         todo!()
     }
 
     pub fn build(self) -> Schema {
-        // Pseudocode:
-        // Schema::Object {
-        //     properties: self.properties,
-        //     required: self.required,
-        //     additional_properties: self.additional_properties,
-        // }
+        // TODO: create Schema::Object 
         todo!()
     }
 }
@@ -1250,17 +1008,12 @@ fn test_validation_error_path() {
 impl Value {
     // TODO: Get value at path using pattern matching
     pub fn get_path(&self, path: &str) -> Option<&Value> {
-        // Pseudocode:
         // Parse path into segments
         // Start with self
         // For each segment:
         //     match current value:
-        //         Value::Object(map) if segment is field name =>
-        //             current = map.get(segment)?
-        //         Value::Array(arr) if segment is index =>
-        //             current = arr.get(index)?
-        //         _ => return None
-        // Some(current)
+        //         Object if segment is field name
+        //         Array if segment is index
         todo!()
     }
 
@@ -1275,40 +1028,24 @@ impl Value {
 
     // TODO: Deep destructuring with pattern matching
     pub fn extract<'a>(&'a self, fields: &[&str]) -> Option<Vec<&'a Value>> {
-        // Pseudocode:
-        // Extract multiple fields from object
-        // match self:
-        //     Value::Object(map) =>
-        //         let mut values = Vec::new();
-        //         for field in fields:
-        //             values.push(map.get(*field)?);
-        //         Some(values)
-        //     _ => None
+        // TODO: Extract multiple fields from object
         todo!()
     }
 
     // TODO: Array destructuring with pattern matching
     pub fn as_tuple2(&self) -> Option<(&Value, &Value)> {
-        // Pseudocode:
-        // match self:
-        //     Value::Array(arr) if arr.len() == 2 =>
-        //         Some((&arr[0], &arr[1]))
-        //     _ => None
+        // TODO: from array to tuple2 (a,b)
         todo!()
     }
 
     pub fn as_tuple3(&self) -> Option<(&Value, &Value, &Value)> {
-        // Similar to as_tuple2
+        // TODO: from array to tuple3 (a,b,c)
         todo!()
     }
 
     // TODO: Destructure first element and rest
     pub fn split_first(&self) -> Option<(&Value, &[Value])> {
-        // Pseudocode:
-        // match self:
-        //     Value::Array(arr) if !arr.is_empty() =>
-        //         Some((&arr[0], &arr[1..]))
-        //     _ => None
+        // TODO: split to tuple (head, rest)
         todo!()
     }
 }
@@ -1533,14 +1270,7 @@ pub struct EmailValidator;
 
 impl Validator for EmailValidator {
     fn validate(&self, value: &Value) -> Result<(), String> {
-        // Pseudocode:
-        // let Value::String(s) = value else {
-        //     return Err("not a string".to_string())
-        // };
-        // if !s.contains('@'):
-        //     return Err("invalid email format".to_string())
-        // // More thorough regex check
-        // Ok(())
+       // TODO: check if is a string and contains @
         todo!()
     }
 }
@@ -1624,13 +1354,7 @@ impl ValidationContext {
 
     // TODO: Get all errors or Ok
     pub fn finish(self) -> Result<(), Vec<ValidationError>> {
-        // Pseudocode:
-        // if self.errors.is_empty():
-        //     Ok(())
-        // else:
-        //     Err(self.errors)
-        todo!()
-    }
+        // TODO if no errors Ok() else errors 
 }
 
 // TODO: Example schemas
@@ -1638,69 +1362,62 @@ pub mod schemas {
     use super::*;
 
     pub fn user_registration_schema() -> Schema {
-        // TODO: Define comprehensive user schema
-        // Pseudocode:
-        // Schema::object()
-        //     .required_property("username", Schema::string()
-        //         .min_length(3)
-        //         .max_length(20)
-        //         .pattern("^[a-zA-Z0-9_]+$"))
-        //     .required_property("email", Schema::custom(EmailValidator))
-        //     .required_property("password", Schema::string()
-        //         .min_length(8))
-        //     .required_property("age", Schema::integer()
-        //         .min(13)
-        //         .max(120))
-        //     .property("website", Schema::custom(UrlValidator))
-        //     .build()
-        todo!()
+        Schema::object()
+            .required_property("username", Schema::string()
+                .min_length(3)
+                .max_length(20)
+                .pattern("^[a-zA-Z0-9_]+$"))
+            .required_property("email", Schema::custom(EmailValidator))
+            .required_property("password", Schema::string()
+                .min_length(8))
+            .required_property("age", Schema::integer()
+                .min(13)
+                .max(120))
+            .property("website", Schema::custom(UrlValidator))
+            .build()
     }
 
     pub fn api_request_schema() -> Schema {
-        // TODO: Define API request schema
-        // Pseudocode:
-        // Schema::object()
-        //     .required_property("method", Schema::OneOf(vec![
-        //         Schema::const_string("GET"),
-        //         Schema::const_string("POST"),
-        //         Schema::const_string("PUT"),
-        //         Schema::const_string("DELETE"),
-        //     ]))
-        //     .required_property("path", Schema::string())
-        //     .property("headers", Schema::object()
-        //         .allow_additional()
-        //         .build())
-        //     .property("body", Schema::Any)
-        //     .build()
-        todo!()
+        // Define API request schema
+        Schema::object()
+            .required_property("method", Schema::OneOf(vec![
+                Schema::const_string("GET"),
+                Schema::const_string("POST"),
+                Schema::const_string("PUT"),
+                Schema::const_string("DELETE"),
+            ]))
+            .required_property("path", Schema::string())
+            .property("headers", Schema::object()
+                .allow_additional()
+                .build())
+            .property("body", Schema::Any)
+            .build()
     }
 
     pub fn config_schema() -> Schema {
-        // TODO: Define application configuration schema
-        // Pseudocode:
-        // Schema::object()
-        //     .required_property("server", Schema::object()
-        //         .required_property("host", Schema::string())
-        //         .required_property("port", Schema::integer()
-        //             .min(1)
-        //             .max(65535))
-        //         .build())
-        //     .required_property("database", Schema::object()
-        //         .required_property("url", Schema::custom(UrlValidator))
-        //         .property("pool_size", Schema::integer()
-        //             .min(1)
-        //             .max(100))
-        //         .build())
-        //     .property("logging", Schema::object()
-        //         .property("level", Schema::OneOf(vec![
-        //             Schema::const_string("debug"),
-        //             Schema::const_string("info"),
-        //             Schema::const_string("warn"),
-        //             Schema::const_string("error"),
-        //         ]))
-        //         .build())
-        //     .build()
-        todo!()
+        //Define application configuration schema
+        Schema::object()
+            .required_property("server", Schema::object()
+                .required_property("host", Schema::string())
+                .required_property("port", Schema::integer()
+                    .min(1)
+                    .max(65535))
+                .build())
+            .required_property("database", Schema::object()
+                .required_property("url", Schema::custom(UrlValidator))
+                .property("pool_size", Schema::integer()
+                    .min(1)
+                    .max(100))
+                .build())
+            .property("logging", Schema::object()
+                .property("level", Schema::OneOf(vec![
+                    Schema::const_string("debug"),
+                    Schema::const_string("info"),
+                    Schema::const_string("warn"),
+                    Schema::const_string("error"),
+                ]))
+                .build())
+            .build()
     }
 }
 ```

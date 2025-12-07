@@ -26,31 +26,6 @@ Build a regular expression engine that:
 - Optimizes patterns through pattern analysis
 - Demonstrates ALL Rust pattern matching features
 
-## Why It Matters
-
-Regular expressions are fundamental to:
-- **Text Processing**: Search, replace, validation
-- **Parsing**: Tokenization, syntax highlighting
-- **Data Extraction**: Web scraping, log parsing
-- **Validation**: Email, phone numbers, URLs
-
-Pattern matching is ideal for regex engines because:
-- Regex constructs map naturally to enum variants
-- Exhaustive matching ensures all cases are handled
-- Guards enable optimization and validation
-- Deep destructuring simplifies AST traversal
-- The compiler catches missing cases when adding features
-
-## Use Cases
-
-1. **Text Search**: Find patterns in documents
-2. **Input Validation**: Email, password strength
-3. **Log Parsing**: Extract structured data from logs
-4. **Syntax Highlighting**: Tokenize code
-5. **URL Routing**: Match HTTP paths
-6. **Data Extraction**: Parse semi-structured text
-
----
 
 ## Milestone 1: Basic Literal and Wildcard Matching
 
@@ -70,19 +45,14 @@ Pattern matching is ideal for regex engines because:
 #[derive(Debug, Clone, PartialEq)]
 pub enum Regex {
     // TODO: Add Literal variant for exact string matching
-    // Hint: Literal(String)
-
+ 
     // TODO: Add Char variant for single character matching
-    // Hint: Char(char)
 
     // TODO: Add Wildcard variant for '.' (any character)
-    // Hint: Wildcard
 
     // TODO: Add Sequence variant for concatenation
-    // Hint: Sequence(Vec<Regex>)
 
     // TODO: Add Empty variant for empty pattern
-    // Hint: Empty
 }
 
 // TODO: Implement Display for readable pattern output
@@ -281,9 +251,9 @@ pub enum Regex {
 
     // TODO: Add character class variant
     // Hint: CharClass {
-    //     ranges: Vec<(char, char)>,  // e.g., ('a', 'z'), ('0', '9')
-    //     chars: Vec<char>,            // Individual characters
-    //     negated: bool,               // true for [^...], false for [...]
+    //     ranges:          // e.g., ('a', 'z'), ('0', '9')
+    //     chars:           // Individual characters
+    //     negated:         // true for [^...], false for [...]
     // }
 }
 
@@ -291,7 +261,7 @@ impl Regex {
     // TODO: Add helper to create character classes
     pub fn char_class(ranges: Vec<(char, char)>, chars: Vec<char>, negated: bool) -> Self {
         // Pseudocode:
-        // return Regex::CharClass with the provided ranges, chars, and negated flag
+        // return CharClass with the provided ranges, chars, and negated flag
         todo!()
     }
 

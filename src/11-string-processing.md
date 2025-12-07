@@ -16,16 +16,11 @@ This chapter explores patterns for working with strings that experienced Rust pr
 
 **Use Cases**: `String` for building strings dynamically, returning from functions, storing in collections. `&str` for function parameters, parsing, zero-copy operations. `Cow<str>` for normalization, escaping, sanitization where input is often already valid. `OsString` for file paths, environment variables, FFI with OS APIs. `Path` for cross-platform path manipulation with extension extraction, parent directory operations.
 
-### Examples
+### Example 1: String - Owned and Growable
+
+`String` is a heap-allocated, growable UTF-8 string that owns its data. Use it when you need to build strings dynamically or return strings from functions.
 
 ```rust
-use std::borrow::Cow;
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
-
-//=====================================================
-// String: Owned, heap-allocated, growable UTF-8 string
-//=====================================================
 fn string_example() {
     let mut s = String::from("Hello");
     s.push_str(", World!");
@@ -36,10 +31,13 @@ fn string_example() {
     // - Building strings dynamically
     // - Returning strings from functions
 }
+```
 
-//==============================================
-// &str: Borrowed string slice, doesn't own data
-//==============================================
+### Example 2: &str - Borrowed String Slice
+
+`&str` is an immutable view into UTF-8 data without ownership. It's the most flexible type for function parameters since `String` automatically derefs to `&str`.
+
+```rust
 fn str_slice_example(s: &str) {
     println!("Length: {}", s.len());
 
@@ -48,10 +46,15 @@ fn str_slice_example(s: &str) {
     // - Function parameters (most flexible)
     // - String literals
 }
+```
 
-//=================================================================
-// Cow (Clone on Write): Borrows when possible, owns when necessary
-//=================================================================
+### Example 3: Cow - Clone on Write
+
+`Cow<str>` enables conditional allocation: borrow when possible, allocate only when modification is needed. This eliminates unnecessary allocations in common cases.
+
+```rust
+use std::borrow::Cow;
+
 fn cow_example<'a>(data: &'a str, uppercase: bool) -> Cow<'a, str> {
     if uppercase {
         Cow::Owned(data.to_uppercase())  // Allocates
@@ -59,10 +62,15 @@ fn cow_example<'a>(data: &'a str, uppercase: bool) -> Cow<'a, str> {
         Cow::Borrowed(data)  // No allocation
     }
 }
+```
 
-//===========================================================
-// OsString/OsStr: Platform-native strings (may not be UTF-8)
-//===========================================================
+### Example 4: OsString/OsStr - Platform-Native Strings
+
+Operating systems don't guarantee UTF-8. `OsString` and `OsStr` handle platform-specific encodings (UTF-16 on Windows, bytes on Unix) safely.
+
+```rust
+use std::ffi::{OsStr, OsString};
+
 fn os_string_example() {
     use std::env;
 
@@ -75,10 +83,15 @@ fn os_string_example() {
     // - Environment variables
     // - FFI with OS APIs
 }
+```
 
-//================================
-// Path/PathBuf: File system paths
-//================================
+### Example 5: Path/PathBuf - Cross-Platform File Paths
+
+`Path` and `PathBuf` wrap `OsStr`/`OsString` with path-specific operations and handle platform differences in path separators automatically.
+
+```rust
+use std::path::{Path, PathBuf};
+
 fn path_example() {
     let path = Path::new("/tmp/foo.txt");
 
@@ -95,6 +108,16 @@ fn path_example() {
     // - Working with file paths
     // - Cross-platform path manipulation
 }
+```
+
+### Example 6: Type Conversions
+
+Understanding how to convert between string types is essential for working effectively with Rust's string ecosystem.
+
+```rust
+use std::borrow::Cow;
+use std::ffi::OsStr;
+use std::path::Path;
 
 fn main() {
     // Demonstrate type conversions
@@ -149,13 +172,11 @@ The string type hierarchy reflects a fundamental trade-off in systems programmin
 **Use Cases**: HTML/XML generation (builders with tag methods, indentation), SQL query construction (type-safe builder preventing injection), log formatting (structured message building), template rendering (placeholder substitution), configuration file generation, protocol message assembly.
 
 
-### Examples
+### Example 1: Basic StringBuilder with Capacity Pre-allocation
 
+A simple string builder that pre-allocates capacity and provides method chaining for fluent APIs. The `build()` method consumes the builder to transfer ownership without copying.
 
 ```rust
-//==============================================
-// Pattern: Builder with capacity pre-allocation
-//==============================================
 struct StringBuilder {
     buffer: String,
 }
@@ -198,10 +219,13 @@ impl StringBuilder {
         &self.buffer
     }
 }
+```
 
-//======================
-// Pattern: HTML builder 
-//======================
+### Example 2: Domain-Specific HTML Builder
+
+An HTML builder wraps StringBuilder with domain-specific methods for tag handling and automatic indentation, making HTML generation both safe and ergonomic.
+
+```rust
 struct HtmlBuilder {
     builder: StringBuilder,
     indent: usize,
@@ -245,7 +269,13 @@ impl HtmlBuilder {
         self.builder.build()
     }
 }
+```
 
+### Example 3: Using the Builders
+
+Demonstrating the fluent API style enabled by method chaining with `&mut self` returns.
+
+```rust
 fn main() {
     // Simple string building
     let mut sb = StringBuilder::with_capacity(100);
@@ -300,12 +330,11 @@ Without pre-allocation, `String` uses an exponential growth strategy (doubling c
 
 **Use Cases**: CSV/TSV parsing (split by delimiter, process fields), log analysis (pattern matching on lines), configuration file parsing (key=value splitting), protocol parsing (header extraction), text search (finding substrings without copying), streaming data processing (process-then-discard pattern).
 
-### Examples
+### Example 1: Zero-Copy Line Parser
+
+A parser that returns iterators over string slices without allocating. Each operation borrows from the original data, making parsing extremely efficient.
 
 ```rust
-//==============================
-// Pattern:Zero-copy line parser
-//==============================
 struct LineParser<'a> {
     data: &'a str,
 }
@@ -330,10 +359,13 @@ impl<'a> LineParser<'a> {
         line.split(',').nth(index)
     }
 }
+```
 
-//=========================================================
-// Pattern: CSV parser with zero allocations during parsing
-//=========================================================
+### Example 2: Zero-Allocation CSV Parser
+
+A CSV parser that returns slices into the original data rather than allocating strings for each field. Ideal for streaming or one-pass processing.
+
+```rust
 struct CsvParser<'a> {
     data: &'a str,
 }
@@ -361,10 +393,13 @@ impl<'a> CsvParser<'a> {
         }
     }
 }
+```
 
-//==========================================
-// Pattern: String view with bounds checking
-//==========================================
+### Example 3: String View with UTF-8 Boundary Checking
+
+A safe string view that validates UTF-8 character boundaries before slicing, preventing panics from invalid slices.
+
+```rust
 struct StringView<'a> {
     data: &'a str,
     start: usize,
@@ -393,7 +428,13 @@ impl<'a> StringView<'a> {
         }
     }
 }
+```
 
+### Example 4: Using Zero-Copy Parsers
+
+Demonstrating how to use zero-copy parsing techniques for efficient text processing without unnecessary allocations.
+
+```rust
 fn main() {
     let data = "name,age,city\nAlice,30,NYC\nBob,25,LA";
 
@@ -448,12 +489,13 @@ The `split()` iterator maintains state (current position) and advances through t
 
 **Use Cases**: HTML escaping (only allocate if <>&"' present), whitespace normalization (only if multiple spaces found), case conversion (only if mixed case), prefix/suffix stripping (only if present), path canonicalization, validation with optional sanitization.
 
+### Example 1: Normalize Whitespace with Cow
+
+A two-phase algorithm: first check if normalization is needed, then only allocate if multiple consecutive spaces are found.
+
 ```rust
 use std::borrow::Cow;
 
-//===============================================================
-// Pattern: Normalize whitespace: collapse multiple spaces to one
-//===============================================================
 fn normalize_whitespace(s: &str) -> Cow<str> {
     let mut prev_was_space = false;
     let mut needs_normalization = false;
@@ -492,10 +534,15 @@ fn normalize_whitespace(s: &str) -> Cow<str> {
 
     Cow::Owned(result)
 }
+```
 
-//=============================================
-// Pattern: Escape HTML entities only if needed
-//=============================================
+### Example 2: Conditional HTML Escaping
+
+Check if any special characters exist before allocating. Most strings don't need escaping, so this fast-path check saves allocations.
+
+```rust
+use std::borrow::Cow;
+
 fn escape_html(s: &str) -> Cow<str> {
     if !s.contains(&['<', '>', '&', '"', '\''][..]) {
         return Cow::Borrowed(s);
@@ -516,10 +563,15 @@ fn escape_html(s: &str) -> Cow<str> {
 
     Cow::Owned(escaped)
 }
+```
 
-//================================================================
-// Pattern: Remove prefix/suffix without allocation if not present
-//================================================================
+### Example 3: Strip Prefix/Suffix Without Allocation
+
+Only allocate a new string if prefix or suffix actually exists. Otherwise return the original slice.
+
+```rust
+use std::borrow::Cow;
+
 fn strip_affixes<'a>(s: &'a str, prefix: &str, suffix: &str) -> Cow<'a, str> {
     let mut start = 0;
     let mut end = s.len();
@@ -538,10 +590,15 @@ fn strip_affixes<'a>(s: &'a str, prefix: &str, suffix: &str) -> Cow<'a, str> {
         Cow::Owned(s[start..end].to_string())
     }
 }
+```
 
-//============================
-// Pattern: Case normalization
-//============================
+### Example 4: Conditional Case Normalization
+
+Check if the string is already lowercase before allocating for conversion. Avoids unnecessary work for already-normalized input.
+
+```rust
+use std::borrow::Cow;
+
 fn to_lowercase_if_needed(s: &str) -> Cow<str> {
     if s.chars().all(|c| !c.is_uppercase()) {
         Cow::Borrowed(s)
@@ -549,7 +606,13 @@ fn to_lowercase_if_needed(s: &str) -> Cow<str> {
         Cow::Owned(s.to_lowercase())
     }
 }
+```
 
+### Example 5: Using Cow Functions
+
+Demonstrating how Cow eliminates allocations when input is already in the desired format.
+
+```rust
 fn main() {
     // Whitespace normalization
     let s1 = "hello world";
@@ -608,26 +671,31 @@ For high-frequency operations where the input is often already in the desired fo
 
 **Use Cases**: File I/O from unknown encodings, network protocol parsing, FFI with C strings, data recovery tools, text editors (proper cursor movement), terminal emulators (width calculation), web servers (sanitizing input), internationalization (proper truncation/reversal).
 
-### Examples
+### Example 1: Lossy UTF-8 Validation
+
+For handling potentially invalid data, `from_utf8_lossy` replaces invalid byte sequences with the replacement character (�). This is useful for recovery and logging.
 
 ```rust
-//======================================================
-// Pattern: Validate UTF-8 and replace invalid sequences
-//======================================================
 fn validate_utf8_lossy(data: &[u8]) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
+```
 
-//============================
-// Pattern:: Strict validation
-//============================
+### Example 2: Strict UTF-8 Validation
+
+When you need to know if data is valid UTF-8, use `from_utf8` which returns an error for invalid sequences.
+
+```rust
 fn validate_utf8_strict(data: &[u8]) -> Result<&str, std::str::Utf8Error> {
     std::str::from_utf8(data)
 }
+```
 
-//=====================================================
-// Pattern: Custom UTF-8 validator with error positions
-//=====================================================
+### Example 3: Custom UTF-8 Validator
+
+A comprehensive UTF-8 validator that detects overlong encodings and provides detailed error positions. This demonstrates the complete UTF-8 validation algorithm.
+
+```rust
 struct Utf8Validator<'a> {
     data: &'a [u8],
 }
@@ -753,6 +821,13 @@ struct Utf8Error {
     error_len: Option<usize>,
 }
 
+```
+
+### Example 4: Using UTF-8 Validators
+
+Demonstrating validation strategies for different scenarios: strict validation, lossy conversion, and detailed error reporting.
+
+```rust
 fn main() {
     // Valid UTF-8
     let valid = "Hello, 世界!".as_bytes();
@@ -822,12 +897,13 @@ The validator implements a state machine that processes bytes sequentially:
 
 **Use Cases**: Text editors (cursor movement across graphemes), terminal output (width calculation for alignment), string truncation (safe at grapheme boundaries), text reversal (preserve composed characters), search/replace (whole grapheme), length display (user-perceived count not bytes), internationalization.
 
-### Examples
+### Example 1: Three Levels of String Iteration
+
+Demonstrating the difference between bytes, characters (code points), and grapheme clusters—each serves different purposes.
+
 ```rust
 use unicode_segmentation::UnicodeSegmentation;
-//====================
-// Pattern: Iterations
-//====================
+
 fn analyze_string(s: &str) {
     println!("String: {:?}", s);
     println!("Byte length: {}", s.len());
@@ -857,10 +933,13 @@ fn analyze_string(s: &str) {
     println!("\nChar count: {}", s.chars().count());
     println!("Grapheme count: {}", s.graphemes(true).count());
 }
+```
 
-//====================================================
-// Pattern: Calculate display width (East Asian Width)
-//====================================================
+### Example 2: Display Width Calculation
+
+Implements East Asian Width rules for terminal alignment. CJK characters and fullwidth forms occupy two columns.
+
+```rust
 fn display_width(s: &str) -> usize {
     s.chars().map(|c| {
         let cp = c as u32;
@@ -876,34 +955,53 @@ fn display_width(s: &str) -> usize {
         }
     }).sum()
 }
+```
 
-//======================================================
-// Pattern: Safe string truncation at character boundary
-//======================================================
+### Example 3: Safe String Truncation
+
+Truncating at character boundaries prevents corrupting multi-byte UTF-8 sequences. Uses `char_indices()` to find safe cut points.
+
+```rust
 fn truncate_at_char(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
         Some((idx, _)) => &s[..idx],
         None => s,
     }
 }
+```
 
-//=======================================
-// Pattern: Truncate at grapheme boundary
-//=======================================
+### Example 4: Grapheme-Aware Truncation
+
+For user-facing text, truncate at grapheme cluster boundaries to avoid breaking composed characters or emoji sequences.
+
+```rust
+use unicode_segmentation::UnicodeSegmentation;
+
 fn truncate_at_grapheme(s: &str, max_graphemes: usize) -> &str {
     s.graphemes(true)
         .take(max_graphemes)
         .collect::<String>()
         .as_str()
 }
+```
 
-//=====================================================
-// Pattern: Reverse string preserving grapheme clusters
-//=====================================================
+### Example 5: Reversing While Preserving Graphemes
+
+String reversal that keeps grapheme clusters intact—essential for text editors and international text processing.
+
+```rust
+use unicode_segmentation::UnicodeSegmentation;
+
 fn reverse_graphemes(s: &str) -> String {
     s.graphemes(true).rev().collect()
 }
+```
 
+### Example 6: Using Character Iteration Techniques
+
+Demonstrating different iteration levels on ASCII, multi-byte characters, complex emoji, and CJK text.
+
+```rust
 fn main() {
     // Simple ASCII
     analyze_string("Hello");

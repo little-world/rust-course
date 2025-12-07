@@ -2,11 +2,16 @@ this is the first chapter from a book for experience programmer "patterns in rus
 can you give me suggestions how the improve it
 
 
- refactor the file
+rewrite the file: 12-hashmap
 make the introduction of each pattern: Problem - Solution - Why it matters - Use cases
 more readable
 
-refactor the rust code examples so that the pattern sections will become
+ rewrite the file so that the pattern sections in de rust code will become
   separate example with a small introduction and explanation
   
- start with chapter 04-builder  
+  
+do not remove examples
+
+04-generics*
+rewrite the projects Starter Code so that it does not hold the solution but only an outline in the form of //TODO's 
+give a complete solution at the end of the project

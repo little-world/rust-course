@@ -1225,15 +1225,7 @@ Type-safe query builders appear in:
 - **GraphQL**: Query structure validated before execution
 - **Database Migrations**: Schema changes verified at compile time
 
-### Use Cases
 
-1. **Web Applications**: CRUD operations with compile-time safety
-2. **Admin Dashboards**: Complex filtering and reporting queries
-3. **API Backends**: Safe query construction from user input
-4. **Data Analytics**: Complex aggregations and joins
-5. **Microservices**: Database queries with type guarantees
-6. **CLI Tools**: Database exploration and querying
-7. **ETL Pipelines**: Data extraction with validated queries
 
 ### Solution Outline
 

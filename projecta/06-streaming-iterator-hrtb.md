@@ -1,16 +1,9 @@
-# Project 2: Streaming Iterator with Higher-Ranked Trait Bounds (HRTB)
+# Project 7: Streaming Iterator with Higher-Ranked Trait Bounds (HRTB)
 
 ## Problem Statement
 
 Build a **streaming iterator** that yields borrowed elements with complex lifetime requirements using Higher-Ranked Trait Bounds (HRTB) and Generic Associated Types (GATs). Unlike standard `Iterator` which returns owned items, streaming iterators return items that borrow from the iterator itself, enabling zero-copy iteration over streaming data.
 
-**Use Cases**:
-- Window iteration over slices (sliding windows, overlapping chunks)
-- Streaming log file parsing (borrowing from read buffer)
-- Network packet processing (zero-copy packet headers)
-- Group-by iteration (consecutive equal elements)
-- Stateful iteration with borrowed state
-- CSV/TSV parsing with field borrowing
 
 ## Why It Matters
 
@@ -58,12 +51,6 @@ impl<T> StreamingIterator for WindowIter<T> {
 - **Streaming Iterator**: Zero-copy borrowing (1-2ns per item)
 - **10-100x faster** for large datasets
 - **Memory efficiency**: No heap allocation, better cache locality
-
-**Real-World Examples**:
-- `streaming-iterator` crate (2M+ downloads)
-- Database result set iteration (borrow from connection)
-- Compression stream decoders (borrow from buffer)
-- Parser generators (borrow from input)
 
 ---
 
@@ -291,11 +278,8 @@ impl<'data, T> StreamingIterator for Windows<'data, T> {
     fn next(&mut self) -> Option<Self::Item<'_>> {
         // TODO: Check if we can create a window at current position
         // Need: position + window_size <= data.len()
-
         // TODO: If yes, get slice &data[position..position+window_size]
-
         // TODO: Increment position by 1 (overlapping)
-
         // TODO: Return Some(window)
 
         if self.position + self.window_size <= self.data.len() {

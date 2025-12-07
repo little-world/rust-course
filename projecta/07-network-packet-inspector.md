@@ -1,18 +1,5 @@
 # Project 2: Network Packet Inspector with Binary Pattern Matching
 
-## Learning Objectives
-
-By completing this project, you will:
-
-- Master **byte slice pattern matching** for binary protocol parsing
-- Use **deep destructuring** through nested protocol layers (Ethernet → IP → TCP → HTTP)
-- Apply **range patterns** for port and IP address filtering
-- Leverage **pattern guards** for complex firewall rules
-- Practice **or-patterns** for service detection and protocol variants
-- Use **if-let chains** for payload validation
-- Apply **exhaustive matching** on protocol enums
-- Understand **stateful pattern matching** for connection tracking
-- Build a complete packet analyzer demonstrating network security concepts
 
 ## Problem Statement
 
@@ -25,32 +12,6 @@ Build a network packet inspector that:
 - Tracks TCP connection state using pattern matching
 - Provides statistics and connection monitoring
 - Demonstrates ALL binary pattern matching techniques
-
-## Why It Matters
-
-Network packet analysis is essential for:
-- **Security**: Firewalls, intrusion detection systems (IDS), malware analysis
-- **Debugging**: Protocol tracing, network troubleshooting
-- **Monitoring**: Traffic analysis, bandwidth tracking
-- **Compliance**: Data loss prevention, audit logging
-- **Performance**: Identifying bottlenecks, optimizing traffic
-
-Pattern matching excels for packet parsing because:
-- Protocol headers map naturally to struct destructuring
-- Enums represent protocol variants (IPv4/IPv6, TCP/UDP)
-- Exhaustive matching ensures all protocol cases are handled
-- Range patterns perfect for port/address filtering
-- Guards enable sophisticated firewall rules
-
-## Use Cases
-
-1. **Firewalls**: Filter packets by IP address, port, protocol
-2. **IDS/IPS**: Detect malicious patterns in network traffic
-3. **Packet Capture**: tcpdump/Wireshark-like functionality
-4. **Load Balancers**: Route packets based on content
-5. **VPN/Proxy**: Inspect and modify network traffic
-6. **Network Monitoring**: Track connections, bandwidth usage
-7. **Security Research**: Analyze attack patterns and vulnerabilities
 
 ---
 
@@ -76,21 +37,17 @@ pub struct MacAddress([u8; 6]);
 impl MacAddress {
     pub fn new(bytes: [u8; 6]) -> Self {
         // TODO: Create MacAddress from byte array
-        // Hint: MacAddress(bytes)
         todo!()
     }
 
     // TODO: Check for broadcast address (FF:FF:FF:FF:FF:FF)
     pub fn is_broadcast(&self) -> bool {
-        // Pseudocode:
-        // return self.0 == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
         todo!()
     }
 
     // TODO: Check for multicast (first byte's LSB is 1)
     pub fn is_multicast(&self) -> bool {
-        // Pseudocode:
-        // return (self.0[0] & 0x01) != 0
+        // TODO:  if first part bitwise_and 0x01
         todo!()
     }
 }
@@ -98,9 +55,7 @@ impl MacAddress {
 impl std::fmt::Display for MacAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: Format as XX:XX:XX:XX:XX:XX
-        // Pseudocode:
-        // write!(f, "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-        //     self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5])
+        // write!()
         todo!()
     }
 }
@@ -118,13 +73,8 @@ pub enum EtherType {
 impl EtherType {
     // TODO: Parse from 2-byte big-endian value using pattern matching
     pub fn from_bytes(bytes: [u8; 2]) -> Self {
-        // Pseudocode:
+        // TODO: 
         // value = u16::from_be_bytes(bytes)
-        // match value:
-        //     0x0800 => EtherType::IPv4
-        //     0x86DD => EtherType::IPv6
-        //     0x0806 => EtherType::ARP
-        //     other => EtherType::Unknown(other)
         todo!()
     }
 }
@@ -156,24 +106,17 @@ impl EthernetFrame {
     // TODO: Parse Ethernet frame from byte slice
     pub fn parse(data: &[u8]) -> Result<Self, ParseError> {
         // TODO: Validate minimum length (14 bytes: 6 dst + 6 src + 2 type)
-        // Pseudocode:
-        // if data.len() < 14:
-        //     return Err(ParseError::TooShort { expected: 14, found: data.len() })
-        //
-        // Extract fields using array indexing:
-        // dst_mac = MacAddress([data[0], data[1], data[2], data[3], data[4], data[5]])
-        // src_mac = MacAddress([data[6], data[7], data[8], data[9], data[10], data[11]])
-        // ethertype = EtherType::from_bytes([data[12], data[13]])
-        // payload = data[14..].to_vec()
-        //
-        // Ok(EthernetFrame { dst_mac, src_mac, ethertype, payload })
+        // TODO: Extract fields using array indexing:
+        // dst_mac: 0 ..5
+        // src_mac:  6..11
+        // ethertype: 12,13 
+        // payload = 14..
         todo!()
     }
 
     // TODO: Helper to display frame info
     pub fn summary(&self) -> String {
-        // Pseudocode:
-        // format!("{} -> {} ({:?})", self.src_mac, self.dst_mac, self.ethertype)
+        // TODO: print frame
         todo!()
     }
 }
@@ -279,39 +222,27 @@ pub struct Ipv4Address([u8; 4]);
 impl Ipv4Address {
     pub fn new(a: u8, b: u8, c: u8, d: u8) -> Self {
         // TODO: Create Ipv4Address from octets
-        // Hint: Ipv4Address([a, b, c, d])
         todo!()
     }
 
     // TODO: Check if IP is in private range using pattern matching
     pub fn is_private(&self) -> bool {
-        // Pseudocode:
-        // match self.0:
-        //     [10, _, _, _] => true  // 10.0.0.0/8
-        //     [172, b, _, _] if (16..=31).contains(&b) => true  // 172.16.0.0/12
-        //     [192, 168, _, _] => true  // 192.168.0.0/16
-        //     _ => false
+        // TODO: 10.x.x.x, 172.[16..31].x.x, 192.168.x.x
         todo!()
     }
 
     // TODO: Check for loopback (127.0.0.0/8)
     pub fn is_loopback(&self) -> bool {
-        // Pseudocode:
-        // matches!(self.0, [127, _, _, _])
         todo!()
     }
 
     // TODO: Check for multicast (224.0.0.0 to 239.255.255.255)
     pub fn is_multicast(&self) -> bool {
-        // Pseudocode:
-        // matches!(self.0, [a, _, _, _] if (224..=239).contains(&a))
         todo!()
     }
 
     // TODO: Check for link-local (169.254.0.0/16)
     pub fn is_link_local(&self) -> bool {
-        // Pseudocode:
-        // matches!(self.0, [169, 254, _, _])
         todo!()
     }
 }
@@ -319,8 +250,7 @@ impl Ipv4Address {
 impl std::fmt::Display for Ipv4Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: Format as A.B.C.D
-        // Pseudocode:
-        // write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
+        // write!()
         todo!()
     }
 }
@@ -337,12 +267,7 @@ pub enum IpProtocol {
 
 impl IpProtocol {
     pub fn from_u8(value: u8) -> Self {
-        // Pseudocode:
-        // match value:
-        //     1 => IpProtocol::ICMP
-        //     6 => IpProtocol::TCP
-        //     17 => IpProtocol::UDP
-        //     other => IpProtocol::Unknown(other)
+        // convert value to IpProtocol
         todo!()
     }
 }

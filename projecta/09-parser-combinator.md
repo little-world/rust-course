@@ -5,25 +5,6 @@
 
 Build a parser combinator library using associated types for ergonomic composition. You'll start with a generic parser trait, refactor to use associated types for better API design, then build a complete expression parser using combinators.
 
-### Use Cases
-
-**When you need this pattern**:
-1. **Language parsers**: JSON, TOML, custom DSLs
-2. **Protocol parsers**: HTTP, binary protocols (Protobuf)
-3. **Log parsers**: Extract structured data from logs
-4. **Configuration parsers**: INI, YAML, custom formats
-5. **Command parsers**: CLI argument parsing
-6. **Data extraction**: Web scraping, text mining
-
-### Why It Matters
-
-**Real-World Impact**: Parser combinators are fundamental to compiler frontends, protocol parsers, and data format parsing:
-
-**The Parser Problem**:
-- **Traditional parsers**: Hand-written recursive descent, error-prone, not composable
-- **Parser generators** (yacc, bison): Separate grammar file, code generation, debugging hard
-- **Parser combinators**: Composable functions, type-safe, all in host language
-
 **Generic vs Associated Type APIs**:
 ```rust
 // With generic type parameter - verbose!
@@ -68,18 +49,7 @@ let result = use_parser(number_parser, "42");  // Output inferred!
 - API ergonomics important (avoid turbofish)
 - Composing many parsers together
 
-### Learning Goals
 
-By completing this project, you will:
-
-1. **Master associated types**: Understand when to use associated types vs generic parameters
-2. **Build composable APIs**: Create parser combinators that compose elegantly
-3. **Design ergonomic interfaces**: Use associated types to reduce type annotations
-4. **Practice higher-order functions**: Implement map, and_then, or_else combinators
-5. **Understand type-driven design**: Let the type system guide API usage
-6. **Compare trait designs**: Experience the trade-offs between different trait patterns
-
----
 
 ### Milestone 1: Basic Parser Trait with Generics
 
@@ -114,8 +84,6 @@ struct CharParser {
 impl ParserGeneric<char> for CharParser {
     fn parse(&self, input: &str) -> Result<(char, &str), ParseError> {
         // TODO: Check if input starts with expected char
-        // If yes: return Ok((char, remaining_input))
-        // If no: return Err(ParseError)
         todo!()
     }
 }
@@ -127,7 +95,6 @@ impl ParserGeneric<u32> for DigitParser {
     fn parse(&self, input: &str) -> Result<(u32, &str), ParseError> {
         // TODO: Check if first char is digit
         // Parse digit and return with remaining input
-        // Hint: input.chars().next(), char.to_digit(10)
         todo!()
     }
 }
@@ -261,7 +228,6 @@ impl Parser for StringParser {
     fn parse(&self, input: &str) -> Result<(String, &str), ParseError> {
         // TODO: Check if input starts with expected string
         // Return matched string and remaining input
-        // Hint: input.starts_with(&self.expected)
         todo!()
     }
 }
@@ -415,7 +381,6 @@ impl Parser for NumberParser {
 
     fn parse(&self, input: &str) -> Result<(u32, &str), ParseError> {
         // TODO: Parse as many digits as possible
-        // Hint: Use take_while(|c| c.is_ascii_digit())
         // Parse the string slice as u32
         todo!()
     }
@@ -425,7 +390,6 @@ impl Parser for NumberParser {
 fn parse_addition(input: &str) -> Result<u32, ParseError> {
     // TODO: Use NumberParser, CharParser('+'), NumberParser
     // Combine with and_then, map to compute sum
-    // Hint: number.and_then(plus).and_then(number).map(|(n1, (_, n2))| n1 + n2)
     todo!()
 }
 ```

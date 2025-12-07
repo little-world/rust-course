@@ -10,111 +10,12 @@ This workbook provides three progressive projects with stepping stones for learn
 
 Build a plugin system that allows loading different plugins at runtime. You'll start with a basic trait for plugins, implement heterogeneous collections using trait objects, then build a complete plugin manager with dynamic dispatch.
 
-### Why It Matters
-
-**Real-World Impact**: Plugin systems are fundamental to extensible software architecture:
-
-**The Monolithic Problem**:
-- **Without plugins**: Every feature hardcoded → 100MB binary for text editor with all features
-- **Firefox without extensions**: Would need to rebuild browser for every user preference
-- **VSCode**: Core is ~50MB, extensions add functionality on-demand
-- **Photoshop**: Plugin architecture allows third-party filters without modifying core
-
-**Static vs Dynamic Dispatch**:
-```rust
-// Static dispatch - compile-time known types
-fn process<T: Plugin>(plugin: T) {
-    plugin.execute();
-}
-// Compiler generates: process_AudioPlugin(), process_VideoPlugin(), etc.
-// Binary size: 50KB per plugin × 100 plugins = 5MB just for dispatch!
-```
-
-```rust
-// Dynamic dispatch - runtime polymorphism
-fn process(plugin: &dyn Plugin) {
-    plugin.execute();  // Vtable lookup ~3ns overhead
-}
-// Binary size: One function, ~500 bytes
-// Trade-off: 3ns per call vs 5MB binary size
-```
-
-**Performance Numbers**:
-- **Static dispatch**: 0ns overhead (direct call), can inline
-- **Dynamic dispatch**: ~2-3ns vtable lookup, no inlining
-- **Binary size**: Static = N × function_size, Dynamic = 1 × function_size
-- **Compilation**: Static = slower (more monomorphization), Dynamic = faster
-
-**Real Production Examples**:
-- **Rust compiler plugins**: Procedural macros loaded dynamically
-- **Game engines**: Entity components, rendering pipelines
-- **Web servers**: Middleware chains (auth, logging, compression)
-- **Editors**: VSCode extensions, Vim plugins
-- **Browsers**: Firefox WebExtensions, Chrome extensions
-
-### Use Cases
-
-**When you need this pattern**:
-1. **Plugin architectures**: Load functionality at runtime, not compile-time
-2. **Heterogeneous collections**: Vec<Box<dyn Widget>> - different types, same interface
-3. **Embedded/WASM**: Binary size matters, dynamic dispatch reduces bloat
-4. **Middleware chains**: HTTP middleware, database interceptors
-5. **Event systems**: Different event handlers with uniform interface
-6. **Component systems**: Game entities with different component types
-
-**Dynamic Dispatch is Critical When**:
-- Types not known at compile-time (loading from disk/network)
-- Binary size constrained (embedded systems, WebAssembly)
-- Many implementations (100+ plugins → avoid code bloat)
-- Hot-loading required (swap implementations at runtime)
-
-### Learning Goals
-
-- Understand trait objects (`&dyn Trait`, `Box<dyn Trait>`)
-- Learn object safety rules and constraints
-- Compare static vs dynamic dispatch trade-offs
-- Build heterogeneous collections
-- Implement vtable-based polymorphism
-- Measure performance impact of dynamic dispatch
-
 ---
 
 ### Milestone 1: Basic Plugin Trait with Static Dispatch
 
 **Goal**: Define a plugin trait and implement it for several types.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_greeter_plugin() {
-    let plugin = GreeterPlugin {
-        greeting: "Hello, World!".to_string(),
-    };
-
-    assert_eq!(plugin.name(), "Greeter");
-    assert_eq!(plugin.version(), "1.0.0");
-    assert!(plugin.execute().is_ok());
-}
-
-#[test]
-fn test_calculator_plugin() {
-    let plugin = CalculatorPlugin;
-    let result = plugin.execute().unwrap();
-    assert!(result.contains("="));  // Should have calculation result
-}
-
-#[test]
-fn test_static_dispatch() {
-    let greeter = GreeterPlugin {
-        greeting: "Hi!".to_string(),
-    };
-    let calculator = CalculatorPlugin;
-
-    // Static dispatch - each call is to a different monomorphized function
-    run_plugin(&greeter);
-    run_plugin(&calculator);
-}
-```
 
 **Starter Code**:
 ```rust
@@ -196,6 +97,40 @@ fn run_plugin<T: Plugin>(plugin: &T) {
 }
 ```
 
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_greeter_plugin() {
+    let plugin = GreeterPlugin {
+        greeting: "Hello, World!".to_string(),
+    };
+
+    assert_eq!(plugin.name(), "Greeter");
+    assert_eq!(plugin.version(), "1.0.0");
+    assert!(plugin.execute().is_ok());
+}
+
+#[test]
+fn test_calculator_plugin() {
+    let plugin = CalculatorPlugin;
+    let result = plugin.execute().unwrap();
+    assert!(result.contains("="));  // Should have calculation result
+}
+
+#[test]
+fn test_static_dispatch() {
+    let greeter = GreeterPlugin {
+        greeting: "Hi!".to_string(),
+    };
+    let calculator = CalculatorPlugin;
+
+    // Static dispatch - each call is to a different monomorphized function
+    run_plugin(&greeter);
+    run_plugin(&calculator);
+}
+```
+
 **Check Your Understanding**:
 - How many versions of `run_plugin` does the compiler generate?
 - Can you store `GreeterPlugin` and `CalculatorPlugin` in the same `Vec`? Why not?
@@ -203,7 +138,7 @@ fn run_plugin<T: Plugin>(plugin: &T) {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### Why Milestone 1 Isn't Enough
 
 **Critical Limitations**:
 1. **Can't store mixed types**: `Vec<Plugin>` doesn't work - Plugin isn't sized
@@ -234,51 +169,6 @@ fn run_plugin<T: Plugin>(plugin: &T) {
 
 **Goal**: Use trait objects to store different plugin types in one collection.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_heterogeneous_collection() {
-    let plugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(GreeterPlugin { greeting: "Hello!".to_string() }),
-        Box::new(CalculatorPlugin),
-        Box::new(FileReaderPlugin { path: "data.txt".to_string() }),
-    ];
-
-    assert_eq!(plugins.len(), 3);
-
-    // Can call methods on trait objects
-    for plugin in &plugins {
-        println!("Running: {}", plugin.name());
-        let _ = plugin.execute();
-    }
-}
-
-#[test]
-fn test_plugin_manager() {
-    let mut manager = PluginManager::new();
-
-    manager.register(Box::new(GreeterPlugin { greeting: "Hi!".to_string() }));
-    manager.register(Box::new(CalculatorPlugin));
-
-    // Should have 2 plugins
-    assert_eq!(manager.plugins.len(), 2);
-
-    // Can find by name
-    assert!(manager.get_plugin("Greeter").is_some());
-    assert!(manager.get_plugin("Unknown").is_none());
-
-    manager.run_all();
-}
-
-#[test]
-fn test_dynamic_dispatch() {
-    let plugin: &dyn Plugin = &GreeterPlugin { greeting: "Test".to_string() };
-
-    // Uses vtable lookup
-    assert_eq!(plugin.name(), "Greeter");
-    let _ = plugin.execute();
-}
-```
 
 **Starter Code**:
 ```rust
@@ -366,6 +256,52 @@ impl PluginManager {
 }
 ```
 
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_heterogeneous_collection() {
+    let plugins: Vec<Box<dyn Plugin>> = vec![
+        Box::new(GreeterPlugin { greeting: "Hello!".to_string() }),
+        Box::new(CalculatorPlugin),
+        Box::new(FileReaderPlugin { path: "data.txt".to_string() }),
+    ];
+
+    assert_eq!(plugins.len(), 3);
+
+    // Can call methods on trait objects
+    for plugin in &plugins {
+        println!("Running: {}", plugin.name());
+        let _ = plugin.execute();
+    }
+}
+
+#[test]
+fn test_plugin_manager() {
+    let mut manager = PluginManager::new();
+
+    manager.register(Box::new(GreeterPlugin { greeting: "Hi!".to_string() }));
+    manager.register(Box::new(CalculatorPlugin));
+
+    // Should have 2 plugins
+    assert_eq!(manager.plugins.len(), 2);
+
+    // Can find by name
+    assert!(manager.get_plugin("Greeter").is_some());
+    assert!(manager.get_plugin("Unknown").is_none());
+
+    manager.run_all();
+}
+
+#[test]
+fn test_dynamic_dispatch() {
+    let plugin: &dyn Plugin = &GreeterPlugin { greeting: "Test".to_string() };
+
+    // Uses vtable lookup
+    assert_eq!(plugin.name(), "Greeter");
+    let _ = plugin.execute();
+}
+```
+
 **Check Your Understanding**:
 - What's the size of `&dyn Plugin` vs `&GreeterPlugin`? (Hint: 16 bytes vs 8 bytes)
 - Why can't you have `Vec<dyn Plugin>` (without Box)?
@@ -374,7 +310,7 @@ impl PluginManager {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+### Why Milestone 2 Isn't Enough 
 
 **Remaining Issues**:
 1. **No plugin metadata**: Can't query capabilities, dependencies, etc.
@@ -401,62 +337,6 @@ impl PluginManager {
 
 **Goal**: Build a production-ready plugin system with initialization, configuration, and metadata.
 
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_plugin_lifecycle() {
-    let mut plugin = LoggingPlugin::new();
-
-    // Not initialized yet
-    assert!(!plugin.initialized);
-
-    // Initialize with config
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "DEBUG".to_string());
-
-    assert!(plugin.initialize(&config).is_ok());
-    assert!(plugin.initialized);
-    assert_eq!(plugin.log_level, "DEBUG");
-
-    // Execute should work now
-    assert!(plugin.execute().is_ok());
-
-    // Cleanup
-    assert!(plugin.cleanup().is_ok());
-    assert!(!plugin.initialized);
-}
-
-#[test]
-fn test_enhanced_manager() {
-    let mut manager = EnhancedPluginManager::new();
-
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "INFO".to_string());
-
-    // Register and initialize
-    let plugin = Box::new(LoggingPlugin::new());
-    assert!(manager.register_and_init(plugin, &config).is_ok());
-
-    // Execute by name
-    let result = manager.execute_plugin("Logger");
-    assert!(result.is_ok());
-
-    // Shutdown
-    let errors = manager.shutdown();
-    assert!(errors.is_empty());
-    assert_eq!(manager.plugins.len(), 0);
-}
-
-#[test]
-fn test_metadata() {
-    let plugin = LoggingPlugin::new();
-
-    // Check metadata
-    assert_eq!(plugin.author(), "Plugin Team");
-    assert!(!plugin.description().is_empty());
-    assert_eq!(plugin.dependencies().len(), 0);
-}
-```
 
 **Starter Code**:
 ```rust
@@ -657,6 +537,64 @@ impl EnhancedPluginManager {
     }
 }
 ```
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_plugin_lifecycle() {
+    let mut plugin = LoggingPlugin::new();
+
+    // Not initialized yet
+    assert!(!plugin.initialized);
+
+    // Initialize with config
+    let mut config = PluginConfig::new();
+    config.set("log_level".to_string(), "DEBUG".to_string());
+
+    assert!(plugin.initialize(&config).is_ok());
+    assert!(plugin.initialized);
+    assert_eq!(plugin.log_level, "DEBUG");
+
+    // Execute should work now
+    assert!(plugin.execute().is_ok());
+
+    // Cleanup
+    assert!(plugin.cleanup().is_ok());
+    assert!(!plugin.initialized);
+}
+
+#[test]
+fn test_enhanced_manager() {
+    let mut manager = EnhancedPluginManager::new();
+
+    let mut config = PluginConfig::new();
+    config.set("log_level".to_string(), "INFO".to_string());
+
+    // Register and initialize
+    let plugin = Box::new(LoggingPlugin::new());
+    assert!(manager.register_and_init(plugin, &config).is_ok());
+
+    // Execute by name
+    let result = manager.execute_plugin("Logger");
+    assert!(result.is_ok());
+
+    // Shutdown
+    let errors = manager.shutdown();
+    assert!(errors.is_empty());
+    assert_eq!(manager.plugins.len(), 0);
+}
+
+#[test]
+fn test_metadata() {
+    let plugin = LoggingPlugin::new();
+
+    // Check metadata
+    assert_eq!(plugin.author(), "Plugin Team");
+    assert!(!plugin.description().is_empty());
+    assert_eq!(plugin.dependencies().len(), 0);
+}
+```
+
 
 **Check Your Understanding**:
 ```rust
@@ -1222,31 +1160,12 @@ let result = use_parser(number_parser, "42");  // Output inferred!
 - **Parser** (Swift): SwiftUI uses parser combinators
 - **Rust compiler**: Uses parser combinators for syntax parsing
 
-### Use Cases
-
-**When you need this pattern**:
-1. **Language parsers**: JSON, TOML, custom DSLs
-2. **Protocol parsers**: HTTP, binary protocols (Protobuf)
-3. **Log parsers**: Extract structured data from logs
-4. **Configuration parsers**: INI, YAML, custom formats
-5. **Command parsers**: CLI argument parsing
-6. **Data extraction**: Web scraping, text mining
-
 **Associated Types are Critical When**:
 - Output type determined by parser implementation
 - One implementation per type makes sense
 - API ergonomics important (avoid turbofish)
 - Composing many parsers together
 
-### Learning Goals
-
-- Understand when to use associated types vs generics
-- Build composable parser combinators
-- Experience API ergonomics with associated types
-- Learn type-driven design patterns
-- Compare generic parameter vs associated type trade-offs
-
----
 
 ### Milestone 1: Basic Parser Trait with Generics
 
@@ -1349,7 +1268,7 @@ fn test_generic_verbose() {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### Why Milestone 1 Isn't Enough 
 
 **Limitations with Generics**:
 1. **Verbose call sites**: Must specify types with turbofish `::<>`
@@ -1477,8 +1396,7 @@ fn test_output_type_inference() {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
-
+### Why Milestone 2 Isn't Enough
 **Missing Functionality**:
 1. **No composition**: Can't combine parsers (e.g., parse char then digit)
 2. **No transformation**: Can't map parser output (e.g., digit to string)

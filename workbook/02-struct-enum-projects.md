@@ -52,38 +52,6 @@ connect(Port(8080), Hostname("localhost")); // ❌ Compile error!
 - **Compile-time guarantees**: Invalid states impossible to represent
 - **Elimination of defensive code**: No need to check if port > 0, it's guaranteed
 
-**Real Production Examples**:
-- **AWS SDK**: Uses newtypes for region names, bucket names, instance IDs
-- **Kubernetes**: Type-safe wrappers for namespace, pod name, service name
-- **Database drivers**: Connection strings, table names, column names as types
-- **Web frameworks**: PathBuf vs AssetPath vs TemplatePath - prevent mixing
-
-### Use Cases
-
-**When you need this pattern**:
-1. **Server configuration**: Ports, hostnames, URLs, timeouts - prevent mixing
-2. **Database configuration**: Connection strings, pool sizes, credentials
-3. **API clients**: Endpoints, API keys, rate limits, retry policies
-4. **File paths**: Config vs data vs cache paths - type-safe separation
-5. **Resource limits**: Memory limits, CPU limits, connection limits - enforce positivity
-6. **Credentials**: Username, password, API tokens - hide in Debug output
-
-**Type Safety Prevents**:
-- Passing milliseconds where seconds expected (1000x bug!)
-- Using database port for HTTP server
-- Negative values for counts/sizes
-- Empty strings for required fields
-- Mixing development and production settings
-
-### Learning Goals
-
-- Understand newtype pattern for compile-time type safety
-- Implement validated types that enforce invariants
-- Build smart constructors that prevent invalid states
-- Create fluent builder APIs with method chaining
-- Use `Deref` for ergonomic access to wrapped values
-- Hide sensitive data in `Debug` implementations
-
 ---
 
 ### Milestone 1: Basic Configuration Struct
@@ -107,66 +75,6 @@ struct ServerConfig {
 }
 ```
 
-**Why Use Structs Instead of Individual Parameters?**
-
-**Without struct** (parameter soup):
-```rust
-fn start_server(
-    host: String,
-    port: u16,
-    timeout: u64,
-    max_conn: u32,
-    buffer_size: usize,
-    threads: usize,
-    // ... 20 more parameters ...
-) { }
-
-// Easy to swap parameters accidentally:
-start_server(
-    "localhost".to_string(),
-    30,      // Oops! Passed timeout as port
-    8080,    // Oops! Passed port as timeout
-    100,
-    4096,
-    4,
-);
-```
-
-**With struct** (grouped data):
-```rust
-fn start_server(config: ServerConfig) { }
-
-let config = ServerConfig {
-    host: "localhost".to_string(),
-    port: 8080,
-    timeout_seconds: 30,
-    max_connections: 100,
-};
-start_server(config); // Named fields prevent mistakes
-```
-
-**Benefits of Basic Structs**:
-
-1. **Named fields**: `config.port` is clearer than function parameter #2
-2. **Single unit**: Pass one `ServerConfig` instead of 10 parameters
-3. **Default values**: Can implement `Default` trait
-4. **Extensibility**: Add fields without breaking function signatures
-5. **Documentation**: Struct definition documents all configuration options
-
-**The Problems We'll Discover**:
-
-1. **No validation**: Can create `ServerConfig { port: 0, ... }` (invalid!)
-2. **No type safety**: Both `host` and `database_url` are `String` (easy to mix up!)
-3. **No semantic meaning**: Is `timeout_seconds` really seconds? Could be milliseconds!
-4. **Public fields**: Users can create invalid configurations directly
-
-**Real-World Analogy**:
-
-Think of this like a paper form:
-- **Milestone 1**: Blank form with labeled boxes (can write anything in any box)
-- **Milestone 2**: Form with validation rules (postal code must be 5 digits)
-- **Milestone 3**: Digital form with smart defaults and helpful error messages
-
 **Memory Layout**:
 
 ```rust
@@ -181,12 +89,30 @@ Total: ~44 bytes
 
 No runtime overhead for grouping—just the sum of field sizes plus alignment.
 
-**Key Learning Points**:
 
-- **Structs are product types**: Contain all fields simultaneously (AND relationship)
-- **Field naming**: Makes code self-documenting
-- **Ownership**: Struct owns its fields
-- **Move semantics**: Moving struct moves all fields
+**Starter Code**:
+```rust
+// ServerConfig: Main configuration struct for web server settings
+// Role: Groups all server configuration parameters together
+#[derive(Debug, Clone)]
+struct ServerConfig {
+    host: String,           // Server hostname/IP address (e.g., "localhost", "0.0.0.0")
+    port: u16,             // TCP port number (1-65535)
+    timeout_seconds: u64,  // Connection timeout duration in seconds
+    max_connections: u32,  // Maximum concurrent client connections allowed
+}
+
+impl ServerConfig {
+    // new: Constructor that creates a ServerConfig instance
+    // Role: Initializes configuration with provided values
+    fn new(host: String, port: u16, timeout_seconds: u64, max_connections: u32) -> Self {
+        // TODO: Create ServerConfig with given values
+        todo!()
+    }
+}
+```
+
+
 
 **Checkpoint Tests**:
 ```rust
@@ -218,28 +144,6 @@ fn test_can_create_invalid_config() {
 }
 ```
 
-**Starter Code**:
-```rust
-// ServerConfig: Main configuration struct for web server settings
-// Role: Groups all server configuration parameters together
-#[derive(Debug, Clone)]
-struct ServerConfig {
-    host: String,           // Server hostname/IP address (e.g., "localhost", "0.0.0.0")
-    port: u16,             // TCP port number (1-65535)
-    timeout_seconds: u64,  // Connection timeout duration in seconds
-    max_connections: u32,  // Maximum concurrent client connections allowed
-}
-
-impl ServerConfig {
-    // new: Constructor that creates a ServerConfig instance
-    // Role: Initializes configuration with provided values
-    fn new(host: String, port: u16, timeout_seconds: u64, max_connections: u32) -> Self {
-        // TODO: Create ServerConfig with given values
-        todo!()
-    }
-}
-```
-
 **Check Your Understanding**:
 - What's wrong with allowing `port: 0` or `max_connections: 0`?
 - How could we accidentally pass the wrong string to the host parameter?
@@ -247,7 +151,7 @@ impl ServerConfig {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### Why Milestone 1 Isn't Enough → Moving to Milestone 2
 
 **Critical Limitations**:
 1. **No type safety**: Can swap `host` and `database_url` parameters - both are `String`
@@ -256,11 +160,13 @@ impl ServerConfig {
 4. **Easy to mix up**: `ServerConfig::new(port_str, host_str)` compiles if you swap them
 5. **Debug leaks secrets**: `println!("{:?}", config)` might print passwords
 
+
 **What we're adding**: **Newtype wrappers** for each configuration value:
 - `Port(u16)`, `Hostname(String)`, `Timeout(Duration)`, `MaxConnections(NonZeroU32)`
 - Each is a distinct type - compiler prevents mixing them up
 - Smart constructors validate inputs
 - Custom `Debug` implementations hide sensitive data
+
 
 **Improvements**:
 - **Type safety**: Can't pass `Port` where `Hostname` expected
@@ -278,48 +184,6 @@ impl ServerConfig {
 
 This is where Rust's **zero-cost abstractions** shine. The newtype pattern lets us add compile-time safety without any runtime overhead—it's pure compile-time magic!
 
-**The Core Problem: Primitive Obsession**:
-
-```rust
-// All these are just numbers or strings!
-fn configure(
-    port: u16,           // Could be 0-65535
-    timeout: u64,        // Could be anything
-    max_conn: u32,       // Could be 0 or negative logic
-    pool_size: u16,      // Same type as port!
-) { }
-
-// Compiler can't help you here:
-configure(
-    30,      // Meant to be timeout, passed as port!
-    8080,    // Meant to be port, passed as timeout!
-    0,       // Invalid but compiles!
-    100,
-);
-```
-
-**The Solution: Newtype Pattern**:
-
-```rust
-struct Port(u16);
-struct Timeout(Duration);
-struct MaxConnections(NonZeroU32);
-struct PoolSize(NonZeroU16);
-
-fn configure(
-    port: Port,
-    timeout: Timeout,
-    max_conn: MaxConnections,
-    pool_size: PoolSize,
-) { }
-
-// Now this won't compile!
-configure(
-    Timeout::from_secs(30),  // ❌ Expected Port, got Timeout
-    Port::new(8080).unwrap(), // ❌ Expected Timeout, got Port
-    ...
-);
-```
 
 **What We're Building**:
 
@@ -329,215 +193,6 @@ Four newtype wrappers with validation:
 2. **`Port(u16)`**: Validated port number (1-65535)
 3. **`Timeout(Duration)`**: Positive duration with clear units
 4. **`MaxConnections(NonZeroU32)`**: Guaranteed positive connection limit
-
-**The Newtype Pattern Explained**:
-
-A newtype is a tuple struct with a single field:
-
-```rust
-struct Port(u16);  // New type wrapping u16
-
-impl Port {
-    fn new(port: u16) -> Result<Self, String> {
-        if port == 0 {
-            Err("Port must be > 0".to_string())
-        } else {
-            Ok(Port(port))  // Wrap the validated value
-        }
-    }
-
-    fn get(&self) -> u16 {
-        self.0  // Access tuple field
-    }
-}
-```
-
-**Why Use `NonZeroU32`?**
-
-`std::num::NonZeroU32` is a standard library type that **guarantees** non-zero at the type level:
-
-```rust
-// Without NonZeroU32 - runtime check every time
-struct MaxConnections(u32);
-impl MaxConnections {
-    fn get(&self) -> u32 {
-        assert!(self.0 > 0);  // Runtime check!
-        self.0
-    }
-}
-
-// With NonZeroU32 - guaranteed by type system
-struct MaxConnections(NonZeroU32);
-impl MaxConnections {
-    fn get(&self) -> u32 {
-        self.0.get()  // No check needed!
-    }
-}
-```
-
-**Compiler optimizations**: `Option<NonZeroU32>` is same size as `u32` (niche optimization)!
-
-**Smart Constructors**:
-
-Newtypes use **smart constructors** that validate inputs:
-
-```rust
-impl Port {
-    fn new(port: u16) -> Result<Self, String> {
-        // Validation logic here
-        if port == 0 {
-            Err("Port must be greater than 0".to_string())
-        } else {
-            Ok(Port(port))
-        }
-    }
-}
-```
-
-This ensures **invalid values can't be constructed**—the only way to get a `Port` is through the validated `new` function.
-
-**Type Safety in Action**:
-
-```rust
-// Before: These are all u16, compiler treats them identically
-let port: u16 = 8080;
-let pool_size: u16 = 100;
-start_server(pool_size, port);  // Oops! Swapped, but compiles
-
-// After: These are distinct types
-let port: Port = Port::new(8080).unwrap();
-let pool_size: PoolSize = PoolSize::new(100).unwrap();
-start_server(pool_size, port);  // ❌ Compile error!
-```
-
-**Zero Runtime Cost**:
-
-Newtype wrappers have **zero memory overhead**:
-
-```rust
-assert_eq!(
-    std::mem::size_of::<u16>(),
-    std::mem::size_of::<Port>()
-);  // Both are 2 bytes!
-```
-
-The wrapper only exists at compile-time. At runtime, `Port(8080)` is just `8080` in memory.
-
-**Pattern Matching Works**:
-
-```rust
-let port = Port::new(8080).unwrap();
-
-match port {
-    Port(8080) => println!("Standard HTTP"),
-    Port(443) => println!("HTTPS"),
-    Port(p) => println!("Custom port: {}", p),
-}
-```
-
-**Real-World Examples**:
-
-1. **Rust compiler**: `Symbol`, `DefId`, `NodeId` - all just integers wrapped in newtypes
-2. **AWS SDK**: `BucketName`, `RegionName`, `InstanceId` - prevent mixing identifiers
-3. **Databases**: `TableName`, `ColumnName`, `IndexName` - type-safe schema references
-4. **Web frameworks**: `PathBuf` vs `AssetPath` vs `TemplatePath` - same underlying type, different semantics
-
-**Common Newtype Use Cases**:
-
-- **Units**: `Meters(f64)`, `Kilograms(f64)` - prevent mixing units
-- **IDs**: `UserId(u64)`, `ProductId(u64)` - prevent mixing ID types
-- **Handles**: `FileDescriptor(i32)`, `SocketHandle(u32)` - type-safe resource handles
-- **Validated strings**: `Email(String)`, `Url(String)` - guarantee format validity
-- **Currencies**: `USD(f64)`, `EUR(f64)` - prevent mixing monetary values
-
-**The Validation Strategy**:
-
-Each newtype implements validation in its constructor:
-
-```rust
-impl Port {
-    fn new(port: u16) -> Result<Self, String> {
-        // Range check
-        if port == 0 {
-            return Err("Port must be > 0".to_string());
-        }
-        Ok(Port(port))
-    }
-}
-
-impl Timeout {
-    fn from_secs(secs: u64) -> Result<Self, String> {
-        // Positivity check
-        if secs == 0 {
-            return Err("Timeout must be > 0 seconds".to_string());
-        }
-        Ok(Timeout(Duration::from_secs(secs)))
-    }
-}
-
-impl MaxConnections {
-    fn new(count: u32) -> Result<Self, String> {
-        // Use type system for validation
-        NonZeroU32::new(count)
-            .map(MaxConnections)
-            .ok_or_else(|| "Connection count must be > 0".to_string())
-    }
-}
-```
-
-**Key Design Principle: Parse, Don't Validate**:
-
-Once a value is wrapped in a newtype, it's **guaranteed valid**. No need to re-check:
-
-```rust
-fn start_server(port: Port) {
-    // No need to check if port > 0
-    // Type system guarantees it!
-    let socket = TcpListener::bind(("0.0.0.0", port.get())).unwrap();
-}
-```
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_port_validation() {
-    assert!(Port::new(8080).is_ok());
-    assert!(Port::new(0).is_err());  // Invalid port
-    assert!(Port::new(65535).is_ok()); // Max valid port
-}
-
-#[test]
-fn test_cannot_swap_types() {
-    // This won't compile - demonstrates type safety!
-    // let port = Port::new(8080).unwrap();
-    // let host = Hostname("localhost".to_string());
-    // let config = ServerConfig::new(port, host, ...); // ❌ Type error!
-}
-
-#[test]
-fn test_timeout_validation() {
-    assert!(Timeout::from_secs(30).is_ok());
-    assert!(Timeout::from_secs(0).is_err()); // Zero timeout invalid
-}
-
-#[test]
-fn test_max_connections() {
-    assert!(MaxConnections::new(100).is_ok());
-    assert!(MaxConnections::new(0).is_err()); // Zero connections invalid
-}
-
-#[test]
-fn test_valid_config() {
-    let config = ServerConfig::new(
-        Hostname("localhost".to_string()),
-        Port::new(8080).unwrap(),
-        Timeout::from_secs(30).unwrap(),
-        MaxConnections::new(100).unwrap(),
-    );
-
-    assert_eq!(config.port.get(), 8080);
-}
-```
 
 **Starter Code**:
 ```rust
@@ -642,6 +297,50 @@ impl ServerConfig {
 }
 ```
 
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_port_validation() {
+    assert!(Port::new(8080).is_ok());
+    assert!(Port::new(0).is_err());  // Invalid port
+    assert!(Port::new(65535).is_ok()); // Max valid port
+}
+
+#[test]
+fn test_cannot_swap_types() {
+    // This won't compile - demonstrates type safety!
+    // let port = Port::new(8080).unwrap();
+    // let host = Hostname("localhost".to_string());
+    // let config = ServerConfig::new(port, host, ...); // ❌ Type error!
+}
+
+#[test]
+fn test_timeout_validation() {
+    assert!(Timeout::from_secs(30).is_ok());
+    assert!(Timeout::from_secs(0).is_err()); // Zero timeout invalid
+}
+
+#[test]
+fn test_max_connections() {
+    assert!(MaxConnections::new(100).is_ok());
+    assert!(MaxConnections::new(0).is_err()); // Zero connections invalid
+}
+
+#[test]
+fn test_valid_config() {
+    let config = ServerConfig::new(
+        Hostname("localhost".to_string()),
+        Port::new(8080).unwrap(),
+        Timeout::from_secs(30).unwrap(),
+        MaxConnections::new(100).unwrap(),
+    );
+
+    assert_eq!(config.port.get(), 8080);
+}
+```
+
+
 **Check Your Understanding**:
 - Why can't you accidentally swap `Port` and `MaxConnections` now?
 - What happens at compile-time if you try `Port::new(8080).unwrap().as_duration()`?
@@ -650,7 +349,7 @@ impl ServerConfig {
 
 ---
 
-### Why Milestone 2 Isn't Enough → Moving to Milestone 3
+### Why Milestone 2 Isn't Enough 
 
 **Remaining Issues**:
 1. **Verbose construction**: Must call `.unwrap()` multiple times, lots of `Result` handling
@@ -679,355 +378,6 @@ impl ServerConfig {
 **Why This Milestone Matters**:
 
 Milestone 2 gave us type safety, but the API is **clunky**. Creating a config requires many `.unwrap()` calls and looks ugly. The **builder pattern** solves this by providing a fluent, chainable API that's pleasant to use while maintaining all our safety guarantees.
-
-**The Ergonomics Problem**:
-
-```rust
-// Milestone 2 API - verbose and error-prone
-let config = ServerConfig::new(
-    Hostname("localhost".to_string()),
-    Port::new(8080).unwrap(),  // Panic if invalid!
-    Timeout::from_secs(30).unwrap(),
-    MaxConnections::new(100).unwrap(),
-);
-```
-
-**Problems**:
-1. **Verbose**: Many function calls, lots of `.unwrap()`
-2. **Panic-prone**: `.unwrap()` panics on invalid input
-3. **No defaults**: Must specify every field explicitly
-4. **Error handling**: First error stops construction, others ignored
-
-**The Builder Solution**:
-
-```rust
-// Milestone 3 API - fluent and safe
-let config = ServerConfig::builder()
-    .host("localhost")          // Strings auto-converted
-    .port(8080)                 // Validation deferred
-    .timeout_secs(30)
-    .max_connections(100)
-    .build()?;                  // All errors reported at once
-
-// With defaults
-let config = ServerConfig::builder()
-    .host("localhost")
-    .build()?;  // Uses default port, timeout, max_connections
-```
-
-**What We're Building**:
-
-Three key components:
-
-1. **`ServerConfigBuilder`**: Collects configuration values with `Option` fields
-2. **Fluent methods**: Each method returns `self` for chaining
-3. **`build()` method**: Validates everything, applies defaults, returns `Result`
-
-**The Builder Pattern Structure**:
-
-```rust
-struct ServerConfigBuilder {
-    host: Option<String>,        // Not built yet
-    port: Option<u16>,          // Raw value, not validated
-    timeout_secs: Option<u64>,
-    max_connections: Option<u32>,
-}
-
-impl ServerConfigBuilder {
-    fn new() -> Self {
-        ServerConfigBuilder {
-            host: None,
-            port: None,
-            timeout_secs: None,
-            max_connections: None,
-        }
-    }
-
-    fn host(mut self, host: impl Into<String>) -> Self {
-        self.host = Some(host.into());
-        self  // Return self for chaining!
-    }
-
-    fn build(self) -> Result<ServerConfig, Vec<String>> {
-        // Validate everything here
-    }
-}
-```
-
-**Why Take `self` Not `&mut self`?**
-
-This is a subtle but important design choice:
-
-```rust
-// With &mut self (mutable reference)
-fn port(&mut self, port: u16) -> &mut Self {
-    self.port = Some(port);
-    self
-}
-
-// Usage - less ergonomic
-let mut builder = ServerConfig::builder();
-builder.port(8080).timeout_secs(30);
-
-// With self (consuming)
-fn port(mut self, port: u16) -> Self {
-    self.port = Some(port);
-    self
-}
-
-// Usage - more ergonomic
-let config = ServerConfig::builder()
-    .port(8080)      // Consumes and returns new builder
-    .timeout_secs(30)  // Chains naturally
-    .build();
-```
-
-Taking `self` by value **prevents reuse** of partially-built builders, which is usually what you want.
-
-**The Power of `impl Into<String>`**:
-
-```rust
-fn host(mut self, host: impl Into<String>) -> Self {
-    self.host = Some(host.into());
-    self
-}
-```
-
-This accepts **any type that can be converted to `String`**:
-- `&str`: `builder.host("localhost")`
-- `String`: `builder.host(hostname_variable)`
-- `Cow<str>`: `builder.host(cow_string)`
-
-More flexible than `host: String`, which requires `.to_string()` everywhere!
-
-**Validation Strategy: Collect All Errors**:
-
-```rust
-fn build(self) -> Result<ServerConfig, Vec<String>> {
-    let mut errors = Vec::new();
-
-    // Validate host
-    let host = match self.host {
-        Some(h) if !h.is_empty() => Hostname(h),
-        Some(_) => {
-            errors.push("Host cannot be empty".to_string());
-            Hostname("localhost".to_string())  // Placeholder
-        }
-        None => {
-            errors.push("Host is required".to_string());
-            Hostname("localhost".to_string())
-        }
-    };
-
-    // Validate port (with default)
-    let port = match self.port {
-        Some(p) => match Port::new(p) {
-            Ok(port) => port,
-            Err(e) => {
-                errors.push(format!("Invalid port: {}", e));
-                Port::new(8080).unwrap()  // Safe default
-            }
-        },
-        None => Port::new(8080).unwrap(),  // Default
-    };
-
-    // ... similar for other fields ...
-
-    if !errors.is_empty() {
-        Err(errors)  // Return ALL errors
-    } else {
-        Ok(ServerConfig::new(host, port, timeout, max_connections))
-    }
-}
-```
-
-**Why Collect All Errors?**
-
-**Bad UX** (stop on first error):
-```
-❌ Port must be greater than 0
-
-Fix it, run again...
-
-❌ Timeout must be greater than 0 seconds
-
-Fix it, run again...
-
-❌ Connection count must be greater than 0
-```
-
-**Good UX** (report all errors):
-```
-❌ Multiple validation errors:
-  - Port must be greater than 0
-  - Timeout must be greater than 0 seconds
-  - Connection count must be greater than 0
-
-Fix all three at once!
-```
-
-**The `Deref` Trait for Ergonomics**:
-
-```rust
-impl Deref for Port {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-```
-
-Now you can use `Port` almost like a `u16`:
-
-```rust
-let port = Port::new(8080).unwrap();
-
-// Without Deref
-println!("Port: {}", port.get());
-
-// With Deref
-println!("Port: {}", *port);  // Dereference to u16
-
-// Even auto-derefs in many contexts
-if port > 1024 {  // Auto-derefs to u16 for comparison!
-    println!("Unprivileged port");
-}
-```
-
-**When to Use Deref**:
-
-✅ **Good use cases**:
-- Newtypes wrapping a single value
-- Want transparent access to inner value
-- Inner value is "the essence" of the type
-
-❌ **Avoid Deref when**:
-- Type has additional semantics beyond the wrapped value
-- Deref would expose internal implementation details
-- Want to prevent confusion with the inner type
-
-**Default Values Design**:
-
-```rust
-// Required fields: None = error
-let host = match self.host {
-    Some(h) => h,
-    None => {
-        errors.push("Host is required".to_string());
-        "localhost".to_string()  // Placeholder for error path
-    }
-};
-
-// Optional fields: None = default
-let port = match self.port {
-    Some(p) => Port::new(p)?,
-    None => Port::new(8080).unwrap(),  // Sensible default
-};
-```
-
-**Real-World Builder Examples**:
-
-1. **reqwest::Client**: HTTP client builder
-   ```rust
-   let client = Client::builder()
-       .timeout(Duration::from_secs(10))
-       .gzip(true)
-       .build()?;
-   ```
-
-2. **tokio::Runtime**: Async runtime builder
-   ```rust
-   let runtime = Runtime::builder()
-       .worker_threads(4)
-       .thread_name("my-pool")
-       .build()?;
-   ```
-
-3. **AWS SDK**: Service client builders
-   ```rust
-   let client = S3Client::builder()
-       .region(Region::new("us-east-1"))
-       .credentials_provider(provider)
-       .build();
-   ```
-
-**Type State Builder (Advanced)**:
-
-You can even use the typestate pattern on builders to enforce "host must be set before build":
-
-```rust
-struct NoHost;
-struct HasHost;
-
-struct ServerConfigBuilder<State> {
-    host: Option<String>,
-    _state: PhantomData<State>,
-}
-
-impl ServerConfigBuilder<NoHost> {
-    fn host(self, host: impl Into<String>) -> ServerConfigBuilder<HasHost> {
-        // Returns different type!
-    }
-}
-
-impl ServerConfigBuilder<HasHost> {
-    fn build(self) -> Result<ServerConfig, Vec<String>> {
-        // Only callable after host() was called!
-    }
-}
-```
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_builder_fluent_api() {
-    let config = ServerConfig::builder()
-        .host("localhost")
-        .port(8080)
-        .timeout_secs(30)
-        .max_connections(100)
-        .build()
-        .unwrap();
-
-    assert_eq!(*config.port, 8080); // Deref in action
-}
-
-#[test]
-fn test_builder_defaults() {
-    let config = ServerConfig::builder()
-        .host("localhost")
-        .build()
-        .unwrap();
-
-    // Should use default values
-    assert_eq!(*config.port, 8080);
-    assert_eq!(*config.max_connections, 100);
-}
-
-#[test]
-fn test_builder_validation_errors() {
-    let result = ServerConfig::builder()
-        .port(0)  // Invalid
-        .timeout_secs(0)  // Invalid
-        .build();
-
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors.len() >= 2); // At least port and timeout errors
-}
-
-#[test]
-fn test_builder_missing_required() {
-    let result = ServerConfig::builder()
-        .port(8080)
-        .build();
-
-    assert!(result.is_err());
-    let errors = result.unwrap_err();
-    assert!(errors.iter().any(|e| e.contains("Host")));
-}
-```
 
 **Starter Code**:
 ```rust
@@ -1148,6 +498,59 @@ impl ServerConfig {
     }
 }
 ```
+
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_builder_fluent_api() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .port(8080)
+        .timeout_secs(30)
+        .max_connections(100)
+        .build()
+        .unwrap();
+
+    assert_eq!(*config.port, 8080); // Deref in action
+}
+
+#[test]
+fn test_builder_defaults() {
+    let config = ServerConfig::builder()
+        .host("localhost")
+        .build()
+        .unwrap();
+
+    // Should use default values
+    assert_eq!(*config.port, 8080);
+    assert_eq!(*config.max_connections, 100);
+}
+
+#[test]
+fn test_builder_validation_errors() {
+    let result = ServerConfig::builder()
+        .port(0)  // Invalid
+        .timeout_secs(0)  // Invalid
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.len() >= 2); // At least port and timeout errors
+}
+
+#[test]
+fn test_builder_missing_required() {
+    let result = ServerConfig::builder()
+        .port(8080)
+        .build();
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.iter().any(|e| e.contains("Host")));
+}
+```
+
 
 **Check Your Understanding**:
 - How does `Deref` allow `*config.port` to work?
@@ -1550,87 +953,7 @@ Build a type-safe order processing system that uses enums to model state transit
 - **E-commerce**: Ship orders that were cancelled, refund orders not yet paid
 - **Booking systems**: Double-book resources, allow modifications after confirmation
 
-**Without Type-Safe States**:
-```rust
-struct Order {
-    id: u64,
-    state: String,  // "pending", "paid", "shipped"???
-    tracking_number: Option<String>,
-    payment_id: Option<String>,
-}
 
-fn ship_order(order: &mut Order) {
-    // Runtime checks everywhere!
-    if order.state == "paid" {  // String comparison prone to typos
-        order.tracking_number = Some(generate_tracking());
-        order.state = "shipped".to_string();  // Typo: "shiped"?
-    }
-    // What if state was "cancelled"? Silent failure!
-}
-```
-
-**With Enum State Machine**:
-```rust
-enum OrderState {
-    Pending { items: Vec<Item> },
-    Paid { payment_id: String },
-    Shipped { tracking: String },
-    Cancelled { reason: String },
-}
-
-impl OrderState {
-    fn ship(self) -> Result<OrderState, String> {
-        match self {
-            OrderState::Paid { payment_id } => {
-                Ok(OrderState::Shipped {
-                    tracking: generate_tracking()
-                })
-            }
-            _ => Err("Can only ship paid orders")
-        }
-    }
-}
-```
-
-**Performance & Safety Benefits**:
-- **Exhaustive matching**: Compiler forces handling of all states
-- **Impossible states**: Can't have both `tracking_number` and be unpaid
-- **Zero runtime cost**: Enum same size as largest variant + 1-byte discriminant
-- **Self-documenting**: All valid states visible in type definition
-
-**Real Production Examples**:
-- **Payment gateways**: Pending → Authorized → Captured → Settled states
-- **Workflow engines**: Draft → Review → Approved → Published transitions
-- **Connection pools**: Idle → Active → Closing → Closed states
-- **HTTP clients**: Connecting → Connected → Reading → Complete states
-
-### Use Cases
-
-**When you need this pattern**:
-1. **Order/Payment processing**: Pending → Paid → Shipped → Delivered
-2. **Document workflows**: Draft → Review → Approved → Published
-3. **Network connections**: Connecting → Connected → Closing → Closed
-4. **Game states**: Menu → Playing → Paused → GameOver
-5. **User authentication**: Anonymous → LoggedIn → Verified → Admin
-6. **File uploads**: Validating → Uploading → Processing → Complete
-
-**Enum State Machines Prevent**:
-- Shipping unpaid orders
-- Charging paid orders twice
-- Cancelling already shipped orders
-- Accessing data from wrong state
-- Forgetting to handle edge cases
-
-### Learning Goals
-
-- Use enums to model state machines with exhaustive matching
-- Implement state transitions that consume and transform states
-- Understand pattern matching for compile-time guarantees
-- Build typestate pattern for impossible-states-as-unrepresentable
-- Compare runtime state checking vs compile-time state checking
-- Handle associated data per state variant
-
----
 
 ### Milestone 1: Basic Order Enum with States
 
@@ -1640,61 +963,6 @@ impl OrderState {
 
 This milestone introduces **enums as state machines**—one of Rust's most powerful patterns. Unlike structs (which group related data), enums represent **alternatives**—a value is exactly one variant at any time.
 
-**Structs vs Enums**:
-
-```rust
-// Struct: Has ALL fields at once (AND)
-struct User {
-    name: String,     // AND
-    email: String,    // AND
-    age: u32,        // AND
-}
-
-// Enum: Is EXACTLY ONE variant (OR)
-enum LoginState {
-    Anonymous,              // OR
-    LoggedIn { user_id: u64 },  // OR
-    Admin { user_id: u64, permissions: Vec<String> },  // OR
-}
-```
-
-**The Problem We're Solving**:
-
-**Bad approach** (struct with optional fields):
-```rust
-struct Order {
-    id: u64,
-    state: String,  // "pending", "paid", "shipped"
-    items: Option<Vec<Item>>,         // Only in pending
-    payment_id: Option<String>,       // Only in paid/shipped
-    tracking_number: Option<String>,  // Only in shipped
-}
-```
-
-**Problems**:
-1. **Impossible states are possible**: What if `payment_id` is Some but `state` is "pending"?
-2. **Runtime checks everywhere**: Must check `state` string before accessing fields
-3. **Easy to forget**: Nothing forces you to handle all states
-4. **Typos**: `state == "shiped"` compiles but is wrong!
-
-**Good approach** (enum with variants):
-```rust
-enum OrderState {
-    Pending {
-        items: Vec<Item>,
-        customer_id: u64,
-    },
-    Paid {
-        order_id: u64,
-        payment_id: String,
-        amount: f64,
-    },
-    Shipped {
-        order_id: u64,
-        tracking_number: String,
-    },
-}
-```
 
 **Benefits**:
 1. **Impossible states impossible**: Can't have `payment_id` without being `Paid`
@@ -1726,176 +994,46 @@ Five order states representing the complete order lifecycle:
    - Contains: `order_id`, `reason`
    - Terminal state
 
-**Enum Syntax**:
 
+
+**Starter Code**:
 ```rust
+use std::time::Instant;
+
+// Item: Represents a product in an order
+// Role: Stores product details for order line items
+#[derive(Debug, Clone)]
+struct Item {
+    product_id: u64,  // Unique identifier for the product
+    name: String,     // Product display name
+    price: f64,       // Product price in dollars
+}
+
+// OrderState: Enum representing all possible order states
+// Role: Type-safe state machine where each variant has state-specific data
+// TODO: Define variants:
+#[derive(Debug, Clone)]
 enum OrderState {
-    // Unit variant (no data)
-    Simple,
-
-    // Tuple variant (unnamed fields)
-    WithData(String, u64),
-
-    // Struct variant (named fields) - most common
-    WithNamedData {
-        field1: String,
-        field2: u64,
-    },
+    // TODO: Add variants here
 }
-```
 
-We use **struct variants** for clarity—named fields are self-documenting.
-
-**Pattern Matching**:
-
-The primary way to work with enums is pattern matching:
-
-```rust
-let order = OrderState::Pending {
-    items: vec![...],
-    customer_id: 123,
-};
-
-match order {
-    OrderState::Pending { items, customer_id } => {
-        println!("Order for customer {} has {} items", customer_id, items.len());
-    }
-    OrderState::Paid { payment_id, amount, .. } => {
-        println!("Payment {} for ${}", payment_id, amount);
-    }
-    OrderState::Shipped { tracking_number, .. } => {
-        println!("Shipped: {}", tracking_number);
-    }
-    OrderState::Delivered { .. } => {
-        println!("Delivered!");
-    }
-    OrderState::Cancelled { reason, .. } => {
-        println!("Cancelled: {}", reason);
-    }
-}
-```
-
-**Exhaustive Matching**:
-
-The compiler **forces** you to handle all variants:
-
-```rust
-match order {
-    OrderState::Pending { .. } => { },
-    OrderState::Paid { .. } => { },
-    // ❌ Compile error: missing Shipped, Delivered, Cancelled!
-}
-```
-
-This prevents bugs where you forget to handle a case.
-
-**Memory Layout**:
-
-Enums use a **discriminant** (tag) to track which variant is active:
-
-```rust
-enum OrderState {
-    Pending { items: Vec<Item>, customer_id: u64 },  // 32 bytes
-    Paid { order_id: u64, payment_id: String, amount: f64 },  // 40 bytes
-    Shipped { order_id: u64, tracking_number: String },  // 32 bytes
-}
-```
-
-**Memory size**: `max(all variants) + discriminant`
-- Largest variant: `Paid` (40 bytes)
-- Discriminant: 1 byte (actually 8 bytes with alignment)
-- **Total**: ~48 bytes
-
-All variants share the same memory space. Only one is active at a time.
-
-**Why Use Enum for State Machines?**
-
-**State machines** have:
-1. **Finite states**: Known, fixed set of states
-2. **Transitions**: Rules for moving between states
-3. **State-specific data**: Each state needs different information
-4. **Exclusive states**: Can't be in two states at once
-
-Enums are **perfect** for this! Each variant = one state, pattern matching = transitions.
-
-**Real-World State Machine Examples**:
-
-1. **HTTP connections**:
-   ```rust
-   enum Connection {
-       Idle,
-       Connecting { start_time: Instant },
-       Connected { socket: TcpStream },
-       Closing,
-       Closed,
-   }
-   ```
-
-2. **File uploads**:
-   ```rust
-   enum Upload {
-       Pending { file_name: String, size: u64 },
-       Uploading { bytes_sent: u64, total: u64 },
-       Processing { job_id: String },
-       Complete { url: String },
-       Failed { error: String },
-   }
-   ```
-
-3. **Game states**:
-   ```rust
-   enum GameState {
-       MainMenu,
-       Playing { level: u32, score: u64 },
-       Paused { saved_state: Box<PlayingState> },
-       GameOver { final_score: u64 },
-   }
-   ```
-
-**Common Methods on Enums**:
-
-```rust
 impl OrderState {
-    // Query method - doesn't consume self
+    // new_pending: Creates a new order in Pending state
+    // Role: Constructor for initial order state with items and customer
+    fn new_pending(items: Vec<Item>, customer_id: u64) -> Self {
+        // TODO: Create Pending variant
+        todo!()
+    }
+
+    // status_string: Returns human-readable status
+    // Role: Provides string representation of current state for display
     fn status_string(&self) -> &str {
-        match self {
-            OrderState::Pending { .. } => "Pending",
-            OrderState::Paid { .. } => "Paid",
-            // ...
-        }
-    }
-
-    // Check variant type
-    fn is_paid(&self) -> bool {
-        matches!(self, OrderState::Paid { .. })
-    }
-
-    // Extract data (if specific variant)
-    fn get_tracking_number(&self) -> Option<&str> {
-        match self {
-            OrderState::Shipped { tracking_number, .. } => Some(tracking_number),
-            _ => None,
-        }
+        // TODO: Match on self and return appropriate status string
+        // Hint: "Pending", "Paid", "Shipped", "Delivered", "Cancelled"
+        todo!()
     }
 }
 ```
-
-**Key Design Principle: Make Illegal States Unrepresentable**:
-
-With enums, you **can't create** invalid combinations:
-
-```rust
-// ❌ Can't do this with enums!
-let order = OrderState::Pending {
-    items: vec![],
-    payment_id: "PAY123".to_string(),  // ❌ Pending has no payment_id field!
-};
-
-// ❌ Can't have two variants at once!
-let order = OrderState::Paid { .. } | OrderState::Shipped { .. };  // ❌ Not possible!
-```
-
-Compare to the struct approach where these are possible (and bugs)!
 
 **Checkpoint Tests**:
 ```rust
@@ -1931,50 +1069,6 @@ fn test_all_states() {
 }
 ```
 
-**Starter Code**:
-```rust
-use std::time::Instant;
-
-// Item: Represents a product in an order
-// Role: Stores product details for order line items
-#[derive(Debug, Clone)]
-struct Item {
-    product_id: u64,  // Unique identifier for the product
-    name: String,     // Product display name
-    price: f64,       // Product price in dollars
-}
-
-// OrderState: Enum representing all possible order states
-// Role: Type-safe state machine where each variant has state-specific data
-// TODO: Define variants:
-// - Pending { items: Vec<Item>, customer_id: u64 }
-// - Paid { order_id: u64, payment_id: String, amount: f64 }
-// - Shipped { order_id: u64, tracking_number: String }
-// - Delivered { order_id: u64, delivered_at: Instant }
-// - Cancelled { order_id: u64, reason: String }
-#[derive(Debug, Clone)]
-enum OrderState {
-    // TODO: Add variants here
-}
-
-impl OrderState {
-    // new_pending: Creates a new order in Pending state
-    // Role: Constructor for initial order state with items and customer
-    fn new_pending(items: Vec<Item>, customer_id: u64) -> Self {
-        // TODO: Create Pending variant
-        todo!()
-    }
-
-    // status_string: Returns human-readable status
-    // Role: Provides string representation of current state for display
-    fn status_string(&self) -> &str {
-        // TODO: Match on self and return appropriate status string
-        // Hint: "Pending", "Paid", "Shipped", "Delivered", "Cancelled"
-        todo!()
-    }
-}
-```
-
 **Check Your Understanding**:
 - Why does each variant have different associated data?
 - What prevents you from accessing `payment_id` on a `Pending` order?
@@ -1982,7 +1076,7 @@ impl OrderState {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough → Moving to Milestone 2
+### Why Milestone 1 Isn't Enough 
 
 **Limitations**:
 1. **No state transitions**: Can create any state, but can't safely transition between them
@@ -2012,66 +1106,6 @@ impl OrderState {
 
 Milestone 1 gave us **type-safe state representation**, but states just sit there—we can create any state directly! This milestone adds **controlled transitions**—the only way to move from `Pending` to `Paid` is through the `pay()` method, which enforces business rules.
 
-**The Uncontrolled State Problem**:
-
-```rust
-// Milestone 1 - can create any state directly!
-let order = OrderState::Paid {
-    order_id: 1,
-    payment_id: "PAY_123".to_string(),
-    amount: 99.99,  // Who validated this payment actually happened?
-};
-
-// Or worse - manually manipulate states
-let mut order = OrderState::Pending { items, customer_id };
-order = OrderState::Shipped {  // Skip payment entirely!
-    order_id: 1,
-    tracking_number: "TRACK_123".to_string(),
-};
-```
-
-**Problems**:
-1. **No validation**: Can create `Paid` state without actually processing payment
-2. **Skip steps**: Can go directly from `Pending` to `Shipped`, bypassing payment
-3. **No business logic**: Amount calculation, inventory checks, fraud detection—all missing
-4. **Manual construction**: Easy to forget required fields or use wrong data
-
-**The Controlled Transition Solution**:
-
-```rust
-impl OrderState {
-    // Only way to go from Pending to Paid
-    fn pay(self, payment_id: String) -> Result<Self, String> {
-        match self {
-            OrderState::Pending { items, customer_id } => {
-                // ✅ Validate items
-                if items.is_empty() {
-                    return Err("Cannot pay for empty order".to_string());
-                }
-
-                // ✅ Calculate total
-                let amount: f64 = items.iter().map(|i| i.price).sum();
-
-                // ✅ Process payment (in real system)
-                // payment_processor.charge(payment_id, amount)?;
-
-                // ✅ Transition to Paid state
-                Ok(OrderState::Paid {
-                    order_id: customer_id,
-                    payment_id,
-                    amount,
-                })
-            }
-            // ✅ Reject invalid transitions
-            _ => Err("Can only pay for pending orders".to_string()),
-        }
-    }
-}
-
-// Now the only way to get Paid state:
-let order = OrderState::new_pending(items, 123);
-let order = order.pay("PAY_123".to_string())?;  // Validated!
-```
 
 **What We're Building**:
 
@@ -2099,266 +1133,7 @@ Four transition methods representing the order lifecycle:
    - Produces: `Cancelled` or error
    - Business rule: Can't cancel after shipping
 
-**Why Take `self` (Ownership)?**
 
-This is **crucial** for state machine safety:
-
-```rust
-// Taking self by value (ownership)
-fn pay(self, payment_id: String) -> Result<OrderState, String> {
-    // self is consumed here
-}
-
-// Usage:
-let pending_order = OrderState::Pending { ... };
-let paid_order = pending_order.pay("PAY_123".to_string())?;
-// pending_order is gone - can't use it again! ✅
-
-// Compare to taking &self (borrow):
-fn pay(&self, payment_id: String) -> Result<OrderState, String> {
-    // self still exists after this call
-}
-
-// Usage:
-let pending_order = OrderState::Pending { ... };
-let paid_order = pending_order.pay("PAY_123".to_string())?;
-pending_order.pay("PAY_456".to_string())?;  // ❌ Can pay twice!
-```
-
-**Consuming transitions** prevent:
-- Using old states after transition
-- Paying for same order twice
-- Concurrent access to transitioning state
-- Forgetting to use the new state
-
-**The Power of Exhaustive Matching**:
-
-```rust
-fn ship(self, tracking_number: String) -> Result<Self, String> {
-    match self {
-        OrderState::Paid { order_id, .. } => {
-            // Only valid transition
-            Ok(OrderState::Shipped { order_id, tracking_number })
-        }
-        // Compiler forces you to handle ALL other states!
-        _ => Err("Can only ship paid orders".to_string()),
-    }
-}
-```
-
-If you forget a variant:
-```rust
-match self {
-    OrderState::Paid { .. } => { /* OK */ }
-    OrderState::Pending { .. } => { /* OK */ }
-    // ❌ Compile error: missing Shipped, Delivered, Cancelled!
-}
-```
-
-**Pattern Matching for State Extraction**:
-
-```rust
-fn pay(self, payment_id: String) -> Result<Self, String> {
-    match self {
-        // Extract data from Pending variant
-        OrderState::Pending { items, customer_id } => {
-            // items and customer_id are now available
-            let amount = items.iter().map(|i| i.price).sum();
-            Ok(OrderState::Paid {
-                order_id: customer_id,
-                payment_id,
-                amount,
-            })
-        }
-        // Match all other variants
-        _ => Err("Can only pay for pending orders".to_string()),
-    }
-}
-```
-
-**Multi-Variant Matching with `|`**:
-
-```rust
-fn cancel(self, reason: String) -> Result<Self, String> {
-    match self {
-        // Cancel allowed from EITHER Pending OR Paid
-        OrderState::Pending { customer_id, .. } | OrderState::Paid { order_id: customer_id, .. } => {
-            Ok(OrderState::Cancelled {
-                order_id: customer_id,
-                reason,
-            })
-        }
-        // Not allowed after shipping
-        OrderState::Shipped { .. } | OrderState::Delivered { .. } => {
-            Err("Cannot cancel after shipping".to_string())
-        }
-        OrderState::Cancelled { .. } => {
-            Err("Already cancelled".to_string())
-        }
-    }
-}
-```
-
-**Validation Strategy**:
-
-Each transition method performs three tasks:
-
-1. **Validate current state** (via pattern matching)
-   ```rust
-   match self {
-       OrderState::Paid { .. } => { /* OK */ }
-       _ => return Err("Wrong state".to_string()),
-   }
-   ```
-
-2. **Validate business rules** (within the match arm)
-   ```rust
-   if items.is_empty() {
-       return Err("No items".to_string());
-   }
-   let amount: f64 = items.iter().map(|i| i.price).sum();
-   if amount <= 0.0 {
-       return Err("Invalid amount".to_string());
-   }
-   ```
-
-3. **Produce new state** (return new variant)
-   ```rust
-   Ok(OrderState::Paid {
-       order_id: generate_id(),
-       payment_id,
-       amount,
-   })
-   ```
-
-**Real-World State Transition Examples**:
-
-1. **Payment processing**:
-   ```rust
-   enum PaymentState {
-       Created { amount: f64 },
-       Authorized { auth_code: String },
-       Captured { transaction_id: String },
-       Refunded { refund_id: String },
-   }
-
-   impl PaymentState {
-       fn authorize(self, auth_code: String) -> Result<Self, String> {
-           match self {
-               PaymentState::Created { amount } => {
-                   // Call payment gateway
-                   Ok(PaymentState::Authorized { auth_code })
-               }
-               _ => Err("Can only authorize created payments"),
-           }
-       }
-   }
-   ```
-
-2. **Document workflow**:
-   ```rust
-   enum DocumentState {
-       Draft { content: String },
-       InReview { content: String, reviewers: Vec<String> },
-       Approved { content: String, approver: String },
-       Published { url: String },
-   }
-
-   impl DocumentState {
-       fn submit_for_review(self, reviewers: Vec<String>) -> Result<Self, String> {
-           match self {
-               DocumentState::Draft { content } => {
-                   if content.is_empty() {
-                       return Err("Cannot submit empty document");
-                   }
-                   Ok(DocumentState::InReview { content, reviewers })
-               }
-               _ => Err("Can only submit drafts for review"),
-           }
-       }
-   }
-   ```
-
-3. **Connection lifecycle**:
-   ```rust
-   enum Connection {
-       Idle,
-       Connecting { address: String },
-       Connected { socket: TcpStream },
-       Closing,
-       Closed { reason: String },
-   }
-
-   impl Connection {
-       fn connect(self, address: String) -> Result<Self, IoError> {
-           match self {
-               Connection::Idle => {
-                   // Initiate connection
-                   Ok(Connection::Connecting { address })
-               }
-               _ => Err(IoError::new(ErrorKind::Other, "Already connecting")),
-           }
-       }
-   }
-   ```
-
-**Error Handling Design**:
-
-```rust
-// Return Result for transitions that can fail
-fn pay(self, payment_id: String) -> Result<Self, String> {
-    match self {
-        OrderState::Pending { items, .. } => {
-            if items.is_empty() {
-                // Business rule violation
-                return Err("Cannot pay for order with no items".to_string());
-            }
-            // Success case
-            Ok(OrderState::Paid { /* ... */ })
-        }
-        // State violation
-        _ => Err("Can only pay for pending orders".to_string()),
-    }
-}
-
-// Usage with ? operator for error propagation
-fn process_order(order: OrderState) -> Result<OrderState, String> {
-    let order = order.pay("PAY_123".to_string())?;  // Propagate error
-    let order = order.ship("TRACK_ABC".to_string())?;
-    let order = order.deliver()?;
-    Ok(order)
-}
-```
-
-**Helper Methods for State Queries**:
-
-```rust
-impl OrderState {
-    // Check if in specific state (doesn't consume)
-    fn is_paid(&self) -> bool {
-        matches!(self, OrderState::Paid { .. })
-    }
-
-    // Check if transition is allowed (doesn't consume)
-    fn can_cancel(&self) -> bool {
-        matches!(
-            self,
-            OrderState::Pending { .. } | OrderState::Paid { .. }
-        )
-    }
-
-    // Get status string for display
-    fn status_string(&self) -> &str {
-        match self {
-            OrderState::Pending { .. } => "Pending",
-            OrderState::Paid { .. } => "Paid",
-            OrderState::Shipped { .. } => "Shipped",
-            OrderState::Delivered { .. } => "Delivered",
-            OrderState::Cancelled { .. } => "Cancelled",
-        }
-    }
-}
-```
 
 **Memory and Performance**:
 
@@ -2384,6 +1159,68 @@ impl OrderState {
 - Calling `order.ship()` on `Pending` order (returns `Err` at runtime)
 - IDE shows all methods on all states (no compile-time filtering)
 - Can store mixed states in collections but lose type info
+
+**Starter Code**:
+```rust
+impl OrderState {
+    // pay: Transitions from Pending to Paid state
+    // Role: Processes payment, validates items, calculates total
+    // Consumes Pending state, returns Paid state or error
+    fn pay(self, payment_id: String) -> Result<Self, String> {
+        // Match on current state to enforce valid transitions
+        match self {
+            OrderState::Pending { items, customer_id } => {
+                // TODO: Validate items not empty
+                // TODO: Calculate total amount by summing item prices
+                // TODO: Return Paid variant with order_id, payment_id, amount
+                // Hint: Generate order_id from customer_id (e.g., customer_id as order_id)
+                todo!()
+            }
+            _ => Err("Can only pay for pending orders".to_string()),
+        }
+    }
+
+    // ship: Transitions from Paid to Shipped state
+    // Role: Records shipment with tracking number
+    // Consumes Paid state, returns Shipped state or error
+    fn ship(self, tracking_number: String) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Paid: extract order_id, return Shipped with order_id and tracking_number
+        // - Otherwise: return Err("Can only ship paid orders")
+        todo!()
+    }
+
+    // deliver: Transitions from Shipped to Delivered state
+    // Role: Marks order as delivered with timestamp
+    // Consumes Shipped state, returns Delivered state or error
+    fn deliver(self) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Shipped: extract order_id, return Delivered with order_id and Instant::now()
+        // - Otherwise: return Err("Can only deliver shipped orders")
+        todo!()
+    }
+
+    // cancel: Transitions to Cancelled state (only from Pending/Paid)
+    // Role: Cancels order with reason, enforces business rules
+    // Consumes current state, returns Cancelled state or error
+    fn cancel(self, reason: String) -> Result<Self, String> {
+        // TODO: Match on self
+        // - If Pending or Paid: extract order_id (or use customer_id), return Cancelled
+        // - If Shipped or Delivered: return Err("Cannot cancel after shipping")
+        // Hint: Use | to match multiple variants: OrderState::Pending { .. } | OrderState::Paid { .. }
+        todo!()
+    }
+
+    // can_cancel: Checks if order can be cancelled
+    // Role: Query method that doesn't consume state
+    fn can_cancel(&self) -> bool {
+        // TODO: Return true only for Pending or Paid states
+        // Hint: Use matches! macro: matches!(self, OrderState::Pending { .. } | OrderState::Paid { .. })
+        todo!()
+    }
+}
+```
+
 
 **Checkpoint Tests**:
 ```rust
@@ -2450,66 +1287,6 @@ fn test_cancellation_rules() {
 }
 ```
 
-**Starter Code**:
-```rust
-impl OrderState {
-    // pay: Transitions from Pending to Paid state
-    // Role: Processes payment, validates items, calculates total
-    // Consumes Pending state, returns Paid state or error
-    fn pay(self, payment_id: String) -> Result<Self, String> {
-        // Match on current state to enforce valid transitions
-        match self {
-            OrderState::Pending { items, customer_id } => {
-                // TODO: Validate items not empty
-                // TODO: Calculate total amount by summing item prices
-                // TODO: Return Paid variant with order_id, payment_id, amount
-                // Hint: Generate order_id from customer_id (e.g., customer_id as order_id)
-                todo!()
-            }
-            _ => Err("Can only pay for pending orders".to_string()),
-        }
-    }
-
-    // ship: Transitions from Paid to Shipped state
-    // Role: Records shipment with tracking number
-    // Consumes Paid state, returns Shipped state or error
-    fn ship(self, tracking_number: String) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Paid: extract order_id, return Shipped with order_id and tracking_number
-        // - Otherwise: return Err("Can only ship paid orders")
-        todo!()
-    }
-
-    // deliver: Transitions from Shipped to Delivered state
-    // Role: Marks order as delivered with timestamp
-    // Consumes Shipped state, returns Delivered state or error
-    fn deliver(self) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Shipped: extract order_id, return Delivered with order_id and Instant::now()
-        // - Otherwise: return Err("Can only deliver shipped orders")
-        todo!()
-    }
-
-    // cancel: Transitions to Cancelled state (only from Pending/Paid)
-    // Role: Cancels order with reason, enforces business rules
-    // Consumes current state, returns Cancelled state or error
-    fn cancel(self, reason: String) -> Result<Self, String> {
-        // TODO: Match on self
-        // - If Pending or Paid: extract order_id (or use customer_id), return Cancelled
-        // - If Shipped or Delivered: return Err("Cannot cancel after shipping")
-        // Hint: Use | to match multiple variants: OrderState::Pending { .. } | OrderState::Paid { .. }
-        todo!()
-    }
-
-    // can_cancel: Checks if order can be cancelled
-    // Role: Query method that doesn't consume state
-    fn can_cancel(&self) -> bool {
-        // TODO: Return true only for Pending or Paid states
-        // Hint: Use matches! macro: matches!(self, OrderState::Pending { .. } | OrderState::Paid { .. })
-        todo!()
-    }
-}
-```
 
 **Check Your Understanding**:
 - Why do transition methods take `self` (ownership) instead of `&self`?
@@ -2519,7 +1296,7 @@ impl OrderState {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough → Moving to Milestone 3
+###  Why Milestone 2 Isn't Enough 
 
 **Remaining Issues**:
 1. **Runtime checks**: Still possible to call wrong method at runtime, just returns `Err`
@@ -2554,368 +1331,6 @@ impl OrderState {
 
 Milestone 2 gave us **runtime safety** through `Result` types, but the type system doesn't help—`order.ship()` compiles even on a `Pending` order, it just returns `Err` at runtime. The **typestate pattern** moves state checking from runtime to **compile-time**—invalid transitions won't even compile!
 
-**The Runtime Checking Problem**:
-
-```rust
-// Milestone 2 - compiles but fails at runtime
-let pending_order = OrderState::Pending { items, customer_id };
-
-// ❌ This compiles! (but returns Err at runtime)
-pending_order.ship("TRACK_123".to_string())?;
-//              ^^^^
-// IDE shows 'ship' as available method
-// Compiler allows this
-// Only fails when you run the code
-```
-
-**Problems with runtime checking**:
-1. **Late error detection**: Find bugs when testing, not when coding
-2. **Poor IDE support**: Autocomplete shows all methods on all states
-3. **Defensive programming**: Must handle all `Result::Err` cases
-4. **Lost type information**: `Vec<OrderState>` loses which specific state each order is in
-5. **Runtime cost**: Every transition checks state discriminant
-
-**The Compile-Time Solution: Typestate Pattern**:
-
-```rust
-// Different type for each state!
-struct Pending;
-struct Paid;
-struct Shipped;
-
-// Generic struct parameterized by state
-struct Order<State> {
-    id: u64,
-    items: Vec<Item>,
-    _state: PhantomData<State>,  // Zero-sized marker
-}
-
-// Only Pending orders have pay() method
-impl Order<Pending> {
-    fn pay(self, payment_id: String) -> Result<Order<Paid>, String> {
-        // Consumes Order<Pending>, returns Order<Paid>
-        Ok(Order { id: self.id, items: self.items, _state: PhantomData })
-    }
-}
-
-// Only Paid orders have ship() method
-impl Order<Paid> {
-    fn ship(self, tracking: String) -> Order<Shipped> {
-        // Consumes Order<Paid>, returns Order<Shipped>
-        Order { id: self.id, items: self.items, _state: PhantomData }
-    }
-}
-
-// Now this won't compile!
-let pending = Order::<Pending>::new(1, items)?;
-pending.ship("TRACK_123".to_string());  // ❌ Compile error!
-//      ^^^^ method not found in `Order<Pending>`
-
-// Must go through pay() first
-let paid = pending.pay("PAY_123".to_string())?;  // Order<Paid>
-let shipped = paid.ship("TRACK_123".to_string()); // Order<Shipped> ✅
-```
-
-**What We're Building**:
-
-Five marker types and one generic struct:
-
-**State Markers** (zero-sized types):
-```rust
-struct Pending;    // 0 bytes
-struct Paid;       // 0 bytes
-struct Shipped;    // 0 bytes
-struct Delivered;  // 0 bytes
-struct Cancelled;  // 0 bytes
-```
-
-**Generic Order**:
-```rust
-struct Order<State> {
-    id: u64,
-    customer_id: u64,
-    items: Vec<Item>,
-    _state: PhantomData<State>,  // Zero-sized!
-}
-```
-
-**Memory layout**: All `Order<State>` variants are **exactly the same size**!
-```rust
-assert_eq!(
-    std::mem::size_of::<Order<Pending>>(),
-    std::mem::size_of::<Order<Paid>>(),
-);  // Both same size! State is compile-time only
-```
-
-**What is `PhantomData<State>`?**
-
-`PhantomData` is a **zero-sized type** that tells the compiler "this struct owns a `State` type, even though we don't actually store it":
-
-```rust
-use std::marker::PhantomData;
-
-struct Order<State> {
-    id: u64,
-    items: Vec<Item>,
-    _state: PhantomData<State>,  // "Pretend" we have a State
-}
-
-// Why PhantomData is needed:
-struct OrderBroken<State> {  // ❌ Error: parameter `State` is never used
-    id: u64,
-    items: Vec<Item>,
-}
-
-struct OrderFixed<State> {   // ✅ OK: State appears in PhantomData
-    id: u64,
-    items: Vec<Item>,
-    _state: PhantomData<State>,
-}
-```
-
-**PhantomData properties**:
-- **Size**: 0 bytes (optimized away at compile-time)
-- **Purpose**: Make generic parameter `State` "used" so compiler accepts it
-- **Ownership**: Tells compiler about ownership/lifetime relationships
-- **Convention**: Field name starts with `_` to indicate "unused at runtime"
-
-**State-Specific Implementations**:
-
-Each state gets its own `impl` block with only valid transitions:
-
-```rust
-// Pending state: can pay or cancel
-impl Order<Pending> {
-    fn new(customer_id: u64, items: Vec<Item>) -> Result<Self, String> {
-        // Constructor creates Order<Pending>
-    }
-
-    fn pay(self, payment_id: String) -> Result<Order<Paid>, String> {
-        // Transition: Pending → Paid
-    }
-
-    fn cancel(self, reason: String) -> Order<Cancelled> {
-        // Transition: Pending → Cancelled
-    }
-
-    // NO ship() method! ✅
-    // NO deliver() method! ✅
-}
-
-// Paid state: can ship or cancel
-impl Order<Paid> {
-    fn ship(self, tracking: String) -> Order<Shipped> {
-        // Transition: Paid → Shipped
-    }
-
-    fn cancel(self, reason: String) -> Order<Cancelled> {
-        // Transition: Paid → Cancelled
-    }
-
-    // NO pay() method! (already paid) ✅
-    // NO deliver() method! (not shipped yet) ✅
-}
-
-// Shipped state: can only deliver
-impl Order<Shipped> {
-    fn deliver(self) -> Order<Delivered> {
-        // Transition: Shipped → Delivered
-    }
-
-    // NO cancel() method! (too late) ✅
-}
-
-// Delivered and Cancelled: terminal states (no transitions)
-impl Order<Delivered> { /* no transition methods */ }
-impl Order<Cancelled> { /* no transition methods */ }
-```
-
-**The Magic of Type-Based Method Availability**:
-
-```rust
-let pending: Order<Pending> = Order::new(1, items)?;
-
-// IDE autocomplete shows:
-pending.
-  - new()          ✅ Available
-  - pay()          ✅ Available
-  - cancel()       ✅ Available
-  - id()           ✅ Available (common method)
-  - customer_id()  ✅ Available (common method)
-  // ship() and deliver() NOT shown! ✅
-
-let paid: Order<Paid> = pending.pay("PAY_123")?;
-
-// IDE autocomplete shows:
-paid.
-  - ship()         ✅ Available
-  - cancel()       ✅ Available
-  - id()           ✅ Available
-  - customer_id()  ✅ Available
-  // pay() NOT shown! ✅ (already paid)
-  // deliver() NOT shown! ✅ (not shipped yet)
-```
-
-**Common Methods Across All States**:
-
-Use generic `impl<State>` for methods available in all states:
-
-```rust
-impl<State> Order<State> {
-    // These work on Order<Pending>, Order<Paid>, Order<Shipped>, etc.
-    fn id(&self) -> u64 {
-        self.id
-    }
-
-    fn customer_id(&self) -> u64 {
-        self.customer_id
-    }
-
-    fn items(&self) -> &[Item] {
-        &self.items
-    }
-}
-
-// Can call on any state:
-let pending = Order::<Pending>::new(1, items)?;
-println!("Order ID: {}", pending.id());  // ✅
-
-let paid = pending.pay("PAY_123")?;
-println!("Order ID: {}", paid.id());     // ✅
-
-let shipped = paid.ship("TRACK_123");
-println!("Order ID: {}", shipped.id());  // ✅
-```
-
-**Consuming Transitions for Type Safety**:
-
-Each transition **consumes** the old state and **returns** the new state:
-
-```rust
-fn pay(self, payment_id: String) -> Result<Order<Paid>, String> {
-    //  ^^^^ takes ownership
-    Ok(Order {
-        id: self.id,
-        customer_id: self.customer_id,
-        items: self.items,
-        _state: PhantomData,  // New type marker!
-    })
-}
-
-// Usage:
-let pending = Order::<Pending>::new(1, items)?;
-let paid = pending.pay("PAY_123")?;
-// pending is gone! Can't use it anymore ✅
-
-// This won't compile:
-println!("{}", pending.id());  // ❌ borrow of moved value: `pending`
-```
-
-**Compile-Time Error Messages**:
-
-When you make a mistake, the compiler tells you exactly what's wrong:
-
-```rust
-let pending = Order::<Pending>::new(1, items)?;
-pending.ship("TRACK_123");
-
-// ❌ Compile error:
-// error[E0599]: no method named `ship` found for struct `Order<Pending>` in the current scope
-//   --> src/main.rs:10:13
-//    |
-// 10 |     pending.ship("TRACK_123");
-//    |             ^^^^ method not found in `Order<Pending>`
-//    |
-//    = note: the method is defined for `Order<Paid>`, but not for `Order<Pending>`
-//    = help: consider calling `.pay()` first to transition to the Paid state
-```
-
-**Real-World Typestate Pattern Examples**:
-
-1. **Database connections**:
-   ```rust
-   struct Connecting;
-   struct Connected;
-   struct Closed;
-
-   struct DbConnection<State> {
-       config: DbConfig,
-       _state: PhantomData<State>,
-   }
-
-   impl DbConnection<Connecting> {
-       fn connect() -> Result<DbConnection<Connected>, Error> { /* ... */ }
-   }
-
-   impl DbConnection<Connected> {
-       fn execute(&self, query: &str) -> Result<Vec<Row>, Error> { /* ... */ }
-       fn close(self) -> DbConnection<Closed> { /* ... */ }
-   }
-
-   impl DbConnection<Closed> {
-       // No methods! Can't use closed connection
-   }
-
-   // Won't compile:
-   let conn = DbConnection::connect()?;
-   conn.close();
-   conn.execute("SELECT * FROM users")?;  // ❌ conn is Closed!
-   ```
-
-2. **File handles**:
-   ```rust
-   struct ReadOnly;
-   struct WriteOnly;
-   struct ReadWrite;
-
-   struct File<Mode> {
-       handle: RawHandle,
-       _mode: PhantomData<Mode>,
-   }
-
-   impl File<ReadOnly> {
-       fn read(&mut self, buf: &mut [u8]) -> Result<usize> { /* ... */ }
-       // NO write() method! ✅
-   }
-
-   impl File<WriteOnly> {
-       fn write(&mut self, buf: &[u8]) -> Result<usize> { /* ... */ }
-       // NO read() method! ✅
-   }
-
-   impl File<ReadWrite> {
-       fn read(&mut self, buf: &mut [u8]) -> Result<usize> { /* ... */ }
-       fn write(&mut self, buf: &[u8]) -> Result<usize> { /* ... */ }
-   }
-   ```
-
-3. **HTTP request builder** (like `reqwest`):
-   ```rust
-   struct NoUrl;
-   struct HasUrl;
-
-   struct RequestBuilder<State> {
-       url: Option<String>,
-       headers: HashMap<String, String>,
-       _state: PhantomData<State>,
-   }
-
-   impl RequestBuilder<NoUrl> {
-       fn new() -> Self { /* ... */ }
-       fn url(self, url: impl Into<String>) -> RequestBuilder<HasUrl> { /* ... */ }
-       // NO send() method! Must set URL first ✅
-   }
-
-   impl RequestBuilder<HasUrl> {
-       fn send(self) -> Result<Response> { /* ... */ }
-       // Only available after URL is set! ✅
-   }
-
-   // Won't compile:
-   let request = RequestBuilder::new();
-   request.send()?;  // ❌ No send() on RequestBuilder<NoUrl>
-   ```
-
 **Advantages of Typestate Pattern**:
 
 ✅ **Compile-time safety**: Invalid transitions caught before runtime
@@ -2933,115 +1348,6 @@ pending.ship("TRACK_123");
 ❌ **Trait objects difficult**: Need trait bounds for dynamic dispatch
 ❌ **Learning curve**: PhantomData and type-level programming are advanced concepts
 
-**When to Use Typestate vs Enum States**:
-
-| Use Typestate When... | Use Enum When... |
-|----------------------|------------------|
-| State flow is known at compile-time | State changes based on runtime data |
-| Want maximum compile-time safety | Need to store mixed states (`Vec<OrderState>`) |
-| Building APIs where mistakes are costly | Building flexible workflow engines |
-| IDE support is critical | Dynamic state transitions (e.g., config-driven) |
-| Zero runtime cost is important | Simplicity is more important than type safety |
-
-**Examples**:
-- **Typestate**: Database connections, file handles, protocol parsers, builder APIs
-- **Enum**: Order processing, payment workflows, game states, document lifecycles
-
-**Hybrid Approach**:
-
-Sometimes you need both! Use typestate for compile-time safety, wrap in enum for storage:
-
-```rust
-// Typestate for API safety
-struct Order<State> { /* ... */ }
-
-// Enum for storage
-enum AnyOrder {
-    Pending(Order<Pending>),
-    Paid(Order<Paid>),
-    Shipped(Order<Shipped>),
-    Delivered(Order<Delivered>),
-    Cancelled(Order<Cancelled>),
-}
-
-// Store mixed states
-let orders: Vec<AnyOrder> = vec![
-    AnyOrder::Pending(pending_order),
-    AnyOrder::Shipped(shipped_order),
-];
-```
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_typestate_valid_flow() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let order = Order::<Pending>::new(1, items).unwrap();
-    let order = order.pay("payment_123".to_string()).unwrap();
-    let order = order.ship("TRACK123".to_string());
-    let order = order.deliver();
-
-    // order is now Order<Delivered>
-    assert_eq!(order.customer_id(), 1);
-}
-
-#[test]
-fn test_compile_time_enforcement() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let pending_order = Order::<Pending>::new(1, items).unwrap();
-
-    // These won't compile! Uncomment to see errors:
-    // pending_order.ship("TRACK123".to_string()); // ❌ No ship method on Pending
-    // pending_order.deliver(); // ❌ No deliver method on Pending
-
-    let paid_order = pending_order.pay("payment_123".to_string()).unwrap();
-    // paid_order.pay("payment_456".to_string()); // ❌ No pay method on Paid (consumed)
-
-    let shipped_order = paid_order.ship("TRACK123".to_string());
-    // shipped_order.cancel("Oops".to_string()); // ❌ No cancel method on Shipped!
-}
-
-#[test]
-fn test_cancellation_only_early_states() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    // Can cancel pending
-    let order = Order::<Pending>::new(1, items.clone()).unwrap();
-    let _cancelled = order.cancel("Customer request".to_string());
-
-    // Can cancel paid
-    let order = Order::<Pending>::new(1, items).unwrap();
-    let order = order.pay("payment_123".to_string()).unwrap();
-    let _cancelled = order.cancel("Changed mind".to_string());
-
-    // Shipped orders don't have cancel method - compile-time enforcement!
-}
-
-#[test]
-fn test_common_methods_all_states() {
-    let items = vec![
-        Item { product_id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    let pending = Order::<Pending>::new(1, items.clone()).unwrap();
-    assert_eq!(pending.customer_id(), 1);
-
-    let paid = Order::<Pending>::new(1, items).unwrap()
-        .pay("payment_123".to_string())
-        .unwrap();
-    assert_eq!(paid.customer_id(), 1);
-
-    // Common methods available in all states
-}
-```
 
 **Starter Code**:
 ```rust

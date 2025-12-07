@@ -12,36 +12,6 @@ Build a generic priority queue data structure that can work with any type implem
 
 The priority queue must be fully generic over the element type and provide compile-time guarantees about ordering requirements.
 
-### Why It Matters
-
-Priority queues are fundamental data structures used in:
-- **Operating Systems**: Process scheduling, interrupt handling
-- **Algorithms**: Dijkstra's shortest path, A* search, Huffman coding
-- **Real-time Systems**: Event processing by priority
-- **Resource Management**: Task queuing, load balancing
-
-Understanding how to implement generic collections with trait bounds teaches you how Rust's standard library works internally. You'll learn why `BinaryHeap<T>` requires `T: Ord` and how to design APIs that are both flexible and type-safe.
-
-### Learning Goals
-
-By completing this project, you will:
-
-1. **Master generic programming**: Build data structures that work with any type satisfying trait bounds
-2. **Understand trait bounds**: Learn when to use Ord, PartialOrd, and custom traits
-3. **Work with phantom types**: Use PhantomData for zero-cost type-level distinctions
-4. **Implement heap algorithms**: Understand sift-up, sift-down, and heap properties
-5. **Design flexible APIs**: Support both min-heap and max-heap with the same implementation
-6. **Practice zero-cost abstractions**: Build ergonomic APIs with no runtime overhead
-
-### Use Cases
-
-1. **Task Scheduler**: Schedule tasks by priority, deadline, or custom business logic
-2. **Event-Driven Systems**: Process events in priority order
-3. **Graph Algorithms**: Implement A*, Dijkstra, Prim's algorithm efficiently
-4. **Median Finding**: Maintain streaming median using two heaps
-5. **Merge K Sorted Lists**: Efficiently merge sorted iterators
-6. **Job Queue Systems**: Background job processing with priority levels
-
 ### Solution Outline
 
 **Core Structure:**

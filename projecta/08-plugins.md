@@ -6,21 +6,6 @@ Build a plugin system that allows loading different plugins at runtime. You'll s
 
 ### Use Cases
 
-**When you need this pattern**:
-1. **Plugin architectures**: Load functionality at runtime, not compile-time
-2. **Heterogeneous collections**: Vec<Box<dyn Widget>> - different types, same interface
-3. **Embedded/WASM**: Binary size matters, dynamic dispatch reduces bloat
-4. **Middleware chains**: HTTP middleware, database interceptors
-5. **Event systems**: Different event handlers with uniform interface
-6. **Component systems**: Game entities with different component types
-
-**Real-World Impact**: Plugin systems are fundamental to extensible software architecture:
-
-**The Monolithic Problem**:
-- **Without plugins**: Every feature hardcoded → 100MB binary for text editor with all features
-- **Firefox without extensions**: Would need to rebuild browser for every user preference
-- **VSCode**: Core is ~50MB, extensions add functionality on-demand
-- **Photoshop**: Plugin architecture allows third-party filters without modifying core
 
 ### Why It Matters
 
@@ -49,17 +34,6 @@ fn process(plugin: &dyn Plugin) {
 - **Binary size**: Static = N × function_size, Dynamic = 1 × function_size
 - **Compilation**: Static = slower (more monomorphization), Dynamic = faster
 
-### Learning Goals
-
-By completing this project, you will:
-
-1. **Master trait objects**: Understand dyn Trait and how dynamic dispatch works
-2. **Work with heterogeneous collections**: Store different types implementing the same trait
-3. **Understand vtables**: Learn how Rust implements runtime polymorphism
-4. **Practice object safety**: Learn which traits can be used as trait objects
-5. **Compare dispatch strategies**: Understand trade-offs between static and dynamic dispatch
-6. **Build extensible systems**: Design plugin architectures that support runtime loading
-
 
 **Dynamic Dispatch is Critical When**:
 - Types not known at compile-time (loading from disk/network)
@@ -67,23 +41,11 @@ By completing this project, you will:
 - Many implementations (100+ plugins → avoid code bloat)
 - Hot-loading required (swap implementations at runtime)
 
-### Learning Goals
-
-- Understand trait objects (`&dyn Trait`, `Box<dyn Trait>`)
-- Learn object safety rules and constraints
-- Compare static vs dynamic dispatch trade-offs
-- Build heterogeneous collections
-- Implement vtable-based polymorphism
-- Measure performance impact of dynamic dispatch
-
 ---
 
 ### Milestone 1: Basic Plugin Trait with Static Dispatch
 
 **Goal**: Define a plugin trait and implement it for several types.
-
-
-
 
 **Architecture**
 **trait** `Plugin`
@@ -127,7 +89,6 @@ impl Plugin for GreeterPlugin {
     // Role: Demonstrates simple string processing plugin
     fn execute(&self) -> Result<String, String> {
         // TODO: Return Ok with greeting message
-        // Hint: Ok(self.greeting.clone())
         todo!()
     }
 }
@@ -139,7 +100,6 @@ struct CalculatorPlugin;
 impl Plugin for CalculatorPlugin {
     // name: Identifies this as the calculator plugin
     fn name(&self) -> &str {
-        // TODO: Return plugin name "Calculator"
         todo!()
     }
 
@@ -153,7 +113,6 @@ impl Plugin for CalculatorPlugin {
     // Role: Demonstrates computational plugin
     fn execute(&self) -> Result<String, String> {
         // TODO: Perform a simple calculation and return result
-        // Example: Ok("2 + 2 = 4".to_string())
         todo!()
     }
 }
@@ -164,8 +123,6 @@ impl Plugin for CalculatorPlugin {
 fn run_plugin<T: Plugin>(plugin: &T) {
     // TODO: Print plugin name and version
     // TODO: Execute plugin and print result or error
-    // Hint: println!("{} v{}", plugin.name(), plugin.version());
-    // Hint: match plugin.execute() { Ok(msg) => ..., Err(e) => ... }
     todo!()
 }
 ```
@@ -209,7 +166,7 @@ fn test_static_dispatch() {
 
 ---
 
-### 🔄 Why Milestone 1 Isn't Enough
+### Why Milestone 1 Isn't Enough
 
 **Critical Limitations**:
 1. **Can't store mixed types**: `Vec<Plugin>` doesn't work - Plugin isn't sized
@@ -268,8 +225,6 @@ impl Plugin for FileReaderPlugin {
     // Role: Demonstrates file I/O plugin pattern
     fn execute(&self) -> Result<String, String> {
         // TODO: Read file at self.path (simulate with dummy data for now)
-        // Return Ok(content) or Err(error_message)
-        // Hint: Ok(format!("Read content from: {}", self.path))
         todo!()
     }
 }
@@ -279,8 +234,6 @@ impl Plugin for FileReaderPlugin {
 // Note: Only one function generated (vs one per type with static dispatch)
 fn run_plugin_dynamic(plugin: &dyn Plugin) {
     // TODO: Same as static version but takes trait object
-    // Print name, version, execute result
-    // Hint: Same implementation as run_plugin<T> but takes &dyn Plugin
     todo!()
 }
 
@@ -295,7 +248,6 @@ impl PluginManager {
     // Role: Initializes plugin registry
     fn new() -> Self {
         // TODO: Create PluginManager with empty Vec
-        // Hint: PluginManager { plugins: Vec::new() }
         todo!()
     }
 
@@ -304,7 +256,6 @@ impl PluginManager {
     // Note: Takes Box<dyn Plugin> for heap allocation and ownership
     fn register(&mut self, plugin: Box<dyn Plugin>) {
         // TODO: Add plugin to Vec
-        // Hint: self.plugins.push(plugin);
         todo!()
     }
 
@@ -312,7 +263,6 @@ impl PluginManager {
     // Role: Batch plugin execution for startup/shutdown hooks
     fn run_all(&self) {
         // TODO: Iterate through plugins and run each one
-        // Hint: for plugin in &self.plugins { run_plugin_dynamic(plugin.as_ref()); }
         todo!()
     }
 
@@ -321,7 +271,6 @@ impl PluginManager {
     // Returns: Trait object reference if found, None otherwise
     fn get_plugin(&self, name: &str) -> Option<&dyn Plugin> {
         // TODO: Find plugin by name
-        // Hint: self.plugins.iter().find(|p| p.name() == name).map(|b| b.as_ref())
         todo!()
     }
 }
@@ -380,7 +329,7 @@ fn test_dynamic_dispatch() {
 
 ---
 
-### 🔄 Why Milestone 2 Isn't Enough
+### Why Milestone 2 Isn't Enough
 
 **Remaining Issues**:
 1. **No plugin metadata**: Can't query capabilities, dependencies, etc.
@@ -424,7 +373,6 @@ impl PluginConfig {
     // Role: Initializes fresh config for plugin setup
     fn new() -> Self {
         // TODO: Create empty config
-        // Hint: PluginConfig { settings: HashMap::new() }
         todo!()
     }
 
@@ -432,7 +380,6 @@ impl PluginConfig {
     // Role: Sets plugin parameters (e.g., "log_level" => "DEBUG")
     fn set(&mut self, key: String, value: String) {
         // TODO: Insert key-value pair
-        // Hint: self.settings.insert(key, value);
         todo!()
     }
 
@@ -440,7 +387,6 @@ impl PluginConfig {
     // Role: Allows plugins to read their configuration
     fn get(&self, key: &str) -> Option<&str> {
         // TODO: Get value by key
-        // Hint: self.settings.get(key).map(|s| s.as_str())
         todo!()
     }
 }
@@ -503,7 +449,6 @@ impl LoggingPlugin {
     // Role: Constructor called before initialize()
     fn new() -> Self {
         // TODO: Create with default values
-        // Hint: LoggingPlugin { log_level: "INFO".to_string(), initialized: false }
         todo!()
     }
 }
@@ -522,8 +467,6 @@ impl Plugin for LoggingPlugin {
     fn initialize(&mut self, config: &PluginConfig) -> Result<(), String> {
         // TODO: Read log_level from config, set initialized = true
         // If config has "log_level", use it; otherwise keep default "INFO"
-        // Hint: if let Some(level) = config.get("log_level") { self.log_level = level.to_string(); }
-        // Hint: self.initialized = true;
         todo!()
     }
 
@@ -532,8 +475,6 @@ impl Plugin for LoggingPlugin {
     fn execute(&self) -> Result<String, String> {
         // TODO: Check if initialized, return error if not
         // Otherwise, return log message with current level
-        // Hint: if !self.initialized { return Err("Not initialized".to_string()); }
-        // Hint: Ok(format!("Logging at level: {}", self.log_level))
         todo!()
     }
 
@@ -541,7 +482,6 @@ impl Plugin for LoggingPlugin {
     // Role: Prepares plugin for shutdown or reinitialization
     fn cleanup(&mut self) -> Result<(), String> {
         // TODO: Set initialized = false, reset state
-        // Hint: self.initialized = false; Ok(())
         todo!()
     }
 }
@@ -579,7 +519,6 @@ impl EnhancedPluginManager {
         // TODO: Initialize plugin with config
         // TODO: If initialization succeeds, add to Vec
         // TODO: If fails, return error (plugin not added)
-        // Hint: plugin.initialize(config)?; self.plugins.push(plugin); Ok(())
         todo!()
     }
 
@@ -588,7 +527,6 @@ impl EnhancedPluginManager {
     fn execute_plugin(&self, name: &str) -> Result<String, String> {
         // TODO: Find plugin by name and execute it
         // Return Err if not found
-        // Hint: self.plugins.iter().find(|p| p.name() == name)...
         todo!()
     }
 
@@ -600,9 +538,6 @@ impl EnhancedPluginManager {
         // TODO: Call cleanup() on all plugins
         // Collect any errors (don't stop on first error)
         // Clear the plugins Vec
-        // Hint: for plugin in &mut self.plugins { if let Err(e) = plugin.cleanup() { errors.push(e); } }
-        // Hint: self.plugins.clear();
-
         errors
     }
 }
@@ -665,63 +600,6 @@ fn test_metadata() {
 }
 ```
 
-
-**Check Your Understanding**:
-```rust
-#[test]
-fn test_plugin_lifecycle() {
-    let mut plugin = LoggingPlugin::new();
-
-    // Not initialized yet
-    assert!(!plugin.initialized);
-
-    // Initialize with config
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "DEBUG".to_string());
-
-    assert!(plugin.initialize(&config).is_ok());
-    assert!(plugin.initialized);
-    assert_eq!(plugin.log_level, "DEBUG");
-
-    // Execute should work now
-    assert!(plugin.execute().is_ok());
-
-    // Cleanup
-    assert!(plugin.cleanup().is_ok());
-    assert!(!plugin.initialized);
-}
-
-#[test]
-fn test_enhanced_manager() {
-    let mut manager = EnhancedPluginManager::new();
-
-    let mut config = PluginConfig::new();
-    config.set("log_level".to_string(), "INFO".to_string());
-
-    // Register and initialize
-    let plugin = Box::new(LoggingPlugin::new());
-    assert!(manager.register_and_init(plugin, &config).is_ok());
-
-    // Execute by name
-    let result = manager.execute_plugin("Logger");
-    assert!(result.is_ok());
-
-    // Shutdown
-    let errors = manager.shutdown();
-    assert!(errors.is_empty());
-    assert_eq!(manager.plugins.len(), 0);
-}
-
-#[test]
-fn test_metadata() {
-    let plugin = LoggingPlugin::new();
-
-    // Check metadata
-    assert_eq!(plugin.author(), "Plugin Team");
-    assert!(!plugin.description().is_empty());
-    assert_eq!(plugin.dependencies().len(), 0);
-}
-```
 
 **Check Your Understanding**:
 - Why separate `PluginMetadata` from `Plugin` trait?

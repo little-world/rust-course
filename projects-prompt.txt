@@ -27,4 +27,4 @@ put a complete working example at the end the project
 
 write the projects in 3 separate files
 
-read 25-ffi-c* in the src directory
+read 26-network* in the src directory
