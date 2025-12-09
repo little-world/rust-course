@@ -5,6 +5,551 @@
 Build a parser for arithmetic expressions, that uses arena (bump) allocation. This demonstrates how arena allocation can dramatically speed up programs that create many small objects.
 Wew go from simple expression enums to lexer to parser
 
+---
+
+## Understanding Parsers: ASTs, Expressions, Lexers, and Recursive Descent
+
+Before diving into the implementation, let's understand the fundamental concepts that make parsers work. This project implements a complete parser pipeline from scratch, giving you hands-on experience with concepts used in every compiler, interpreter, and language tool.
+
+### What is a Parser?
+
+A **parser** is a program that reads text (source code, JSON, configuration files, etc.) and converts it into a structured representation that computers can work with. Every programming language, database query language, and markup language needs a parser.
+
+**The fundamental problem**: Computers can't directly understand text like `"2 + 3 * 4"`. They need this converted into a **tree structure** that represents the operations and their precedence.
+
+**Example transformation**:
+```
+Text input: "2 + 3 * 4"
+
+Parser converts to tree:
+        (+)
+       /   \
+      2    (*)
+          /   \
+         3     4
+
+This tree says: "First multiply 3 and 4, then add 2 to the result"
+Result: 2 + 12 = 14 (not 20!)
+```
+
+---
+
+### Abstract Syntax Trees (ASTs)
+
+An **Abstract Syntax Tree (AST)** is a tree representation of the structure of source code. Each node in the tree represents a construct in the code.
+
+**Why "Abstract"?**
+- The tree abstracts away syntactic details like parentheses, whitespace, and semicolons
+- It captures **meaning** (semantics), not just **form** (syntax)
+- Example: `(2+3)` and `2+3` produce the same AST even though the text is different
+
+**AST vs Parse Tree**:
+```
+Input: "2 + 3"
+
+Parse Tree (concrete, includes all syntax):
+    Expr
+     |
+    Term
+     |
+   Factor  '+'  Factor
+     |            |
+    '2'          '3'
+
+AST (abstract, only meaning):
+    (+)
+   /   \
+  2     3
+```
+
+**AST Structure for Arithmetic Expressions**:
+
+```rust
+// Our AST nodes
+enum Expr {
+    Literal(i64),              // A number: 42
+    BinOp {                     // Binary operation: left op right
+        op: OpType,             // +, -, *, /
+        left: &Expr,           // Left sub-expression
+        right: &Expr,          // Right sub-expression
+    }
+}
+```
+
+**Example ASTs**:
+
+```
+Expression: "5"
+AST: Literal(5)
+
+Expression: "2 + 3"
+AST:
+    BinOp {
+        op: Add,
+        left: Literal(2),
+        right: Literal(3)
+    }
+
+Expression: "2 + 3 * 4"
+AST:
+    BinOp {
+        op: Add,
+        left: Literal(2),
+        right: BinOp {
+            op: Mul,
+            left: Literal(3),
+            right: Literal(4)
+        }
+    }
+
+Expression: "(2 + 3) * 4"
+AST:
+    BinOp {
+        op: Mul,
+        left: BinOp {
+            op: Add,
+            left: Literal(2),
+            right: Literal(3)
+        },
+        right: Literal(4)
+    }
+```
+
+**Key AST Properties**:
+
+1. **Recursive Structure**: Trees can be arbitrarily nested
+   - `1 + 2` is a tree
+   - `(1 + 2) * (3 + 4)` is a tree containing two smaller trees
+
+2. **Evaluation by Tree Walk**: To evaluate an expression, walk the tree recursively:
+   ```rust
+   fn eval(expr: &Expr) -> i64 {
+       match expr {
+           Expr::Literal(n) => *n,  // Base case
+           Expr::BinOp { op, left, right } => {
+               let l = eval(left);   // Recursive call
+               let r = eval(right);  // Recursive call
+               apply_op(op, l, r)
+           }
+       }
+   }
+   ```
+
+3. **Precedence is Encoded in Structure**: Higher-precedence operations are deeper in the tree
+   - In `2 + 3 * 4`, the multiplication is a child of addition
+   - The multiplication must evaluate first (depth-first)
+
+---
+
+### What are Expressions?
+
+An **expression** is a combination of values, variables, and operators that can be **evaluated** to produce a value.
+
+**Expression Examples**:
+```
+42                    → Evaluates to 42
+2 + 3                 → Evaluates to 5
+2 + 3 * 4             → Evaluates to 14
+(2 + 3) * 4           → Evaluates to 20
+((1 + 2) * 3) - 4     → Evaluates to 5
+```
+
+**Not expressions** (these are statements, they don't produce values):
+```
+let x = 5;            // Variable declaration
+if x > 0 { ... }      // Conditional statement
+while true { ... }    // Loop statement
+```
+
+**Expression Components**:
+
+1. **Literals**: Concrete values like `42`, `3.14`, `"hello"`
+2. **Operators**: Symbols that combine values like `+`, `-`, `*`, `/`
+3. **Operands**: The values operators work on
+4. **Precedence**: Rules for which operators bind tighter
+   - `*` and `/` bind tighter than `+` and `-`
+   - `2 + 3 * 4` = `2 + (3 * 4)`, not `(2 + 3) * 4`
+
+5. **Associativity**: When operators have equal precedence, which direction to evaluate
+   - Left associative: `10 - 5 - 2` = `(10 - 5) - 2` = 3
+   - Right associative: `2 ^ 3 ^ 2` = `2 ^ (3 ^ 2)` = 512 (in languages with exponentiation)
+
+**Operator Precedence Table** (for this project):
+```
+Highest: ( )         Parentheses (force evaluation order)
+         * /         Multiplication and Division
+Lowest:  + -         Addition and Subtraction
+
+Examples:
+2 + 3 * 4     = 2 + (3 * 4) = 14
+8 / 4 / 2     = (8 / 4) / 2 = 1    (left associative)
+2 + 3 - 1     = (2 + 3) - 1 = 4    (left associative)
+(2 + 3) * 4   = 5 * 4 = 20         (parens override precedence)
+```
+
+**Why Expressions Matter**:
+
+Every programming language has expressions:
+- **JavaScript**: `x + y`, `foo() && bar()`, `a ? b : c`
+- **Python**: `x + y`, `[i*2 for i in range(10)]`, `a if cond else b`
+- **Rust**: `x + y`, `Some(42)`, `vec![1, 2, 3]`
+- **SQL**: `price * quantity`, `UPPER(name)`, `age > 18 AND active = true`
+
+Understanding how to parse expressions is fundamental to working with any language.
+
+---
+
+### What is a Lexer (Tokenizer)?
+
+A **lexer** (also called tokenizer or scanner) is the first stage of parsing. It breaks raw text into meaningful chunks called **tokens**.
+
+**The Lexer's Job**:
+```
+Input:  "(2 + 3) * 4"    ← Raw string of characters
+Output: [LeftParen, Number(2), Plus, Number(3), RightParen, Star, Number(4), End]
+                         ↑ Tokens
+```
+
+**Why We Need Lexers**:
+
+1. **Simplification**: The parser doesn't have to worry about:
+   - Skipping whitespace
+   - Reading multi-character numbers
+   - Handling comments
+   - Unicode vs ASCII
+
+2. **Separation of Concerns**:
+   - Lexer handles **character-level** details
+   - Parser handles **structural** details
+
+3. **Performance**: Can optimize lexer separately (e.g., SIMD for digit scanning)
+
+4. **Reusability**: Same token stream can feed different parsers
+
+**Token Types**:
+
+```rust
+enum Token {
+    Number(i64),        // 42, 123, 9876
+    Plus,               // +
+    Minus,              // -
+    Star,               // *
+    Slash,              // /
+    LeftParen,          // (
+    RightParen,         // )
+    End,                // End of input
+}
+```
+
+**Lexer Algorithm**:
+
+```
+function next_token():
+    1. Skip whitespace (spaces, tabs, newlines)
+    2. Look at current character:
+       - If digit: read_number() → Token::Number(n)
+       - If '+': return Token::Plus
+       - If '-': return Token::Minus
+       - If '*': return Token::Star
+       - If '/': return Token::Slash
+       - If '(': return Token::LeftParen
+       - If ')': return Token::RightParen
+       - If end of input: return Token::End
+       - Otherwise: ERROR (unexpected character)
+    3. Advance position past the token
+    4. Return the token
+```
+
+**Example Tokenization**:
+
+```
+Input: "10 + 5 * 2"
+
+Step-by-step:
+Position 0: '1' is digit → read_number() reads "10" → Token::Number(10)
+Position 2: ' ' is space → skip
+Position 3: '+' → Token::Plus
+Position 4: ' ' is space → skip
+Position 5: '5' is digit → read_number() reads "5" → Token::Number(5)
+Position 6: ' ' is space → skip
+Position 7: '*' → Token::Star
+Position 8: ' ' is space → skip
+Position 9: '2' is digit → read_number() reads "2" → Token::Number(2)
+Position 10: End of input → Token::End
+
+Result: [Number(10), Plus, Number(5), Star, Number(2), End]
+```
+
+**Reading Multi-Character Tokens**:
+
+```rust
+fn read_number() -> i64 {
+    let mut num = 0;
+    while current char is digit {
+        num = num * 10 + (char - '0');  // Build number digit by digit
+        advance();
+    }
+    return num;
+}
+```
+Example: "123"
+Start: num = 0
+See '1': num = 0*10 + 1 = 1
+See '2': num = 1*10 + 2 = 12
+See '3': num = 12*10 + 3 = 123
+See ' ': not a digit, stop
+Return 123
+
+
+**Lexer State**:
+
+```rust
+struct Lexer {
+    input: Vec<char>,     // Input text as characters
+    position: usize,      // Current position in input
+}
+```
+
+**Why Vec<char> instead of &str**?
+- Easy indexing by character (not byte)
+- Handles multi-byte Unicode correctly
+- Simple position counter
+
+---
+
+### What is Recursive Descent Parsing?
+
+**Recursive descent** is a parsing technique where:
+1. Each grammar rule becomes a function
+2. Functions call each other recursively to match nested structures
+3. The call stack mirrors the parse tree structure
+
+**Our Grammar** (for arithmetic expressions):
+```
+Expr   → Term (('+' | '-') Term)*      // Lowest precedence
+Term   → Factor (('*' | '/') Factor)*  // Medium precedence
+Factor → Number | '(' Expr ')'         // Highest precedence
+```
+
+**Reading the Grammar**:
+- `→` means "is defined as"
+- `|` means "or"
+- `*` means "zero or more"
+- `()` groups elements
+
+**Translation to Functions**:
+
+```rust
+// Expr → Term (('+' | '-') Term)*
+fn parse_expr() -> Expr {
+    let mut left = parse_term();      // Start with a Term
+    while current token is '+' or '-' {
+        let op = consume operator;
+        let right = parse_term();
+        left = BinOp(op, left, right);
+    }
+    return left;
+}
+
+// Term → Factor (('*' | '/') Factor)*
+fn parse_term() -> Expr {
+    let mut left = parse_factor();    // Start with a Factor
+    while current token is '*' or '/' {
+        let op = consume operator;
+        let right = parse_factor();
+        left = BinOp(op, left, right);
+    }
+    return left;
+}
+
+// Factor → Number | '(' Expr ')'
+fn parse_factor() -> Expr {
+    if current token is Number(n) {
+        consume token;
+        return Literal(n);
+    }
+    if current token is '(' {
+        consume '(';
+        let expr = parse_expr();     // Recursive call!
+        expect ')';
+        return expr;
+    }
+    error("Expected number or '('");
+}
+```
+
+**How Precedence Works**:
+
+The grammar encodes precedence through **nesting depth**:
+- `Factor` (deepest) = highest precedence
+- `Term` (middle) = medium precedence
+- `Expr` (top) = lowest precedence
+
+**Example Parse: `2 + 3 * 4`**
+
+```
+Tokens: [Number(2), Plus, Number(3), Star, Number(4), End]
+
+parse_expr():
+  left = parse_term():
+    left = parse_factor():
+      See Number(2) → return Literal(2)
+    See '+' (not '*' or '/') → return Literal(2)
+
+  See '+' → consume it
+
+  right = parse_term():
+    left = parse_factor():
+      See Number(3) → return Literal(3)
+    See '*' → consume it
+    right = parse_factor():
+      See Number(4) → return Literal(4)
+    left = BinOp(Mul, Literal(3), Literal(4))
+    No more '*' or '/' → return BinOp(Mul, 3, 4)
+
+  left = BinOp(Add, Literal(2), BinOp(Mul, 3, 4))
+
+  No more '+' or '-' → return result
+
+Result AST:
+    Add
+   /   \
+  2    Mul
+      /   \
+     3     4
+```
+
+**Why Three Levels?**
+
+This ensures `3 * 4` is fully parsed **before** returning to the addition:
+- `parse_expr()` calls `parse_term()` for "3 * 4"
+- `parse_term()` consumes both "3" and "* 4" as a unit
+- Returns `Mul(3, 4)` as a **single node**
+- `parse_expr()` then builds `Add(2, Mul(3, 4))`
+
+**Example Parse: `(2 + 3) * 4`**
+
+```
+Tokens: [LeftParen, Number(2), Plus, Number(3), RightParen, Star, Number(4), End]
+
+parse_expr():
+  left = parse_term():
+    left = parse_factor():
+      See '(' → consume it
+
+      Recursive call to parse_expr():  ← RECURSION!
+        left = parse_term():
+          left = parse_factor():
+            See Number(2) → return Literal(2)
+          No '*' or '/' → return Literal(2)
+        See '+' → consume it
+        right = parse_term():
+          left = parse_factor():
+            See Number(3) → return Literal(3)
+          No '*' or '/' → return Literal(3)
+        left = BinOp(Add, Literal(2), Literal(3))
+        No more '+' or '-' → return Add(2, 3)
+
+      Expect ')' → found it, consume
+      return Add(2, 3)  ← Returns from recursive call
+
+    See '*' → consume it
+    right = parse_factor():
+      See Number(4) → return Literal(4)
+    left = BinOp(Mul, Add(2, 3), Literal(4))
+    No more '*' or '/' → return Mul(Add(2, 3), 4)
+
+  No '+' or '-' → return result
+
+Result AST:
+     Mul
+    /   \
+  Add    4
+ /   \
+2     3
+```
+
+**Key Insight**: The parentheses forced `parse_factor()` to recursively call `parse_expr()`, which parsed the entire `2 + 3` before returning. This is how parentheses override precedence!
+
+---
+
+### The Complete Parser Pipeline
+
+Putting it all together:
+
+```
+Step 1: LEXER (Character → Tokens)
+Input:  "(2 + 3) * 4"
+Output: [LeftParen, Number(2), Plus, Number(3), RightParen, Star, Number(4), End]
+
+Step 2: PARSER (Tokens → AST)
+Input:  [LeftParen, Number(2), Plus, Number(3), RightParen, Star, Number(4), End]
+Output:      Mul
+            /   \
+          Add    4
+         /   \
+        2     3
+
+Step 3: EVALUATOR (AST → Result)
+Input:  AST tree
+Process:
+  - Evaluate Add(2, 3) → 5
+  - Evaluate Mul(5, 4) → 20
+Output: 20
+```
+
+**Why This Separation?**
+
+1. **Lexer** handles messy character-level details
+2. **Parser** focuses on structure and meaning
+3. **Evaluator** (or code generator, or interpreter) uses the clean AST
+
+Each stage is simpler and more testable because of this separation!
+
+---
+
+### Real-World Applications
+
+**Compilers and Interpreters**:
+- **C compiler**: Parses `int x = 5;` into an AST, generates assembly
+- **Python**: Parses code into AST, interprets or compiles to bytecode
+- **JavaScript V8**: Parses JS code, generates optimized machine code
+
+**Data Formats**:
+- **JSON**: Parses `{"name": "Alice"}` into object representation
+- **XML/HTML**: Parses tags into DOM tree
+- **YAML**: Parses configuration into nested structures
+
+**Query Languages**:
+- **SQL**: Parses `SELECT * FROM users WHERE age > 18` into query plan
+- **GraphQL**: Parses queries into execution plan
+
+**Domain-Specific Languages (DSLs)**:
+- **CSS selectors**: `.class > #id` parsed into selector tree
+- **Regex**: `/a+b*/` parsed into state machine
+- **Build systems**: `Makefile` rules parsed into dependency graph
+
+---
+
+### Connection to This Project
+
+In this project, you'll implement the complete pipeline:
+
+1. **Milestone 1-2**: Define AST types (`Expr` enum)
+2. **Milestone 3-4**: Optimize AST allocation with arena (bump allocator)
+3. **Milestone 5**: Build the lexer to convert text to tokens
+4. **Milestone 6**: Implement recursive descent parser
+5. **Milestone 7**: Compare performance with traditional allocation
+
+**Key Learning Points**:
+- ASTs represent program structure as trees
+- Lexers simplify parsing by handling character-level details
+- Recursive descent is an intuitive parsing technique
+- Grammar structure encodes operator precedence
+- Arena allocation can dramatically speed up tree construction
+
+---
+
 ### Use Cases
 
 **When you need this pattern**:
@@ -15,7 +560,7 @@ Wew go from simple expression enums to lexer to parser
 5. **Text editors**: Syntax tree for incremental parsing
 6. **JSON/XML parsers**: DOM nodes, parsing state
 
-### Why It Matters
+### Why Arena allocation
 
 **Performance Disaster with Box<T>**:
 - Parsing 10,000 expressions with `Box<Expr>`: Each node = 1 malloc call
@@ -30,14 +575,6 @@ Wew go from simple expression enums to lexer to parser
 - Same 70,000 nodes: 70,000 × 3ns = **0.21ms** for allocation
 - **25x faster allocation**, plus better cache locality
 
-
-### Learning Goals
-
-- Understand arena/bump allocation and when it's appropriate
-- Work with lifetimes in AST structures (`'arena` lifetime)
-- Experience 10-100x allocation speedup
-- Practice recursive descent parsing
-- Understand memory layout and alignment requirements
 
 ---
 

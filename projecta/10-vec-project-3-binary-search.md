@@ -25,8 +25,6 @@ Speedup: 50,000x for k=1000 results
 
 Binary search is one of the most fundamental algorithms: O(log n) vs O(n) is the difference between 20 operations and 1,000,000 operations for n=1M. Many production systems rely on sorted data: databases (B-trees), file systems, network routing tables, autocomplete systems.
 
-Understanding binary search variants enables building efficient query systems without heavy database dependencies.
-
 ---
 
 ### Milestone 1: Implement Binary Search Variants
@@ -39,13 +37,39 @@ Understanding binary search variants enables building efficient query systems wi
 - `binary_search_upper_bound()`: Find first element > target
 - Generic implementations that work with any ordered type
 
-**Architecture**:
-- Functions:
-  - `binary_search_exact<T: Ord>(arr: &[T], target: &T) -> Option<usize>` - Exact match
-  - `binary_search_lower_bound<T: Ord>(arr: &[T], target: &T) -> usize` - Lower bound
-  - `binary_search_upper_bound<T: Ord>(arr: &[T], target: &T) -> usize` - Upper bound
+---
+
+**Binary Search Explained**:
+
+Binary search is a divide-and-conquer algorithm that finds an element in a **sorted** array in O(log n) time.
+
+**How it works**:
+1. Start with two pointers: `left = 0`, `right = array.len()`
+2. Calculate middle: `mid = (left + right) / 2`
+3. Compare `array[mid]` with `target`:
+   - If `array[mid] == target`: Found! Return `mid`
+   - If `array[mid] < target`: Search right half (`left = mid + 1`)
+   - If `array[mid] > target`: Search left half (`right = mid`)
+4. Repeat until `left >= right`
+
+**Example**: Search for 7 in `[1, 3, 5, 7, 9, 11, 13]`
+```
+Step 1: left=0, right=7, mid=3 → arr[3]=7 → Found at index 3!
+```
+
+**Variants**:
+- **Exact match**: Return index if found, None otherwise
+- **Lower bound**: First position where `arr[i] >= target` (leftmost insertion point)
+- **Upper bound**: First position where `arr[i] > target` (rightmost insertion point)
 
 ---
+
+
+**Key differences**:
+- Lower bound: `arr[mid] < target` → move right
+- Upper bound: `arr[mid] <= target` → move right (includes equals)
+
+
 
 **Starter Code**:
 
@@ -195,6 +219,31 @@ This is a 10,000x speedup for the search phase.
   - `range_query<T: Ord>(arr: &[T], start: &T, end: &T) -> &[T]` - Get slice in range
   - `count_in_range<T: Ord>(arr: &[T], start: &T, end: &T) -> usize` - Count without materializing
   - Example types: `LogEntry` with timestamp ordering
+
+---
+
+**Range Query Explained**:
+
+Range queries find all elements in `[start, end]` using two binary searches:
+1. Find **lower bound** of `start` → first element >= start
+2. Find **upper bound** of `end` → first element > end
+3. Return slice `arr[lower..upper]`
+
+**Visual example**: Find range [5, 11] in `[1, 3, 5, 7, 9, 11, 13, 15]`
+```
+Array:  [1, 3, 5, 7, 9, 11, 13, 15]
+Index:   0  1  2  3  4   5   6   7
+
+lower_bound(5) = 2  (first element >= 5)
+upper_bound(11) = 6 (first element > 11)
+Result: arr[2..6] = [5, 7, 9, 11]
+```
+
+
+**For LogEntry with custom ordering**:
+- Implement `Ord` based on timestamp
+- Create dummy entries with target timestamps for comparison
+- Use range_query on the sorted log array
 
 ---
 
@@ -372,6 +421,35 @@ mod tests {
   - `AutoComplete::suggest(&self, prefix: &str) -> Vec<&str>` - Get suggestions
 
 ---
+
+**Prefix Search Explained**:
+
+Prefix matching finds all strings starting with a given prefix. On sorted strings:
+1. Find first string >= prefix (lower bound)
+2. Scan forward while strings start with prefix
+3. Stop when prefix no longer matches
+
+**Visual example**: Find prefix "app" in sorted words
+```
+Words: ["apple", "application", "apply", "banana", "band"]
+         ^^^^^    ^^^^^^^^^^^    ^^^^^
+         match    match          match
+
+Step 1: Binary search for "app" → index 0 (first "apple")
+Step 2: Scan forward: "apple".starts_with("app") ✓
+                      "application".starts_with("app") ✓
+                      "apply".starts_with("app") ✓
+                      "banana".starts_with("app") ✗ (stop)
+Result: ["apple", "application", "apply"]
+```
+
+
+**Alternative using lower/upper bound trick**:
+- Lower bound: search for prefix "app"
+- Upper bound: search for prefix + 1 char "apq" (next string after "app...")
+- This gives exact range without scanning
+
+
 
 **Starter Code**:
 
@@ -586,6 +664,72 @@ mod tests {
 
 ---
 
+**K-Way Merge Explained**:
+
+Merging multiple sorted sequences efficiently is crucial for external sorting, log aggregation, and distributed systems.
+
+**Two-way merge (simple but inefficient for k sequences)**:
+```rust
+// Merge [1,3,5] and [2,4,6]
+pub fn merge_two<T: Ord + Clone>(left: &[T], right: &[T]) -> Vec<T> {
+    let mut result = Vec::with_capacity(left.len() + right.len());
+    let mut i = 0;
+    let mut j = 0;
+
+    while i < left.len() && j < right.len() {
+        if left[i] <= right[j] {
+            result.push(left[i].clone());
+            i += 1;
+        } else {
+            result.push(right[j].clone());
+            j += 1;
+        }
+    }
+
+    result.extend_from_slice(&left[i..]);
+    result.extend_from_slice(&right[j..]);
+    result
+}
+```
+
+**K-way merge with heap (optimal)**:
+
+Problem: Merging 100 sequences with repeated 2-way merge is O(nk).
+
+Solution: Use min-heap to track smallest element from each sequence.
+
+**Algorithm**:
+1. Create min-heap with first element from each sequence
+2. Pop minimum (gives next merged element)
+3. Push next element from same sequence to heap
+4. Repeat until heap empty
+
+**Visual example**: Merge 3 sequences
+```
+Seq 0: [1, 4, 7]
+Seq 1: [2, 5, 8]
+Seq 2: [3, 6, 9]
+
+Initial heap: [(1, seq=0), (2, seq=1), (3, seq=2)]
+
+Step 1: Pop (1, seq=0), output 1, push (4, seq=0)
+Heap: [(2, seq=1), (3, seq=2), (4, seq=0)]
+
+Step 2: Pop (2, seq=1), output 2, push (5, seq=1)
+Heap: [(3, seq=2), (4, seq=0), (5, seq=1)]
+
+Step 3: Pop (3, seq=2), output 3, push (6, seq=2)
+...
+Result: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+```
+
+**Complexity**:
+- Two-way repeated: O(nk) where n = total elements, k = sequences
+- K-way with heap: O(n log k)
+- For k=100: K-way is ~50x faster!
+
+---
+
 **Starter Code**:
 
 ```rust
@@ -783,6 +927,33 @@ mod tests {
 
 **Optimization focus**: When to use SortedVec vs BTreeSet vs HashSet.
 
+---
+
+**Sorted Vector Explained**:
+
+A `SortedVec` maintains sorted order on insertion, providing:
+- Fast lookups: O(log n) using binary search
+- Range queries: Not possible with HashSet
+- Ordered iteration: Always sorted
+- Cache-friendly: Contiguous memory
+
+**Trade-off**: Insert/remove is O(n) due to shifting, but for small-medium collections (<1000 elements), cache locality makes it faster than tree-based structures.
+
+**Insert algorithm**
+**Visual example**: Insert 6 into `[1, 3, 5, 7, 9]`
+```
+Binary search finds position 3 (between 5 and 7)
+Before: [1, 3, 5, 7, 9]
+After:  [1, 3, 5, 6, 7, 9]
+```
+
+
+**When to use SortedVec vs BTreeSet vs HashSet**:
+- **SortedVec**: Small sets (<1K), need ranges, cache-friendly
+- **BTreeSet**: Large sets (>1K), need ordering and ranges
+- **HashSet**: Only need membership test, no ordering required
+
+---
 **Architecture**:
 - Structs: `SortedVec<T>`
 - Fields: `data: Vec<T>`
@@ -792,8 +963,6 @@ mod tests {
   - `remove(value: &T) -> bool` - Remove if present
   - `contains(value: &T) -> bool` - O(log n) search
   - `range(start: &T, end: &T) -> &[T]` - Range query
-
----
 
 **Starter Code**:
 
@@ -1032,10 +1201,53 @@ mod tests {
 
 **Optimization focus**: Making informed architectural decisions.
 
-**Architecture**:
-- Benchmarks and comparisons
-- Trade-off analysis
-- Memory usage measurements
+
+---
+
+**Performance Analysis Explained**:
+
+Understanding when to choose each data structure is critical for production systems.
+
+**Comparison matrix**:
+
+| Operation     | SortedVec | BTreeSet | HashSet |
+|--------------|-----------|----------|---------|
+| Insert       | O(n)      | O(log n) | O(1)    |
+| Remove       | O(n)      | O(log n) | O(1)    |
+| Contains     | O(log n)  | O(log n) | O(1)    |
+| Range query  | O(log n)  | O(log n) | ✗       |
+| Ordered iter | ✓ Free    | ✓ Free   | ✗       |
+| Memory       | Best      | Medium   | High    |
+| Cache        | Excellent | Medium   | Poor    |
+
+**When SortedVec wins** (despite O(n) inserts):
+- Small collections (<1000 elements)
+- Read-heavy workloads (90% reads, 10% writes)
+- Need range queries
+- Cache locality matters
+
+**Real-world example**: Active user sessions
+```rust
+// 100 active users at any time
+// 1000 session checks per second
+// 10 new sessions per second
+
+let mut sessions = SortedVec::new();
+
+// Insert: 10/sec × O(100) = 1000 ops
+// Contains: 1000/sec × O(log 100) = 7000 ops
+// Range queries: Fast with zero overhead
+
+// Total: ~8000 ops/sec → microseconds per operation
+// SortedVec wins due to cache locality!
+```
+
+
+**Key insights**:
+1. **Asymptotic complexity isn't everything**: O(n) can beat O(log n) for small n due to cache
+2. **Memory layout matters**: Contiguous arrays (SortedVec) have better cache locality than trees
+3. **Read/write ratio**: SortedVec excels when reads dominate
+4. **Measure, don't guess**: Benchmark your specific workload
 
 ---
 
@@ -1167,77 +1379,252 @@ mod tests {
 }
 ```
 
----
-
-### Testing Strategies
-
-1. **Correctness Tests**: Verify search results against linear scan
-2. **Edge Case Tests**: Empty arrays, single element, duplicates
-3. **Performance Tests**: Benchmark binary search vs linear scan
-4. **Property Tests**: Verify sorted invariants maintained
-5. **Stress Tests**: Test with millions of elements
-6. **Comparison Tests**: SortedVec vs BTreeSet vs HashSet
-7. **Memory Tests**: Measure space overhead
-
----
-
-### Complete Working Example
+### Implementations
+**Implementation Milestone 1**:
 
 ```rust
-use std::collections::VecDeque;
+// Exact match implementation:
+pub fn binary_search_exact<T: Ord>(arr: &[T], target: &T) -> Option<usize> {
+    let mut left = 0;
+    let mut right = arr.len();
 
-fn main() {
-    println!("=== Binary Search & Sorted Structures ===\n");
+    while left < right {
+        let mid = left + (right - left) / 2;  // Avoid overflow
 
-    // Example 1: Log query system
-    let mut logs = vec![
-        LogEntry { timestamp: 100, level: "INFO".to_string(), message: "Server started".to_string() },
-        LogEntry { timestamp: 150, level: "INFO".to_string(), message: "Request received".to_string() },
-        LogEntry { timestamp: 200, level: "ERROR".to_string(), message: "Database error".to_string() },
-        LogEntry { timestamp: 250, level: "INFO".to_string(), message: "Request completed".to_string() },
-        LogEntry { timestamp: 300, level: "INFO".to_string(), message: "Shutdown".to_string() },
-    ];
-
-    // Query logs between timestamps
-    let results = query_logs_by_time(&logs, 150, 250);
-    println!("Logs between 150-250:");
-    for log in results {
-        println!("  [{}] {}: {}", log.timestamp, log.level, log.message);
+        match arr[mid].cmp(target) {
+            Ordering::Equal => return Some(mid),
+            Ordering::Less => left = mid + 1,
+            Ordering::Greater => right = mid,
+        }
     }
+    None
+}
 
-    // Example 2: Auto-complete
-    let dictionary = vec![
-        "rust".to_string(),
-        "ruby".to_string(),
-        "python".to_string(),
-        "javascript".to_string(),
-        "java".to_string(),
-    ];
+// Lower bound (first element >= target):
+pub fn binary_search_lower_bound<T: Ord>(arr: &[T], target: &T) -> usize {
+    let mut left = 0;
+    let mut right = arr.len();
 
-    let autocomplete = AutoComplete::new(dictionary);
+    while left < right {
+        let mid = left + (right - left) / 2;
 
-    println!("\nAuto-complete for 'ru':");
-    for suggestion in autocomplete.suggest("ru") {
-        println!("  - {}", suggestion);
+        if arr[mid] < target {
+            left = mid + 1;  // Move right
+        } else {
+            right = mid;      // Could be answer, keep searching left
+        }
     }
+    left
+}
 
-    // Example 3: Sorted set for active sessions
-    let mut sessions = SortedVec::new();
+// Upper bound (first element > target):
+pub fn binary_search_upper_bound<T: Ord>(arr: &[T], target: &T) -> usize {
+    let mut left = 0;
+    let mut right = arr.len();
 
-    sessions.insert(101);
-    sessions.insert(105);
-    sessions.insert(103);
-    sessions.insert(107);
+    while left < right {
+        let mid = left + (right - left) / 2;
 
-    println!("\nActive sessions: {:?}", sessions.as_slice());
-    println!("Sessions 102-106: {:?}", sessions.range(&102, &106));
+        if arr[mid] <= target {  // Note: <= not <
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    left
 }
 ```
 
-This project demonstrates binary search mastery:
-- **Binary search variants** (exact, lower/upper bound)
-- **Range queries** (O(log n + k) performance)
-- **Prefix matching** for auto-complete
-- **K-way merge** with heap
-- **Sorted collections** with trade-off analysis
-- **Performance optimization** and decision-making
+
+**Implementation Milestone 2**
+```rust
+pub fn range_query<T: Ord>(arr: &[T], start: &T, end: &T) -> &[T] {
+    let lower = binary_search_lower_bound(arr, start);
+    let upper = binary_search_upper_bound(arr, end);
+    &arr[lower..upper]
+}
+```
+
+
+**Implementation Milestone 3**:
+```rust
+pub fn prefix_search<'a>(words: &'a [String], prefix: &str) -> &'a [String] {
+    // Find start position using partition_point
+    let start = words.partition_point(|word| word.as_str() < prefix);
+
+    // Find end by counting matches
+    let mut end = start;
+    while end < words.len() && words[end].starts_with(prefix) {
+        end += 1;
+    }
+
+    &words[start..end]
+}
+```
+
+**Implementation Milestone 3**:
+```rust
+impl AutoComplete {
+    pub fn new(mut words: Vec<String>) -> Self {
+        words.sort_unstable();      // Sort words
+        words.dedup();              // Remove duplicates
+        Self { words }
+    }
+
+    pub fn suggest(&self, prefix: &str) -> Vec<&str> {
+        prefix_search(&self.words, prefix)
+            .iter()
+            .take(10)               // Limit to 10 suggestions
+            .map(|s| s.as_str())
+            .collect()
+    }
+}
+```
+
+---
+
+
+**Implementation Milestone 4**:
+```rust
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
+
+pub fn merge_k<T: Ord + Clone>(sequences: &[&[T]]) -> Vec<T> {
+    let total_size: usize = sequences.iter().map(|s| s.len()).sum();
+    let mut result = Vec::with_capacity(total_size);
+
+    // Heap stores: (value, sequence_index, element_index)
+    let mut heap = BinaryHeap::new();
+
+    // Initialize heap with first element from each sequence
+    for (seq_idx, seq) in sequences.iter().enumerate() {
+        if let Some(first) = seq.first() {
+            heap.push(Reverse((first.clone(), seq_idx, 0)));
+        }
+    }
+
+    // Extract minimum and push next from same sequence
+    while let Some(Reverse((value, seq_idx, elem_idx))) = heap.pop() {
+        result.push(value);
+
+        let next_idx = elem_idx + 1;
+        if next_idx < sequences[seq_idx].len() {
+            let next_val = sequences[seq_idx][next_idx].clone();
+            heap.push(Reverse((next_val, seq_idx, next_idx)));
+        }
+    }
+
+    result
+}
+```
+
+
+**Implementation Milestone 5**:
+**Insert algorithm**:
+```rust
+pub fn insert(&mut self, value: T) -> bool {
+    // Find insertion position using binary search
+    match self.data.binary_search(&value) {
+        Ok(_) => false,  // Already exists
+        Err(pos) => {
+            self.data.insert(pos, value);  // Insert at correct position
+            true
+        }
+    }
+}
+```
+
+**Remove algorithm**:
+```rust
+pub fn remove(&mut self, value: &T) -> bool {
+    match self.data.binary_search(value) {
+        Ok(pos) => {
+            self.data.remove(pos);  // Found, remove it
+            true
+        }
+        Err(_) => false  // Not found
+    }
+}
+```
+
+**Contains (fast O(log n) lookup)**:
+```rust
+pub fn contains(&self, value: &T) -> bool {
+    self.data.binary_search(value).is_ok()
+}
+```
+
+**Range query**:
+```rust
+pub fn range(&self, start: &T, end: &T) -> &[T] {
+    let lower = binary_search_lower_bound(&self.data, start);
+    let upper = binary_search_upper_bound(&self.data, end);
+    &self.data[lower..upper]
+}
+```
+
+
+**Implementation Milestone 6**:
+
+```rust
+pub struct CollectionBenchmark {
+    sizes: Vec<usize>,
+}
+
+impl CollectionBenchmark {
+    pub fn benchmark_inserts(&self) {
+        for &size in &self.sizes {
+            // Test SortedVec
+            let start = Instant::now();
+            let mut sv = SortedVec::new();
+            for i in 0..size {
+                sv.insert(i);
+            }
+            let sv_time = start.elapsed();
+
+            // Test BTreeSet
+            let start = Instant::now();
+            let mut bt = BTreeSet::new();
+            for i in 0..size {
+                bt.insert(i);
+            }
+            let bt_time = start.elapsed();
+
+            // Test HashSet
+            let start = Instant::now();
+            let mut hs = HashSet::new();
+            for i in 0..size {
+                hs.insert(i);
+            }
+            let hs_time = start.elapsed();
+
+            println!("Size {}: SV={:?}, BT={:?}, HS={:?}",
+                     size, sv_time, bt_time, hs_time);
+        }
+    }
+}
+
+pub fn recommend_collection(
+    size: usize,
+    needs_ordering: bool,
+    needs_ranges: bool,
+    write_heavy: bool,
+) -> &'static str {
+    if !needs_ordering && !needs_ranges {
+        return "HashSet";  // Fast, no ordering needed
+    }
+
+    if needs_ranges {
+        if size < 1000 && !write_heavy {
+            return "SortedVec";  // Cache-friendly for small sizes
+        }
+        return "BTreeSet";  // Better for large or write-heavy
+    }
+
+    if size < 1000 {
+        "SortedVec"
+    } else {
+        "BTreeSet"
+    }
+}
+```

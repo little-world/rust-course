@@ -4,28 +4,465 @@
 
 Implement a Least Recently Used (LRU) cache that tracks the most recently accessed items and evicts the least recently used item when capacity is reached. You'll start with a simple single-threaded version, then progress to thread-safe variants.
 
-### Use Cases
+---
 
-1. **Web application request handlers** - Multiple handlers share a cache
-2. **Multithreaded servers** - Threads need concurrent access to shared cache (hits: read, misses: write, evictions: write)
-3. **Game engines** - Asset cache shared across systems, texture cache for renderer
-4. **Build systems** - Compilation result cache, dependency resolution cache
-5. **Database query caching** - Prepared statement cache, result set cache
+## Understanding Caches and the LRU Algorithm
 
+### What is a Cache?
 
-### Why It Matters
-**Performance Numbers**: A well-implemented cache can turn a 100ms database query into a 0.1ms memory lookup—a 1000x speedup. For a web server handling 10,000 requests/second, this means the difference between needing 100 database servers vs 1.
+A **cache** is a high-speed data storage layer that stores a subset of data, enabling faster retrieval than accessing the data from its primary storage location. Caches exploit the principle of **locality**: programs tend to access the same data repeatedly (temporal locality) and data stored near recently accessed data (spatial locality).
 
-**Rust-Specific Challenge**: Traditional caches in other languages use mutable references everywhere. Rust's ownership system forces us to think differently—we need interior mutability patterns to mutate cache contents through shared references. This project teaches you how to work *with* Rust's ownership rather than fighting it.
+**The fundamental trade-off**:
+- **Speed vs Capacity**: Caches are fast but small; primary storage is slow but large
+- **Memory hierarchy**: CPU registers (fastest, ~1 cycle) → L1 cache (~4 cycles) → L2 cache (~12 cycles) → L3 cache (~40 cycles) → RAM (~100 cycles) → Disk (~10,000,000 cycles)
 
+**Real-world example**:
+```rust
+// Without cache: Every request hits database (100ms each)
+fn get_user_profile(id: u64) -> User {
+    database.query("SELECT * FROM users WHERE id = ?", id)  // 100ms
+}
+// 1000 requests = 100 seconds total
 
-### Learning Goals
+// With cache: First request hits DB, subsequent hits cache (0.1ms)
+fn get_user_profile_cached(id: u64) -> User {
+    if let Some(user) = cache.get(id) {
+        return user;  // 0.1ms - 1000x faster!
+    }
+    let user = database.query("SELECT * FROM users WHERE id = ?", id);
+    cache.put(id, user.clone());
+    user
+}
+// 1000 requests for same user = 100ms + 999 × 0.1ms = 200ms total
+// Speedup: 500x faster
+```
 
-- Understand interior mutability with `RefCell` and `Mutex`/`RwLock`
-- Practice working with shared references that allow mutation
-- Learn proper lock scope management
-- Build intuition for when to use different concurrency primitives
-- Experience the performance trade-offs: `Cell` vs `RefCell` vs `Mutex` vs `RwLock`
+---
+
+### Cache Fundamentals
+
+#### 1. Cache Hit vs Cache Miss
+
+**Cache Hit**: Requested data is found in the cache
+- **Benefit**: Fast access (microseconds)
+- **Example**: Browser loading an image already in cache
+
+**Cache Miss**: Requested data is NOT in cache, must fetch from slower storage
+- **Cost**: Slow access (milliseconds to seconds)
+- **Example**: First time loading a webpage image
+
+**Hit Rate**: The percentage of requests served from cache
+```
+Hit Rate = Hits / (Hits + Misses)
+
+Example: 900 hits, 100 misses → Hit Rate = 900/1000 = 90%
+```
+
+**Why hit rate matters**:
+- **90% hit rate**: 90% of requests take 0.1ms, 10% take 100ms → Average: 10.09ms
+- **99% hit rate**: 99% take 0.1ms, 1% take 100ms → Average: 1.099ms
+- **9x improvement** from 90% to 99% hit rate!
+
+#### 2. Cache Capacity Limits
+
+Caches must have **bounded size** to avoid consuming all memory. This creates the **cache eviction problem**: when the cache is full and a new item needs to be stored, which existing item should be removed?
+
+**Without eviction** (unbounded cache):
+```rust
+// Memory grows without bound - will eventually crash!
+let cache = HashMap::new();
+loop {
+    let data = fetch_from_api();
+    cache.insert(data.id, data);  // Grows forever
+}
+// After 1M entries of 1KB each = 1GB memory used
+// After 10M entries = 10GB memory used → OOM crash
+```
+
+**With eviction** (bounded cache):
+```rust
+let cache = LRUCache::new(1000);  // Maximum 1000 entries
+loop {
+    let data = fetch_from_api();
+    cache.put(data.id, data);
+    // When cache reaches 1000 entries, least recently used item is removed
+}
+// Memory: Always ≤ 1000 entries (predictable, safe)
+```
+
+---
+
+### Cache Eviction Policies
+
+When a cache is full, an **eviction policy** determines which item to remove. Different policies optimize for different access patterns.
+
+#### Common Eviction Policies
+
+| Policy | Evicts | Best For | Worst For |
+|--------|--------|----------|-----------|
+| **FIFO** (First-In-First-Out) | Oldest inserted item | Simple streaming data | Items accessed repeatedly |
+| **LRU** (Least Recently Used) | Least recently accessed item | Temporal locality (repeated access) | Sequential scans |
+| **LFU** (Least Frequently Used) | Least frequently accessed item | Repeated popular items | Changing access patterns |
+| **Random** | Random item | Uniform access, low overhead | Predictable patterns |
+| **MRU** (Most Recently Used) | Most recently accessed item | Sequential scans | Temporal locality |
+
+**Comparison Example**:
+
+```
+Cache capacity: 3 items
+Access sequence: A, B, C, D, A, E
+
+┌─────────┬──────────┬────────────┬─────────┬────────────┐
+│ Access  │ FIFO     │ LRU        │ LFU     │ Random     │
+├─────────┼──────────┼────────────┼─────────┼────────────┤
+│ A       │ [A]      │ [A]        │ [A:1]   │ [A]        │
+│ B       │ [A,B]    │ [A,B]      │ [A:1,B:1] │ [A,B]    │
+│ C       │ [A,B,C]  │ [A,B,C]    │ [A:1,B:1,C:1] │ [A,B,C] │
+│ D       │ [B,C,D]  │ [B,C,D]    │ [B:1,C:1,D:1] │ [A,C,D] │
+│         │ (evict A)│ (evict A)  │ (evict A) │ (evict B) │
+│ A       │ [B,C,D]  │ [B,D,A]    │ [C:1,D:1,A:1] │ [A,C,D] │
+│         │ MISS     │ (evict C)  │ (evict B) │ MISS      │
+│         │          │ HIT via A  │           │           │
+│ E       │ [C,D,E]  │ [D,A,E]    │ [D:1,A:1,E:1] │ [A,E,D] │
+│         │ (evict B)│ (evict B)  │ (evict C) │ (evict C) │
+└─────────┴──────────┴────────────┴─────────┴────────────┘
+
+Hit rates for this sequence:
+- FIFO: 0% (0 hits, 6 misses)
+- LRU: 16.7% (1 hit, 5 misses)  ← Best for this pattern
+- LFU: 0% (0 hits, 6 misses)
+- Random: 16.7% (1 hit, 5 misses) - depends on random choice
+```
+
+---
+
+### Deep Dive: The LRU Algorithm
+
+**LRU (Least Recently Used)** evicts the item that hasn't been accessed for the longest time. It's based on the assumption that recently accessed data is more likely to be accessed again soon.
+
+#### Why LRU Works Well
+
+**Temporal Locality Principle**: If data was accessed recently, it's likely to be accessed again soon.
+
+**Real-world examples**:
+1. **Web browser cache**: Recently viewed images/pages are likely to be viewed again
+2. **Database query cache**: Same queries run repeatedly (dashboards, APIs)
+3. **File system cache**: Editing a file → repeated reads/writes to same blocks
+4. **Game asset cache**: Current level assets used repeatedly; old level assets not needed
+
+#### How LRU Tracking Works
+
+**Core idea**: Maintain access order, with most recently used at one end and least recently used at the other.
+
+```
+Initial state (capacity: 3):
+Cache: []
+Order: []
+
+Access A:
+Cache: {A: "data_a"}
+Order: [A]  ← LRU                                    MRU →
+
+Access B:
+Cache: {A: "data_a", B: "data_b"}
+Order: [A, B]  ← LRU                                MRU →
+
+Access C:
+Cache: {A: "data_a", B: "data_b", C: "data_c"}
+Order: [A, B, C]  ← LRU                             MRU →
+
+Access A again (move to most recent):
+Cache: {A: "data_a", B: "data_b", C: "data_c"}
+Order: [B, C, A]  ← LRU                             MRU →
+       └─ Now B is least recently used
+
+Access D (cache full, evict B):
+Cache: {A: "data_a", C: "data_c", D: "data_d"}
+Order: [C, A, D]  ← LRU                             MRU →
+       └─ B was removed (least recently used)
+```
+
+#### LRU Operations
+
+**Every cache operation updates the access order**:
+
+1. **get(key)**:
+   - If found: Move key to most recent position, return value (HIT)
+   - If not found: Return None (MISS)
+
+2. **put(key, value)**:
+   - If key exists: Update value, move to most recent
+   - If cache full: Remove least recent item, insert new item as most recent
+   - If cache not full: Insert new item as most recent
+
+**Time complexity requirements**:
+- `get()`: O(1) - Must be fast for cache to be useful
+- `put()`: O(1) - Including eviction
+- Update order: O(1) - Move item to most recent position
+
+#### Implementation Strategies
+
+**Strategy 1: HashMap + VecDeque** (This project uses this)
+```rust
+struct LRUCache<K, V> {
+    data: HashMap<K, V>,      // Fast lookup: O(1)
+    order: VecDeque<K>,       // Track access order
+}
+
+// Get operation:
+// 1. Lookup in HashMap: O(1)
+// 2. Find key in VecDeque: O(n) ← SLOW!
+// 3. Remove from current position: O(n)
+// 4. Push to back: O(1)
+// Total: O(n) - not ideal, but simple
+```
+
+**Trade-off**: Simple to implement, but updating order is O(n) because we need to find and remove the key from the VecDeque.
+
+**Strategy 2: HashMap + Doubly-Linked List** (Optimal, used in production)
+```rust
+struct LRUCache<K, V> {
+    data: HashMap<K, *mut Node<K, V>>,  // Value + pointer to node
+    order: DoublyLinkedList<K, V>,      // Actual order
+}
+
+struct Node<K, V> {
+    key: K,
+    value: V,
+    prev: *mut Node<K, V>,
+    next: *mut Node<K, V>,
+}
+
+// Get operation:
+// 1. Lookup in HashMap: O(1) - gives us pointer to node
+// 2. Remove node from list: O(1) - just update pointers
+// 3. Insert at tail: O(1)
+// Total: O(1) ← OPTIMAL
+```
+
+**Trade-off**: O(1) operations, but requires unsafe code for pointer manipulation in Rust.
+
+---
+
+### Real-World Cache Examples
+
+#### 1. CPU Caches (Hardware)
+
+**L1 Cache**: 32-64 KB per core, ~4 CPU cycles latency
+**L2 Cache**: 256-512 KB per core, ~12 cycles
+**L3 Cache**: 8-32 MB shared, ~40 cycles
+**RAM**: Gigabytes, ~100 cycles
+
+```
+// Without L1 cache:
+for i in 0..1000 {
+    sum += array[i];  // Each access: 100 cycles (RAM)
+}
+// Total: 100,000 cycles
+
+// With L1 cache (after first access):
+for i in 0..1000 {
+    sum += array[i];  // First: 100 cycles, rest: 4 cycles
+}
+// Total: 100 + 999×4 = 4,096 cycles (24x faster!)
+```
+
+#### 2. Web Browser Cache
+
+Browsers cache images, CSS, JavaScript, and HTML to avoid re-downloading.
+
+```
+First visit to website:
+- Download: 2MB of assets (images, CSS, JS)
+- Time: 2 seconds on 10 Mbps connection
+
+Second visit (with cache):
+- Check cache: 50 files, all HITs
+- Time: 50ms to verify freshness
+- Speedup: 40x faster
+```
+
+**Eviction**: LRU-based, typically 50-500 MB capacity
+
+#### 3. Database Query Cache
+
+```rust
+// MySQL query cache example
+// First execution:
+let result = db.query("SELECT * FROM users WHERE age > 18");
+// Time: 100ms (disk I/O, query execution)
+// Cache: Store query → result mapping
+
+// Second execution (same query):
+let result = db.query("SELECT * FROM users WHERE age > 18");
+// Time: 0.1ms (cache HIT)
+// Speedup: 1000x faster
+```
+
+**Eviction**: LRU with automatic invalidation when table is modified
+
+#### 4. CDN (Content Delivery Network)
+
+CDNs cache website content geographically close to users.
+
+```
+User in Sydney requests image from US-based server:
+
+Without CDN:
+- Round trip: 200ms (speed of light limit!)
+- Transfer: 50ms
+- Total: 250ms
+
+With CDN (cached in Sydney):
+- Round trip: 10ms (local server)
+- Transfer: 5ms
+- Total: 15ms
+- Speedup: 16x faster
+```
+
+**Eviction**: Mix of LRU and TTL (Time-To-Live)
+
+#### 5. Operating System Page Cache
+
+OS caches disk blocks in RAM to speed up file access.
+
+```
+Reading a 1GB file:
+
+First read (cold cache):
+- Disk: 1GB at 100 MB/s = 10 seconds
+
+Second read (warm cache):
+- RAM: 1GB at 10 GB/s = 0.1 seconds
+- Speedup: 100x faster
+```
+
+**Eviction**: LRU-based (Linux uses LRU with active/inactive lists)
+
+---
+
+### Performance Characteristics
+
+#### Memory Usage
+
+```rust
+// Memory = (capacity × item_size) + overhead
+
+// Example: LRU cache with capacity 10,000
+struct Entry {
+    key: String,    // ~24 bytes (avg)
+    value: User,    // ~200 bytes
+}
+
+// HashMap: ~224 bytes per entry
+// VecDeque: ~8 bytes per key (pointer/index)
+// Total per entry: ~232 bytes
+// Total memory: 10,000 × 232 = 2.32 MB
+```
+
+#### Time Complexity
+
+| Operation | HashMap + VecDeque | HashMap + LinkedList |
+|-----------|-------------------|----------------------|
+| get() | O(n) | O(1) |
+| put() | O(n) | O(1) |
+| evict() | O(1) | O(1) |
+
+**Why VecDeque is O(n)**:
+```rust
+// Must find and remove key from middle of VecDeque
+order.retain(|k| k != key);  // O(n) - scans entire VecDeque
+order.push_back(key);         // O(1)
+```
+
+**Why LinkedList is O(1)**:
+```rust
+// HashMap stores pointer to node, can remove directly
+let node = map.get(key);      // O(1)
+list.remove(node);            // O(1) - just update pointers
+list.push_back(node);         // O(1)
+```
+
+#### Cache Hit Rate Impact
+
+**Measurement**: How hit rate affects average latency
+
+```
+Cache latency: 0.1ms
+Database latency: 100ms
+
+Hit Rate    Avg Latency    Calculation
+50%         50.05ms        0.5×0.1 + 0.5×100
+70%         30.07ms        0.7×0.1 + 0.3×100
+90%         10.09ms        0.9×0.1 + 0.1×100
+95%         5.095ms        0.95×0.1 + 0.05×100
+99%         1.099ms        0.99×0.1 + 0.01×100
+
+Insight: Going from 90% → 99% hit rate = 9x improvement!
+```
+
+---
+
+### When to Use LRU vs Other Policies
+
+#### Use LRU When:
+
+✅ **Access patterns show temporal locality**
+- Web sessions (users browse multiple pages)
+- Database queries (dashboards run same queries repeatedly)
+- File editing (same files accessed multiple times)
+
+✅ **Recent access predicts future access**
+- News website (recent articles accessed more)
+- E-commerce (viewed products likely to be viewed again)
+
+✅ **Memory is limited**
+- Need automatic eviction with bounded size
+- Predictable memory usage is critical
+
+#### Avoid LRU When:
+
+❌ **Sequential scans** (each item accessed once)
+```rust
+// LRU performs poorly here
+for i in 0..1_000_000 {
+    cache.get(i);  // Each item accessed once, never again
+}
+// Every access is a MISS, cache constantly evicts
+// Better: No cache, or MRU policy
+```
+
+❌ **Popular items accessed infrequently**
+- Video streaming (popular movies accessed monthly)
+- Better: LFU (Least Frequently Used)
+
+❌ **Need time-based expiration**
+- Session tokens (expire after 30 minutes)
+- Better: TTL (Time-To-Live) cache
+
+---
+
+### Connection to This Project
+
+This project implements an LRU cache with the following progression:
+
+1. **Milestone 1-2**: Learn interior mutability patterns (`Cell`, `RefCell`)
+2. **Milestone 3**: Implement LRU eviction logic with `HashMap + VecDeque`
+3. **Milestone 4**: Add statistics tracking (hit rate, miss rate)
+4. **Milestone 5**: Make thread-safe with `Mutex` for concurrent access
+
+**Key learning points**:
+- **O(n) is acceptable for learning**: The VecDeque approach is simpler to understand
+- **Statistics matter**: Can't optimize what you don't measure
+- **Thread safety has costs**: `Mutex` is ~50-100x slower than `RefCell`
+- **Algorithm affects concurrency**: LRU requires write-on-read (updating order), limiting parallelism
+
+**Production considerations**:
+- Use `HashMap + LinkedList` for O(1) operations
+- Consider approximate LRU for better concurrency
+- Monitor hit rates to tune capacity
+- Benchmark with realistic workloads
+
 
 ---
 

@@ -2,6 +2,11 @@
 
 ### Problem Statement
 
+
+Reference counting is fundamental to memory management in languages without garbage collection. Understanding `Rc` and `Arc` teaches you about shared ownership, reference cycles, and the trade-offs between compile-time and runtime safety. These patterns appear in GUI frameworks, graph structures, caches, and any system where data has multiple owners.
+
+
+### What we will write 
 Implement a custom reference-counted smart pointer (similar to `Rc<T>`) that allows multiple ownership of heap-allocated data. Your implementation should automatically free memory when the last reference is dropped and provide interior mutability through `RefCell`-like semantics.
 
 Your smart pointer should support:
@@ -11,30 +16,637 @@ Your smart pointer should support:
 - Interior mutability patterns
 - Clone-on-write optimization
 
-### Why It Matters
+---
 
-Reference counting is fundamental to memory management in languages without garbage collection. Understanding `Rc` and `Arc` teaches you about shared ownership, reference cycles, and the trade-offs between compile-time and runtime safety. These patterns appear in GUI frameworks, graph structures, caches, and any system where data has multiple owners.
+## Understanding Reference Counting and Smart Pointers
 
-### Learning Goals
+Before implementing reference-counted pointers, let's understand the fundamental concepts of ownership, shared data, and the trade-offs between compile-time and runtime memory management.
 
-By completing this project, you will:
+### What is Reference Counting?
 
-1. **Understand reference counting**: Learn how Rc/Arc work internally with heap allocation and counters
-2. **Master unsafe Rust**: Work with raw pointers and manual memory management safely
-3. **Implement Drop trait correctly**: Ensure proper cleanup and prevent memory leaks
-4. **Handle reference cycles**: Implement weak references to break cycles
-5. **Practice interior mutability**: Combine RefCell with Rc for shared mutable state
-6. **Understand Clone-on-Write**: Implement copy-on-write optimization for efficient sharing
+**Reference counting** is a memory management technique where each object tracks how many pointers (references) point to it. When the count drops to zero, the object is automatically freed.
 
-### Use Cases
+**The Ownership Problem**:
+```rust
+// Rust's ownership: only ONE owner
+let data = String::from("hello");
+let owner1 = data;  // data moved to owner1
+// let owner2 = data;  // ❌ ERROR: data was moved
 
-- GUI frameworks: Widgets sharing application state
-- Graph structures: Nodes with multiple incoming edges
-- Caching: Multiple references to cached data
-- Event systems: Subscribers sharing event data
-- Plugin systems: Shared configuration across plugins
+// What if we NEED multiple owners?
+// Example: GUI widget shared by multiple event handlers
+// Example: Graph node with multiple incoming edges
+```
 
+**Reference Counting Solution**:
+```rust
+// Multiple owners sharing data
+let data = Rc::new(String::from("hello"));
+let owner1 = Rc::clone(&data);   // ✓ OK: count = 2
+let owner2 = Rc::clone(&data);   // ✓ OK: count = 3
+// All three point to the same String
+// String freed when all dropped (count → 0)
+```
 
+**How It Works**:
+```
+Create Rc<String>("hello"):
+┌─────────────────────┐
+│   RcInner           │
+│  ┌────────────────┐ │
+│  │ strong: 1      │ │ ← Reference count
+│  │ data: "hello"  │ │ ← Actual data
+│  └────────────────┘ │
+└─────────────────────┘
+        ↑
+       rc1
+
+After rc2 = rc1.clone():
+┌─────────────────────┐
+│   RcInner           │
+│  ┌────────────────┐ │
+│  │ strong: 2      │ │ ← Incremented
+│  │ data: "hello"  │ │
+│  └────────────────┘ │
+└─────────────────────┘
+    ↑           ↑
+   rc1         rc2
+
+After drop(rc1):
+┌─────────────────────┐
+│   RcInner           │
+│  ┌────────────────┐ │
+│  │ strong: 1      │ │ ← Decremented
+│  │ data: "hello"  │ │
+│  └────────────────┘ │
+└─────────────────────┘
+                ↑
+               rc2
+
+After drop(rc2):
+┌─────────────────────┐
+│   RcInner           │
+│  ┌────────────────┐ │
+│  │ strong: 0      │ │ ← Zero: FREE MEMORY!
+│  │ data: "hello"  │ │ ← Dropped
+│  └────────────────┘ │
+└─────────────────────┘
+      (deallocated)
+```
+
+---
+
+### Why Reference Counting?
+
+**1. Multiple Ownership**
+
+Some data structures naturally require shared ownership:
+
+```rust
+// Graph with cycles
+struct Node {
+    value: i32,
+    neighbors: Vec<Rc<Node>>,  // Multiple edges can point to same node
+}
+
+let node_a = Rc::new(Node { value: 1, neighbors: vec![] });
+let node_b = Rc::new(Node { value: 2, neighbors: vec![Rc::clone(&node_a)] });
+let node_c = Rc::new(Node { value: 3, neighbors: vec![Rc::clone(&node_a)] });
+
+// node_a has 3 owners: itself + node_b + node_c
+// All three can access node_a's data
+```
+
+**2. Dynamic Lifetime**
+
+Sometimes you don't know which reference will be dropped last:
+
+```rust
+// GUI event handlers
+struct Button {
+    label: Rc<String>,
+    on_click: Box<dyn Fn()>,
+}
+
+let label = Rc::new(String::from("Submit"));
+
+let button1 = Button {
+    label: Rc::clone(&label),
+    on_click: Box::new(|| println!("Clicked")),
+};
+
+let button2 = Button {
+    label: Rc::clone(&label),
+    on_click: Box::new(|| println!("Also clicked")),
+};
+
+// Don't know if button1 or button2 will be dropped first
+// Label stays alive until BOTH are dropped
+```
+
+**3. Caching and Deduplication**
+
+Share identical data to save memory:
+
+```rust
+// String interning: share common strings
+let mut cache: HashMap<&str, Rc<String>> = HashMap::new();
+
+fn intern(cache: &mut HashMap<&str, Rc<String>>, s: &str) -> Rc<String> {
+    cache.entry(s)
+        .or_insert_with(|| Rc::new(s.to_string()))
+        .clone()
+}
+
+let s1 = intern(&mut cache, "hello");  // Allocates "hello"
+let s2 = intern(&mut cache, "hello");  // Reuses same allocation
+// s1 and s2 point to the SAME String
+// Saves memory when "hello" appears many times
+```
+
+---
+
+### Rc vs Box vs &T
+
+**Box<T>**: Single owner, heap allocation
+```rust
+let b = Box::new(42);
+// Exactly one owner
+// Freed when b goes out of scope
+// Compile-time ownership tracking
+```
+
+**&T**: Borrowed reference, no ownership
+```rust
+let x = 42;
+let r = &x;
+// r borrows x
+// Compiler ensures x outlives r
+// Compile-time borrow checking
+```
+
+**Rc<T>**: Multiple owners, heap allocation
+```rust
+let rc = Rc::new(42);
+let rc2 = Rc::clone(&rc);
+// Multiple owners
+// Freed when BOTH drop
+// Runtime reference counting
+```
+
+**Comparison**:
+```
+┌─────────┬────────────┬───────────┬──────────────┬────────────┐
+│         │ Ownership  │ Lifetime  │ Safety Check │ Overhead   │
+├─────────┼────────────┼───────────┼──────────────┼────────────┤
+│ Box<T>  │ Single     │ Scoped    │ Compile-time │ None       │
+│ &T      │ Borrowed   │ Scoped    │ Compile-time │ None       │
+│ Rc<T>   │ Multiple   │ Dynamic   │ Runtime      │ Refcount   │
+└─────────┴────────────┴───────────┴──────────────┴────────────┘
+```
+
+---
+
+### The Reference Cycle Problem
+
+**Reference cycles** cause memory leaks with reference counting:
+
+```rust
+// MEMORY LEAK: Cycle never freed!
+struct Node {
+    value: i32,
+    next: Option<Rc<RefCell<Node>>>,
+}
+
+let node1 = Rc::new(RefCell::new(Node { value: 1, next: None }));
+let node2 = Rc::new(RefCell::new(Node { value: 2, next: None }));
+
+// Create cycle: node1 → node2 → node1
+node1.borrow_mut().next = Some(Rc::clone(&node2));
+node2.borrow_mut().next = Some(Rc::clone(&node1));
+
+// Drop both:
+drop(node1);  // node1 refcount: 2 → 1 (still alive! node2 holds ref)
+drop(node2);  // node2 refcount: 2 → 1 (still alive! node1 holds ref)
+
+// ❌ MEMORY LEAK: Both nodes have refcount=1, never freed
+//    They reference each other, but nothing else references them
+```
+
+**Visualization**:
+```
+After drop(node1) and drop(node2):
+
+   ┌──────────────────┐
+   │ Node { value: 1 }│
+   │ refcount: 1      │
+   │ next: ───────┐   │
+   └──────────────│───┘
+                  │
+                  ↓
+   ┌──────────────│───┐
+   │ Node { value: 2 }│
+   │ refcount: 1      │
+   │ next: ───────┐   │
+   └──────────────│───┘
+                  │
+                  └──────────────→ (back to Node 1)
+
+No external references, but refcounts never reach 0!
+MEMORY LEAKED: Unreachable but not freed.
+```
+
+**Solution: Weak References**
+
+`Weak<T>` doesn't increment the strong count, breaking cycles:
+
+```rust
+struct Node {
+    value: i32,
+    parent: Option<Weak<RefCell<Node>>>,  // ← Weak instead of Rc
+    children: Vec<Rc<RefCell<Node>>>,
+}
+
+let parent = Rc::new(RefCell::new(Node {
+    value: 1,
+    parent: None,
+    children: vec![],
+}));
+
+let child = Rc::new(RefCell::new(Node {
+    value: 2,
+    parent: Some(Rc::downgrade(&parent)),  // ← Weak reference
+    children: vec![],
+}));
+
+parent.borrow_mut().children.push(Rc::clone(&child));
+
+// Strong references:
+// parent: 1 (our variable)
+// child: 2 (our variable + parent's children vec)
+
+// Weak references:
+// parent: 1 (child's parent field)
+
+// Drop parent:
+drop(parent);  // parent refcount: 1 → 0 → FREED!
+
+// child's weak reference to parent becomes invalid
+// child.parent.upgrade() → None
+
+// Drop child:
+drop(child);  // child refcount: 1 → 0 → FREED!
+
+// ✓ NO LEAK: All memory freed
+```
+
+---
+
+### Strong vs Weak References
+
+**Strong Reference (Rc<T>)**:
+- Keeps data alive
+- Counted in `strong_count`
+- Data freed when `strong_count` reaches 0
+
+**Weak Reference (Weak<T>)**:
+- Doesn't keep data alive
+- Counted in `weak_count`
+- Can become invalid (data freed while weak ref exists)
+- Must `upgrade()` to `Rc<T>` to access data
+
+**Reference Counting**:
+```rust
+struct RcInner<T> {
+    strong_count: usize,  // Number of Rc<T> pointers
+    weak_count: usize,    // Number of Weak<T> pointers
+    data: T,
+}
+
+// Rules:
+// 1. Data (T) freed when strong_count = 0
+// 2. RcInner freed when strong_count = 0 AND weak_count = 0
+// 3. Weak refs can exist after data is freed
+```
+
+**Example**:
+```rust
+let strong = Rc::new(String::from("data"));
+// strong_count: 1, weak_count: 0
+
+let weak1 = Rc::downgrade(&strong);
+// strong_count: 1, weak_count: 1
+
+let weak2 = Rc::downgrade(&strong);
+// strong_count: 1, weak_count: 2
+
+let strong2 = weak1.upgrade().unwrap();
+// strong_count: 2, weak_count: 2
+
+drop(strong);
+// strong_count: 1, weak_count: 2
+
+drop(strong2);
+// strong_count: 0 → Data (String) freed!
+// weak_count: 2 → RcInner still alive (for weak refs)
+
+weak1.upgrade();  // Returns None (data gone)
+weak2.upgrade();  // Returns None
+
+drop(weak1);
+// weak_count: 1
+
+drop(weak2);
+// weak_count: 0 → RcInner freed!
+```
+
+---
+
+### Interior Mutability: RefCell<T>
+
+**The Problem**: `Rc<T>` gives shared references (`&T`), but we often need mutation.
+
+```rust
+let rc = Rc::new(vec![1, 2, 3]);
+let rc2 = Rc::clone(&rc);
+
+// Can't mutate through shared reference:
+// rc.push(4);  // ❌ ERROR: can't call push on &Vec<i32>
+```
+
+**Solution: RefCell<T>** provides interior mutability with runtime borrow checking.
+
+```rust
+let rc = Rc::new(RefCell::new(vec![1, 2, 3]));
+let rc2 = Rc::clone(&rc);
+
+// Borrow mutably at runtime:
+rc.borrow_mut().push(4);  // ✓ OK: runtime check passes
+
+println!("{:?}", rc2.borrow());  // [1, 2, 3, 4]
+// Both rc and rc2 see the mutation!
+```
+
+**How RefCell Works**:
+
+```rust
+struct RefCell<T> {
+    value: UnsafeCell<T>,      // The actual data (allows mut through &)
+    borrow_state: Cell<isize>,  // Tracks borrows
+}
+
+// borrow_state values:
+//  0: Not borrowed
+// >0: N immutable borrows active
+// -1: One mutable borrow active
+```
+
+**Borrow Checking at Runtime**:
+```rust
+let cell = RefCell::new(42);
+
+// Multiple immutable borrows OK:
+let b1 = cell.borrow();      // borrow_state: 0 → 1
+let b2 = cell.borrow();      // borrow_state: 1 → 2
+drop(b1);                     // borrow_state: 2 → 1
+drop(b2);                     // borrow_state: 1 → 0
+
+// Mutable borrow requires exclusive access:
+let mut b = cell.borrow_mut();  // borrow_state: 0 → -1
+// cell.borrow();               // ❌ PANIC: already mutably borrowed
+drop(b);                         // borrow_state: -1 → 0
+
+// Rules (enforced at runtime):
+// 1. Many immutable borrows OR one mutable borrow
+// 2. Violation = panic!
+```
+
+**Compile-Time vs Runtime**:
+
+```rust
+// Compile-time borrow checking (normal Rust):
+let mut x = 42;
+let r1 = &x;
+let r2 = &x;
+// let r3 = &mut x;  // ❌ COMPILE ERROR
+
+// Runtime borrow checking (RefCell):
+let cell = RefCell::new(42);
+let r1 = cell.borrow();
+let r2 = cell.borrow();
+let r3 = cell.borrow_mut();  // ❌ RUNTIME PANIC!
+```
+
+**Trade-offs**:
+```
+Compile-time (&T, &mut T):
+✓ Zero runtime cost
+✓ Errors caught at compile time
+✗ Can't express some valid patterns
+
+Runtime (RefCell<T>):
+✓ More flexible (can mutate through &)
+✓ Enables patterns impossible with & alone
+✗ Runtime overhead (checking borrows)
+✗ Errors found at runtime (panics)
+```
+
+---
+
+### The Rc<RefCell<T>> Pattern
+
+Combining `Rc` and `RefCell` enables **shared mutable state**:
+
+```rust
+// Pattern: Rc<RefCell<T>>
+let data = Rc::new(RefCell::new(vec![1, 2, 3]));
+let data2 = Rc::clone(&data);
+let data3 = Rc::clone(&data);
+
+// All three can mutate the same Vec:
+data.borrow_mut().push(4);
+println!("{:?}", data2.borrow());  // [1, 2, 3, 4]
+
+data2.borrow_mut().push(5);
+println!("{:?}", data3.borrow());  // [1, 2, 3, 4, 5]
+```
+
+**When to Use**:
+- Graphs with mutable nodes
+- Observer pattern (multiple observers, mutable subject)
+- Cached values that need updating
+- Parent-child relationships with mutations
+
+**Example: Tree with Parent Pointers**:
+```rust
+struct TreeNode {
+    value: i32,
+    parent: Option<Weak<RefCell<TreeNode>>>,  // Weak to avoid cycle
+    children: Vec<Rc<RefCell<TreeNode>>>,     // Strong to keep children alive
+}
+
+let root = Rc::new(RefCell::new(TreeNode {
+    value: 1,
+    parent: None,
+    children: vec![],
+}));
+
+let child = Rc::new(RefCell::new(TreeNode {
+    value: 2,
+    parent: Some(Rc::downgrade(&root)),
+    children: vec![],
+}));
+
+// Add child to parent:
+root.borrow_mut().children.push(Rc::clone(&child));
+
+// Mutate child:
+child.borrow_mut().value = 42;
+
+// Access parent through child:
+if let Some(parent_rc) = child.borrow().parent.as_ref().unwrap().upgrade() {
+    println!("Parent value: {}", parent_rc.borrow().value);  // 1
+}
+```
+
+---
+
+### NonNull<T>: Raw Pointers Done Right
+
+`NonNull<T>` is a wrapper around `*mut T` with two guarantees:
+1. Pointer is never null
+2. Pointer is properly aligned
+
+**Why Not *mut T?**:
+```rust
+// *mut T can be null:
+let ptr: *mut i32 = std::ptr::null_mut();
+// Dangerous: no null check enforced
+
+// NonNull<T> cannot be null:
+// let ptr: NonNull<i32> = NonNull::new(std::ptr::null_mut()).unwrap();
+// ✗ Panics: new() returns None for null
+```
+
+**Benefits**:
+```rust
+struct MyRc<T> {
+    // ptr: *mut RcInner<T>,  // Could be null, not clear ownership
+    ptr: NonNull<RcInner<T>>,  // ✓ Never null, covariant, clearer intent
+}
+
+// NonNull properties:
+// 1. Size: same as *mut T (one usize)
+// 2. Null check eliminated (guaranteed non-null)
+// 3. Proper variance for T (covariant)
+// 4. Explicit unsafe operations
+```
+
+**Usage**:
+```rust
+// Creating NonNull:
+let boxed = Box::new(42);
+let ptr = NonNull::new(Box::into_raw(boxed)).unwrap();
+
+// Dereferencing (unsafe):
+unsafe {
+    let value = ptr.as_ref();  // &T
+    let value_mut = ptr.as_mut();  // &mut T
+    let raw = ptr.as_ptr();  // *mut T
+}
+
+// Freeing:
+unsafe {
+    drop(Box::from_raw(ptr.as_ptr()));
+}
+```
+
+---
+
+### UnsafeCell<T>: Foundation of Interior Mutability
+
+`UnsafeCell<T>` is the **only** legal way to get `&mut T` from `&UnsafeCell<T>`.
+
+**The Problem**:
+```rust
+struct Container {
+    value: i32,
+}
+
+impl Container {
+    fn mutate(&self) {
+        // ❌ Can't do this: have &self, need &mut self.value
+        // self.value = 42;
+    }
+}
+```
+
+**Solution with UnsafeCell**:
+```rust
+struct Container {
+    value: UnsafeCell<i32>,
+}
+
+impl Container {
+    fn mutate(&self) {
+        unsafe {
+            *self.value.get() = 42;  // ✓ OK: UnsafeCell allows this
+        }
+    }
+}
+```
+
+**Why It's Safe**:
+- `UnsafeCell<T>` opts out of Rust's aliasing guarantees
+- You promise: no simultaneous `&` and `&mut` to the same data
+- RefCell uses UnsafeCell + runtime checks to uphold this
+
+**RefCell Implementation**:
+```rust
+pub struct RefCell<T> {
+    value: UnsafeCell<T>,       // Interior mutability
+    borrow_state: Cell<isize>,  // Track borrows
+}
+
+impl<T> RefCell<T> {
+    pub fn borrow(&self) -> Ref<T> {
+        // Check no mutable borrows:
+        assert!(self.borrow_state.get() >= 0);
+
+        self.borrow_state.set(self.borrow_state.get() + 1);
+
+        Ref {
+            value: unsafe { &*self.value.get() },  // ← UnsafeCell magic
+            borrow: &self.borrow_state,
+        }
+    }
+}
+```
+
+---
+
+### Connection to This Project
+
+In this project, you'll implement all these concepts:
+
+1. **Milestone 1**: Basic reference counting with `Rc<T>`
+   - Heap allocation with `Box`
+   - Reference counting with clone/drop
+   - NonNull for safe raw pointers
+   - PhantomData for variance
+
+2. **Milestone 2**: Weak references to break cycles
+   - Two-count system (strong + weak)
+   - Conditional freeing logic
+   - Safe upgrading from weak to strong
+
+3. **Milestone 3**: Interior mutability with `RefCell<T>`
+   - UnsafeCell for legal mutation through &
+   - Runtime borrow tracking
+   - RAII guards (Ref/RefMut)
+   - Panic on violations
+
+---
 
 #### Milestone 1: Basic Reference Counter
 **Goal**: Implement a simple `MyRc<T>` with reference counting.

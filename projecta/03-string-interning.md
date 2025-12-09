@@ -4,25 +4,139 @@
 
 Build a string interning system that stores unique strings once and reuses them. This demonstrates Clone-on-Write (Cow) patterns and zero-copy optimization.
 
-### Use Cases
-1. **Compilers/Interpreters**: Variable names, function names, keywords, string literals
-2. **Configuration systems**: Keys in config files (often repeated)
-3. **Web frameworks**: Route paths, template variable names, header field names
-4. **Databases**: Table/column names, SQL keywords, username strings
-5. **Game engines**: Asset names, entity tags, component type names
-6. **Logging systems**: Log levels, logger names, common message patterns
+---
+
+## Understanding String Interning
+
+### What is String Interning?
+
+**String interning** is a memory optimization technique where only one copy of each distinct string value is stored in memory. When you need the same string multiple times, instead of creating duplicate copies, you reuse a reference to the single stored instance.
+
+**Simple Example:**
+
+```rust
+// Without interning (memory waste)
+let name1 = String::from("Alice");  // Allocation #1
+let name2 = String::from("Alice");  // Allocation #2 (duplicate!)
+let name3 = String::from("Alice");  // Allocation #3 (duplicate!)
+// Memory used: 3 allocations, 15 bytes total (5 bytes × 3)
+
+// With interning (memory efficient)
+let mut interner = StringInterner::new();
+let name1 = interner.intern("Alice");  // Allocation #1
+let name2 = interner.intern("Alice");  // Reuse! No allocation
+let name3 = interner.intern("Alice");  // Reuse! No allocation
+// Memory used: 1 allocation, 5 bytes, plus 3 pointers (24 bytes total on 64-bit)
+// But pointers are often stack-allocated, so effective memory = 5 bytes!
+```
+
+### Core Concepts
+
+#### 1. **Single Storage**
+Each unique string is stored exactly once in a central repository (the "intern pool").
+
+```
+Intern Pool:
+┌─────────────┐
+│ "Alice"     │ ← Stored once
+│ "Bob"       │ ← Stored once
+│ "Charlie"   │ ← Stored once
+└─────────────┘
+
+References:
+name1 → "Alice"
+name2 → "Alice"  (same pointer)
+name3 → "Bob"
+name4 → "Alice"  (same pointer)
+```
+
+#### 2. **Identity-Based Equality**
+Since identical strings have the same memory address, equality checks become pointer comparisons.
+
+```rust
+// String comparison: O(n) - must compare each character
+if "Alice" == "Alice" {  // Checks: A==A, l==l, i==i, c==c, e==e
+    // 5 comparisons
+}
+
+// Interned string comparison: O(1) - just compare pointers
+if ptr1 == ptr2 {  // Single pointer comparison
+    // 1 comparison
+}
+```
+
+#### 3. **Deduplication**
+When you try to intern a string that already exists, the interner returns the existing instance.
+
+```rust
+let mut interner = StringInterner::new();
+
+let s1 = interner.intern("hello");  // New: stores "hello"
+let s2 = interner.intern("world");  // New: stores "world"
+let s3 = interner.intern("hello");  // Duplicate: returns existing "hello"
+
+assert!(s1.as_ptr() == s3.as_ptr());  // Same memory address!
+```
+
+---
+
+### Real-World Examples
+
+#### String Interning in Practice
+
+**1. Java String Pool**
+```java
+String s1 = "hello";        // Interned automatically
+String s2 = "hello";        // Reuses interned string
+assert(s1 == s2);           // true (same object)
+
+String s3 = new String("hello");  // Not interned
+assert(s1 == s3);                 // false (different objects)
+```
+
+**2. Python String Interning**
+```python
+s1 = "hello"
+s2 = "hello"
+assert(s1 is s2)  # True - Python interns short strings automatically
+```
+
+**3. Rust Compiler (rustc)**
+- Interns all identifiers, keywords, and string literals
+- Symbol table uses interned strings for fast lookup
+- Reduces memory usage by ~15-20% during compilation
+
+**4. V8 JavaScript Engine**
+- Interns property names for objects
+- Enables fast property lookup (pointer comparison)
+- Critical for performance in property-heavy code
 
 
-### Why It Matters
+### Connection to This Project
 
-**Real-World Impact**: String duplication wastes massive amounts of memory in real programs:
+In this project, you're building a **string interning system**,
 
-**The String Duplication Problem**:
-- Compiler parsing 100K LOC: identifier "count" appears 5,000 times
-- Without interning: 5,000 allocations × 6 bytes = **30KB** for one identifier
-- With interning: 1 allocation × 6 bytes = **6 bytes**, 5,000 pointers (8 bytes each) = **40KB total**
-- But: pointers are often stack-allocated or in structs, actual savings = **29.9KB per repeated identifier**
-- Across thousands of identifiers: **Megabytes of savings**
+1. **Intrinsic State**: The string content itself (shared)
+2. **Extrinsic State**: Where the string is used (not stored in interner)
+3. **Factory**: The `StringInterner` struct manages the string pool
+4. **Optimization**: Cow pattern enables zero-copy when strings are already interned
+
+**What You'll Build:**
+```rust
+pub struct StringInterner {
+    pool: HashSet<String>,  // The flyweight pool for strings
+}
+
+impl StringInterner {
+    pub fn intern<'a>(&'a mut self, s: &str) -> Cow<'a, str> {
+        // Flyweight factory pattern:
+        // - Check if string exists (lookup intrinsic state)
+        // - If yes: return reference (reuse flyweight)
+        // - If no: store and return reference (create flyweight)
+    }
+}
+```
+
 
 **Performance Benefits**:
 1. **Memory**: 10-40% reduction in string memory for identifier-heavy workloads
@@ -34,28 +148,6 @@ Build a string interning system that stores unique strings once and reuses them.
 - **Zero-copy**: If string already interned, return borrowed reference (no allocation)
 - **Lazy allocation**: Only allocate when necessary
 - **API clarity**: Caller knows if allocation happened by checking `Cow` variant
-
-
-**String Interning is Critical When**:
-- Many duplicate strings (identifiers in code, repeated log messages)
-- String comparison is frequent (symbol table lookups)
-- Memory is constrained (embedded systems, large-scale deployments)
-
-**Cow Pattern is Critical When**:
-- Processing user input (may or may not need normalization)
-- Path manipulation (may or may not need conversion)
-- HTML escaping (most strings don't need escaping)
-
-### Learning Goals
-
-By completing this project, you will:
-
-1. **Master Clone-on-Write (Cow) pattern**: Understand zero-copy optimization and when to borrow vs own
-2. **Work with HashSet and lifetime management**: Practice storing references with proper lifetime annotations
-3. **Understand string interning**: Learn memory optimization techniques used in compilers and databases
-4. **Practice generic programming**: Build APIs that work with both borrowed and owned data
-5. **Implement efficient deduplication**: Learn hashing techniques and pointer-based equality
-6. **Design ergonomic APIs**: Create flexible interfaces using Cow that minimize unnecessary allocations
 
 ---
 
