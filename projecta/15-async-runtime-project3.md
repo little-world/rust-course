@@ -39,6 +39,682 @@ With priorities:   Critical task executes immediately = 100ms latency (960x fast
 
 ---
 
+## Key Concepts Explained
+
+This project requires understanding several advanced Rust async programming concepts. These concepts enable building high-performance concurrent task schedulers that would be difficult to implement safely in other languages.
+
+### Async/Await and Futures
+
+**The Core Concept**: Async functions don't execute immediately—they return `Future` trait objects that represent pending computation.
+
+```rust
+// Synchronous (blocks the thread)
+fn download_file(url: &str) -> String {
+    // Blocks for seconds/minutes
+    http_client.get(url).text() // Thread waits here
+}
+
+// Asynchronous (suspends, allows other work)
+async fn download_file(url: &str) -> String {
+    // Returns immediately with a Future
+    http_client.get(url).await // Suspends here, thread does other work
+}
+```
+
+**How Futures Work**:
+
+```rust
+// What async fn actually returns:
+fn download_file(url: &str) -> impl Future<Output = String> {
+    // Returns a state machine that implements Future trait
+}
+
+// The Future trait:
+trait Future {
+    type Output;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output>;
+}
+
+enum Poll<T> {
+    Ready(T),     // Computation complete
+    Pending,      // Not ready yet, will notify when ready
+}
+```
+
+**Execution Model**:
+
+```rust
+// Without await (nothing happens):
+let future = download_file("http://example.com");
+// File not downloaded! Future is lazy
+
+// With await (executes):
+let content = download_file("http://example.com").await;
+// Now it executes when polled by the runtime
+```
+
+**Why This Matters for Schedulers**:
+- Tasks are futures that can be stored, moved, and executed later
+- Async operations don't block threads—one thread can handle thousands of tasks
+- Futures compose: You can race them (`select!`), join them, timeout them
+
+---
+
+### Pin and Pinned Futures
+
+**The Problem**: Futures can be self-referential (contain pointers to their own data). Moving them invalidates these pointers.
+
+```rust
+// Simplified self-referential future:
+struct MyFuture {
+    data: String,
+    pointer: *const String,  // Points to self.data
+}
+
+// If we move this:
+let mut f1 = MyFuture { data: "hello".into(), pointer: &f1.data };
+let f2 = f1;  // Moved!
+// f2.pointer now points to f1's old location (dangling pointer!)
+```
+
+**The Solution: Pin**
+
+`Pin<P>` is a wrapper that prevents moving the pointed-to value.
+
+```rust
+use std::pin::Pin;
+
+// Pin prevents moving the future
+let pinned: Pin<Box<MyFuture>> = Box::pin(MyFuture { ... });
+// Can't move out of pinned now!
+```
+
+**Why Futures Need Pin**:
+
+```rust
+async fn example() {
+    let x = 42;
+    let y = &x;  // y borrows x
+    other_async_fn().await;  // Suspends here
+    println!("{}", y);  // Resumes here
+}
+
+// Desugars to state machine:
+enum ExampleFuture {
+    State1 { x: i32, y: *const i32 },  // y points to x!
+    State2 { ... },
+}
+
+// If this future moves, y becomes invalid!
+```
+
+**Pin in This Project**:
+
+```rust
+pub struct Task {
+    // Future must be pinned to prevent invalidating internal pointers
+    pub future: Pin<Box<dyn Future<Output = TaskResult> + Send>>,
+}
+
+impl Task {
+    pub fn new<F>(name: String, future: F) -> Self
+    where
+        F: Future<Output = TaskResult> + Send + 'static,
+    {
+        Task {
+            future: Box::pin(future),  // Pin immediately
+            // ...
+        }
+    }
+}
+```
+
+**Key Rules**:
+- Once pinned, value can't be moved
+- `Pin<Box<T>>` is most common pattern (heap-allocated, pinned)
+- Most code doesn't need to think about Pin—just use `Box::pin()`
+
+---
+
+### Trait Objects: Box<dyn Future>
+
+**The Problem**: Different async functions return different concrete Future types.
+
+```rust
+async fn task_a() -> i32 { 42 }
+async fn task_b() -> i32 { 100 }
+
+// These return DIFFERENT types!
+type FutureA = impl Future<Output = i32>;  // Compiler-generated type A
+type FutureB = impl Future<Output = i32>;  // Compiler-generated type B
+
+// Can't store them in the same Vec:
+let tasks = vec![task_a(), task_b()];  // ❌ Error: type mismatch
+```
+
+**The Solution: Trait Objects**
+
+Use `dyn Future` to erase the specific type:
+
+```rust
+// Store any future that returns i32:
+let tasks: Vec<Pin<Box<dyn Future<Output = i32>>>> = vec![
+    Box::pin(task_a()),  // Type A erased to dyn Future
+    Box::pin(task_b()),  // Type B erased to dyn Future
+];
+
+// Now they're compatible!
+```
+
+**Type Erasure**:
+
+```
+Before (concrete types):
+task_a() → CompilerGeneratedFutureA { ... }  // 16 bytes
+task_b() → CompilerGeneratedFutureB { ... }  // 24 bytes
+
+After (trait objects):
+Box::pin(task_a()) → Box<dyn Future> { ptr: *, vtable: * }  // 16 bytes (fat pointer)
+Box::pin(task_b()) → Box<dyn Future> { ptr: *, vtable: * }  // 16 bytes (fat pointer)
+
+All trait objects have the same size (2 pointers)!
+```
+
+**The + Send Bound**:
+
+```rust
+// For multithreaded execution:
+Pin<Box<dyn Future<Output = T> + Send>>
+//                                 ^^^^ Required to send across threads
+
+// Send means "safe to transfer ownership between threads"
+// Without Send, can't spawn on tokio runtime:
+tokio::spawn(future);  // Requires future: Send
+```
+
+**Performance Cost**:
+- **Dynamic dispatch**: Virtual function call through vtable (~2-5ns overhead)
+- **Heap allocation**: Box requires allocation
+- **Trade-off**: Flexibility vs. slight performance hit
+
+---
+
+### Priority Queues and BinaryHeap
+
+**The Concept**: A data structure where the "largest" or "smallest" element is always accessible in O(1) time.
+
+**How BinaryHeap Works**:
+
+```rust
+use std::collections::BinaryHeap;
+
+let mut heap = BinaryHeap::new();
+heap.push(5);
+heap.push(1);
+heap.push(10);
+heap.push(3);
+
+// Internal representation (max-heap):
+//       10
+//      /  \
+//     5    3
+//    /
+//   1
+
+// Pop always returns the maximum:
+assert_eq!(heap.pop(), Some(10));
+assert_eq!(heap.pop(), Some(5));
+assert_eq!(heap.pop(), Some(3));
+assert_eq!(heap.pop(), Some(1));
+```
+
+**Heap Properties**:
+- **Complete binary tree**: Stored in a Vec, very cache-friendly
+- **Heap property**: Parent ≥ children (for max-heap)
+- **O(1) peek**: Top element always at index 0
+- **O(log n) insert/remove**: Bubble up/down to maintain heap property
+
+**Using Ord for Custom Priority**:
+
+```rust
+#[derive(Eq, PartialEq)]
+struct PriorityTask {
+    priority: u8,  // Lower value = higher priority
+    sequence: u64, // FIFO within same priority
+}
+
+impl Ord for PriorityTask {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // BinaryHeap is max-heap, so reverse to get min-heap behavior
+        other.priority.cmp(&self.priority)  // Reversed!
+            .then_with(|| other.sequence.cmp(&self.sequence))  // Reversed!
+    }
+}
+
+// Now BinaryHeap pops highest priority (lowest priority value) first
+let mut queue = BinaryHeap::new();
+queue.push(PriorityTask { priority: 2, sequence: 1 });  // Normal
+queue.push(PriorityTask { priority: 0, sequence: 2 });  // Critical
+queue.push(PriorityTask { priority: 1, sequence: 3 });  // High
+
+assert_eq!(queue.pop().unwrap().priority, 0);  // Critical first
+assert_eq!(queue.pop().unwrap().priority, 1);  // High second
+assert_eq!(queue.pop().unwrap().priority, 2);  // Normal third
+```
+
+**Why This Matters**:
+- **Task priority scheduling**: Critical tasks execute before low-priority ones
+- **Efficient**: O(log n) is fast even for millions of tasks
+- **Fair within priority**: Sequence number ensures FIFO for same-priority tasks
+
+---
+
+### Channels: Communication Between Async Tasks
+
+Channels enable safe message passing between tasks. Tokio provides three main types:
+
+#### 1. mpsc (Multi-Producer Single-Consumer)
+
+**Use Case**: Many workers sending results to one coordinator.
+
+```rust
+use tokio::sync::mpsc;
+
+let (tx, mut rx) = mpsc::channel(100);  // Buffer 100 messages
+
+// Producer
+let tx1 = tx.clone();
+tokio::spawn(async move {
+    tx1.send(42).await.unwrap();
+});
+
+// Another producer
+let tx2 = tx.clone();
+tokio::spawn(async move {
+    tx2.send(100).await.unwrap();
+});
+
+// Single consumer
+while let Some(value) = rx.recv().await {
+    println!("Received: {}", value);
+}
+```
+
+**Properties**:
+- **Multiple senders**: Clone `tx` for each producer
+- **Single receiver**: Only one `rx`
+- **Buffered**: Senders can send up to capacity before blocking
+- **Backpressure**: `send().await` blocks when buffer full
+
+**Why For Task Scheduler**:
+- Workers are producers (send results)
+- Scheduler is consumer (collects results)
+
+#### 2. oneshot (Single-Use Channel)
+
+**Use Case**: One-time signals, like cancellation.
+
+```rust
+use tokio::sync::oneshot;
+
+let (tx, rx) = oneshot::channel();
+
+tokio::spawn(async move {
+    // Long-running task
+    tokio::select! {
+        result = do_work() => {
+            println!("Work done: {}", result);
+        }
+        _ = rx => {
+            println!("Cancelled!");
+            return;
+        }
+    }
+});
+
+// Cancel after 1 second
+tokio::time::sleep(Duration::from_secs(1)).await;
+tx.send(()).unwrap();  // Cancels the task
+```
+
+**Properties**:
+- **Single message**: Can only send once
+- **Zero overhead**: Optimized for one-shot use
+- **Cancellation-friendly**: Closing sender/receiver signals cancel
+
+#### 3. watch (Broadcast State Changes)
+
+**Use Case**: Broadcasting status updates to multiple observers.
+
+```rust
+use tokio::sync::watch;
+
+let (tx, mut rx1) = watch::channel("initial");
+let mut rx2 = rx1.clone();  // Multiple receivers
+
+tokio::spawn(async move {
+    while rx1.changed().await.is_ok() {
+        println!("rx1 sees: {}", *rx1.borrow());
+    }
+});
+
+tokio::spawn(async move {
+    while rx2.changed().await.is_ok() {
+        println!("rx2 sees: {}", *rx2.borrow());
+    }
+});
+
+tx.send("updated").unwrap();  // Both receivers notified
+tx.send("final").unwrap();    // Both receivers notified again
+```
+
+**Properties**:
+- **Broadcast**: All receivers get updates
+- **Latest value only**: Old updates are overwritten
+- **Cheap cloning**: Receivers can be cloned
+
+**Why For Task Scheduler**:
+- Broadcast task status (Queued → Running → Completed)
+- Multiple observers can monitor same task
+
+---
+
+### Timeout and Racing Futures
+
+**tokio::time::timeout**: Race a future against a timer.
+
+```rust
+use tokio::time::{timeout, Duration};
+
+async fn slow_operation() -> i32 {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    42
+}
+
+// Timeout after 1 second:
+match timeout(Duration::from_secs(1), slow_operation()).await {
+    Ok(result) => println!("Completed: {}", result),
+    Err(_) => println!("Timed out!"),  // After 1 second
+}
+```
+
+**How It Works**:
+
+```rust
+// Simplified implementation:
+async fn timeout<F>(duration: Duration, future: F) -> Result<F::Output, Elapsed>
+where
+    F: Future,
+{
+    tokio::select! {
+        result = future => Ok(result),        // Future completed first
+        _ = tokio::time::sleep(duration) => Err(Elapsed),  // Timer won
+    }
+}
+```
+
+**Why This Matters**:
+- **Prevents hung tasks**: Unresponsive services don't block workers forever
+- **Guarantees bounded latency**: Task fails fast rather than hang indefinitely
+- **Resource protection**: Limits time spent on any single task
+
+**tokio::select!**: Race multiple futures, return first to complete.
+
+```rust
+tokio::select! {
+    result = task1 => println!("Task1 won: {}", result),
+    result = task2 => println!("Task2 won: {}", result),
+    _ = shutdown_signal => println!("Shutting down"),
+}
+// Only ONE branch executes (first to complete)
+```
+
+---
+
+### Atomic Types: Lock-Free Synchronization
+
+**The Problem**: Sharing counters/flags between threads requires synchronization.
+
+```rust
+// Bad: Data race
+static mut COUNTER: u64 = 0;
+COUNTER += 1;  // ❌ UNDEFINED BEHAVIOR if multiple threads access
+
+// Good: Atomic operations
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+COUNTER.fetch_add(1, Ordering::Relaxed);  // ✓ Thread-safe
+```
+
+**Common Atomic Types**:
+
+```rust
+use std::sync::atomic::*;
+
+let count = AtomicU64::new(0);
+let flag = AtomicBool::new(false);
+let size = AtomicUsize::new(100);
+
+// Operations:
+count.fetch_add(1, Ordering::Relaxed);   // count++
+count.fetch_sub(1, Ordering::Relaxed);   // count--
+count.load(Ordering::Relaxed);           // Read value
+count.store(42, Ordering::Relaxed);      // Write value
+
+flag.store(true, Ordering::Relaxed);     // Set flag
+flag.load(Ordering::Relaxed);            // Check flag
+
+let old = count.swap(10, Ordering::Relaxed);  // Atomic exchange
+```
+
+**Memory Ordering** (simplified):
+
+| Ordering | Guarantees | Use Case |
+|----------|-----------|----------|
+| `Relaxed` | No ordering, just atomicity | Counters, statistics |
+| `Acquire` | Reads after this see writes before | Lock acquisition |
+| `Release` | Writes before this visible to Acquire | Lock release |
+| `SeqCst` | Strongest: total ordering | When in doubt (slowest) |
+
+**For most metrics/counters: Use `Relaxed`**.
+
+**Why For Task Scheduler**:
+- **Metrics**: Track tasks completed, failed, queue depth
+- **Shutdown flag**: Signal workers to stop
+- **No locks needed**: Atomic operations are lock-free (faster)
+
+**Performance**:
+```
+Atomic increment (Relaxed):  ~1-2ns
+Mutex lock/unlock:           ~20-50ns
+Speedup: 10-25x faster for simple counters
+```
+
+---
+
+### Graceful Shutdown Pattern
+
+**The Problem**: Abruptly killing workers loses in-progress work and leaves system in inconsistent state.
+
+**The Pattern**:
+
+```rust
+// 1. Set shutdown flag (stop accepting new work)
+shutdown_flag.store(true, Ordering::Relaxed);
+
+// 2. Close input channel (signals workers no more tasks coming)
+drop(task_sender);
+
+// 3. Wait for workers to finish current tasks
+for worker in workers {
+    worker.await.unwrap();
+}
+
+// 4. Drain any remaining results
+while let Ok(result) = result_receiver.try_recv() {
+    process(result);
+}
+```
+
+**Worker Loop with Graceful Shutdown**:
+
+```rust
+async fn worker(mut task_rx: mpsc::Receiver<Task>) {
+    // Loop until channel closed
+    while let Some(task) = task_rx.recv().await {
+        // Process task completely
+        let result = execute_task(task).await;
+        send_result(result).await;
+    }
+    // Channel closed → exit gracefully
+}
+```
+
+**Benefits**:
+- **No lost work**: In-flight tasks complete
+- **Clean state**: All resources properly released
+- **Safe restarts**: Can restart without corrupting data
+
+**Timeout-Based Shutdown**:
+
+```rust
+async fn shutdown_with_timeout(workers: Vec<JoinHandle<()>>, timeout: Duration) {
+    let shutdown_future = async {
+        for worker in workers {
+            worker.await.unwrap();
+        }
+    };
+
+    match tokio::time::timeout(timeout, shutdown_future).await {
+        Ok(_) => println!("Clean shutdown"),
+        Err(_) => println!("Forced shutdown after timeout"),
+    }
+}
+```
+
+---
+
+### Send and Sync Traits
+
+**Send**: Type can be **transferred** across thread boundaries.
+
+```rust
+// i32 is Send:
+let x = 42;
+std::thread::spawn(move || {
+    println!("{}", x);  // ✓ i32 moved to new thread
+});
+
+// Rc<T> is NOT Send:
+use std::rc::Rc;
+let rc = Rc::new(42);
+std::thread::spawn(move || {
+    println!("{}", rc);  // ❌ Error: Rc is not Send
+});
+
+// Arc<T> IS Send:
+use std::sync::Arc;
+let arc = Arc::new(42);
+std::thread::spawn(move || {
+    println!("{}", arc);  // ✓ Arc is Send
+});
+```
+
+**Sync**: Type can be **shared** across threads (via `&T`).
+
+```rust
+// Equivalent: &T is Send
+trait Sync {}
+
+// RefCell is NOT Sync:
+use std::cell::RefCell;
+let cell = RefCell::new(42);
+let cell_ref = &cell;
+std::thread::spawn(move || {
+    cell_ref.borrow_mut();  // ❌ Error: RefCell is not Sync
+});
+
+// Mutex IS Sync:
+use std::sync::Mutex;
+let mutex = Mutex::new(42);
+let mutex_ref = &mutex;
+std::thread::spawn(move || {
+    mutex_ref.lock().unwrap();  // ✓ Mutex is Sync
+});
+```
+
+**Why This Matters**:
+
+```rust
+// Futures must be Send to spawn on tokio:
+tokio::spawn(async {
+    // This entire future must be Send
+    // All variables must be Send
+});
+
+// Task definition requires Send:
+pub struct Task {
+    pub future: Pin<Box<dyn Future<Output = TaskResult> + Send>>,
+    //                                                      ^^^^ Required
+}
+```
+
+**Auto Traits**:
+- Types are automatically Send/Sync if all fields are Send/Sync
+- Compiler prevents unsafe cross-thread access at compile time
+
+---
+
+### Connection to This Project
+
+Now that you understand the core concepts, here's how they map to the milestones:
+
+**Milestone 1: Basic Task Definition**
+- **Concepts Used**: Futures, Pin<Box<dyn Future>>, trait objects, Send bound
+- **Why**: Tasks are heterogeneous futures that need to be stored and executed later
+- **Key Insight**: `Box::pin()` enables storing different async function types in the same struct
+
+**Milestone 2: Priority Queue**
+- **Concepts Used**: BinaryHeap, Ord trait, sequence numbers for FIFO
+- **Why**: Schedule tasks by importance, not just arrival order
+- **Key Insight**: Custom `Ord` implementation controls heap ordering, reversed comparisons give min-heap behavior
+
+**Milestone 3: Worker Pool**
+- **Concepts Used**: mpsc channels, tokio::spawn, concurrent execution
+- **Why**: Execute multiple tasks simultaneously, maximize throughput
+- **Key Insight**: Channels decouple task submission from execution, workers pull from shared queue
+
+**Milestone 4: Timeout and Retry**
+- **Concepts Used**: tokio::time::timeout, tokio::select!, exponential backoff
+- **Why**: Prevent hung tasks, handle transient failures automatically
+- **Key Insight**: Racing futures against timers enables bounded execution time
+
+**Milestone 5: Cancellation and Tracking**
+- **Concepts Used**: oneshot channels, watch channels, task status broadcasting
+- **Why**: Stop obsolete work, monitor task lifecycle
+- **Key Insight**: Cancellation is cooperative—tasks must check cancel signal via `select!`
+
+**Milestone 6: Graceful Shutdown and Metrics**
+- **Concepts Used**: AtomicU64/AtomicBool, graceful shutdown pattern, channel closure
+- **Why**: Clean termination, observability into system performance
+- **Key Insight**: Atomic types enable lock-free metrics tracking, channel closure signals workers to exit
+
+**Putting It All Together**:
+
+The complete scheduler combines all concepts:
+1. **Tasks as futures** enable lazy execution and composition
+2. **Priority queues** ensure critical work runs first
+3. **Channels** coordinate producer-consumer communication
+4. **Timeouts** bound execution time
+5. **Cancellation** stops obsolete work
+6. **Atomics** track metrics without locks
+7. **Graceful shutdown** ensures clean termination
+
+Each milestone builds on the previous one, progressively adding more sophisticated async patterns until you have a production-ready task scheduler.
+
+---
+
 ## Milestone 1: Basic Task Definition and Execution
 
 ### Introduction

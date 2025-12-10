@@ -1,5 +1,18 @@
 # Project 1: Regular Expression Engine with Pattern Matching
 
+
+## Problem Statement
+
+Build a regular expression engine that:
+- Parses regex patterns into an Abstract Syntax Tree (AST)
+- Evaluates patterns using Rust's pattern matching
+- Supports literals, wildcards (.), character classes ([a-z]), quantifiers (*, +, ?, {n,m})
+- Implements alternation (|), capture groups, and anchors (^, $, \b)
+- Uses backtracking for non-greedy matching
+- Optimizes patterns through pattern analysis
+- Demonstrates ALL Rust pattern matching features
+
+---
 ## What Are Regular Expressions?
 
 **Regular expressions (regex)** are patterns that describe sets of strings. They're a powerful tool for searching, matching, and manipulating text. Think of them as a mini-language for describing text patterns.
@@ -242,18 +255,6 @@ Step 4: Now try to match "ab", SUCCESS!
 
 ---
 
-## Problem Statement
-
-Build a regular expression engine that:
-- Parses regex patterns into an Abstract Syntax Tree (AST)
-- Evaluates patterns using Rust's pattern matching
-- Supports literals, wildcards (.), character classes ([a-z]), quantifiers (*, +, ?, {n,m})
-- Implements alternation (|), capture groups, and anchors (^, $, \b)
-- Uses backtracking for non-greedy matching
-- Optimizes patterns through pattern analysis
-- Demonstrates ALL Rust pattern matching features
-
----
 
 ## Key Concepts Explained
 
@@ -524,33 +525,6 @@ Alternation(
 
 ---
 
-### Project-Wide Benefits
-
-**Concrete comparisons** - Matching 1M patterns:
-
-| Metric | String search | Basic regex | Optimized regex | Improvement |
-|--------|--------------|-------------|-----------------|-------------|
-| Fixed string | 15ms | 50ms | 20ms | **Pattern power** |
-| Pattern `\d{3}-\d{3}` | N/A | 200ms | 50ms | **4× faster** |
-| Alternation `cat\|dog` | N/A | 150ms | 80ms | **2× faster** |
-| Memory per pattern | 0 bytes | 200 bytes | 200 bytes | **Acceptable** |
-
-**Real-world validation**:
-- **Rust regex crate**: Uses similar AST + pattern matching design
-- **grep/ripgrep**: Optimized regex matching with pattern analysis
-- **sed/awk**: Pattern matching for text processing
-- **Syntax highlighters**: Use regex engines for token matching
-
-**Lessons learned**:
-1. **Exhaustive matching** prevents bugs when adding features
-2. **Range patterns** are surprisingly fast (3-5× vs HashSet)
-3. **Backtracking** is powerful but needs limits (prevent DoS)
-4. **Box** enables recursive types with minimal overhead
-5. **Pattern analysis** (detecting anchors, literals) enables major optimizations
-
-This project teaches the exact patterns used in production regex engines processing billions of matches daily.
-
----
 
 ## Milestone 1: Basic Literal and Wildcard Matching
 
@@ -1733,37 +1707,30 @@ mod benchmarks {
 }
 ```
 
-## Extensions and Challenges
+### Project-Wide Benefits
 
-1. **Non-Greedy Matching**: Implement `*?`, `+?`, `??` lazy quantifiers
-2. **Backreferences**: Support `\1`, `\2` to match previous captures
-3. **Lookahead/Lookbehind**: Implement `(?=...)` and `(?<=...)`
-4. **Named Groups**: Support `(?P<name>...)` for named captures
-5. **Unicode Support**: Handle Unicode character classes (`\p{L}`)
-6. **Optimization**: Implement NFA/DFA compilation for faster matching
-7. **Parser**: Build a complete regex parser from strings
-8. **Replace**: Implement `replace()` and `replace_all()` functions
+**Concrete comparisons** - Matching 1M patterns:
 
-## Pattern Matching Features Demonstrated
+| Metric | String search | Basic regex | Optimized regex | Improvement |
+|--------|--------------|-------------|-----------------|-------------|
+| Fixed string | 15ms | 50ms | 20ms | **Pattern power** |
+| Pattern `\d{3}-\d{3}` | N/A | 200ms | 50ms | **4× faster** |
+| Alternation `cat\|dog` | N/A | 150ms | 80ms | **2× faster** |
+| Memory per pattern | 0 bytes | 200 bytes | 200 bytes | **Acceptable** |
 
-✅ **Exhaustive Matching**: All Regex variants handled
-✅ **Pattern Guards**: Validation in anchors and quantifiers
-✅ **Range Patterns**: Character classes with `'a'..='z'`
-✅ **Slice Patterns**: Sequence optimization with `match exprs.as_slice()`
-✅ **Deep Destructuring**: `box` patterns for nested expressions
-✅ **Or-Patterns**: `Regex::Literal(_) | Regex::Char(_)`
-✅ **Matches! Macro**: Quick character checks
-✅ **Let-Else**: Error handling in extract functions
-✅ **If-Let Chains**: Capture extraction logic
-✅ **Tuple Matching**: Quantifier bounds `(min, max)`
+**Real-world validation**:
+- **Rust regex crate**: Uses similar AST + pattern matching design
+- **grep/ripgrep**: Optimized regex matching with pattern analysis
+- **sed/awk**: Pattern matching for text processing
+- **Syntax highlighters**: Use regex engines for token matching
 
-## Real-World Applications
+**Lessons learned**:
+1. **Exhaustive matching** prevents bugs when adding features
+2. **Range patterns** are surprisingly fast (3-5× vs HashSet)
+3. **Backtracking** is powerful but needs limits (prevent DoS)
+4. **Box** enables recursive types with minimal overhead
+5. **Pattern analysis** (detecting anchors, literals) enables major optimizations
 
-- **Web Frameworks**: URL routing and parameter extraction
-- **Text Editors**: Search and replace functionality
-- **Compilers**: Lexical analysis and tokenization
-- **Validation**: Form input validation
-- **Log Analysis**: Extract structured data from logs
-- **Data Extraction**: Web scraping and parsing
+This project teaches the patterns used in production regex engines processing billions of matches daily.
 
-This project demonstrates how Rust's pattern matching system naturally models the structure of regular expressions, making the code both safe (exhaustive checking) and maintainable (clear structure).
+---

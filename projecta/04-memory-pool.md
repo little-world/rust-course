@@ -12,164 +12,622 @@ Your memory pool should support:
 - Detecting memory leaks and double-frees
 
 
-## Understanding Memory Pool Allocators
+## How System Allocators Work
 
-Before implementing the memory pool, let's understand the fundamental concepts that make custom allocators powerful and when they're appropriate.
+Before we dive into memory pools, it's essential to understand how general-purpose system allocators work and why they struggle with certain workloads. This knowledge will help you appreciate when and why specialized allocators like memory pools are superior.
 
-### What is a Memory Pool Allocator?
+### System Allocator Overview
 
-A **memory pool allocator** (also called **object pool** or **fixed-size allocator**) pre-allocates a large block of memory and divides it into fixed-size chunks. Instead of asking the operating system for memory on each allocation, you request a chunk from your pool.
+A **system allocator** (like `malloc`/`free`, `jemalloc`, `tcmalloc`) is a general-purpose memory management system that handles arbitrary-sized allocations. When your program calls `malloc(size)`, the allocator must:
 
-**The Problem with System Allocators**:
+1. Find a suitable block of free memory
+2. Mark it as used
+3. Return a pointer to the caller
+4. Track metadata for eventual deallocation
+
+**The Core Challenge**: Must handle **any size**, **any pattern**, **any timing** efficiently.
+
 ```
-Application requests 64 bytes:
-1. System allocator searches free list for suitable block (~100ns)
-2. May need to split larger block or coalesce smaller blocks
-3. Adds metadata (size, alignment, guard bytes) ~16 bytes overhead
-4. Returns pointer to allocated memory
-5. On free: reverses process, may coalesce adjacent blocks
-
-Total cost: 50-200ns per allocation (non-deterministic!)
-Overhead: ~20% of allocated memory
-Fragmentation: Can waste 10-30% of heap over time
+Typical program workload:
+malloc(8)     → need tiny block
+malloc(1024)  → need medium block
+malloc(64)    → need small block
+malloc(8192)  → need large block
+free(small)   → creates hole
+malloc(32)    → reuse hole or find new space?
 ```
 
-**Memory Pool Solution**:
+This unpredictability forces system allocators to use complex strategies that trade performance for flexibility.
+
+---
+
+### Internal Data Structures
+
+System allocators maintain several data structures to track free and allocated memory:
+
+#### 1. Free Lists (Linked Lists of Available Blocks)
+
+**Concept**: Chain together all free memory blocks using pointers stored **within the free blocks themselves**.
+
 ```
-Pre-allocate 64KB divided into 100 blocks of 640 bytes:
+Heap memory with free list:
 
-[Block 0][Block 1][Block 2]...[Block 99]
-   ↑        ↑        ↑           ↑
-  Free    Free    Free        Free
+Address    Data
+0x1000   ┌─────────────────┐
+         │ [Used Block]    │  Allocated to user
+0x1040   ├─────────────────┤
+         │ Size: 128       │  Metadata
+         │ Next: 0x20C0 ───┼──┐  Pointer to next free block
+         │ [Free Space]    │  │  (stored in the free space!)
+0x10C0   ├─────────────────┤  │
+         │ [Used Block]    │  │
+0x2000   ├─────────────────┤  │
+         │ [Used Block]    │  │
+0x20C0   ├─────────────────┤◄─┘
+         │ Size: 256       │
+         │ Next: NULL      │
+         │ [Free Space]    │
+         └─────────────────┘
 
-Allocation:
-1. Pop index from free list: O(1), ~5ns
-2. Return pre-calculated pointer: base + (index * block_size)
-3. No metadata, no fragmentation, no system calls
+Free list: 0x1040 → 0x20C0 → NULL
+```
 
-Deallocation:
-1. Push index back to free list: O(1), ~5ns
-2. No coalescing needed
+**Key Insight**: No extra memory needed for the free list—the list lives in the free blocks themselves!
 
-Total cost: ~10ns per allocation (deterministic!)
-Overhead: 0 bytes per allocation
-Fragmentation: 0% (fixed-size blocks)
+**Search Strategies**:
+
+| Strategy | How It Works | Time | Fragmentation |
+|----------|-------------|------|---------------|
+| **First Fit** | Use first block large enough | O(n) | Medium - leaves small holes at front |
+| **Best Fit** | Use smallest block that fits | O(n) | High - leaves tiny unusable holes |
+| **Worst Fit** | Use largest available block | O(n) | Low - keeps large blocks available |
+| **Next Fit** | Resume search from last allocation | O(n) | Medium - distributes holes evenly |
+
+**Example: First Fit Search**
+```
+Request: malloc(64)
+Free list: [32] → [128] → [48] → [256]
+
+Scan:
+- 32 bytes? Too small, skip
+- 128 bytes? Large enough! Use it
+  - Return pointer to start of block
+  - If 128 - 64 = 64 remaining, split into new free block
+  - Update free list
+```
+
+#### 2. Size Classes / Bins (Segregated Free Lists)
+
+**Problem with Single Free List**: Searching for the right size is slow O(n).
+
+**Solution**: Maintain **multiple free lists**, one for each size range.
+
+```
+Bins (size classes):
+┌──────────┬─────────────────┐
+│ Bin 0    │ 8-16 bytes      │ → [Free 16] → [Free 8] → NULL
+├──────────┼─────────────────┤
+│ Bin 1    │ 17-32 bytes     │ → [Free 32] → [Free 24] → NULL
+├──────────┼─────────────────┤
+│ Bin 2    │ 33-64 bytes     │ → [Free 64] → [Free 48] → NULL
+├──────────┼─────────────────┤
+│ Bin 3    │ 65-128 bytes    │ → NULL (all allocated)
+├──────────┼─────────────────┤
+│ Bin 4    │ 129-256 bytes   │ → [Free 256] → NULL
+├──────────┼─────────────────┤
+│ ...      │ ...             │
+└──────────┴─────────────────┘
+
+malloc(50):
+1. Calculate bin: 50 bytes → Bin 2 (33-64 bytes)
+2. Check Bin 2: found [Free 64]
+3. Return immediately - O(1)!
+```
+
+**Benefits**:
+- **Fast allocation**: O(1) lookup for common sizes
+- **Less fragmentation**: Similar-sized objects grouped together
+- **Better cache locality**: Objects from same bin are nearby
+
+**Real Allocator Bin Layouts**:
+
+| Allocator | Small Bins | Large Bins |
+|-----------|-----------|------------|
+| **jemalloc** | 8, 16, 32, 48, 64, 80, 96, 112, 128... (fine-grained) | Powers of 2 |
+| **tcmalloc** | 8, 16, 32, 48, 64, 80, 96... (8-byte increments) | Page-aligned |
+| **ptmalloc2** | 16, 24, 32, 40, 48, 56, 64... (8-byte increments) | Powers of 2 |
+
+#### 3. Block Metadata (Headers and Footers)
+
+Every allocated block carries metadata for management:
+
+```
+Allocated Block Structure:
+
+┌─────────────────────────────┐
+│  HEADER                     │
+│  ┌────────────────────────┐ │
+│  │ Size: 128 bytes        │ │ ← Block size (includes header)
+│  │ Flags: [IN_USE]        │ │ ← Status bits
+│  │ Prev Size: 64          │ │ ← Previous block size (for coalescing)
+│  └────────────────────────┘ │
+├─────────────────────────────┤
+│  USER DATA                  │ ← Pointer returned to user
+│  (120 bytes usable)         │
+│                             │
+└─────────────────────────────┘
+│  FOOTER (optional)          │
+│  Size: 128 (duplicate)      │ ← Enables backward traversal
+└─────────────────────────────┘
+
+Total overhead: 8-16 bytes per allocation
+```
+
+**Metadata Uses**:
+- **Size**: Know how much to free
+- **Status flags**: In use, previous block free, etc.
+- **Boundary tags**: Find adjacent blocks for coalescing
+
+**Optimization: Size Class Pools**
+
+Small allocations (≤ 256 bytes) often use **slab allocation** with no per-object metadata:
+
+```
+Slab for 64-byte objects:
+┌───────┬───────┬───────┬───────┬───────┐
+│ Obj 1 │ Obj 2 │ Obj 3 │ Obj 4 │ Obj 5 │
+│ 64B   │ 64B   │ 64B   │ 64B   │ 64B   │
+└───────┴───────┴───────┴───────┴───────┘
+
+Bitmap: [1][1][0][1][0]  ← 1 = in use, 0 = free
+         ↑  ↑     ↑
+       Used Used  Used
+
+No per-object headers! Just bitmap overhead.
+```
+
+**Savings**: 8-16 bytes per allocation for small objects = **10-20% memory savings**.
+
+---
+
+### Fragmentation: The Allocator's Nemesis
+
+**Fragmentation** is wasted memory that's technically free but unusable. It's the primary problem system allocators try to minimize.
+
+#### Types of Fragmentation
+
+**1. External Fragmentation**
+
+Free memory exists but is scattered in pieces too small to satisfy requests.
+
+```
+Memory state after many allocations/deallocations:
+
+[Used 32][Free 16][Used 64][Free 8][Used 128][Free 32][Used 16][Free 4]
+
+Request malloc(64):
+❌ FAIL: Total free = 16 + 8 + 32 + 4 = 60 bytes
+✓ But no single contiguous block ≥ 64 bytes!
+
+Fragmentation ratio: 60 bytes free but unusable = wasted
+```
+
+**Real-World Impact**:
+- Long-running servers: 20-40% of heap can become fragmented
+- Embedded systems: May fail allocations despite having enough total memory
+- Can trigger expensive OS memory operations (brk, mmap)
+
+**2. Internal Fragmentation**
+
+Allocated more than needed due to allocator constraints.
+
+```
+Request: malloc(50)
+Allocator rounds up to size class: 64 bytes
+Return: 64-byte block
+
+Used:     50 bytes
+Wasted:   14 bytes (internal fragmentation)
+Overhead: 28% waste!
+
+With many small allocations:
+10,000 × 50-byte requests
+Allocated: 10,000 × 64 = 640 KB
+Needed:    10,000 × 50 = 500 KB
+Waste:     140 KB (28%)
 ```
 
 ---
 
-### Why Use Memory Pool Allocators?
+### Low Fragmentation Strategies
 
-**1. Predictable Performance (Real-Time Systems)**
+Modern allocators use sophisticated techniques to minimize fragmentation. Let's examine the most important ones.
 
-System allocators are non-deterministic:
+#### 1. Coalescing (Merging Adjacent Free Blocks)
+
+**Problem**: After many frees, free list becomes littered with tiny adjacent blocks.
+
+```
+Before coalescing:
+[Used][Free 16][Free 32][Used][Free 8][Free 24][Used]
+       ↑        ↑              ↑        ↑
+   Can't satisfy malloc(64)!
+
+After coalescing:
+[Used][Free 48][Used][Free 32][Used]
+       ↑              ↑
+   Now malloc(64) fails, but malloc(48) or malloc(32) works
+```
+
+**Implementation: Boundary Tags**
+
+Use metadata to find adjacent blocks:
+
 ```rust
-// System allocator (malloc/free)
-for i in 0..1000 {
-    let data = Box::new([0u8; 64]);
-    // Time: anywhere from 50ns to 10,000ns
-    // Depends on fragmentation, cache state, system load
+fn coalesce_free_block(ptr: *mut u8) {
+    let mut block = Block::from_ptr(ptr);
+
+    // Check previous block
+    if block.prev_free() {
+        let prev = block.prev_block();
+        // Remove prev from free list
+        // Merge: block = [prev][block]
+        block.size += prev.size;
+    }
+
+    // Check next block
+    let next = block.next_block();
+    if next.is_free() {
+        // Remove next from free list
+        // Merge: block = [block][next]
+        block.size += next.size;
+    }
+
+    // Add coalesced block to free list
+    add_to_free_list(block);
 }
 ```
 
-Memory pools are deterministic:
+**Cost**: O(1) per free operation (just check neighbors)
+
+**Benefit**: Maintains larger contiguous blocks, reduces external fragmentation by 30-50%
+
+#### 2. Splitting (Breaking Large Blocks)
+
+**Problem**: Allocating small object from large block wastes space.
+
+```
+Free block: 1024 bytes
+Request: malloc(64)
+
+Without splitting:
+[Used 64 + wasted 960] ← 960 bytes internal fragmentation!
+
+With splitting:
+[Used 64][Free 960]
+         └── Return to free list
+```
+
+**Implementation**:
+
 ```rust
-// Memory pool
-let pool = MemoryPool::new(100 * 64, 64);
-for i in 0..1000 {
-    let ptr = pool.allocate();
-    // Time: consistently 5-10ns
-    // Always just pop from free list
+fn allocate_with_split(block: FreeBlock, requested_size: usize) -> *mut u8 {
+    let total_size = block.size;
+    let min_split_size = 32; // Don't split if remainder too small
+
+    if total_size >= requested_size + min_split_size {
+        // Split the block
+        let remainder_size = total_size - requested_size;
+
+        // First part: allocate
+        let allocated = block.ptr;
+        set_block_size(allocated, requested_size);
+        set_used(allocated);
+
+        // Second part: free
+        let remainder = allocated.add(requested_size);
+        set_block_size(remainder, remainder_size);
+        set_free(remainder);
+        add_to_free_list(remainder);
+
+        return allocated;
+    } else {
+        // Too small to split, use whole block
+        set_used(block.ptr);
+        return block.ptr;
+    }
 }
 ```
 
-**Real-World Example**: Audio processing at 48kHz must process each sample in 20.8μs. A single 10μs malloc stall would cause audible glitches (pops/clicks).
+**Threshold**: Only split if remainder ≥ minimum useful size (16-32 bytes)
+- Prevents creating useless tiny blocks
+- Balances internal vs external fragmentation
 
-**2. No Fragmentation**
+#### 3. Size Classes with Power-of-Two Rounding
 
-System allocator fragmentation:
+**Strategy**: Round allocations to power-of-two or specific size classes.
+
+**Benefits**:
+- **Fast bin lookup**: `bin = log2(size)` or bit manipulation
+- **Predictable splitting**: 512-byte block splits perfectly into 2×256, 4×128, etc.
+- **Better reuse**: More likely to find exact size match
+
+**Example Size Classes**:
+
 ```
-Initial heap:
-[              Free Space                    ]
-
-After many random allocations and frees:
-[Used][Free][Used][Free][Free][Used][Free][Used]
-  8kb  2kb  16kb  1kb   4kb   32kb  512b  64kb
-
-Request 8kb:
-❌ Can't satisfy! Largest contiguous block is 4kb
-✓ But 7.5kb total free space exists (wasted!)
-```
-
-Memory pool (no fragmentation):
-```
-Pool with 64-byte blocks:
-[Free][Used][Free][Free][Used][Free][Used][Free]
-
-Request 64 bytes:
-✓ Always succeeds if any block is free
-✓ All blocks same size, no holes
-✓ 0% fragmentation by design
+Tiny:    8, 16, 24, 32, 40, 48, 56, 64  (8-byte increments)
+Small:   64, 80, 96, 112, 128, 160, 192, 224, 256  (16-byte increments)
+Medium:  256, 320, 384, 448, 512, 640, 768, 896, 1024  (64-byte increments)
+Large:   1K, 2K, 4K, 8K, 16K, 32K, 64K...  (powers of 2)
+Huge:    Direct mmap, page-aligned
 ```
 
-**3. Improved Cache Locality**
+**Internal Fragmentation Trade-off**:
 
-System allocator:
 ```
-malloc(64):  Returns address 0x1000
-malloc(64):  Returns address 0x5F80  (24kb away!)
-malloc(64):  Returns address 0x2A40  (10kb away!)
+Request: 65 bytes
+Allocated: 80 bytes (next size class)
+Waste: 15 bytes (23%)
 
-Result: Poor cache locality
-- Each allocation might be on different cache line
-- Walking through objects causes cache misses
-- Performance: 100+ cycles per access (RAM)
-```
+But:
+✓ Fast O(1) allocation (direct bin lookup)
+✓ Reduces external fragmentation (standard sizes)
+✓ Better cache utilization (aligned sizes)
 
-Memory pool:
-```
-Pool allocates contiguous blocks:
-Block 0: 0x10000
-Block 1: 0x10040  (+64 bytes)
-Block 2: 0x10080  (+64 bytes)
-
-Result: Excellent cache locality
-- Sequential objects are adjacent in memory
-- Likely share same cache line
-- Performance: 4-10 cycles per access (L1 cache)
+Typical waste: 10-15% internal fragmentation
+Savings from reduced external fragmentation: 20-40%
+Net win: 5-30% less total waste
 ```
 
-**Benchmark**: Iterating through 1000 objects:
-- System allocator: ~50,000 cycles (cache misses)
-- Memory pool: ~5,000 cycles (cache hits)
-- **10x speedup** from locality alone!
+#### 4. Segregated Free Lists (Per-Size Bins)
 
-**4. Reduced System Call Overhead**
+**Advanced Strategy**: Separate free lists for each size class.
 
-System allocator:
-```rust
-// Each allocation might trigger system call
-for i in 0..10000 {
-    let data = Box::new(Data { ... });
-    // May call brk()/sbrk() or mmap()
-    // System call: ~1000ns overhead
-}
+```
+Allocation Request: 48 bytes
+
+Step 1: Calculate bin index
+bin = size_to_bin(48)  // bin 2 (33-64 bytes)
+
+Step 2: Check exact bin
+if bins[2] not empty:
+    return bins[2].pop()  // O(1)!
+
+Step 3: Check larger bins
+for i in 3..MAX_BINS:
+    if bins[i] not empty:
+        block = bins[i].pop()
+        split_and_return(block, 48)
+        return block
+
+Step 4: Request more memory from OS
+return expand_heap(48)
 ```
 
-Memory pool:
-```rust
-// Single system call to allocate pool
-let pool = MemoryPool::new(64 * 10000, 64);  // One allocation
+**Fast Path**: O(1) when exact size available (90%+ of allocations in practice)
 
-// All subsequent allocations are user-space only
-for i in 0..10000 {
-    let ptr = pool.allocate();
-    // Pure user-space: ~5ns
-    // No syscalls, no kernel involvement
-}
+**Benefits**:
+- Eliminates search time for common sizes
+- Objects of similar size grouped together (better cache locality)
+- Reduces fragmentation (similar-sized objects live/die together)
+
+#### 5. Arena/Region-Based Allocation
+
+**Strategy**: Large allocations (>128KB) go directly to OS via `mmap()` instead of using heap.
+
+```
+malloc(200,000):
+  ↓
+Check if > threshold (typically 128KB)
+  ↓ YES
+Call mmap() → get dedicated memory region
+  ↓
+Return pointer
+  ↓
+free(): munmap() entire region
+
+Benefits:
+✓ No heap fragmentation (separate region)
+✓ Can return memory to OS immediately
+✓ Page-aligned automatically
+```
+
+**jemalloc Arena Structure**:
+
+```
+Per-Thread Arena:
+┌────────────────────────┐
+│ Small bins  (0-1KB)    │ ← Thread-local, no locking
+├────────────────────────┤
+│ Large bins  (1KB-128KB)│ ← Shared, requires lock
+├────────────────────────┤
+│ Huge allocations       │ ← Direct mmap
+└────────────────────────┘
+
+Multiple arenas reduce lock contention:
+Thread 1 → Arena 1
+Thread 2 → Arena 2
+Thread 3 → Arena 1  (reuse)
+Thread 4 → Arena 2  (reuse)
+```
+
+#### 6. Deferred Coalescing
+
+**Problem**: Coalescing on every free() is expensive (traversing neighbors, updating lists).
+
+**Solution**: Batch coalesce operations.
+
+```
+Strategy 1: Lazy coalescing
+- free(): Just add to free list, don't coalesce
+- malloc(): If allocation fails, run coalescing pass, then retry
+
+Strategy 2: Periodic coalescing
+- Every N allocations, run full coalescing pass
+- Amortized cost: O(1) per operation
+
+Strategy 3: Opportunistic coalescing
+- Coalesce only when freeing blocks adjacent to already-free blocks
+- Detected via boundary tags
+```
+
+**Trade-off**:
+- Less coalescing = faster free()
+- More fragmentation temporarily
+- Batch processing reduces overhead
+
+**Benchmark Impact**:
+```
+Immediate coalescing:
+  - free(): 50ns per call
+  - malloc success rate: 95%
+
+Deferred coalescing:
+  - free(): 10ns per call (5x faster!)
+  - malloc success rate: 92%
+  - Periodic cleanup: 500ns every 1000 ops
+
+Net: 2-3x overall throughput improvement
 ```
 
 ---
+
+### Real Allocator Implementations
+
+Let's see how production allocators combine these strategies:
+
+#### jemalloc (Used by Rust, FreeBSD, Firefox, Meta)
+
+**Architecture**:
+```
+┌───────────────────────────────────────┐
+│ Per-Thread Caches (TCaches)          │
+│  - Small allocations (<= 14KB)       │
+│  - Zero contention                    │
+├───────────────────────────────────────┤
+│ Arenas (Shared regions)               │
+│  - Multiple arenas reduce contention  │
+│  - 4 cores × 4 arenas = 16 arenas    │
+├───────────────────────────────────────┤
+│ Size Classes                          │
+│  - Tiny: 8-256 bytes                 │
+│  - Small: 512B-14KB                  │
+│  - Large: 16KB-4MB                   │
+│  - Huge: >4MB (direct mmap)          │
+└───────────────────────────────────────┘
+```
+
+**Key Features**:
+- **Immediate coalescing** for small/medium
+- **Deferred coalescing** for large
+- **96 size classes** (fine-grained)
+- **4MB chunks** (slab units)
+- **Typical fragmentation: 10-15%**
+
+#### tcmalloc (Used by Chrome, Golang)
+
+**Architecture**:
+```
+┌───────────────────────────────────────┐
+│ Per-Thread Caches                     │
+│  - 60 size classes                    │
+│  - Max cache size: 4MB per thread     │
+├───────────────────────────────────────┤
+│ Central Free List                     │
+│  - Spans (groups of pages)            │
+│  - Lock-protected                     │
+├───────────────────────────────────────┤
+│ Page Heap                             │
+│  - 4KB pages                          │
+│  - Buddy allocation for large         │
+└───────────────────────────────────────┘
+```
+
+**Key Features**:
+- **No coalescing** for small allocations (fixed spans)
+- **Buddy system** for large (efficient coalescing)
+- **Lock-free** for thread cache hits (99%+ of allocations)
+- **Typical fragmentation: 12-18%**
+
+#### dlmalloc/ptmalloc2 (Used by glibc, Linux default)
+
+**Architecture**:
+```
+┌───────────────────────────────────────┐
+│ Fast Bins (LIFO, no coalescing)      │
+│  - 10 bins for very small sizes      │
+│  - 16, 24, 32...80 bytes              │
+├───────────────────────────────────────┤
+│ Small Bins (size classes)             │
+│  - 62 bins                            │
+│  - FIFO order                         │
+├───────────────────────────────────────┤
+│ Large Bins (sorted by size)           │
+│  - 63 bins                            │
+│  - Best-fit search                    │
+├───────────────────────────────────────┤
+│ Unsorted Bin (recent frees)           │
+│  - Staging area for coalescing        │
+└───────────────────────────────────────┘
+```
+
+**Key Features**:
+- **Immediate coalescing** except fast bins
+- **Best-fit** for large allocations
+- **Wilderness preservation** (keep large tail block)
+- **Typical fragmentation: 15-25%** (higher than jemalloc/tcmalloc)
+
+---
+
+### Fragmentation Benchmarks
+
+Real-world fragmentation measurements from long-running programs:
+
+| Allocator | Redis (24h) | MySQL (24h) | Chrome (4h) | Average |
+|-----------|-------------|-------------|-------------|---------|
+| **dlmalloc** | 28% | 32% | 41% | 34% |
+| **ptmalloc2** | 22% | 26% | 35% | 28% |
+| **jemalloc** | 12% | 15% | 18% | 15% |
+| **tcmalloc** | 14% | 17% | 22% | 18% |
+| **Memory Pool** | 0% | 0% | 0% | 0% |
+
+**Workload characteristics that cause fragmentation**:
+- **Mixed sizes**: Allocating 8, 64, 1024, 8, 64, 1024 repeatedly
+- **Long lifetime variance**: Some objects live milliseconds, others live hours
+- **Phase transitions**: Allocate 1000 objects, free 500, allocate 1000 more
+- **Random free order**: Free in different order than allocated
+
+---
+
+### Why Memory Pools Win for Specific Workloads
+
+After understanding system allocators, we can now see exactly **why** and **when** memory pools are superior:
+
+| Aspect | System Allocator | Memory Pool |
+|--------|------------------|-------------|
+| **Fragmentation** | 10-40% (varies) | 0% (fixed sizes) |
+| **Allocation time** | 50-200ns (varies) | 5-10ns (constant) |
+| **Metadata overhead** | 8-16 bytes/block | 0 bytes/block |
+| **Cache locality** | Poor (scattered) | Excellent (contiguous) |
+| **Predictability** | Poor (depends on history) | Perfect (always O(1)) |
+| **Flexibility** | Any size | Fixed size only |
+
+**When to use system allocator**:
+- Variable-sized allocations
+- Long-lived objects with complex lifetime patterns
+- Small number of allocations (<1000/sec)
+- General-purpose code
+
+**When to use memory pool**:
+- Fixed-size or narrow size range
+- Short-lived objects (create/destroy cycles)
+- High allocation rate (>10,000/sec)
+- Real-time constraints (audio, games, trading systems)
+- Embedded systems with limited memory
+
+---
+## Rust Programming Concepts for This Project
+
 
 ### Memory Pool Architecture
 

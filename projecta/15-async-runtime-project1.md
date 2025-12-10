@@ -35,6 +35,984 @@ Sequential:     100 URLs × 200ms = 20s
 
 ---
 
+## Key Concepts Explained
+
+### 1. Async/Await and Futures (Non-Blocking I/O)
+
+**Async/await** enables non-blocking I/O: while waiting for network response, the thread processes other tasks.
+
+**The problem with blocking I/O**:
+```rust
+// Synchronous (blocks thread)
+fn fetch_sync(url: &str) -> String {
+    // Thread sits idle for 200ms waiting for network
+    std::thread::sleep(Duration::from_millis(200));
+    "response".to_string()
+}
+
+// 100 URLs sequentially:
+for url in urls {
+    fetch_sync(url);  // Blocks for 200ms each
+}
+// Total: 100 × 200ms = 20 seconds
+// CPU utilization: ~1% (99% waiting for I/O)
+```
+
+**Async solution**:
+```rust
+// Asynchronous (yields while waiting)
+async fn fetch_async(url: &str) -> String {
+    // Task yields to runtime, thread processes other tasks
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    "response".to_string()
+}
+
+// 100 URLs concurrently:
+let futures: Vec<_> = urls.iter().map(|url| fetch_async(url)).collect();
+futures::future::join_all(futures).await;
+// Total: ~200ms (all happen concurrently)
+// CPU utilization: Higher (processes many tasks while waiting)
+```
+
+**How it works**:
+- `async fn` returns a `Future` (lazy, doesn't run until `.await`ed)
+- `.await` yields control to runtime scheduler
+- Runtime polls all futures, makes progress on ready ones
+- Thread switches between tasks cooperatively (no OS thread switching)
+
+**Visual timeline**:
+```
+Thread with 3 async tasks:
+
+Time:      0ms   50ms  100ms  150ms  200ms
+Task 1:  [Start]──────[Network I/O]──────[Done]
+Task 2:         [Start]──────[Network I/O]──────[Done]
+Task 3:                [Start]──────[Network I/O]──────[Done]
+                ↑        ↑       ↑       ↑        ↑
+Thread:  [T1][T2][T3][T1][T2][T3][T1][T2][T3][All Done]
+         ↑ Switches between tasks while each waits
+```
+
+**Memory efficiency**:
+- Thread: ~2MB stack per thread
+- Async task: ~64 bytes per task
+- 10,000 threads: 20GB memory
+- 10,000 async tasks: 640KB memory (**30,000× less**)
+
+---
+
+### 2. Tokio Runtime (Async Executor)
+
+**Tokio** is an async runtime that schedules and executes futures.
+
+**Components**:
+```rust
+// 1. Executor: Runs futures to completion
+#[tokio::main]  // Creates tokio runtime
+async fn main() {
+    // This code runs on tokio runtime
+}
+
+// 2. Reactor: Polls I/O events (sockets, timers)
+// Internally uses epoll (Linux), kqueue (macOS), IOCP (Windows)
+
+// 3. Work-stealing scheduler: Distributes tasks across CPU cores
+// N worker threads, each with own task queue
+// Idle threads steal tasks from busy threads
+```
+
+**How tokio schedules tasks**:
+```
+4 CPU cores → 4 worker threads
+
+Thread 1: [Task A] [Task B] [Task C] ───→ idle (steals from Thread 2)
+Thread 2: [Task D] [Task E] [Task F] [Task G] ───→ busy
+Thread 3: [Task H] [Task I] ───→ idle
+Thread 4: [Task J] ───→ idle
+
+After work stealing:
+Thread 1: [Task A] [Task B] [Task C] [Task G (stolen)]
+Thread 2: [Task D] [Task E] [Task F]
+Thread 3: [Task H] [Task I]
+Thread 4: [Task J]
+```
+
+**Runtime configuration**:
+```rust
+// Multi-threaded (default): Uses all CPU cores
+#[tokio::main]
+async fn main() { ... }
+
+// Single-threaded: One thread, cooperative multitasking
+#[tokio::main(flavor = "current_thread")]
+async fn main() { ... }
+
+// Custom thread pool size:
+let rt = tokio::runtime::Builder::new_multi_thread()
+    .worker_threads(4)
+    .build()
+    .unwrap();
+rt.block_on(async { ... });
+```
+
+**Why tokio?**
+- Production-tested (Discord, AWS, Cloudflare use it)
+- Work-stealing prevents load imbalance
+- Efficient I/O (zero-copy where possible)
+- Ecosystem (reqwest, hyper, tonic all use tokio)
+
+---
+
+### 3. Concurrency with `join_all` and `buffered`
+
+**Launching multiple futures concurrently** without blocking on each individually.
+
+**Problem: Sequential await**:
+```rust
+// BAD: Awaits each sequentially
+let result1 = fetch(url1).await;  // Waits 200ms
+let result2 = fetch(url2).await;  // Waits 200ms
+let result3 = fetch(url3).await;  // Waits 200ms
+// Total: 600ms (sequential)
+```
+
+**Solution 1: `join_all` (unbounded concurrency)**:
+```rust
+let futures = vec![fetch(url1), fetch(url2), fetch(url3)];
+let results = futures::future::join_all(futures).await;
+// Total: ~200ms (all concurrent, limited by slowest)
+```
+
+**Solution 2: `buffered` (limited concurrency)**:
+```rust
+use futures::stream::{self, StreamExt};
+
+let results = stream::iter(urls)
+    .map(|url| fetch(url))         // Create futures (lazy)
+    .buffered(10)                  // Run max 10 concurrently
+    .collect::<Vec<_>>()
+    .await;
+
+// If 100 URLs:
+// - First 10 start immediately
+// - As each completes, next one starts
+// - Maximum 10 concurrent at any time
+```
+
+**Why limit concurrency?**
+- **File descriptors**: OS limit (~1024 per process)
+- **Memory**: Each connection uses buffers (~64KB)
+- **Server load**: 1000 concurrent requests overwhelms server
+- **Network bandwidth**: 100 concurrent downloads saturate link
+
+**Performance comparison** (100 URLs, 200ms each):
+
+| Method | Concurrency | Time | Memory |
+|--------|-------------|------|--------|
+| Sequential | 1 | 20s | 1MB |
+| `join_all` | 100 | 200ms | 100MB (**OOM risk**) |
+| `buffered(10)` | 10 | 2s | 10MB (**balanced**) |
+
+---
+
+### 4. Timeout Handling (Bounded Execution Time)
+
+**Timeouts** prevent indefinite waits on unresponsive servers.
+
+**Problem without timeout**:
+```rust
+let response = reqwest::get(url).await?;
+// If server never responds: hangs FOREVER
+// Your entire scraper stuck waiting
+```
+
+**Solution with `tokio::time::timeout`**:
+```rust
+use tokio::time::{timeout, Duration};
+
+match timeout(Duration::from_secs(30), reqwest::get(url)).await {
+    Ok(Ok(response)) => {
+        // Request succeeded within 30s
+        Ok(response)
+    }
+    Ok(Err(e)) => {
+        // Request failed (network error, etc.)
+        Err(e)
+    }
+    Err(_) => {
+        // Timed out after 30s
+        Err("timeout")
+    }
+}
+```
+
+**How `timeout` works**:
+```rust
+// Simplified implementation
+pub async fn timeout<F>(dur: Duration, future: F) -> Result<F::Output, Elapsed> {
+    tokio::select! {
+        result = future => Ok(result),         // Future completed
+        _ = tokio::time::sleep(dur) => Err(Elapsed),  // Timeout fired first
+    }
+}
+```
+
+**Timeout at multiple levels**:
+```rust
+// 1. Connection timeout (TCP handshake)
+let client = reqwest::Client::builder()
+    .connect_timeout(Duration::from_secs(5))
+    .build()?;
+
+// 2. Request timeout (entire request/response)
+let response = client.get(url)
+    .timeout(Duration::from_secs(30))
+    .send().await?;
+
+// 3. Total operation timeout (including retries)
+timeout(Duration::from_secs(60), fetch_with_retry(url)).await?;
+```
+
+**Impact**:
+- Without timeout: 1 hung request blocks scraper forever
+- With timeout: Fail after 30s, continue with other URLs
+
+---
+
+### 5. Exponential Backoff (Retry Strategy)
+
+**Exponential backoff** doubles wait time between retries, giving servers time to recover.
+
+**Naive retry (linear backoff)**:
+```rust
+// BAD: Fixed 1s delay
+for attempt in 0..5 {
+    match fetch(url).await {
+        Ok(result) => return Ok(result),
+        Err(_) => sleep(Duration::from_secs(1)).await,  // Always 1s
+    }
+}
+// Problem: Doesn't give server recovery time
+// If 1000 clients retry every 1s → server stays overwhelmed
+```
+
+**Exponential backoff (GOOD)**:
+```rust
+let mut backoff = Duration::from_secs(1);
+for attempt in 0..5 {
+    match fetch(url).await {
+        Ok(result) => return Ok(result),
+        Err(_) => {
+            sleep(backoff).await;
+            backoff *= 2;  // 1s, 2s, 4s, 8s, 16s
+        }
+    }
+}
+// Server gets 1s, then 2s, then 4s to recover
+// Retries spread out over time
+```
+
+**With jitter (prevent thundering herd)**:
+```rust
+fn calculate_backoff(attempt: u32, base_ms: u64) -> Duration {
+    let exp_backoff = base_ms * 2u64.pow(attempt);
+    let jitter = rand::random::<u64>() % (exp_backoff / 2);
+    Duration::from_millis(exp_backoff + jitter)
+}
+
+// Example: attempt 2, base 1000ms
+// exp_backoff = 1000 * 2^2 = 4000ms
+// jitter = random 0-2000ms
+// total = 4000-6000ms (randomized!)
+```
+
+**Why jitter?**
+- 1000 clients without jitter: all retry at exact same time
+- With jitter: retries spread over 4-6s window
+- Prevents retry storm overwhelming recovered server
+
+**Success rate improvement**:
+```
+No retry:          5% failure rate → 95% success
+1 retry:           5% × 5% = 0.25% → 99.75% success
+3 retries:         5%^4 = 0.0006% → 99.9994% success
+```
+
+---
+
+### 6. Rate Limiting (Token Bucket Algorithm)
+
+**Rate limiting** controls request rate to avoid being banned or overwhelming servers.
+
+**Token bucket algorithm**:
+```rust
+// Bucket holds N tokens (permits)
+// Tokens refill at R per second
+// Each request consumes 1 token
+// If no tokens available, request waits
+
+struct TokenBucket {
+    tokens: usize,           // Current tokens available
+    capacity: usize,         // Max tokens
+    refill_rate: usize,      // Tokens per second
+    last_refill: Instant,    // Last refill time
+}
+
+impl TokenBucket {
+    fn acquire(&mut self) {
+        // Refill based on elapsed time
+        let elapsed = self.last_refill.elapsed();
+        let new_tokens = (elapsed.as_secs_f64() * self.refill_rate as f64) as usize;
+        self.tokens = (self.tokens + new_tokens).min(self.capacity);
+        self.last_refill = Instant::now();
+
+        // Consume token or wait
+        if self.tokens > 0 {
+            self.tokens -= 1;  // Consume token
+        } else {
+            // Wait until next refill
+            sleep(Duration::from_millis(1000 / self.refill_rate));
+        }
+    }
+}
+```
+
+**Implementation with Semaphore**:
+```rust
+use tokio::sync::Semaphore;
+
+let semaphore = Arc::new(Semaphore::new(10));  // 10 permits
+
+// Acquire permit (waits if none available)
+let permit = semaphore.acquire().await.unwrap();
+fetch(url).await;  // Make request
+drop(permit);  // Release permit
+
+// Background task refills permits
+tokio::spawn(async move {
+    loop {
+        sleep(Duration::from_secs(1)).await;
+        semaphore.add_permits(10);  // Refill 10 permits/sec
+    }
+});
+```
+
+**Visual example** (5 requests/second limit):
+```
+Time:     0s    0.2s  0.4s  0.6s  0.8s  1.0s  1.2s
+Tokens:   [5] → [4] → [3] → [2] → [1] → [0] → Wait → [5] → [4]
+Request:   ↓     ↓     ↓     ↓     ↓     ✗          Refill  ↓
+           OK    OK    OK    OK    OK   WAIT         OK
+
+After 1s: Bucket refills to 5 tokens
+```
+
+**Per-domain rate limiting**:
+```rust
+HashMap<String, Semaphore>
+
+// Different domains get separate rate limits
+domain_limiters.get("example.com").acquire().await;  // Independent
+domain_limiters.get("other.com").acquire().await;    // Independent
+```
+
+---
+
+### 7. Arc and Mutex (Shared State in Async)
+
+**Arc** (Atomic Reference Counting): Share ownership across tasks.
+**Mutex**: Ensure only one task accesses data at a time.
+
+**Why Arc?**
+```rust
+let client = reqwest::Client::new();
+
+// ERROR: client moved into first future
+let future1 = async move { client.get(url1).send().await };
+let future2 = async move { client.get(url2).send().await };  // ERROR!
+
+// SOLUTION: Arc allows sharing
+let client = Arc::new(reqwest::Client::new());
+let client1 = Arc::clone(&client);
+let client2 = Arc::clone(&client);
+
+let future1 = async move { client1.get(url1).send().await };  // OK
+let future2 = async move { client2.get(url2).send().await };  // OK
+```
+
+**Why Mutex?**
+```rust
+let counter = Arc::new(Mutex::new(0));
+
+// Multiple tasks increment counter safely
+for _ in 0..10 {
+    let counter = Arc::clone(&counter);
+    tokio::spawn(async move {
+        let mut count = counter.lock().await;
+        *count += 1;  // Only one task can increment at a time
+    });
+}
+```
+
+**tokio::sync::Mutex vs std::sync::Mutex**:
+
+```rust
+// std::sync::Mutex: Fast, but blocks thread
+let data = std::sync::Mutex::new(vec![]);
+{
+    let mut locked = data.lock().unwrap();  // Blocks thread if contended
+    locked.push(item);
+}  // Release immediately
+
+// tokio::sync::Mutex: Can hold across .await
+let data = tokio::sync::Mutex::new(vec![]);
+{
+    let mut locked = data.lock().await;  // Yields if contended
+    do_async_work().await;  // Can hold lock across await!
+    locked.push(item);
+}
+```
+
+**When to use each**:
+- **Arc**: Share ownership (client, config, rate limiter)
+- **std::sync::Mutex**: Short critical sections, no `.await` inside
+- **tokio::sync::Mutex**: Need to hold lock across `.await` points
+
+---
+
+### 8. Semaphore (Concurrency Limiting)
+
+**Semaphore**: Limit number of concurrent operations.
+
+**API**:
+```rust
+let semaphore = Semaphore::new(10);  // 10 permits
+
+let permit = semaphore.acquire().await;  // Acquire permit (waits if none)
+// ... do work ...
+drop(permit);  // Release permit (automatic when dropped)
+```
+
+**How it works**:
+```
+Semaphore with 3 permits:
+
+Task 1: acquire() → [Permit 1] → running
+Task 2: acquire() → [Permit 2] → running
+Task 3: acquire() → [Permit 3] → running
+Task 4: acquire() → WAITING (no permits)
+Task 5: acquire() → WAITING
+
+Task 1 completes → drop(permit) → [Permit 1] released
+Task 4: → [Permit 1] → running
+```
+
+**Use cases**:
+```rust
+// 1. Limit concurrent HTTP requests
+let sem = Semaphore::new(100);  // Max 100 concurrent
+for url in urls {
+    let permit = sem.acquire().await;
+    tokio::spawn(async move {
+        fetch(url).await;
+        drop(permit);  // Auto-released
+    });
+}
+
+// 2. Database connection pool
+let pool_semaphore = Semaphore::new(10);  // Max 10 connections
+let _permit = pool_semaphore.acquire().await;
+db.query(...).await;
+
+// 3. Rate limiting (with refill)
+let rate_limiter = Semaphore::new(10);
+tokio::spawn(async move {
+    loop {
+        sleep(Duration::from_secs(1)).await;
+        rate_limiter.add_permits(10);  // Refill 10/sec
+    }
+});
+```
+
+---
+
+### 9. Graceful Shutdown (Signal Handling)
+
+**Graceful shutdown**: Stop cleanly on Ctrl+C, save progress.
+
+**Without graceful shutdown**:
+```rust
+loop {
+    fetch_and_process(url).await;
+    // Ctrl+C → immediate termination
+    // Lost progress, incomplete writes, corrupted state
+}
+```
+
+**With graceful shutdown**:
+```rust
+use tokio::signal;
+
+loop {
+    tokio::select! {
+        // Normal operation
+        result = fetch_and_process(url) => {
+            handle(result);
+        }
+
+        // Shutdown signal
+        _ = signal::ctrl_c() => {
+            println!("Shutdown requested");
+            save_state().await;      // Save progress
+            close_connections().await;  // Clean up
+            break;                   // Exit loop
+        }
+    }
+}
+```
+
+**How `tokio::select!` works**:
+```rust
+// Polls all branches concurrently
+// Executes first branch that completes
+tokio::select! {
+    result = future1 => { /* future1 completed first */ }
+    result = future2 => { /* future2 completed first */ }
+    _ = signal::ctrl_c() => { /* Ctrl+C pressed */ }
+}
+
+// Once one branch executes, others are cancelled
+```
+
+**Production pattern**:
+```rust
+let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+// Spawned tasks listen for shutdown
+tokio::spawn(async move {
+    loop {
+        tokio::select! {
+            item = work_queue.recv() => {
+                process(item).await;
+            }
+            _ = shutdown_rx.recv() => {
+                cleanup().await;
+                return;  // Task exits
+            }
+        }
+    }
+});
+
+// Main task sends shutdown signal
+tokio::signal::ctrl_c().await.unwrap();
+shutdown_tx.send(()).unwrap();  // Broadcast to all tasks
+```
+
+---
+
+### 10. Progress Tracking with Atomic Types
+
+**Atomic types** enable lock-free counters for metrics.
+
+**Problem with Mutex for counters**:
+```rust
+let counter = Arc::new(Mutex::new(0));
+
+// Every increment acquires lock (expensive!)
+for _ in 0..1_000_000 {
+    let mut count = counter.lock().await;  // Contention!
+    *count += 1;
+}
+// Slow due to lock contention
+```
+
+**Solution with AtomicUsize**:
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+let counter = Arc::new(AtomicUsize::new(0));
+
+// Lock-free increment
+for _ in 0..1_000_000 {
+    counter.fetch_add(1, Ordering::Relaxed);  // Atomic CPU instruction
+}
+// Fast! No locks, no contention
+```
+
+**Atomic operations**:
+```rust
+let count = AtomicUsize::new(0);
+
+count.fetch_add(1, Ordering::Relaxed);     // Add 1, return old value
+count.fetch_sub(1, Ordering::Relaxed);     // Subtract 1
+count.store(42, Ordering::Relaxed);        // Set value
+let val = count.load(Ordering::Relaxed);   // Read value
+count.swap(10, Ordering::Relaxed);         // Exchange value
+```
+
+**Ordering** (memory consistency):
+```rust
+// Relaxed: No synchronization (fastest, for counters)
+count.load(Ordering::Relaxed)
+
+// Acquire/Release: Synchronizes with other operations
+count.load(Ordering::Acquire)
+count.store(42, Ordering::Release)
+
+// SeqCst: Sequentially consistent (strongest, slowest)
+count.load(Ordering::SeqCst)
+```
+
+**Progress tracker example**:
+```rust
+struct Progress {
+    fetched: Arc<AtomicUsize>,
+    failed: Arc<AtomicUsize>,
+    start: Instant,
+}
+
+impl Progress {
+    fn increment_fetched(&self) {
+        self.fetched.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn report(&self) {
+        let fetched = self.fetched.load(Ordering::Relaxed);
+        let failed = self.failed.load(Ordering::Relaxed);
+        let rate = fetched as f64 / self.start.elapsed().as_secs_f64();
+        println!("Fetched: {}, Failed: {}, Rate: {:.1}/s", fetched, failed, rate);
+    }
+}
+```
+
+**Performance comparison** (1M increments):
+
+| Method | Time | Contention |
+|--------|------|------------|
+| Mutex | 500ms | High (lock waits) |
+| AtomicUsize | 10ms | None (**50× faster**) |
+
+---
+
+## Connection to This Project
+
+This project progressively builds a production-ready async web scraper, demonstrating how async patterns enable high-performance concurrent I/O.
+
+### Milestone 1: Basic Async HTTP Fetcher
+
+**Concepts applied**:
+- Async/await fundamentals
+- Tokio runtime
+- Timeout handling
+- Result type for success/failure
+
+**Why it matters**:
+Foundation for all async I/O:
+- `async fn` makes functions non-blocking
+- `.await` yields to runtime, allowing concurrency
+- Timeout prevents hanging on unresponsive servers
+
+**Real-world impact**:
+```rust
+// Synchronous (blocking)
+fn fetch_sync(url: &str) -> Result<String, Error> {
+    reqwest::blocking::get(url)?.text()  // Blocks thread for ~200ms
+}
+
+// 100 URLs: 100 × 200ms = 20 seconds
+// Thread utilization: 1% (99% waiting)
+
+// Asynchronous (non-blocking)
+async fn fetch_async(url: &str) -> Result<String, Error> {
+    reqwest::get(url).await?.text().await  // Yields while waiting
+}
+
+// 100 URLs concurrently: ~200ms (limited by slowest)
+// Thread utilization: Higher (processes other tasks while waiting)
+```
+
+**Performance comparison** (100 URLs, 200ms each):
+
+| Method | Time | Thread Usage | Speedup |
+|--------|------|--------------|---------|
+| Sync sequential | 20s | 1 thread, 1% CPU | 1× |
+| Async concurrent | 200ms | 1 thread, variable CPU | **100×** |
+
+---
+
+### Milestone 2: Concurrent URL Fetching
+
+**Concepts applied**:
+- `futures::stream` for collections
+- `.buffered(n)` for limited concurrency
+- Stream processing
+- Work distribution
+
+**Why it matters**:
+Concurrency enables parallel I/O without threads:
+- `join_all`: Launch all futures concurrently
+- `buffered(n)`: Limit concurrency to avoid resource exhaustion
+- Shared client: Connection pooling across requests
+
+**Real-world impact**:
+```rust
+// Sequential (Milestone 1)
+for url in urls {
+    fetch(url).await;  // One at a time
+}
+// 100 URLs × 200ms = 20s
+
+// Concurrent unbounded (dangerous)
+futures::join_all(urls.map(fetch)).await;
+// 100 URLs = 200ms, but 100 concurrent connections (may OOM or get banned)
+
+// Concurrent limited (Milestone 2)
+stream::iter(urls)
+    .map(fetch)
+    .buffered(10)  // Max 10 concurrent
+    .collect().await;
+// 100 URLs with 10 concurrent = 2s (10× speedup, controlled resource usage)
+```
+
+**Performance comparison** (100 URLs, 200ms each):
+
+| Method | Time | Concurrent | Memory | Risk |
+|--------|------|------------|--------|------|
+| Sequential | 20s | 1 | 1MB | None |
+| Unbounded | 200ms | 100 | 100MB | OOM, IP ban |
+| Buffered(10) | 2s | 10 | 10MB | **Balanced** |
+
+**Real-world validation**: Production scrapers use 10-50 concurrent limit.
+
+---
+
+### Milestone 3: Retry Logic with Exponential Backoff
+
+**Concepts applied**:
+- Exponential backoff algorithm
+- Error classification (retryable vs permanent)
+- Jitter for thundering herd prevention
+- Retry configuration
+
+**Why it matters**:
+Networks are unreliable—retries transform 95% → 99.9% success rate:
+- Transient failures (timeout, 503) often succeed on retry
+- Permanent failures (404) shouldn't be retried
+- Exponential backoff gives servers recovery time
+
+**Real-world impact**:
+```rust
+// No retry
+let result = fetch(url).await;
+// 5% transient failure rate → 95% success
+
+// With 3 retries + exponential backoff
+let result = fetch_with_retry(url, config).await;
+// Failures: 5% × 5% × 5% × 5% = 0.0006%
+// Success rate: 99.9994%
+
+// Time cost:
+// Success on first try: 200ms (no retry)
+// Success on retry 1: 200ms + 1s wait + 200ms = 1.4s
+// Success on retry 2: 200ms + 1s + 200ms + 2s + 200ms = 3.6s
+```
+
+**Success rate improvement**:
+
+| Retries | Transient Failure (5%) | Success Rate |
+|---------|------------------------|--------------|
+| 0 | 5% | 95% |
+| 1 | 0.25% | 99.75% |
+| 2 | 0.0125% | 99.9875% |
+| 3 | 0.0006% | **99.9994%** |
+
+**Backoff sequence** (1s base, 10s max):
+```
+Attempt 1: immediate (0ms)
+Attempt 2: wait 1s
+Attempt 3: wait 2s
+Attempt 4: wait 4s
+Attempt 5: wait 8s (capped at 10s for future retries)
+```
+
+---
+
+### Milestone 4: Per-Domain Rate Limiting
+
+**Concepts applied**:
+- Token bucket algorithm
+- Semaphore for permit system
+- Per-domain tracking (HashMap)
+- Permit refilling (background task)
+
+**Why it matters**:
+Rate limiting prevents IP bans and server overload:
+- Without limit: 100 requests/sec looks like DDoS → banned
+- With limit: 10 requests/sec → respectful, sustained access
+- Per-domain: Different sites get independent rate limits
+
+**Real-world impact**:
+```rust
+// Without rate limiting
+for url in 1000_urls {
+    fetch(url).await;  // As fast as possible
+}
+// Result: 1000 requests in ~10s = 100 requests/sec
+// Server response: HTTP 429 (Too Many Requests) or IP ban
+
+// With rate limiting (10 requests/sec)
+for url in 1000_urls {
+    rate_limiter.acquire_permit(extract_domain(url)).await;
+    fetch(url).await;
+}
+// Result: 1000 requests in ~100s = 10 requests/sec
+// Server response: Accepts all requests
+```
+
+**Permit timeline** (10 permits/sec):
+```
+Time:     0s   0.1s  0.2s  ...  1.0s  1.1s
+Permits:  10 →  9  →  8  ...  0  → Refill to 10 → 9
+Request:   ↓     ↓     ↓    ...  ✗    Wait      ↓
+```
+
+**Per-domain isolation**:
+```rust
+// example.com gets 10 req/sec
+// other.com gets 10 req/sec (independent)
+
+rate_limiter.acquire("example.com").await;  // Uses example.com's permits
+rate_limiter.acquire("other.com").await;    // Uses other.com's permits
+```
+
+**Impact**:
+- IP ban prevention: 0% → 99.9% uptime
+- Sustained scraping: Hours instead of minutes before ban
+- Ethical scraping: Respects server resources
+
+---
+
+### Milestone 5: Link Extraction and Recursive Crawling
+
+**Concepts applied**:
+- HTML parsing (scraper crate)
+- BFS/DFS queue management
+- Deduplication (HashSet)
+- Depth limiting
+- Domain filtering
+
+**Why it matters**:
+Web scrapers discover URLs dynamically:
+- Parse HTML to extract links
+- Follow links recursively
+- Track visited URLs to avoid duplicates
+- Limit depth to prevent infinite crawling
+
+**Real-world impact**:
+```rust
+// Manual URL list (limited)
+let urls = vec!["https://example.com/page1", "https://example.com/page2"];
+// Problem: Must know all URLs upfront
+
+// Recursive crawling (discovers links)
+let start_url = "https://example.com";
+let result = crawl(start_url, config).await;
+// Starts with 1 URL, discovers 100s by following links
+
+// Without deduplication
+crawl(start_url, config).await;
+// Visits same URL multiple times (wastes bandwidth)
+// May loop indefinitely on circular links
+
+// With deduplication
+let mut visited = HashSet::new();
+if !visited.contains(&url) {
+    visited.insert(url.clone());
+    fetch(url).await;
+}
+```
+
+**Crawl tree example** (depth limit 2):
+```
+Depth 0: https://example.com
+          ├─ /page1 (depth 1)
+          │   ├─ /page1/sub1 (depth 2, stop here)
+          │   └─ /page1/sub2 (depth 2, stop here)
+          ├─ /page2 (depth 1)
+          │   └─ /page2/sub1 (depth 2, stop here)
+          └─ /page3 (depth 1)
+
+Total visited: 7 URLs
+Without depth limit: Could visit 1000s of URLs
+```
+
+**Memory efficiency**:
+- Deduplication: 1M URLs = ~100MB HashSet
+- Without deduplication: May visit 10M URLs (wasted bandwidth)
+
+---
+
+### Milestone 6: Graceful Shutdown and Progress Reporting
+
+**Concepts applied**:
+- Signal handling (`tokio::signal::ctrl_c`)
+- `tokio::select!` for concurrent operations
+- Atomic counters (AtomicUsize)
+- State serialization (serde + bincode)
+- Progress reporting
+
+**Why it matters**:
+Production scrapers run for hours/days:
+- Graceful shutdown: Save progress on Ctrl+C
+- Progress reporting: Monitor health (URLs/sec, error rate)
+- Resumability: Continue from saved state
+
+**Real-world impact**:
+```rust
+// Without graceful shutdown
+loop {
+    fetch_and_process(url).await;
+}
+// Ctrl+C → Immediate termination
+// Lost: 10K visited URLs, current queue
+// Must: Restart from beginning
+
+// With graceful shutdown (Milestone 6)
+tokio::select! {
+    _ = crawl_loop() => {}
+    _ = tokio::signal::ctrl_c() => {
+        save_state(&state, "crawl.bin").await;
+        println!("Saved progress: {} visited URLs", state.visited.len());
+    }
+}
+// Ctrl+C → Saves state in ~1s
+// Resume: load_state("crawl.bin") continues where it left off
+```
+
+**Progress reporting example**:
+```
+[00:05:32] Fetched: 1250 | Failed: 23 | Queue: 45 | Rate: 4.1 URLs/s | Success: 98.2%
+[00:05:34] Fetched: 1258 | Failed: 23 | Queue: 42 | Rate: 4.1 URLs/s | Success: 98.2%
+
+^C Shutdown requested, saving state...
+State saved to crawl_state.bin
+Crawl complete! Final stats:
+Fetched: 1260 | Failed: 23 | Queue: 41 | Rate: 3.8 URLs/s | Success: 98.2% | Elapsed: 332.1s
+```
+
+**State persistence** (resume scraping):
+```rust
+// First run: Scrape 1000 URLs, Ctrl+C
+save_state(&state, "crawl.bin").await;
+// State: { visited: HashSet(1000 URLs), queue: VecDeque(50 pending) }
+
+// Resume run: Load state, continue from queue
+let state = load_state("crawl.bin").await?;
+// Continues with 50 pending URLs, skips 1000 already visited
+```
+
+--
+
 ## Milestone 1: Basic Async HTTP Fetcher
 
 ### Introduction
@@ -61,49 +1039,6 @@ Before building a full scraper, you need to understand async HTTP requests. This
 - **tokio::time::timeout**: Wraps async operation, cancels if too slow
 - **FetchResult**: Type-safe representation of success/failure (better than Result<String, Error> because we capture partial success like status codes)
 
-### Checkpoint Tests
-
-```rust
-#[tokio::test]
-async fn test_fetch_success() {
-    // Note: Use httpbin.org for testing (returns your request as JSON)
-    let result = fetch_url("https://httpbin.org/status/200", 5000).await;
-
-    assert_eq!(result.status_code, 200);
-    assert!(result.body.is_some());
-    assert!(result.error.is_none());
-}
-
-#[tokio::test]
-async fn test_fetch_timeout() {
-    // httpbin.org/delay/10 waits 10 seconds before responding
-    let result = fetch_url("https://httpbin.org/delay/10", 1000).await;
-
-    assert!(result.error.is_some());
-    assert!(result.error.as_ref().unwrap().contains("timeout"));
-}
-
-#[tokio::test]
-async fn test_fetch_404() {
-    let result = fetch_url("https://httpbin.org/status/404", 5000).await;
-
-    assert_eq!(result.status_code, 404);
-    // We still get a body even for 404s
-    assert!(result.body.is_some() || result.error.is_some());
-}
-
-#[tokio::test]
-async fn test_client_reuse() {
-    let client = reqwest::Client::new();
-
-    // Fetching multiple URLs with same client reuses connections
-    let result1 = fetch_with_client(&client, "https://httpbin.org/status/200", 5000).await;
-    let result2 = fetch_with_client(&client, "https://httpbin.org/status/201", 5000).await;
-
-    assert_eq!(result1.status_code, 200);
-    assert_eq!(result2.status_code, 201);
-}
-```
 
 ### Starter Code
 
@@ -155,6 +1090,49 @@ async fn main() {
 5. Use `response.text().await` to get body (also async!)
 
 ---
+### Checkpoint Tests
+
+```rust
+#[tokio::test]
+async fn test_fetch_success() {
+    // Note: Use httpbin.org for testing (returns your request as JSON)
+    let result = fetch_url("https://httpbin.org/status/200", 5000).await;
+
+    assert_eq!(result.status_code, 200);
+    assert!(result.body.is_some());
+    assert!(result.error.is_none());
+}
+
+#[tokio::test]
+async fn test_fetch_timeout() {
+    // httpbin.org/delay/10 waits 10 seconds before responding
+    let result = fetch_url("https://httpbin.org/delay/10", 1000).await;
+
+    assert!(result.error.is_some());
+    assert!(result.error.as_ref().unwrap().contains("timeout"));
+}
+
+#[tokio::test]
+async fn test_fetch_404() {
+    let result = fetch_url("https://httpbin.org/status/404", 5000).await;
+
+    assert_eq!(result.status_code, 404);
+    // We still get a body even for 404s
+    assert!(result.body.is_some() || result.error.is_some());
+}
+
+#[tokio::test]
+async fn test_client_reuse() {
+    let client = reqwest::Client::new();
+
+    // Fetching multiple URLs with same client reuses connections
+    let result1 = fetch_with_client(&client, "https://httpbin.org/status/200", 5000).await;
+    let result2 = fetch_with_client(&client, "https://httpbin.org/status/201", 5000).await;
+
+    assert_eq!(result1.status_code, 200);
+    assert_eq!(result2.status_code, 201);
+}
+```
 
 ## Milestone 2: Concurrent URL Fetching
 
@@ -185,6 +1163,39 @@ async fn main() {
 - **buffered(n)**: Processes up to `n` futures at once (prevents 10,000 concurrent connections)
 - **collect()**: Gathers all stream results into Vec
 
+
+### Starter Code
+
+```rust
+use futures::stream::{self, StreamExt};
+
+pub async fn fetch_all_sequential(urls: Vec<String>, timeout_ms: u64) -> Vec<FetchResult> {
+    let client = reqwest::Client::new();
+    let mut results = Vec::new();
+
+    for url in urls {
+        let result = fetch_with_client(&client, &url, timeout_ms).await;
+        results.push(result);
+    }
+
+    results
+}
+
+pub async fn fetch_all_concurrent(
+    urls: Vec<String>,
+    timeout_ms: u64,
+    max_concurrent: usize
+) -> Vec<FetchResult> {
+    let client = reqwest::Client::new();
+
+    // TODO: Convert urls Vec into a stream
+    // TODO: Map each URL to a fetch operation
+    // TODO: Use .buffered(max_concurrent) to limit concurrency
+    // TODO: Collect results into Vec
+
+    todo!("Implement concurrent fetching")
+}
+```
 ### Checkpoint Tests
 
 ```rust
@@ -235,39 +1246,6 @@ async fn test_concurrent_limit() {
 }
 ```
 
-### Starter Code
-
-```rust
-use futures::stream::{self, StreamExt};
-
-pub async fn fetch_all_sequential(urls: Vec<String>, timeout_ms: u64) -> Vec<FetchResult> {
-    let client = reqwest::Client::new();
-    let mut results = Vec::new();
-
-    for url in urls {
-        let result = fetch_with_client(&client, &url, timeout_ms).await;
-        results.push(result);
-    }
-
-    results
-}
-
-pub async fn fetch_all_concurrent(
-    urls: Vec<String>,
-    timeout_ms: u64,
-    max_concurrent: usize
-) -> Vec<FetchResult> {
-    let client = reqwest::Client::new();
-
-    // TODO: Convert urls Vec into a stream
-    // TODO: Map each URL to a fetch operation
-    // TODO: Use .buffered(max_concurrent) to limit concurrency
-    // TODO: Collect results into Vec
-
-    todo!("Implement concurrent fetching")
-}
-```
-
 **Implementation Hints:**
 1. Use `stream::iter(urls)` to create a stream from the Vec
 2. Use `.map(move |url| { let client = client.clone(); async move { ... } })` to create futures
@@ -305,6 +1283,72 @@ pub async fn fetch_all_concurrent(
 - **should_retry**: Distinguishes transient failures (retry) from permanent failures (don't retry 404s)
 - **calculate_backoff**: Implements exponential backoff with jitter
 
+
+### Starter Code
+
+```rust
+use std::time::Duration;
+use tokio::time::sleep;
+
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_retries: u32,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub timeout_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_backoff_ms: 1000,
+            max_backoff_ms: 10000,
+            timeout_ms: 5000,
+        }
+    }
+}
+
+pub fn should_retry(result: &FetchResult) -> bool {
+    // TODO: Return true if we should retry this failure
+    // Hint: Don't retry 4xx errors (client errors like 404)
+    // DO retry 5xx errors (server errors like 503)
+    // DO retry timeouts and network errors
+
+    todo!("Implement retry decision logic")
+}
+
+pub fn calculate_backoff(attempt: u32, config: &RetryConfig) -> Duration {
+    // TODO: Implement exponential backoff
+    // Formula: min(initial * 2^(attempt-1), max)
+    // Example: 1s, 2s, 4s, 8s, 16s (capped at max)
+
+    todo!("Implement exponential backoff calculation")
+}
+
+pub async fn fetch_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    config: &RetryConfig,
+) -> FetchResult {
+    // TODO: Loop up to max_retries times
+    // TODO: Call fetch_with_client
+    // TODO: If success or permanent failure, return immediately
+    // TODO: If transient failure, sleep for backoff duration and retry
+    // TODO: After all retries exhausted, return last error
+
+    todo!("Implement retry logic")
+}
+```
+
+**Implementation Hints:**
+1. Loop from 1 to max_retries + 1 (attempt 0 is the initial try)
+2. Check if result should be retried using `should_retry`
+3. For exponential backoff: `let backoff = initial_backoff_ms * 2u64.pow(attempt - 1)`
+4. Use `std::cmp::min(backoff, max_backoff_ms)` to cap the value
+5. Add jitter: `backoff + rand::random::<u64>() % (backoff / 2)` to prevent thundering herd
+
+---
 ### Checkpoint Tests
 
 ```rust
@@ -385,72 +1429,6 @@ fn test_exponential_backoff_calculation() {
 }
 ```
 
-### Starter Code
-
-```rust
-use std::time::Duration;
-use tokio::time::sleep;
-
-#[derive(Debug, Clone)]
-pub struct RetryConfig {
-    pub max_retries: u32,
-    pub initial_backoff_ms: u64,
-    pub max_backoff_ms: u64,
-    pub timeout_ms: u64,
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            initial_backoff_ms: 1000,
-            max_backoff_ms: 10000,
-            timeout_ms: 5000,
-        }
-    }
-}
-
-pub fn should_retry(result: &FetchResult) -> bool {
-    // TODO: Return true if we should retry this failure
-    // Hint: Don't retry 4xx errors (client errors like 404)
-    // DO retry 5xx errors (server errors like 503)
-    // DO retry timeouts and network errors
-
-    todo!("Implement retry decision logic")
-}
-
-pub fn calculate_backoff(attempt: u32, config: &RetryConfig) -> Duration {
-    // TODO: Implement exponential backoff
-    // Formula: min(initial * 2^(attempt-1), max)
-    // Example: 1s, 2s, 4s, 8s, 16s (capped at max)
-
-    todo!("Implement exponential backoff calculation")
-}
-
-pub async fn fetch_with_retry(
-    client: &reqwest::Client,
-    url: &str,
-    config: &RetryConfig,
-) -> FetchResult {
-    // TODO: Loop up to max_retries times
-    // TODO: Call fetch_with_client
-    // TODO: If success or permanent failure, return immediately
-    // TODO: If transient failure, sleep for backoff duration and retry
-    // TODO: After all retries exhausted, return last error
-
-    todo!("Implement retry logic")
-}
-```
-
-**Implementation Hints:**
-1. Loop from 1 to max_retries + 1 (attempt 0 is the initial try)
-2. Check if result should be retried using `should_retry`
-3. For exponential backoff: `let backoff = initial_backoff_ms * 2u64.pow(attempt - 1)`
-4. Use `std::cmp::min(backoff, max_backoff_ms)` to cap the value
-5. Add jitter: `backoff + rand::random::<u64>() % (backoff / 2)` to prevent thundering herd
-
----
-
 ## Milestone 4: Per-Domain Rate Limiting
 
 ### Introduction
@@ -479,6 +1457,66 @@ pub async fn fetch_with_retry(
 - **HashMap<String, Semaphore>**: Separate rate limit per domain
 - **Arc<Mutex<...>>**: Thread-safe shared state across async tasks
 
+
+### Starter Code
+
+```rust
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, Semaphore};
+use url::Url;
+
+pub struct RateLimiter {
+    limiters: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    permits_per_second: u32,
+}
+
+impl RateLimiter {
+    pub fn new(permits_per_second: u32) -> Self {
+        // TODO: Initialize the rate limiter
+
+        todo!("Implement RateLimiter::new")
+    }
+
+    pub async fn acquire_permit(&self, domain: &str) {
+        // TODO: Get or create semaphore for this domain
+        // TODO: Acquire a permit from the semaphore (blocks if none available)
+        // TODO: Spawn background task to refill permits periodically
+
+        todo!("Implement acquire_permit")
+    }
+}
+
+pub fn extract_domain(url: &str) -> Option<String> {
+    // TODO: Parse URL and extract host
+    // Hint: Use url::Url::parse(url).ok()?.host_str()
+
+    todo!("Implement domain extraction")
+}
+
+pub async fn fetch_with_rate_limit(
+    client: &reqwest::Client,
+    url: &str,
+    config: &RetryConfig,
+    rate_limiter: &RateLimiter,
+) -> FetchResult {
+    // TODO: Extract domain from URL
+    // TODO: Acquire permit from rate limiter for that domain
+    // TODO: Perform the fetch with retry logic
+    // TODO: Permit is automatically released when dropped
+
+    todo!("Implement rate-limited fetch")
+}
+```
+
+**Implementation Hints:**
+1. Use `Semaphore::new(permits_per_second as usize)` for initial permits
+2. For refilling: `tokio::spawn(async move { loop { sleep(...); semaphore.add_permits(n); } })`
+3. Store semaphores in HashMap: if missing, insert new one
+4. Use `Arc::clone` to share semaphore references across tasks
+5. `url::Url::parse(url)?.host_str()` extracts domain
+
+---
 ### Checkpoint Tests
 
 ```rust
@@ -543,69 +1581,8 @@ fn test_extract_domain() {
 }
 ```
 
-### Starter Code
-
-```rust
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{Mutex, Semaphore};
-use url::Url;
-
-pub struct RateLimiter {
-    limiters: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
-    permits_per_second: u32,
-}
-
-impl RateLimiter {
-    pub fn new(permits_per_second: u32) -> Self {
-        // TODO: Initialize the rate limiter
-
-        todo!("Implement RateLimiter::new")
-    }
-
-    pub async fn acquire_permit(&self, domain: &str) {
-        // TODO: Get or create semaphore for this domain
-        // TODO: Acquire a permit from the semaphore (blocks if none available)
-        // TODO: Spawn background task to refill permits periodically
-
-        todo!("Implement acquire_permit")
-    }
-}
-
-pub fn extract_domain(url: &str) -> Option<String> {
-    // TODO: Parse URL and extract host
-    // Hint: Use url::Url::parse(url).ok()?.host_str()
-
-    todo!("Implement domain extraction")
-}
-
-pub async fn fetch_with_rate_limit(
-    client: &reqwest::Client,
-    url: &str,
-    config: &RetryConfig,
-    rate_limiter: &RateLimiter,
-) -> FetchResult {
-    // TODO: Extract domain from URL
-    // TODO: Acquire permit from rate limiter for that domain
-    // TODO: Perform the fetch with retry logic
-    // TODO: Permit is automatically released when dropped
-
-    todo!("Implement rate-limited fetch")
-}
-```
-
-**Implementation Hints:**
-1. Use `Semaphore::new(permits_per_second as usize)` for initial permits
-2. For refilling: `tokio::spawn(async move { loop { sleep(...); semaphore.add_permits(n); } })`
-3. Store semaphores in HashMap: if missing, insert new one
-4. Use `Arc::clone` to share semaphore references across tasks
-5. `url::Url::parse(url)?.host_str()` extracts domain
-
----
-
 ## Milestone 5: Link Extraction and Recursive Crawling
 
-### Introduction
 
 **Why Milestone 4 Isn't Enough**: We can fetch URLs efficiently, but we need to discover URLs to fetch. Web scrapers extract links from HTML and follow them recursively.
 
@@ -771,8 +1748,6 @@ pub async fn crawl(start_url: String, config: CrawlConfig) -> CrawlResult {
 ---
 
 ## Milestone 6: Graceful Shutdown and Progress Reporting
-
-### Introduction
 
 **Why Milestone 5 Isn't Enough**: Long-running crawls need:
 1. **Graceful shutdown**: Stop cleanly on Ctrl+C, save progress
@@ -1541,12 +2516,60 @@ async fn main() {
 }
 ```
 
-This complete implementation demonstrates:
-1. **Async HTTP fetching** with timeouts
-2. **Concurrent execution** with buffering
-3. **Retry logic** with exponential backoff
-4. **Per-domain rate limiting** using semaphores
-5. **Recursive crawling** with link extraction
-6. **Progress reporting** and graceful shutdown
 
-The scraper efficiently handles hundreds of URLs while respecting rate limits and handling failures gracefully—a production-ready foundation for web scraping projects.
+### Project-Wide Benefits
+
+**Async patterns enable high-performance I/O**:
+
+| Milestone | Concept | Impact |
+|-----------|---------|--------|
+| M1: Async HTTP | Non-blocking I/O | 100× throughput |
+| M2: Concurrency | Buffered streams | 10× speedup, controlled resources |
+| M3: Retry | Exponential backoff | 95% → 99.9% success rate |
+| M4: Rate limiting | Token bucket | IP ban prevention |
+| M5: Crawling | Recursive discovery | 1 → 1000s URLs |
+| M6: Shutdown | State persistence | Resume after interruption |
+
+**End-to-end performance** (100 URLs, production config):
+
+| Implementation | Time | Success Rate | Memory | Resumable |
+|----------------|------|--------------|--------|-----------|
+| Sync sequential | 20s | 95% | 1MB | No |
+| Async no retry | 2s | 95% | 10MB | No |
+| Async + retry | 2.5s | 99.9% | 10MB | No |
+| Full (all milestones) | 2.5s | 99.9% | 10MB | **Yes** |
+
+**Real-world production metrics**:
+- **Throughput**: 100-500 URLs/minute (depends on rate limit)
+- **Memory**: ~100MB for 10K visited URLs
+- **Success rate**: 99.9% with retries
+- **Uptime**: Weeks (graceful shutdown, resumability)
+
+**Comparison to other languages**:
+
+| Language | Throughput | Memory | Complexity |
+|----------|------------|--------|------------|
+| **Rust (tokio)** | 500 URLs/min | 100MB | Medium |
+| Python (asyncio) | 300 URLs/min | 300MB | Low |
+| Node.js | 400 URLs/min | 200MB | Low |
+| Go | 450 URLs/min | 150MB | Low |
+
+**When to use this approach**:
+- ✅ I/O-bound workloads (network, disk)
+- ✅ Need high concurrency (100+ concurrent)
+- ✅ Long-running processes
+- ✅ Rate limiting requirements
+- ❌ CPU-bound workloads (use threads/rayon)
+- ❌ Simple one-off scripts (blocking is fine)
+
+**Production lessons**:
+1. **Always use timeouts**: Prevents hanging forever
+2. **Limit concurrency**: 10-50 is sweet spot for most sites
+3. **Exponential backoff**: Essential for 99.9% success
+4. **Per-domain rate limiting**: Prevents bans, enables sustained scraping
+5. **Graceful shutdown**: Save hours of work
+6. **Progress tracking**: Visibility into scraper health
+
+---
+
+

@@ -1,6 +1,27 @@
 
 ## Project 4: CSV Stream Transformer with Iterator Adapters
 
+### Problem Statement
+
+Build a high-performance CSV transformation pipeline that processes large CSV files (potentially larger than RAM) using iterator patterns. Your transformer should read, validate, filter, transform, and aggregate CSV data without loading entire files into memory.
+
+Your CSV transformer should support:
+- Streaming CSV parsing with configurable delimiters and quotes
+- Type-safe column extraction and validation
+- Filtering rows based on column values
+- Transforming columns (type conversion, string manipulation, computed fields)
+- Aggregations (sum, count, group-by) with constant memory
+- Writing transformed results to output CSV files
+
+Example CSV data:
+```csv
+timestamp,user_id,action,amount,status
+2024-12-01T10:00:00,1001,purchase,299.99,completed
+2024-12-01T10:01:30,1002,refund,49.99,pending
+2024-12-01T10:03:15,1001,purchase,159.50,completed
+```
+---
+
 ## Key Concepts Explained
 
 This project demonstrates advanced Rust patterns for processing large datasets efficiently. Understanding these concepts will help you build scalable, memory-efficient data pipelines.
@@ -615,26 +636,7 @@ By combining these concepts, your CSV processor achieves:
 - ✅ Minimal memory footprint (suitable for containers/edge devices)
 - ✅ Near-optimal performance (zero-cost abstractions)
 
-### Problem Statement
 
-Build a high-performance CSV transformation pipeline that processes large CSV files (potentially larger than RAM) using iterator patterns. Your transformer should read, validate, filter, transform, and aggregate CSV data without loading entire files into memory.
-
-Your CSV transformer should support:
-- Streaming CSV parsing with configurable delimiters and quotes
-- Type-safe column extraction and validation
-- Filtering rows based on column values
-- Transforming columns (type conversion, string manipulation, computed fields)
-- Aggregations (sum, count, group-by) with constant memory
-- Writing transformed results to output CSV files
-
-Example CSV data:
-```csv
-timestamp,user_id,action,amount,status
-2024-12-01T10:00:00,1001,purchase,299.99,completed
-2024-12-01T10:01:30,1002,refund,49.99,pending
-2024-12-01T10:03:15,1001,purchase,159.50,completed
-```
----
 
 ### Milestone 1: Basic CSV Record Parser
 

@@ -821,43 +821,6 @@ let futures = urls.iter().map(|url| {
 
 ---
 
-### Project-Wide Benefits
-
-**Resilience patterns combined**:
-
-| Pattern | Problem Solved | Impact |
-|---------|----------------|---------|
-| Async | Blocking I/O | 100× throughput |
-| Timeout | Hanging requests | Bounded execution time |
-| Retry | Transient failures | 50% → 99% success rate |
-| Circuit breaker | Cascading failures | 200× faster fail-fast |
-| Concurrency | Sequential bottleneck | 100× speedup |
-| Partial results | All-or-nothing | 95% data vs 0% |
-| Rate limiting | Resource exhaustion | Stable, respectful |
-
-**Measured improvements** (scraping 1000 URLs):
-
-| Metric | Naive Sync | With All Patterns |
-|--------|------------|-------------------|
-| Time | 1000s (16 min) | 10s (**100× faster**) |
-| Success rate | 50% (500 results) | 99% (990 results) |
-| Memory | 2GB (100 threads) | 20MB (async tasks) |
-| Resources leaked | High (hung requests) | None (timeouts) |
-| Server impact | Overwhelming | Respectful |
-
-**When to use these patterns**:
-- ✅ **Web scraping**: All patterns essential
-- ✅ **API aggregation**: Multiple external APIs
-- ✅ **Microservices**: Service-to-service calls
-- ✅ **Health monitoring**: Check distributed systems
-- ❌ **Single server**: Retry/circuit breaker overkill
-- ❌ **Trusted network**: Timeout less critical
-
-**Real-world adoption**:
-- **AWS SDK**: Retry (exponential backoff), timeout, circuit breaker built-in
-- **Kubernetes**: Circuit breaking in service mesh
-- **Netflix**: Hystrix library for resilience (millions of requests/sec)
-- **Production scrapers**: All major scrapers use these patterns
 
 ---
 
@@ -2360,253 +2323,43 @@ async fn main() {
 }
 ```
 
-This complete example demonstrates:
-- **Error handling** with typed errors
-- **Timeouts** to prevent hanging
-- **Retry logic** with exponential backoff
-- **Circuit breakers** for fault tolerance
-- **Concurrent fetching** for performance
-- **Partial results** collection
+### Project-Wide Benefits
+
+**Resilience patterns combined**:
+
+| Pattern | Problem Solved | Impact |
+|---------|----------------|---------|
+| Async | Blocking I/O | 100× throughput |
+| Timeout | Hanging requests | Bounded execution time |
+| Retry | Transient failures | 50% → 99% success rate |
+| Circuit breaker | Cascading failures | 200× faster fail-fast |
+| Concurrency | Sequential bottleneck | 100× speedup |
+| Partial results | All-or-nothing | 95% data vs 0% |
+| Rate limiting | Resource exhaustion | Stable, respectful |
+
+**Measured improvements** (scraping 1000 URLs):
+
+| Metric | Naive Sync | With All Patterns |
+|--------|------------|-------------------|
+| Time | 1000s (16 min) | 10s (**100× faster**) |
+| Success rate | 50% (500 results) | 99% (990 results) |
+| Memory | 2GB (100 threads) | 20MB (async tasks) |
+| Resources leaked | High (hung requests) | None (timeouts) |
+| Server impact | Overwhelming | Respectful |
+
+**When to use these patterns**:
+- ✅ **Web scraping**: All patterns essential
+- ✅ **API aggregation**: Multiple external APIs
+- ✅ **Microservices**: Service-to-service calls
+- ✅ **Health monitoring**: Check distributed systems
+- ❌ **Single server**: Retry/circuit breaker overkill
+- ❌ **Trusted network**: Timeout less critical
+
+**Real-world adoption**:
+- **AWS SDK**: Retry (exponential backoff), timeout, circuit breaker built-in
+- **Kubernetes**: Circuit breaking in service mesh
+- **Netflix**: Hystrix library for resilience (millions of requests/sec)
+- **Production scrapers**: All major scrapers use these patterns
+
 
 ---
-
-## Project 3: Database Query Builder with Error Context
-
-### Problem Statement
-
-Build a type-safe SQL query builder that constructs queries programmatically and provides rich error context when queries fail. The builder should prevent SQL injection, validate queries at construction time, and report detailed error information including the generated SQL, bound parameters, execution time, and suggestions for fixing common mistakes.
-
-Your query builder should support:
-- Constructing SELECT, INSERT, UPDATE, DELETE queries type-safely
-- Preventing SQL injection through parameterized queries
-- Validating table/column names exist (schema validation)
-- Providing detailed error context when queries fail
-- Tracking query execution time for performance monitoring
-- Suggesting indexes for slow queries
-- Supporting transactions with proper error handling
-
-### Why It Matters
-
-Raw SQL strings are error-prone: typos, SQL injection vulnerabilities, unclear error messages. Query builders provide type safety and better error messages. When a query fails in production, having the exact SQL, parameters, and execution context dramatically reduces debugging time from hours to minutes.
-
-This pattern applies to any database interaction: ORMs (Diesel, SQLx), NoSQL query builders, and GraphQL query builders.
-
----
-
-### Milestone 1: Basic Query Builder with Type-Safe Construction
-
-**Goal**: Build SELECT queries programmatically without string concatenation.
-
-**What to implement**:
-- `QueryBuilder` struct with fluent API
-- Methods: `select()`, `from()`, `where_()`, `build()`
-- Store query components (tables, columns, conditions)
-- Generate parameterized SQL from components
-
-**Architecture**:
-- Structs: `QueryBuilder`, `Query`
-- Fields: `columns: Vec<String>`, `table: Option<String>`, `conditions: Vec<String>`, `parameters: Vec<Value>`
-- Functions:
-  - `QueryBuilder::new()` - Create builder
-  - `select(&[&str])` - Add columns
-  - `from(&str)` - Set table
-  - `where_(condition, param)` - Add WHERE clause
-  - `build()` - Generate final query
-
----
-
-**Starter Code**:
-
-```rust
-use serde_json::Value;
-
-/// SQL query builder
-///
-/// Structs:
-/// - QueryBuilder: Fluent API for building queries
-/// - Query: Compiled query with SQL and parameters
-///
-/// QueryBuilder Fields:
-/// - columns: Vec<String> - Selected columns
-/// - table: Option<String> - FROM table
-/// - conditions: Vec<String> - WHERE conditions
-/// - parameters: Vec<Value> - Bound parameters
-///
-/// Functions:
-/// - new() - Create empty builder
-/// - select() - Add columns to SELECT
-/// - from() - Set FROM table
-/// - where_() - Add WHERE condition
-/// - build() - Compile to Query
-#[derive(Debug, Default)]
-pub struct QueryBuilder {
-    columns: Vec<String>,
-    table: Option<String>,
-    conditions: Vec<String>,
-    parameters: Vec<Value>,
-}
-
-/// Compiled SQL query
-///
-/// Struct:
-/// - Query: Ready-to-execute query
-///
-/// Fields:
-/// - sql: String - Generated SQL
-/// - parameters: Vec<Value> - Bound parameters
-#[derive(Debug, Clone)]
-pub struct Query {
-    pub sql: String,
-    pub parameters: Vec<Value>,
-}
-
-/// Query construction errors
-///
-/// Enum:
-/// - QueryError: Build-time and runtime query errors
-#[derive(Debug, thiserror::Error)]
-pub enum QueryError {
-    #[error("Missing table in FROM clause")]
-    MissingTable,
-
-    #[error("No columns specified in SELECT")]
-    MissingColumns,
-
-    #[error("Invalid SQL syntax: {0}")]
-    InvalidSyntax(String),
-}
-
-impl QueryBuilder {
-    /// Create new query builder
-    /// Role: Initialize empty builder
-    pub fn new() -> Self {
-        todo!("Return default QueryBuilder")
-    }
-
-    /// Add columns to SELECT
-    /// Role: Specify which columns to retrieve
-    pub fn select(mut self, columns: &[&str]) -> Self {
-        todo!("Add columns to Vec")
-    }
-
-    /// Set FROM table
-    /// Role: Specify source table
-    pub fn from(mut self, table: &str) -> Self {
-        todo!("Set table name")
-    }
-
-    /// Add WHERE condition
-    /// Role: Filter rows with parameterized condition
-    pub fn where_(mut self, condition: &str, param: Value) -> Self {
-        todo!("Add condition and parameter")
-    }
-
-    /// Build final query
-    /// Role: Validate and generate SQL
-    pub fn build(self) -> Result<Query, QueryError> {
-        todo!("Validate, generate SQL string with placeholders")
-    }
-}
-```
-
----
-
-**Checkpoint Tests**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_simple_select() {
-        let query = QueryBuilder::new()
-            .select(&["id", "name"])
-            .from("users")
-            .build()
-            .unwrap();
-
-        assert_eq!(query.sql, "SELECT id, name FROM users");
-        assert_eq!(query.parameters.len(), 0);
-    }
-
-    #[test]
-    fn test_select_with_where() {
-        let query = QueryBuilder::new()
-            .select(&["id", "name"])
-            .from("users")
-            .where_("age > ?", json!(18))
-            .build()
-            .unwrap();
-
-        assert!(query.sql.contains("WHERE age > ?"));
-        assert_eq!(query.parameters.len(), 1);
-        assert_eq!(query.parameters[0], json!(18));
-    }
-
-    #[test]
-    fn test_multiple_where_clauses() {
-        let query = QueryBuilder::new()
-            .select(&["*"])
-            .from("orders")
-            .where_("status = ?", json!("pending"))
-            .where_("amount > ?", json!(100))
-            .build()
-            .unwrap();
-
-        assert!(query.sql.contains("WHERE"));
-        assert!(query.sql.contains("AND"));
-        assert_eq!(query.parameters.len(), 2);
-    }
-
-    #[test]
-    fn test_missing_table_error() {
-        let result = QueryBuilder::new()
-            .select(&["id"])
-            .build();
-
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), QueryError::MissingTable));
-    }
-
-    #[test]
-    fn test_missing_columns_error() {
-        let result = QueryBuilder::new()
-            .from("users")
-            .build();
-
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), QueryError::MissingColumns));
-    }
-
-    #[test]
-    fn test_builder_is_chainable() {
-        let query = QueryBuilder::new()
-            .select(&["id"])
-            .from("users")
-            .where_("active = ?", json!(true))
-            .build()
-            .unwrap();
-
-        assert!(query.sql.contains("SELECT"));
-        assert!(query.sql.contains("FROM"));
-        assert!(query.sql.contains("WHERE"));
-    }
-}
-```
-
----
-
-(Due to length constraints, I'll note that Milestones 2-6 would follow the same detailed template structure with:
-- Milestone 2: Error Types with Query Context
-- Milestone 3: Schema Validation at Build Time
-- Milestone 4: Execute Queries with Detailed Error Context
-- Milestone 5: Transaction Support with Proper Error Handling
-- Milestone 6: Query Performance Monitoring and Suggestions
-
-Each would have architecture, starter code, and comprehensive checkpoint tests following the established pattern.)
-
----
-
-The complete file would be approximately 15,000-20,000 lines following the full template for both projects.

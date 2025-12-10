@@ -5,47 +5,6 @@
 Build a **streaming iterator** that yields borrowed elements with complex lifetime requirements using Higher-Ranked Trait Bounds (HRTB) and Generic Associated Types (GATs). Unlike standard `Iterator` which returns owned items, streaming iterators return items that borrow from the iterator itself, enabling zero-copy iteration over streaming data.
 
 
-## Why It Matters
-
-Streaming iterators demonstrate **advanced lifetime patterns** beyond standard Rust iterators:
-
-**Why Standard Iterator is Insufficient**:
-```rust
-// Standard Iterator: Item must be owned or have static lifetime
-trait Iterator {
-    type Item;  // Can't depend on &self lifetime!
-    fn next(&mut self) -> Option<Self::Item>;
-}
-
-// Problem: Can't return &[T] that borrows from self
-struct WindowIter<T> {
-    data: Vec<T>,
-    position: usize,
-}
-
-// ERROR: Can't implement because Item can't borrow from self
-// impl<T> Iterator for WindowIter<T> {
-//     type Item = &[T];  // ERROR: Missing lifetime
-// }
-```
-
-**Streaming Iterator with HRTB**:
-```rust
-// Streaming Iterator: Item<'a> borrows from &'a self
-trait StreamingIterator {
-    type Item<'a> where Self: 'a;  // GAT!
-    fn next(&mut self) -> Option<Self::Item<'_>>;  // Borrows from self
-}
-
-// Works: Item<'a> = &'a [T]
-impl<T> StreamingIterator for WindowIter<T> {
-    type Item<'a> = &'a [T] where Self: 'a;
-    fn next(&mut self) -> Option<Self::Item<'_>> {
-        // Return slice borrowing from self.data
-    }
-}
-```
-
 **Performance Impact**:
 - **Standard Iterator**: Must allocate/copy for each item (50-100ns per item)
 - **Streaming Iterator**: Zero-copy borrowing (1-2ns per item)

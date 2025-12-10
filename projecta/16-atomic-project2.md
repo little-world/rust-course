@@ -44,6 +44,874 @@ Real-world usage: Crossbeam's lock-free queues, Tokio's work-stealing scheduler,
 
 ---
 
+## Key Concepts Explained
+
+This project requires understanding atomic pointers, compare-and-swap loops, the ABA problem, and memory reclamation in lock-free data structures. These concepts are fundamental to building correct concurrent data structures without locks.
+
+### Atomic Pointers: AtomicPtr<T>
+
+**What It Is**: An atomic reference to heap-allocated data, enabling lock-free manipulation of linked data structures.
+
+**Why We Need It**:
+
+```rust
+// NON-ATOMIC (Race condition):
+struct Stack {
+    head: *mut Node,  // Regular raw pointer
+}
+
+impl Stack {
+    fn push(&mut self, node: *mut Node) {
+        unsafe {
+            (*node).next = self.head;  // Thread A reads head
+            // Context switch!
+            // Thread B pushes, changes head
+            self.head = node;  // Thread A writes stale head - LOST UPDATE!
+        }
+    }
+}
+```
+
+**The Atomic Solution**:
+
+```rust
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+struct Stack {
+    head: AtomicPtr<Node>,  // Atomic pointer
+}
+
+impl Stack {
+    fn push(&self, node: *mut Node) {
+        loop {
+            let old_head = self.head.load(Ordering::Relaxed);
+            unsafe { (*node).next = old_head; }
+
+            // CAS: only succeeds if head unchanged
+            if self.head.compare_exchange_weak(
+                old_head,
+                node,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ).is_ok() {
+                break;  // Success!
+            }
+            // If failed, retry with updated head
+        }
+    }
+}
+```
+
+**AtomicPtr Operations**:
+
+```rust
+let head = AtomicPtr::new(ptr::null_mut());
+
+// Load (read the pointer)
+let current = head.load(Ordering::Acquire);
+
+// Store (write a new pointer)
+head.store(new_ptr, Ordering::Release);
+
+// Swap (exchange, return old)
+let old = head.swap(new_ptr, Ordering::AcqRel);
+
+// Compare-and-swap (conditional update)
+let result = head.compare_exchange(
+    expected_ptr,
+    new_ptr,
+    Ordering::Release,  // Success ordering
+    Ordering::Relaxed,  // Failure ordering
+);
+```
+
+**Memory Safety Consideration**:
+
+```rust
+// AtomicPtr stores *mut T (raw pointer)
+// You must ensure:
+// 1. Pointer validity (not dangling)
+// 2. Proper deallocation (no memory leaks)
+// 3. No data races on pointed-to data
+
+// Safe pattern:
+let node = Box::new(Node { value: 42, next: ptr::null_mut() });
+let raw = Box::into_raw(node);  // Box → raw pointer
+head.store(raw, Ordering::Release);
+
+// Later:
+let raw = head.load(Ordering::Acquire);
+if !raw.is_null() {
+    unsafe {
+        let node = Box::from_raw(raw);  // raw → Box (deallocates on drop)
+        println!("{}", node.value);
+    }
+}
+```
+
+---
+
+### Compare-and-Swap Loops: The Lock-Free Pattern
+
+**The Core Pattern**: Retry until CAS succeeds.
+
+```rust
+loop {
+    // 1. Read current state
+    let current = atomic.load(Ordering::Relaxed);
+
+    // 2. Compute new state based on current
+    let new = compute_new_state(current);
+
+    // 3. Try to update (only if current unchanged)
+    match atomic.compare_exchange_weak(
+        current,
+        new,
+        Ordering::Release,  // If successful
+        Ordering::Relaxed,  // If failed
+    ) {
+        Ok(_) => break,      // Success! Exit loop
+        Err(_) => continue,  // Retry with updated current
+    }
+}
+```
+
+**Why Weak CAS in Loops**:
+
+```rust
+// Strong CAS: Never spuriously fails (but slower on some platforms)
+compare_exchange(current, new, success_order, failure_order)
+
+// Weak CAS: May spuriously fail even if values match (faster on ARM)
+compare_exchange_weak(current, new, success_order, failure_order)
+
+// In a loop, spurious failures just cause one extra iteration
+// On ARM, weak CAS is significantly faster
+// Always use weak CAS in loops!
+```
+
+**Stack Push with CAS Loop**:
+
+```rust
+fn push(&self, value: T) {
+    let new_node = Box::into_raw(Box::new(Node {
+        value,
+        next: ptr::null_mut(),
+    }));
+
+    loop {
+        // Read current head
+        let old_head = self.head.load(Ordering::Relaxed);
+
+        // Link new node to current head
+        unsafe { (*new_node).next = old_head; }
+
+        // Try to swing head to new node
+        match self.head.compare_exchange_weak(
+            old_head,
+            new_node,
+            Ordering::Release,  // Publish new node
+            Ordering::Relaxed,  // Retry on failure
+        ) {
+            Ok(_) => return,  // Success!
+            Err(_) => {
+                // Another thread modified head
+                // Loop will retry with updated old_head
+            }
+        }
+    }
+}
+```
+
+**Why This Works**:
+- Multiple threads can push simultaneously
+- Each CAS attempt is atomic
+- Only one CAS succeeds per head change
+- Failed threads see updated head and retry
+- No locks, always progress
+
+**Ordering Choice**:
+- **Load**: `Relaxed` (just need current value, retry if stale)
+- **Success CAS**: `Release` (publish new node to other threads)
+- **Failure CAS**: `Relaxed` (no synchronization needed on retry)
+
+---
+
+### The ABA Problem: A Subtle Race Condition
+
+**What It Is**: CAS succeeds because value matches, but the value changed and then changed back.
+
+**Classic Example**:
+
+```
+Initial state: Stack = [A → B → C]
+
+Thread 1:
+  1. Read head = A
+  2. Read A.next = B
+  3. Prepare CAS(head, A → B)
+  ... interrupted ...
+
+Thread 2:
+  4. Pop A  → Stack = [B → C]
+  5. Pop B  → Stack = [C]
+  6. Push A → Stack = [A → C]  ← A is back!
+
+Thread 1 resumes:
+  7. CAS(head, A → B)  ← SUCCEEDS! head == A
+  8. Stack = [B → ???]  ← B.next is now invalid!
+```
+
+**The Problem Visualized**:
+
+```
+Before Thread 1's CAS:
+head: A → C
+
+Thread 1 thinks:
+head: A → B → C
+
+After Thread 1's CAS:
+head: B → ??? (B.next was deallocated!)
+```
+
+**Result**: Undefined behavior (dangling pointer, use-after-free)
+
+**Why It's Called ABA**:
+- Value was **A**
+- Changed to **B** (and possibly other values)
+- Changed back to **A**
+- CAS sees A → A and succeeds incorrectly
+
+---
+
+### ABA Problem Solutions
+
+#### Solution 1: Version Counters (Tagged Pointers)
+
+**Idea**: Combine pointer with a version counter. CAS checks both.
+
+```rust
+use std::sync::atomic::AtomicU128;
+
+#[repr(C)]
+struct TaggedPtr {
+    ptr: *mut Node,      // 64 bits
+    version: u64,        // 64 bits
+}
+
+// Pack into 128-bit atomic (requires nightly Rust or cmpxchg16b)
+struct Stack {
+    head: AtomicU128,  // Stores TaggedPtr as u128
+}
+
+impl Stack {
+    fn push(&self, node: *mut Node) {
+        loop {
+            let current_u128 = self.head.load(Ordering::Relaxed);
+            let current = TaggedPtr::from_u128(current_u128);
+
+            unsafe { (*node).next = current.ptr; }
+
+            let new = TaggedPtr {
+                ptr: node,
+                version: current.version + 1,  // Increment version!
+            };
+
+            if self.head.compare_exchange_weak(
+                current_u128,
+                new.to_u128(),
+                Ordering::Release,
+                Ordering::Relaxed,
+            ).is_ok() {
+                break;
+            }
+        }
+    }
+}
+
+// ABA scenario:
+// Thread 1 reads: (ptr=A, version=5)
+// Thread 2: pop A, push A → (ptr=A, version=7)
+// Thread 1 CAS: expect (A, 5), got (A, 7) → FAILS! (version mismatch)
+```
+
+**Pros**:
+- ✅ Completely solves ABA problem
+- ✅ Simple to understand
+
+**Cons**:
+- ❌ Requires 128-bit CAS (not all platforms support)
+- ❌ Version can overflow (rare but possible)
+- ❌ Larger memory footprint
+
+#### Solution 2: Hazard Pointers
+
+**Idea**: Threads announce which pointers they're using. Don't reclaim announced pointers.
+
+```rust
+struct HazardPointer {
+    protected: AtomicPtr<Node>,
+}
+
+thread_local! {
+    static HAZARD: HazardPointer = HazardPointer {
+        protected: AtomicPtr::new(ptr::null_mut()),
+    };
+}
+
+impl Stack {
+    fn pop(&self) -> Option<T> {
+        loop {
+            let head = self.head.load(Ordering::Acquire);
+            if head.is_null() {
+                return None;
+            }
+
+            // Announce: I'm using this pointer!
+            HAZARD.with(|hp| hp.protected.store(head, Ordering::Release));
+
+            // Re-check head hasn't changed
+            if self.head.load(Ordering::Acquire) != head {
+                continue;  // Retry
+            }
+
+            unsafe {
+                let next = (*head).next;
+
+                if self.head.compare_exchange_weak(
+                    head,
+                    next,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                ).is_ok() {
+                    let value = ptr::read(&(*head).value);
+
+                    // Can't free head yet - another thread might have it in hazard
+                    retire_node(head);  // Add to deferred free list
+
+                    return Some(value);
+                }
+            }
+        }
+    }
+}
+
+fn retire_node(node: *mut Node) {
+    // Check if any thread has node in their hazard pointer
+    if no_hazards_for(node) {
+        unsafe { Box::from_raw(node); }  // Free immediately
+    } else {
+        RETIRE_LIST.push(node);  // Defer until safe
+    }
+}
+```
+
+**Pros**:
+- ✅ Works on all platforms
+- ✅ Prevents use-after-free
+
+**Cons**:
+- ❌ Complex implementation
+- ❌ Memory overhead (hazard pointers per thread)
+- ❌ Deferred reclamation (memory stays allocated)
+
+#### Solution 3: Epoch-Based Reclamation (EBR)
+
+**Idea**: Track global "epochs". Threads announce current epoch. Only reclaim memory from old epochs.
+
+```rust
+static EPOCH: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    static LOCAL_EPOCH: Cell<usize> = Cell::new(0);
+}
+
+struct Stack {
+    head: AtomicPtr<Node>,
+}
+
+impl Stack {
+    fn pop(&self) -> Option<T> {
+        // Enter current epoch
+        let epoch = EPOCH.load(Ordering::Acquire);
+        LOCAL_EPOCH.with(|e| e.set(epoch));
+
+        loop {
+            let head = self.head.load(Ordering::Acquire);
+            if head.is_null() {
+                return None;
+            }
+
+            unsafe {
+                let next = (*head).next;
+
+                if self.head.compare_exchange_weak(
+                    head,
+                    next,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                ).is_ok() {
+                    let value = ptr::read(&(*head).value);
+
+                    // Retire node in current epoch
+                    retire_in_epoch(head, epoch);
+
+                    return Some(value);
+                }
+            }
+        }
+    }
+}
+
+// Periodically advance epoch
+fn advance_epoch() {
+    EPOCH.fetch_add(1, Ordering::Release);
+
+    // Free nodes from epochs where no threads are active
+    reclaim_old_epochs();
+}
+```
+
+**Pros**:
+- ✅ Excellent performance
+- ✅ Amortized reclamation (batch frees)
+- ✅ Used by Crossbeam
+
+**Cons**:
+- ❌ Complex implementation
+- ❌ Requires global coordination
+- ❌ Memory usage spikes (delayed reclamation)
+
+---
+
+### Memory Reclamation: The Fundamental Challenge
+
+**The Problem**: Can't free nodes immediately—another thread might be accessing them.
+
+```rust
+// UNSAFE - DON'T DO THIS:
+fn pop(&self) -> Option<T> {
+    loop {
+        let head = self.head.load(Ordering::Acquire);
+        if head.is_null() {
+            return None;
+        }
+
+        unsafe {
+            let next = (*head).next;
+
+            if self.head.compare_exchange_weak(
+                head,
+                next,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ).is_ok() {
+                let value = ptr::read(&(*head).value);
+                drop(Box::from_raw(head));  // ❌ FREE IMMEDIATELY - WRONG!
+                // Another thread might have read head and is about to access it!
+                return Some(value);
+            }
+        }
+    }
+}
+```
+
+**Race Condition**:
+
+```
+Thread 1:
+  1. let head = self.head.load(...)  // head = A
+  2. let next = (*head).next         // Read A.next = B
+  ... interrupted ...
+
+Thread 2:
+  3. Pop A successfully
+  4. drop(Box::from_raw(A))  ← A deallocated!
+
+Thread 1 resumes:
+  5. CAS(head, A → B)  ← Accessing freed memory!
+```
+
+**Safe Strategies**:
+
+**1. Leak Memory** (Simplest for learning):
+```rust
+// Never free - acceptable for educational projects
+if self.head.compare_exchange_weak(...).is_ok() {
+    let value = ptr::read(&(*head).value);
+    std::mem::forget(head);  // Leak the node
+    return Some(value);
+}
+```
+
+**2. Reference Counting**:
+```rust
+struct Node {
+    value: T,
+    next: *mut Node,
+    ref_count: AtomicUsize,  // Track references
+}
+
+// Increment on access, decrement when done
+// Free when ref_count reaches 0
+// Problem: Overhead of atomic increments
+```
+
+**3. Deferred Reclamation** (Hazard Pointers, EBR):
+- Don't free immediately
+- Add to "retire list"
+- Periodically scan and free safe nodes
+- Balances safety and performance
+
+**4. Garbage Collection**:
+```rust
+// In Java/Go: Let GC handle it
+// In Rust: Not available (manual memory management)
+```
+
+---
+
+### Memory Ordering for Linked Structures
+
+**Key Insight**: Publication and consumption require synchronization.
+
+**Push Operation**:
+
+```rust
+fn push(&self, value: T) {
+    let new_node = Box::into_raw(Box::new(Node {
+        value,  // Initialize value
+        next: ptr::null_mut(),
+    }));
+
+    loop {
+        let old_head = self.head.load(Ordering::Relaxed);
+        unsafe { (*new_node).next = old_head; }
+
+        if self.head.compare_exchange_weak(
+            old_head,
+            new_node,
+            Ordering::Release,  // ← CRITICAL: Publish new node
+            Ordering::Relaxed,
+        ).is_ok() {
+            break;
+        }
+    }
+}
+```
+
+**Why Release**:
+- All writes to `new_node` (value, next) happen before CAS
+- `Release` ensures those writes visible to threads that Acquire
+- Without Release, another thread might see uninitialized value!
+
+**Pop Operation**:
+
+```rust
+fn pop(&self) -> Option<T> {
+    loop {
+        let head = self.head.load(Ordering::Acquire);  // ← CRITICAL
+        if head.is_null() {
+            return None;
+        }
+
+        unsafe {
+            let next = (*head).next;
+            let value = ptr::read(&(*head).value);  // Read value
+
+            if self.head.compare_exchange_weak(
+                head,
+                next,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ).is_ok() {
+                return Some(value);
+            }
+        }
+    }
+}
+```
+
+**Why Acquire**:
+- Synchronizes with the Release store from push
+- Ensures we see the fully initialized node
+- Without Acquire, might see garbage in `value` or `next`!
+
+**Ordering Summary**:
+
+| Operation | Ordering | Reason |
+|-----------|----------|--------|
+| Load head (read) | Acquire | See published node data |
+| Store head (push) | Release | Publish new node |
+| CAS success | Release | Publish changes |
+| CAS failure | Relaxed | No synchronization needed (retry) |
+
+**Relaxed Reads in Loop**:
+
+Some implementations use Relaxed for reads that will be validated by CAS:
+
+```rust
+// Read with Relaxed, CAS validates
+let old_head = self.head.load(Ordering::Relaxed);
+unsafe { (*new_node).next = old_head; }
+
+// CAS with Acquire success ordering validates the read
+if self.head.compare_exchange_weak(
+    old_head,
+    new_node,
+    Ordering::Release,
+    Ordering::Acquire,  // ← Acquire on success
+).is_ok() { ... }
+```
+
+But for safety, many prefer Acquire reads to avoid subtle bugs.
+
+---
+
+### Lock-Free Stack Design Patterns
+
+**Pattern 1: Try-Lock (Spin Until Success)**
+
+```rust
+pub fn push(&self, value: T) {
+    let new_node = ...;
+
+    loop {
+        let old_head = self.head.load(Ordering::Relaxed);
+        unsafe { (*new_node).next = old_head; }
+
+        if self.head.compare_exchange_weak(...).is_ok() {
+            break;  // Success
+        }
+        // Spin and retry
+    }
+}
+```
+
+**Characteristics**:
+- Simple, clean code
+- Burns CPU on contention
+- Good for low contention scenarios
+
+**Pattern 2: Backoff (Reduce Contention)**
+
+```rust
+use std::hint::spin_loop;
+
+pub fn push(&self, value: T) {
+    let new_node = ...;
+    let mut backoff = 1;
+
+    loop {
+        let old_head = self.head.load(Ordering::Relaxed);
+        unsafe { (*new_node).next = old_head; }
+
+        if self.head.compare_exchange_weak(...).is_ok() {
+            break;
+        }
+
+        // Exponential backoff
+        for _ in 0..backoff {
+            spin_loop();  // Hint to CPU: reduce power, let other threads run
+        }
+        backoff = (backoff * 2).min(64);  // Cap at 64 iterations
+    }
+}
+```
+
+**Characteristics**:
+- Reduces cache line bouncing
+- Better performance under contention
+- More complex code
+
+**Pattern 3: Try-With-Limit (Fallback)**
+
+```rust
+pub fn try_push(&self, value: T, max_attempts: usize) -> Result<(), T> {
+    let new_node = ...;
+
+    for _ in 0..max_attempts {
+        let old_head = self.head.load(Ordering::Relaxed);
+        unsafe { (*new_node).next = old_head; }
+
+        if self.head.compare_exchange_weak(...).is_ok() {
+            return Ok(());
+        }
+    }
+
+    // Failed after max_attempts
+    unsafe { Box::from_raw(new_node); }  // Clean up
+    Err(value)
+}
+```
+
+**Characteristics**:
+- Bounded retry attempts
+- Allows fallback strategy
+- Useful for real-time systems
+
+---
+
+### Unsafe Rust in Lock-Free Structures
+
+Lock-free data structures require `unsafe` for raw pointer manipulation. Understanding what makes it safe is critical.
+
+**Unsafe Operations Used**:
+
+1. **Dereferencing raw pointers**:
+```rust
+unsafe {
+    let next = (*head).next;  // Dereference *mut Node
+}
+```
+
+**Safety invariant**: `head` must be valid, non-null, properly aligned
+
+2. **Creating references from raw pointers**:
+```rust
+unsafe {
+    let node_ref = &*head;  // *mut Node → &Node
+}
+```
+
+**Safety invariant**: No mutable aliasing, pointer valid for reference lifetime
+
+3. **Pointer arithmetic** (in more complex structures):
+```rust
+unsafe {
+    let next_ptr = head.offset(1);  // Move pointer
+}
+```
+
+**Safety invariant**: Result must be in bounds or one-past-end
+
+4. **Box conversion**:
+```rust
+// Box → raw pointer
+let raw = Box::into_raw(boxed_node);
+
+// raw pointer → Box (takes ownership, will deallocate)
+unsafe {
+    let boxed_node = Box::from_raw(raw);
+}
+```
+
+**Safety invariant**:
+- Pointer came from `Box::into_raw`
+- Only convert once (double-free otherwise)
+- Pointer not accessed after conversion
+
+**Safety Checklist for Lock-Free Stack**:
+
+```rust
+fn push(&self, value: T) {
+    // ✅ SAFE: Box::new allocates valid memory
+    let new_node = Box::into_raw(Box::new(Node {
+        value,
+        next: ptr::null_mut(),
+    }));
+
+    loop {
+        let old_head = self.head.load(Ordering::Relaxed);
+
+        // ✅ SAFE: new_node valid (just allocated)
+        unsafe { (*new_node).next = old_head; }
+
+        if self.head.compare_exchange_weak(...).is_ok() {
+            // ✅ SAFE: Published to other threads via Release ordering
+            break;
+        }
+    }
+    // ✅ SAFE: new_node now owned by stack, won't be freed
+}
+```
+
+**Common Unsafe Bugs**:
+
+```rust
+// ❌ WRONG: Double-free
+let node = Box::into_raw(Box::new(...));
+unsafe {
+    drop(Box::from_raw(node));
+    drop(Box::from_raw(node));  // CRASH: node already freed
+}
+
+// ❌ WRONG: Use-after-free
+let node = Box::into_raw(Box::new(...));
+unsafe {
+    drop(Box::from_raw(node));
+    let value = (*node).value;  // CRASH: accessing freed memory
+}
+
+// ❌ WRONG: Memory leak
+let node = Box::into_raw(Box::new(...));
+// Never freed - leaked!
+
+// ❌ WRONG: Dangling pointer
+let node = Box::into_raw(Box::new(...));
+unsafe {
+    drop(Box::from_raw(node));
+}
+head.store(node, Ordering::Release);  // Storing freed pointer!
+```
+
+---
+
+### Connection to This Project
+
+Now that you understand the core concepts, here's how they map to the milestones:
+
+**Milestone 1: Basic Single-Threaded Stack**
+- **Concepts Used**: `AtomicPtr`, `Box::into_raw/from_raw`, raw pointer manipulation
+- **Why**: Establish foundation of atomic pointers and linked list structure
+- **Key Insight**: Even single-threaded, using atomics prepares for concurrency
+
+**Milestone 2: Thread-Safe Push with CAS**
+- **Concepts Used**: CAS loops, memory ordering (Acquire/Release), concurrent push
+- **Why**: Multiple threads must push without corrupting the stack
+- **Key Insight**: CAS loop with Release ordering publishes new nodes safely
+
+**Milestone 3: Thread-Safe Pop with Memory Leak**
+- **Concepts Used**: CAS for pop, reading node data, accepting memory leaks
+- **Why**: Pop is harder—must handle empty stack and concurrent modifications
+- **Key Insight**: Leaking memory is acceptable for learning; production needs reclamation
+
+**Milestone 4: ABA Problem Demonstration**
+- **Concepts Used**: ABA scenario construction, version counters or tagged pointers
+- **Why**: Understand the subtle race condition that can corrupt lock-free structures
+- **Key Insight**: Simple CAS isn't enough; need version tracking or hazard pointers
+
+**Milestone 5: Hazard Pointers (Basic)**
+- **Concepts Used**: Thread-local hazard pointers, deferred reclamation
+- **Why**: Safe memory reclamation without leaking
+- **Key Insight**: Announce usage before access, defer frees of protected pointers
+
+**Milestone 6: Performance Benchmarks**
+- **Concepts Used**: Contention testing, backoff strategies, performance measurement
+- **Why**: Validate lock-free benefits vs mutex under different workloads
+- **Key Insight**: Lock-free excels under high contention; mutex has lower overhead when uncontended
+
+**Putting It All Together**:
+
+The complete Treiber stack demonstrates:
+1. **Atomic pointer operations** for lock-free linked structures
+2. **CAS loops** for concurrent modifications
+3. **Memory ordering** (Acquire/Release) for safe publication
+4. **ABA problem awareness** and mitigation strategies
+5. **Memory reclamation** techniques (leak, hazard pointers, EBR)
+6. **Unsafe code** with rigorous safety reasoning
+
+This architecture achieves:
+- **Lock-free progress**: No deadlocks, always forward progress
+- **Linear scalability**: Performance improves with more cores
+- **~20-50ns operations**: Faster than mutex under contention
+- **Production-ready patterns**: Used in Crossbeam, Tokio, parking_lot
+
+Each milestone builds understanding from basic atomic operations to production-ready lock-free data structures with proper memory management.
+
+---
+
 ## Milestone 1: Basic Single-Threaded Stack with Atomic Pointer
 
 ### Introduction

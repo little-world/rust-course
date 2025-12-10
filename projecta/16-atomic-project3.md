@@ -52,6 +52,818 @@ Solution: Pad head and tail to separate cache lines (64 bytes on x86).
 
 ---
 
+## Key Concepts Explained
+
+This project requires understanding ring buffer mechanics, circular indexing, memory ordering for producer-consumer patterns, cache-line optimization, and wait-free algorithms. These concepts enable building the highest-performance concurrent queues possible.
+
+### Ring Buffer: The Circular Queue Data Structure
+
+**What It Is**: A fixed-size queue implemented as a circular array with wrap-around indexing.
+
+**Why Circular?**
+
+Linear queue has a problem:
+
+```
+Linear Queue (grows to the right):
+[_][_][_][A][B][C][_][_]
+       ↑           ↑
+     tail        head
+
+After many enqueue/dequeue:
+[_][_][_][_][_][_][_][X]  ← At end! Must shift all elements or reallocate
+                       ↑
+                     head
+
+Problem: Eventually runs out of space despite empty slots at front
+```
+
+Ring buffer solves this with wrap-around:
+
+```
+Ring Buffer (wraps around):
+[D][_][_][A][B][C][_][_]
+ ↑       ↑
+head    tail
+
+Indices wrap: 7 → 0, allowing infinite enqueue/dequeue
+```
+
+**Visual Representation**:
+
+```
+Circular view:
+       ┌───┬───┬───┬───┐
+       │ 0 │ 1 │ 2 │ 3 │
+       └───┴───┴───┴───┘
+      ╱                 ╲
+    ╱                     ╲
+  ╱                         ╲
+ │                           │
+ │ 7                       4 │
+ │                           │
+  ╲                         ╱
+    ╲                     ╱
+      ╲                 ╱
+       └───┴───┴───┴───┘
+       │ 6 │ 5 │ 4 │   │
+
+State: tail=2, head=6
+Contains: [2][3][4][5]
+```
+
+**Three States**:
+
+```
+1. Empty: head == tail
+   [_][_][_][_]
+    ↑
+  head,tail
+
+2. Partially filled: head != tail
+   [_][B][C][_]
+    ↑       ↑
+   tail    head
+
+3. Full: (head + 1) % capacity == tail
+   [D][B][C][_]  ← Reserve one slot to distinguish from empty
+       ↑    ↑
+      tail head
+```
+
+**Why Reserve One Slot?**
+
+Without reservation:
+
+```
+Full state: head == tail (same as empty!)  ← AMBIGUOUS!
+[A][B][C][D]
+ ↑
+head,tail
+
+Can't tell if empty or full without extra state
+```
+
+With reservation:
+
+```
+Full: (head + 1) % capacity == tail
+[D][B][C][_]  ← One empty slot
+    ↑    ↑
+   tail head
+
+Empty: head == tail
+[_][_][_][_]
+ ↑
+head,tail
+
+No ambiguity! Cost: waste 1 slot
+```
+
+---
+
+### Circular Indexing Arithmetic
+
+**The Core Operations**: Map linear indices to circular array positions.
+
+**Naive Modulo**:
+
+```rust
+let index = head % capacity;
+```
+
+**Problem**: Modulo is slow (~20-30 cycles on x86)
+
+**Fast Modulo (Power-of-2 Optimization)**:
+
+```rust
+// If capacity is power of 2 (e.g., 8, 16, 32, 64):
+let mask = capacity - 1;  // 16 → 0b1111
+let index = head & mask;   // Bitwise AND (~1 cycle!)
+
+// Example:
+// capacity = 16 (0b10000)
+// mask = 15 (0b01111)
+// head = 23 (0b10111)
+// index = 23 & 15 = 7 (0b00111)
+```
+
+**Wrapping Increment**:
+
+```rust
+// Naive:
+head = (head + 1) % capacity;  // Slow
+
+// Optimized (power-of-2):
+head = (head + 1) & mask;  // Fast
+
+// Even more optimized: let it wrap naturally
+head = head.wrapping_add(1);  // u32 wraps at 2^32
+let index = head & mask;
+```
+
+**Why Natural Wrapping Works**:
+
+```rust
+// With u32 head and capacity=16:
+head: 0 → 1 → 2 → ... → 4,294,967,295 → 0 (wraps)
+index = head & 15: Always in [0, 15]
+
+// No need for explicit modulo!
+// head never needs to be reset to 0
+```
+
+**Full Buffer Check**:
+
+```rust
+// Naive:
+fn is_full(&self) -> bool {
+    (self.head.load(Ordering::Relaxed) + 1) % self.capacity
+        == self.tail.load(Ordering::Relaxed)
+}
+
+// Optimized (natural wrapping):
+fn is_full(&self) -> bool {
+    self.head.load(Ordering::Relaxed).wrapping_add(1) & self.mask
+        == self.tail.load(Ordering::Relaxed) & self.mask
+}
+```
+
+**Length Calculation**:
+
+```rust
+// Naive:
+let len = if head >= tail {
+    head - tail
+} else {
+    capacity - tail + head
+};
+
+// Optimized (wrapping subtraction):
+let len = head.wrapping_sub(tail) & mask;
+
+// Example:
+// capacity = 16, mask = 15
+// head = 3, tail = 14
+// len = 3 - 14 = -11 (wraps to 4,294,967,285 in u32)
+// len & 15 = 5 ✓ (correct: 14,15,0,1,2,3)
+```
+
+---
+
+### MaybeUninit: Uninitialized Memory
+
+**The Problem**: Ring buffer allocates fixed capacity upfront, but slots are unused until written.
+
+**Wrong Approach**:
+
+```rust
+struct RingBuffer<T> {
+    buffer: Vec<T>,  // ❌ Requires T: Default or complex initialization
+}
+
+impl<T> RingBuffer<T> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            buffer: vec![Default::default(); capacity],  // ❌ Unnecessary work
+        }
+    }
+}
+```
+
+**Problems**:
+- Requires `T: Default` (unnecessary constraint)
+- Initializes all slots (wasted work)
+- If `T` is expensive to create, this is very slow
+
+**Correct Approach: MaybeUninit**:
+
+```rust
+use std::mem::MaybeUninit;
+
+struct RingBuffer<T> {
+    buffer: Vec<MaybeUninit<T>>,  // ✅ Uninitialized memory
+}
+
+impl<T> RingBuffer<T> {
+    fn new(capacity: usize) -> Self {
+        Self {
+            buffer: (0..capacity)
+                .map(|_| MaybeUninit::uninit())
+                .collect(),
+        }
+    }
+
+    fn push(&self, value: T) -> Result<(), T> {
+        // ... get index ...
+        unsafe {
+            // Write to uninitialized slot
+            (*self.buffer.get_unchecked(index).as_ptr()) = value;
+        }
+        Ok(())
+    }
+
+    fn pop(&self) -> Option<T> {
+        // ... get index ...
+        unsafe {
+            // Read from initialized slot
+            Some(self.buffer.get_unchecked(index).as_ptr().read())
+        }
+    }
+}
+```
+
+**MaybeUninit Operations**:
+
+```rust
+// Create uninitialized
+let mut slot: MaybeUninit<T> = MaybeUninit::uninit();
+
+// Write (initialize)
+slot.write(value);
+
+// Read (assume initialized)
+unsafe {
+    let value = slot.assume_init();  // Consumes MaybeUninit
+    // or
+    let value = slot.assume_init_read();  // Reads without consuming
+}
+
+// Get raw pointer for manual management
+let ptr: *mut T = slot.as_mut_ptr();
+unsafe {
+    ptr.write(value);  // Initialize via pointer
+    let value = ptr.read();  // Read via pointer
+}
+```
+
+**Safety Considerations**:
+
+```rust
+// ✅ SAFE: Write before read
+let mut slot = MaybeUninit::uninit();
+slot.write(42);
+let value = unsafe { slot.assume_init() };  // OK
+
+// ❌ UNSAFE: Read uninitialized
+let slot = MaybeUninit::<i32>::uninit();
+let value = unsafe { slot.assume_init() };  // ❌ UNDEFINED BEHAVIOR!
+
+// ✅ SAFE: Track initialization state
+let mut slot = MaybeUninit::uninit();
+let initialized = false;
+
+if some_condition {
+    slot.write(42);
+    initialized = true;
+}
+
+if initialized {
+    let value = unsafe { slot.assume_init() };  // OK
+}
+```
+
+**Why This Matters for Ring Buffer**:
+
+```
+Capacity 1024 ring buffer:
+- With Vec<T>: Initialize all 1024 elements upfront
+- With Vec<MaybeUninit<T>>: No initialization, O(1) creation
+
+For expensive T (e.g., Vec<u8>):
+- Vec<Vec<u8>>: 1024 allocations
+- Vec<MaybeUninit<Vec<u8>>>: 0 allocations
+```
+
+---
+
+### SPSC vs MPMC: Producer-Consumer Patterns
+
+#### SPSC: Single-Producer Single-Consumer
+
+**Characteristics**:
+- One writer thread, one reader thread
+- **No contention**: Writer owns head, reader owns tail
+- **Wait-free**: Operations complete in bounded time
+- **Fastest**: ~10-30ns per operation
+
+**Why It's Wait-Free**:
+
+```rust
+// Producer:
+fn push(&self, value: T) -> Result<(), T> {
+    let head = self.head.load(Ordering::Relaxed);  // Only I write head
+    let tail = self.tail.load(Ordering::Acquire);  // Reader updates tail
+
+    if (head + 1) & self.mask == tail & self.mask {
+        return Err(value);  // Full - deterministic failure
+    }
+
+    unsafe {
+        self.buffer[head & self.mask].write(value);
+    }
+
+    self.head.store(head + 1, Ordering::Release);  // Publish
+    Ok(())
+}
+
+// No CAS, no loops, no retries → Wait-free!
+```
+
+**Memory Ordering**:
+- **Producer**: `Acquire` tail, `Release` head
+- **Consumer**: `Acquire` head, `Release` tail
+- Creates synchronization between producer and consumer
+
+#### MPMC: Multi-Producer Multi-Consumer
+
+**Characteristics**:
+- Multiple writers, multiple readers
+- **Contention**: Multiple threads compete for head/tail
+- **Lock-free**: Uses CAS, can retry, but always progresses
+- **Slower**: ~50-150ns per operation (CAS overhead)
+
+**Why It Needs CAS**:
+
+```rust
+// Multiple producers competing:
+fn push(&self, value: T) -> Result<(), T> {
+    loop {
+        let head = self.head.load(Ordering::Relaxed);
+        let tail = self.tail.load(Ordering::Acquire);
+
+        if (head + 1) & self.mask == tail & self.mask {
+            return Err(value);  // Full
+        }
+
+        // Try to claim slot via CAS
+        if self.head.compare_exchange_weak(
+            head,
+            head + 1,
+            Ordering::Release,
+            Ordering::Relaxed,
+        ).is_ok() {
+            // Success! We claimed slot at index head
+            unsafe {
+                self.buffer[head & self.mask].write(value);
+            }
+            return Ok(());
+        }
+        // Failed - another producer claimed it, retry
+    }
+}
+
+// CAS loop → Lock-free (not wait-free)
+```
+
+**Comparison**:
+
+| Aspect | SPSC | MPMC |
+|--------|------|------|
+| **Threads** | 1 producer, 1 consumer | N producers, M consumers |
+| **Contention** | None | High |
+| **Operations** | Load/Store | CAS loops |
+| **Progress** | Wait-free | Lock-free |
+| **Latency** | ~10-30ns | ~50-150ns |
+| **Throughput** | Excellent | Good |
+| **Complexity** | Simple | Complex |
+
+---
+
+### Memory Ordering for Producer-Consumer
+
+**The Critical Synchronization**: Producer writes data, consumer must see it.
+
+**SPSC Memory Ordering**:
+
+```rust
+// Producer thread:
+fn push(&self, value: T) -> Result<(), T> {
+    let head = self.head.load(Ordering::Relaxed);
+    let tail = self.tail.load(Ordering::Acquire);  // ← Acquire tail
+
+    // ... full check ...
+
+    unsafe {
+        self.buffer[head & self.mask].write(value);  // Write data
+    }
+
+    self.head.store(head + 1, Ordering::Release);  // ← Release head
+    Ok(())
+}
+
+// Consumer thread:
+fn pop(&self) -> Option<T> {
+    let tail = self.tail.load(Ordering::Relaxed);
+    let head = self.head.load(Ordering::Acquire);  // ← Acquire head
+
+    if head & self.mask == tail & self.mask {
+        return None;  // Empty
+    }
+
+    unsafe {
+        let value = self.buffer[tail & self.mask].read();  // Read data
+
+        self.tail.store(tail + 1, Ordering::Release);  // ← Release tail
+        Some(value)
+    }
+}
+```
+
+**Why This Ordering?**
+
+**Producer**:
+1. **Acquire tail**: See consumer's latest consumed index
+2. Write data to buffer slot
+3. **Release head**: Publish new data to consumer
+
+**Consumer**:
+1. **Acquire head**: See producer's latest produced data
+2. Read data from buffer slot
+3. **Release tail**: Publish consumed index to producer
+
+**Synchronization Edges**:
+
+```
+Producer Thread                Consumer Thread
+───────────────                ───────────────
+Load tail (Acquire)  ←─────────┐
+                               │ Synchronizes
+Write data                     │
+                               │
+Store head (Release) ─────────→│
+                               │
+                               └──→ Load head (Acquire)
+
+                                    Read data
+
+                               ┌─── Store tail (Release)
+                               │
+                               │ Synchronizes
+Load tail (Acquire)  ←─────────┘
+```
+
+**What Happens Without Correct Ordering?**
+
+```rust
+// BAD: Using Relaxed everywhere
+self.buffer[head & self.mask].write(value);  // Write data
+self.head.store(head + 1, Ordering::Relaxed);  // ❌ No synchronization!
+
+// Consumer:
+let head = self.head.load(Ordering::Relaxed);  // ❌ Might not see data write!
+let value = self.buffer[tail & self.mask].read();  // ❌ GARBAGE DATA!
+```
+
+**Relaxed Optimization (when safe)**:
+
+```rust
+// Can use Relaxed for own index:
+let head = self.head.load(Ordering::Relaxed);  // ✅ Only I write head
+let tail = self.tail.load(Ordering::Acquire);   // ✅ Consumer writes tail
+```
+
+---
+
+### False Sharing and Cache Line Alignment
+
+**The Problem**: Head and tail in same cache line causes ping-pong.
+
+**False Sharing Scenario**:
+
+```rust
+struct RingBuffer {
+    head: AtomicUsize,  // Bytes 0-7
+    tail: AtomicUsize,  // Bytes 8-15  ← Same 64-byte cache line!
+    buffer: Vec<MaybeUninit<T>>,
+}
+
+// CPU 0 (Producer):
+self.head.store(new_head, Ordering::Release);
+// → Marks entire cache line as modified
+// → CPU 1's cache line invalidated
+
+// CPU 1 (Consumer):
+let head = self.head.load(Ordering::Acquire);
+// → Must reload cache line from CPU 0
+// → Then stores to tail...
+self.tail.store(new_tail, Ordering::Release);
+// → Marks entire cache line as modified
+// → CPU 0's cache line invalidated
+
+// Ping-pong continues → 10-100x slowdown!
+```
+
+**Performance Impact**:
+
+```
+Without padding (false sharing):
+  SPSC throughput: 50 million ops/sec
+
+With padding (separate cache lines):
+  SPSC throughput: 500 million ops/sec
+
+10x improvement from cache line alignment!
+```
+
+**Solution: Cache Line Padding**:
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// Cache line size: 64 bytes on x86, 128 bytes on some ARM
+const CACHE_LINE_SIZE: usize = 64;
+
+#[repr(align(64))]
+struct CacheAligned<T> {
+    value: T,
+    _padding: [u8; CACHE_LINE_SIZE - std::mem::size_of::<T>()],
+}
+
+struct RingBuffer<T> {
+    head: CacheAligned<AtomicUsize>,  // Bytes 0-63
+    tail: CacheAligned<AtomicUsize>,  // Bytes 64-127  ← Different cache line!
+    buffer: Vec<MaybeUninit<T>>,
+}
+
+// Now producer and consumer operate on separate cache lines
+// No invalidation ping-pong!
+```
+
+**Alternative: Separate Structs**:
+
+```rust
+#[repr(align(64))]
+struct ProducerData {
+    head: AtomicUsize,
+    _padding: [u8; 56],  // 64 - 8 = 56
+}
+
+#[repr(align(64))]
+struct ConsumerData {
+    tail: AtomicUsize,
+    _padding: [u8; 56],
+}
+
+struct RingBuffer<T> {
+    producer: ProducerData,
+    consumer: ConsumerData,
+    buffer: Vec<MaybeUninit<T>>,
+}
+```
+
+**When Padding Matters**:
+- ✅ High-frequency updates (SPSC/MPMC)
+- ✅ Different threads updating different fields
+- ❌ Single-threaded access
+- ❌ Infrequent updates
+
+---
+
+### Power-of-2 Capacity Optimization
+
+**Why Power of 2?**
+
+Fast bitwise operations instead of slow division/modulo.
+
+**Comparison**:
+
+```rust
+// Non-power-of-2 capacity (e.g., 100):
+let index = head % capacity;  // ~20-30 cycles (division)
+
+// Power-of-2 capacity (e.g., 128):
+let mask = capacity - 1;  // 128 - 1 = 127 = 0b01111111
+let index = head & mask;  // ~1 cycle (bitwise AND)
+
+// 20-30x faster!
+```
+
+**Implementation**:
+
+```rust
+impl<T> RingBuffer<T> {
+    pub fn new(capacity: usize) -> Self {
+        // Round up to next power of 2
+        let capacity = capacity.next_power_of_two();
+        let mask = capacity - 1;
+
+        Self {
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+            buffer: (0..capacity).map(|_| MaybeUninit::uninit()).collect(),
+            mask,
+        }
+    }
+
+    fn push(&self, value: T) -> Result<(), T> {
+        let head = self.head.load(Ordering::Relaxed);
+        let tail = self.tail.load(Ordering::Acquire);
+
+        // Fast modulo using bitwise AND
+        if (head.wrapping_add(1) & self.mask) == (tail & self.mask) {
+            return Err(value);  // Full
+        }
+
+        unsafe {
+            self.buffer.get_unchecked(head & self.mask).write(value);
+        }
+
+        self.head.store(head.wrapping_add(1), Ordering::Release);
+        Ok(())
+    }
+}
+```
+
+**Why `wrapping_add`?**
+
+```rust
+// Let head naturally wrap at u32/u64 boundary:
+let head: u32 = 4_294_967_295;  // Max u32
+let new_head = head.wrapping_add(1);  // → 0 (wraps)
+
+// Index is always correct due to mask:
+let index = new_head & mask;  // Works correctly after wrap
+```
+
+**Benefits**:
+- No explicit modulo operations
+- No manual wrap checking
+- Simpler code
+- Faster execution
+
+---
+
+### Wait-Free Guarantees
+
+**Definitions**:
+
+**Lock-Free**: System-wide progress (at least one thread always advances)
+```rust
+// Lock-free (CAS loop):
+loop {
+    let current = atomic.load(Ordering::Relaxed);
+    if atomic.compare_exchange_weak(...).is_ok() {
+        break;  // Success
+    }
+    // Individual thread might loop forever (starvation)
+    // But at least one thread always succeeds → system progresses
+}
+```
+
+**Wait-Free**: Per-thread progress (every thread completes in bounded steps)
+```rust
+// Wait-free (no loops):
+let head = self.head.load(Ordering::Relaxed);  // Step 1
+let tail = self.tail.load(Ordering::Acquire);  // Step 2
+
+if is_full(head, tail) {
+    return Err(value);  // Step 3 - deterministic failure
+}
+
+write_buffer(value);  // Step 4
+self.head.store(new_head, Ordering::Release);  // Step 5
+
+// Exactly 5 steps, no loops, no retries → Wait-free!
+```
+
+**Why SPSC is Wait-Free**:
+
+```
+Producer owns head:
+  - Only producer writes head
+  - Only consumer reads head
+  - No contention → No CAS needed
+
+Consumer owns tail:
+  - Only consumer writes tail
+  - Only producer reads tail
+  - No contention → No CAS needed
+
+Result: Simple load/store operations, bounded steps
+```
+
+**Why MPMC is NOT Wait-Free**:
+
+```
+Multiple producers compete for head:
+  - Thread A: CAS(head, 5 → 6)
+  - Thread B: CAS(head, 5 → 6)
+
+Only one succeeds:
+  - Winner: Advances in 1 attempt
+  - Loser: Must retry with updated head
+
+Retry unbounded → Lock-free, not wait-free
+```
+
+**Performance Implications**:
+
+| Property | Lock-Free (MPMC) | Wait-Free (SPSC) |
+|----------|------------------|------------------|
+| **Latency** | Variable (CAS retries) | Constant |
+| **Worst-case** | Unbounded retries | Bounded steps |
+| **Best-case** | 1 CAS (~10ns) | 1 load/store (~5ns) |
+| **Predictability** | Low | High |
+| **Real-time** | Not suitable | Suitable |
+
+---
+
+### Connection to This Project
+
+Now that you understand the core concepts, here's how they map to the milestones:
+
+**Milestone 1: Basic SPSC Ring Buffer**
+- **Concepts Used**: Ring buffer structure, circular indexing, `MaybeUninit`, atomic load/store
+- **Why**: Establish foundation of circular queue and atomic indices
+- **Key Insight**: SPSC is simple—no CAS needed, just load/store with proper ordering
+
+**Milestone 2: Memory Ordering Optimization**
+- **Concepts Used**: Acquire/Release ordering, producer-consumer synchronization
+- **Why**: Correct ordering ensures consumer sees producer's data
+- **Key Insight**: Release on write index, Acquire on read index creates sync edge
+
+**Milestone 3: Cache Line Alignment**
+- **Concepts Used**: False sharing, cache line padding, `#[repr(align(64))]`
+- **Why**: Separate cache lines eliminate ping-pong between producer and consumer
+- **Key Insight**: 64-byte padding can give 10x performance improvement
+
+**Milestone 4: Power-of-2 Capacity Optimization**
+- **Concepts Used**: Bitwise AND for fast modulo, `wrapping_add`, mask calculation
+- **Why**: Avoid slow division operations
+- **Key Insight**: `head & mask` is 20-30x faster than `head % capacity`
+
+**Milestone 5: MPMC with CAS**
+- **Concepts Used**: CAS loops for contention, lock-free (not wait-free), fetch_add
+- **Why**: Multiple producers/consumers require atomic claim of slots
+- **Key Insight**: CAS enables lock-free MPMC but loses wait-free guarantee
+
+**Milestone 6: Benchmarking and Validation**
+- **Concepts Used**: Throughput measurement, latency histograms, contention testing
+- **Why**: Validate performance claims and understand trade-offs
+- **Key Insight**: SPSC 10x faster than MPMC, both much faster than Mutex
+
+**Putting It All Together**:
+
+The complete ring buffer demonstrates:
+1. **Circular indexing** with power-of-2 optimization
+2. **Uninitialized memory** with `MaybeUninit`
+3. **Memory ordering** (Acquire/Release) for producer-consumer sync
+4. **Cache line alignment** to eliminate false sharing
+5. **Wait-free SPSC** vs **lock-free MPMC** trade-offs
+6. **Unsafe Rust** for uninitialized slot access
+
+This architecture achieves:
+- **SPSC: ~10-30ns per operation** (wait-free, no contention)
+- **MPMC: ~50-150ns per operation** (lock-free, CAS overhead)
+- **10-50x faster than Mutex + VecDeque**
+- **Zero allocations** after initialization
+- **Bounded memory** (fixed capacity)
+
+Each milestone builds from simple SPSC to high-performance MPMC with proper cache optimization and memory ordering.
+
+---
+
 ## Milestone 1: Basic SPSC Ring Buffer with Naive Atomics
 
 ### Introduction

@@ -40,6 +40,1294 @@ Memory usage:
 
 ---
 
+## Key Concepts Explained
+
+This project requires understanding of Image Processing and Rust concepts for concurrent I/O, CPU-bound processing, and pipeline architectures. These concepts enable building high-throughput image processing systems that efficiently utilize both CPU and I/O resources.
+
+### Convolution Algorithms in Image Processing
+
+**What is Convolution?** A mathematical operation that applies a small matrix (kernel) to every pixel in an image, producing effects like blur, sharpen, edge detection, and more.
+
+#### The Mathematics of Convolution
+
+**Core Concept**: Slide a small matrix (kernel) over the image, multiply overlapping values, sum them, and replace the center pixel.
+
+**Visual Example**:
+
+```
+Original Image (grayscale values):
+┌────────────────────┐
+│ 10  20  30  40  50 │
+│ 15  25  35  45  55 │
+│ 20  30  40  50  60 │
+│ 25  35  45  55  65 │
+│ 30  40  50  60  70 │
+└────────────────────┘
+
+3×3 Kernel (simple blur):
+┌──────────┐
+│ 1  1  1  │  ← Each value is 1/9
+│ 1  1  1  │  ← (sum = 1, maintains brightness)
+│ 1  1  1  │
+└──────────┘
+Divide by 9 after sum
+
+Process:
+1. Place kernel over top-left 3×3 region
+2. Multiply each kernel value by corresponding pixel
+3. Sum all products
+4. Divide by 9 (normalization)
+5. This becomes the new center pixel value
+6. Slide kernel one pixel right, repeat
+```
+
+**Step-by-Step Calculation**:
+
+```rust
+// Position: Center at pixel [1,1] (value 25)
+// Surrounding region:
+// 10  20  30
+// 15  25  35
+// 20  30  40
+
+// Apply kernel:
+new_value = (
+    10*1 + 20*1 + 30*1 +
+    15*1 + 25*1 + 35*1 +
+    20*1 + 30*1 + 40*1
+) / 9
+
+new_value = (10 + 20 + 30 + 15 + 25 + 35 + 20 + 30 + 40) / 9
+new_value = 225 / 9 = 25
+
+// Result: Pixel at [1,1] becomes 25 (averaged with neighbors)
+```
+
+**Algorithm**:
+
+```rust
+fn convolve(image: &Image, kernel: &Kernel) -> Image {
+    let mut output = Image::new(image.width, image.height);
+
+    // For each pixel in image (excluding borders)
+    for y in 1..(image.height - 1) {
+        for x in 1..(image.width - 1) {
+            let mut sum = 0.0;
+
+            // Apply kernel
+            for ky in 0..kernel.height {
+                for kx in 0..kernel.width {
+                    let pixel_x = x + kx - kernel.width / 2;
+                    let pixel_y = y + ky - kernel.height / 2;
+
+                    let pixel_value = image.get_pixel(pixel_x, pixel_y);
+                    let kernel_value = kernel.get(kx, ky);
+
+                    sum += pixel_value * kernel_value;
+                }
+            }
+
+            output.set_pixel(x, y, sum);
+        }
+    }
+
+    output
+}
+```
+
+---
+
+#### Common Convolution Kernels
+
+**1. Box Blur (Average)**
+
+```
+Kernel:
+┌───────────┐
+│ 1  1  1  │
+│ 1  1  1  │  × 1/9
+│ 1  1  1  │
+└───────────┘
+
+Effect: Smooth blur, reduces noise
+Use case: Fast blur, noise reduction
+Cost: O(n) per pixel (9 operations for 3×3)
+```
+
+**2. Gaussian Blur (Weighted Average)**
+
+```
+Kernel:
+┌───────────┐
+│ 1  2  1  │
+│ 2  4  2  │  × 1/16
+│ 1  2  1  │
+└───────────┘
+
+Effect: Natural blur, preserves edges better than box blur
+Use case: Photo editing, anti-aliasing
+Cost: O(n) per pixel, same as box blur but better quality
+```
+
+**3. Sharpen**
+
+```
+Kernel:
+┌────────────┐
+│  0  -1   0 │
+│ -1   5  -1 │
+│  0  -1   0 │
+└────────────┘
+
+Effect: Enhances edges, increases contrast
+Use case: Make blurry photos crisper
+How it works: Emphasizes difference between pixel and neighbors
+```
+
+**4. Edge Detection (Sobel X)**
+
+```
+Kernel:
+┌────────────┐
+│ -1   0   1 │
+│ -2   0   2 │
+│ -1   0   1 │
+└────────────┘
+
+Effect: Detects vertical edges
+Use case: Computer vision, object detection
+Result: High values where brightness changes horizontally
+```
+
+**5. Edge Detection (Sobel Y)**
+
+```
+Kernel:
+┌────────────┐
+│ -1  -2  -1 │
+│  0   0   0 │
+│  1   2   1 │
+└────────────┘
+
+Effect: Detects horizontal edges
+Use case: Computer vision, object detection
+Combined with Sobel X: magnitude = sqrt(x² + y²)
+```
+
+**6. Emboss**
+
+```
+Kernel:
+┌────────────┐
+│ -2  -1   0 │
+│ -1   1   1 │
+│  0   1   2 │
+└────────────┘
+
+Effect: 3D-like raised effect
+Use case: Artistic filters
+```
+
+**7. Identity (No Change)**
+
+```
+Kernel:
+┌────────────┐
+│  0   0   0 │
+│  0   1   0 │
+│  0   0   0 │
+└────────────┘
+
+Effect: Original image unchanged
+Use case: Testing, baseline
+```
+
+---
+
+#### Visual Example: Blur in Action
+
+```
+Original 5×5 image:
+┌─────────────────────┐
+│  0   0   0   0   0  │
+│  0   0   0   0   0  │
+│  0   0  255  0   0  │  ← Single bright pixel
+│  0   0   0   0   0  │
+│  0   0   0   0   0  │
+└─────────────────────┘
+
+After 3×3 Box Blur:
+┌─────────────────────┐
+│  0   0   0   0   0  │
+│  0  28  28  28   0  │  ← Blur spread out
+│  0  28  28  28   0  │
+│  0  28  28  28   0  │
+│  0   0   0   0   0  │
+└─────────────────────┘
+
+Calculation for pixel [1,1]:
+= (0 + 0 + 0 + 0 + 255 + 0 + 0 + 0 + 0) / 9
+= 255 / 9 ≈ 28
+
+Effect: Single bright pixel "blurs" into neighboring pixels
+```
+
+---
+
+#### Performance Characteristics
+
+**Computational Cost**:
+
+```rust
+// For an N×N image with K×K kernel:
+// Total operations = N² × K²
+
+// Example: 1920×1080 image (2MP) with 3×3 kernel
+let pixels = 1920 * 1080;           // 2,073,600 pixels
+let ops_per_pixel = 3 * 3;          // 9 multiply-adds
+let total_ops = pixels * ops_per_pixel;  // 18,662,400 operations
+
+// For RGB image (3 channels):
+let rgb_ops = total_ops * 3;       // 55,987,200 operations
+
+// At 1 GFLOP/s (1 billion ops/sec):
+let time_ms = rgb_ops / 1_000_000; // ~56ms per image
+
+// For 1000 images:
+// Sequential: 1000 × 56ms = 56 seconds
+// Parallel (8 cores): 56s / 8 = 7 seconds
+```
+
+**Why Convolution is CPU-Intensive**:
+
+1. **Nested loops**: O(N² × K²) complexity
+   ```rust
+   for y in image.height {         // N iterations
+       for x in image.width {      // N iterations
+           for ky in kernel.height { // K iterations
+               for kx in kernel.width { // K iterations
+                   // Multiply-add operation
+               }
+           }
+       }
+   }
+   // Total: N × N × K × K operations
+   ```
+
+2. **Memory access patterns**: Poor cache locality
+   ```
+   Kernel slides across image:
+   Row 0: [████████████████] Sequential reads (cache-friendly)
+   Row 1: [████████████████] Sequential reads
+   Row 2: [████████████████] Sequential reads
+
+   But accessing neighboring pixels requires jumping in memory:
+   Pixel [100, 100] → Pixel [100, 101]: +1 byte (good)
+   Pixel [100, 100] → Pixel [101, 100]: +width bytes (cache miss!)
+   ```
+
+3. **Floating-point operations**: Multiply-add is expensive
+   ```
+   Integer multiply: ~1 cycle
+   Float multiply: ~3-5 cycles
+   Division/normalization: ~10-20 cycles
+   ```
+
+**Optimization Strategies**:
+
+**1. Separable Filters** (Huge Speedup for Gaussian/Box Blur):
+
+```rust
+// Standard 2D convolution: O(N² × K²)
+fn convolve_2d(image: &Image, kernel: &[[f32; 3]; 3]) { /* ... */ }
+
+// Separable convolution: O(N² × K) - much faster!
+// Gaussian blur can be split into horizontal then vertical pass
+
+// Horizontal pass:
+let kernel_h = [1.0, 2.0, 1.0];  // 1×3 kernel
+for y in 0..height {
+    for x in 0..width {
+        temp[y][x] = image[y][x-1] * 1.0 + image[y][x] * 2.0 + image[y][x+1] * 1.0;
+    }
+}
+
+// Vertical pass:
+let kernel_v = [1.0, 2.0, 1.0];  // 3×1 kernel
+for y in 0..height {
+    for x in 0..width {
+        output[y][x] = temp[y-1][x] * 1.0 + temp[y][x] * 2.0 + temp[y+1][x] * 1.0;
+    }
+}
+
+// Speedup: 3×3 kernel = 9 ops → 3+3 = 6 ops (33% faster)
+//          5×5 kernel = 25 ops → 5+5 = 10 ops (60% faster!)
+```
+
+**2. SIMD (Single Instruction Multiple Data)**:
+
+```rust
+// Without SIMD: Process 1 pixel at a time
+for x in 0..width {
+    output[x] = input[x] * kernel[0] + input[x+1] * kernel[1] + input[x+2] * kernel[2];
+}
+// Throughput: 1 pixel per iteration
+
+// With SIMD (AVX2): Process 8 pixels at once
+use std::arch::x86_64::*;
+
+for x in (0..width).step_by(8) {
+    let v0 = _mm256_loadu_ps(&input[x]);      // Load 8 pixels
+    let v1 = _mm256_loadu_ps(&input[x+1]);
+    let v2 = _mm256_loadu_ps(&input[x+2]);
+
+    let k0 = _mm256_set1_ps(kernel[0]);       // Broadcast kernel value
+    let k1 = _mm256_set1_ps(kernel[1]);
+    let k2 = _mm256_set1_ps(kernel[2]);
+
+    let r0 = _mm256_mul_ps(v0, k0);           // Multiply 8 pixels
+    let r1 = _mm256_mul_ps(v1, k1);
+    let r2 = _mm256_mul_ps(v2, k2);
+
+    let sum = _mm256_add_ps(_mm256_add_ps(r0, r1), r2);  // Add 8 pixels
+    _mm256_storeu_ps(&mut output[x], sum);    // Store 8 pixels
+}
+// Throughput: 8 pixels per iteration (8x faster!)
+```
+
+**3. Parallel Processing with rayon**:
+
+```rust
+use rayon::prelude::*;
+
+// Process each row in parallel
+let output: Vec<Vec<f32>> = (0..height)
+    .into_par_iter()  // Parallel iterator
+    .map(|y| {
+        let mut row = vec![0.0; width];
+        for x in 0..width {
+            row[x] = convolve_pixel(&image, kernel, x, y);
+        }
+        row
+    })
+    .collect();
+
+// With 8 cores: ~8x speedup
+```
+
+**Combined Optimizations**:
+
+```
+Baseline: 1920×1080 RGB image, 5×5 Gaussian blur
+Sequential:                  200ms
++ Separable filter:          120ms (1.7x faster)
++ SIMD (AVX2):                15ms (13x faster)
++ Parallel (8 cores):          2ms (100x faster total!)
+```
+
+---
+
+#### Real-World Implementation Example
+
+```rust
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use rayon::prelude::*;
+
+#[derive(Clone)]
+struct Kernel {
+    data: Vec<Vec<f32>>,
+    width: usize,
+    height: usize,
+    divisor: f32,  // Normalization factor
+}
+
+impl Kernel {
+    fn box_blur() -> Self {
+        Self {
+            data: vec![
+                vec![1.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+            ],
+            width: 3,
+            height: 3,
+            divisor: 9.0,
+        }
+    }
+
+    fn gaussian_blur() -> Self {
+        Self {
+            data: vec![
+                vec![1.0, 2.0, 1.0],
+                vec![2.0, 4.0, 2.0],
+                vec![1.0, 2.0, 1.0],
+            ],
+            width: 3,
+            height: 3,
+            divisor: 16.0,
+        }
+    }
+
+    fn sharpen() -> Self {
+        Self {
+            data: vec![
+                vec![ 0.0, -1.0,  0.0],
+                vec![-1.0,  5.0, -1.0],
+                vec![ 0.0, -1.0,  0.0],
+            ],
+            width: 3,
+            height: 3,
+            divisor: 1.0,
+        }
+    }
+
+    fn edge_detect() -> Self {
+        Self {
+            data: vec![
+                vec![-1.0, -1.0, -1.0],
+                vec![-1.0,  8.0, -1.0],
+                vec![-1.0, -1.0, -1.0],
+            ],
+            width: 3,
+            height: 3,
+            divisor: 1.0,
+        }
+    }
+}
+
+fn apply_kernel(image: &DynamicImage, kernel: &Kernel) -> DynamicImage {
+    let (width, height) = image.dimensions();
+    let rgb_image = image.to_rgb8();
+
+    // Process in parallel by row
+    let output_data: Vec<Vec<Rgb<u8>>> = (1..(height - 1))
+        .into_par_iter()
+        .map(|y| {
+            let mut row = Vec::with_capacity(width as usize);
+
+            for x in 1..(width - 1) {
+                let mut r_sum = 0.0;
+                let mut g_sum = 0.0;
+                let mut b_sum = 0.0;
+
+                // Apply kernel
+                for ky in 0..kernel.height {
+                    for kx in 0..kernel.width {
+                        let px = x + kx as u32 - kernel.width as u32 / 2;
+                        let py = y + ky as u32 - kernel.height as u32 / 2;
+
+                        let pixel = rgb_image.get_pixel(px, py);
+                        let k_val = kernel.data[ky][kx];
+
+                        r_sum += pixel[0] as f32 * k_val;
+                        g_sum += pixel[1] as f32 * k_val;
+                        b_sum += pixel[2] as f32 * k_val;
+                    }
+                }
+
+                // Normalize and clamp
+                let r = (r_sum / kernel.divisor).clamp(0.0, 255.0) as u8;
+                let g = (g_sum / kernel.divisor).clamp(0.0, 255.0) as u8;
+                let b = (b_sum / kernel.divisor).clamp(0.0, 255.0) as u8;
+
+                row.push(Rgb([r, g, b]));
+            }
+
+            row
+        })
+        .collect();
+
+    // Reconstruct image from rows
+    let mut output = ImageBuffer::new(width, height);
+    for (y, row) in output_data.iter().enumerate() {
+        for (x, pixel) in row.iter().enumerate() {
+            output.put_pixel(x as u32 + 1, y as u32 + 1, *pixel);
+        }
+    }
+
+    DynamicImage::ImageRgb8(output)
+}
+
+// Usage in pipeline:
+async fn process_with_filter(image: DynamicImage, filter: &str) -> DynamicImage {
+    let kernel = match filter {
+        "blur" => Kernel::gaussian_blur(),
+        "sharpen" => Kernel::sharpen(),
+        "edge" => Kernel::edge_detect(),
+        _ => Kernel::box_blur(),
+    };
+
+    // This is CPU-bound, runs on thread pool automatically
+    tokio::task::spawn_blocking(move || {
+        apply_kernel(&image, &kernel)
+    })
+    .await
+    .unwrap()
+}
+```
+
+---
+
+#### Why This Matters for Concurrent Pipelines
+
+**1. CPU Saturation**:
+- Convolution uses 100% CPU per core
+- Without parallelism: 1 core at 100%, 7 cores idle
+- With rayon: All 8 cores at 100% → 8x throughput
+
+**2. Memory Bandwidth**:
+- 1920×1080 RGB = 6.2 MB per image
+- Loading from memory: ~10 GB/s bandwidth
+- Processing: ~600 images/second per core (theoretical)
+- Bottleneck shifts from CPU to memory bandwidth at scale
+
+**3. Pipeline Balance**:
+```
+[Load 10ms I/O] → [Decode 20ms CPU] → [Convolve 50ms CPU] → [Encode 30ms CPU] → [Save 10ms I/O]
+
+Convolution is the slowest stage!
+- Need to batch or parallelize this stage
+- 8 parallel convolvers can match throughput of other stages
+```
+
+**4. Caching Effects**:
+- Small kernels (3×3): Good cache locality, ~2ms per image
+- Large kernels (15×15): Cache misses, ~15ms per image
+- Separable filters: Better cache usage, 2-3x faster
+
+Understanding convolution is critical for optimizing image processing pipelines—it's where most CPU time is spent!
+
+---
+
+
+### Async I/O vs Blocking I/O
+
+**The Fundamental Difference**: Blocking I/O wastes CPU time waiting. Async I/O allows other work while waiting for disk/network.
+
+**Blocking I/O (std::fs)**:
+
+```rust
+use std::fs;
+
+// Thread blocks here for entire read duration
+let data = fs::read("/path/to/image.jpg")?;  // 10ms disk read
+// CPU does NOTHING for 10ms
+
+// Reading 100 images sequentially:
+for path in image_paths {
+    let data = fs::read(path)?;  // 10ms each
+    process(data);
+}
+// Total: 100 × 10ms = 1000ms of blocked CPU time
+```
+
+**Async I/O (tokio::fs)**:
+
+```rust
+use tokio::fs;
+
+// Initiates read, immediately returns a Future
+let data = fs::read("/path/to/image.jpg").await;  // Suspends, CPU free
+// CPU can do other work while disk reads
+
+// Reading 100 images concurrently:
+let futures: Vec<_> = image_paths
+    .iter()
+    .map(|path| fs::read(path))
+    .collect();
+
+let results = futures::future::join_all(futures).await;
+// All reads happen in parallel (limited by disk/OS)
+// Total: ~10-50ms (disk parallelism limits)
+```
+
+**How tokio::fs Works Internally**:
+
+```
+tokio::fs::read(path).await
+  ↓
+1. Creates Future representing the read
+2. Registers with OS (epoll/kqueue/IOCP)
+3. Returns control to runtime (CPU free)
+4. OS performs read in background
+5. OS notifies runtime when ready
+6. Runtime polls future again
+7. Returns data
+```
+
+**Performance Comparison**:
+
+```
+100 images, 10ms disk latency each:
+
+Blocking (std::fs):
+  Thread 1: [████████████████████████████] 1000ms
+  CPU utilization: 0% (waiting on I/O)
+
+Async (tokio::fs):
+  Reads: [████] 50ms (limited by disk parallelism)
+  CPU can process other tasks during reads
+  CPU utilization: Can approach 100% with proper pipelining
+```
+
+**When to Use Each**:
+
+| Aspect | std::fs (Blocking) | tokio::fs (Async) |
+|--------|-------------------|-------------------|
+| **Use case** | Single file, sync context | Many files, async context |
+| **CPU efficiency** | Poor (blocks) | Good (overlaps I/O) |
+| **Complexity** | Simple | More complex |
+| **Thread usage** | 1 thread = 1 I/O op | 1 thread = many I/O ops |
+| **Throughput** | Low | High |
+
+---
+
+### CPU-Bound vs I/O-Bound Work
+
+Understanding the difference is critical for optimal concurrency.
+
+**I/O-Bound Work**: Limited by disk/network speed, not CPU.
+
+```rust
+// I/O-bound: Waiting for disk
+async fn load_image(path: &Path) -> Result<Vec<u8>, Error> {
+    tokio::fs::read(path).await  // CPU mostly idle
+}
+
+// Best concurrency: async/await (overlaps waiting)
+let futures = paths.iter().map(load_image);
+let images = join_all(futures).await;  // Efficient!
+```
+
+**CPU-Bound Work**: Limited by CPU speed, not I/O.
+
+```rust
+// CPU-bound: Heavy computation
+fn resize_image(image: DynamicImage, size: u32) -> DynamicImage {
+    // Processes millions of pixels - pure CPU work
+    image.resize(size, size, FilterType::Lanczos3)  // CPU at 100%
+}
+
+// Best concurrency: thread pool (parallel CPU work)
+use rayon::prelude::*;
+let resized: Vec<_> = images
+    .par_iter()  // Parallel iterator
+    .map(|img| resize_image(img.clone(), 800))
+    .collect();  // Uses all CPU cores
+```
+
+**Hybrid Workload: Image Processing Pipeline**
+
+Image processing combines both:
+1. **Load** (I/O-bound): Read from disk
+2. **Decode** (CPU-bound): Decompress JPEG/PNG
+3. **Process** (CPU-bound): Resize, filter, transform
+4. **Encode** (CPU-bound): Compress to output format
+5. **Save** (I/O-bound): Write to disk
+
+**Wrong Approach** (Sequential):
+```rust
+// Total time = sum of all stages
+for path in paths {
+    let data = load(path).await;        // 10ms I/O
+    let img = decode(data);             // 20ms CPU
+    let processed = resize(img);        // 50ms CPU
+    let encoded = encode(processed);    // 30ms CPU
+    save(encoded).await;                // 10ms I/O
+}
+// Per image: 120ms
+// 100 images: 12,000ms = 12 seconds
+```
+
+**Right Approach** (Pipeline):
+```rust
+// Stages run in parallel, overlap I/O and CPU
+
+[Load] → [Decode] → [Process] → [Encode] → [Save]
+  ↓         ↓          ↓           ↓          ↓
+Image1   Image2     Image3      Image4     Image5
+
+// Throughput: limited by slowest stage (50ms processing)
+// 100 images: ~5 seconds (2.4x faster!)
+```
+
+---
+
+
+### Channels and Backpressure
+
+Channels connect pipeline stages, but unbounded queues cause memory explosion.
+
+**The Problem: Unbounded Queues**
+
+```rust
+// BAD: Unbounded channel
+let (tx, rx) = mpsc::unbounded_channel();
+
+// Fast loader
+tokio::spawn(async move {
+    for path in 10000 paths {
+        let data = load(path).await;  // Fast: 1ms each
+        tx.send(data).unwrap();
+    }
+});
+
+// Slow processor
+tokio::spawn(async move {
+    while let Some(data) = rx.recv().await {
+        process(data);  // Slow: 100ms each
+    }
+});
+
+// Queue grows: 10,000 images × 5MB = 50GB in memory!
+// OOM crash or swapping → system unusable
+```
+
+**The Solution: Bounded Channels (Backpressure)**
+
+```rust
+// GOOD: Bounded channel with capacity
+let (tx, rx) = mpsc::channel(10);  // Max 10 images in queue
+
+// Fast loader
+tokio::spawn(async move {
+    for path in 10000_paths {
+        let data = load(path).await;
+        tx.send(data).await;  // Blocks when queue full!
+        // Loader slows down to match processor speed
+    }
+});
+
+// Slow processor
+tokio::spawn(async move {
+    while let Some(data) = rx.recv().await {
+        process(data);  // Slow: 100ms
+    }
+});
+
+// Queue stays at 10 images × 5MB = 50MB (constant!)
+// Loader naturally throttles when processor can't keep up
+```
+
+**Backpressure Flow Control**:
+
+```
+Without backpressure:
+Loader: ████████████████████████ (fast, unbounded)
+Queue:  [1][2][3][4]...[9999][10000] (grows forever)
+Processor: ████ (slow, overwhelmed)
+
+With backpressure (capacity=10):
+Loader: ████░░░░████░░░░████ (blocks when queue full)
+Queue:  [1][2]...[10] (bounded, 10 max)
+Processor: ████████████████ (steady throughput)
+
+Loader adapts to processor speed automatically!
+```
+
+**Choosing Channel Capacity**:
+
+```rust
+// Too small (capacity=1): Excessive blocking, poor throughput
+// Too large (capacity=10000): No backpressure, memory issues
+// Sweet spot: 2-10x processing time / load time
+
+// Example calculation:
+// Load time: 10ms
+// Process time: 100ms
+// Ratio: 100/10 = 10
+// Good capacity: 10-20 images
+
+let (tx, rx) = mpsc::channel(15);  // Balances memory and throughput
+```
+
+---
+
+### Streaming and Batching
+
+**Streaming**: Process items one-by-one as they arrive.
+
+```rust
+// Stream processing
+async fn process_stream(mut rx: Receiver<Image>) {
+    while let Some(image) = rx.recv().await {
+        let result = process_one(image);  // Process immediately
+        save(result).await;
+    }
+}
+
+// Pros:
+// - Constant memory (one item at a time)
+// - Low latency (start immediately)
+// - Simple pipeline
+
+// Cons:
+// - Can't amortize costs
+// - No batch optimizations
+```
+
+**Batching**: Collect N items, process together.
+
+```rust
+// Batch processing
+async fn process_batches(mut rx: Receiver<Image>) {
+    let mut batch = Vec::new();
+
+    while let Some(image) = rx.recv().await {
+        batch.push(image);
+
+        if batch.len() >= 10 {
+            // Process batch in parallel
+            let results: Vec<_> = batch
+                .par_iter()  // rayon parallel iterator
+                .map(|img| process_one(img))
+                .collect();
+
+            save_all(results).await;
+            batch.clear();
+        }
+    }
+
+    // Don't forget remaining items
+    if !batch.is_empty() {
+        let results: Vec<_> = batch.par_iter().map(process_one).collect();
+        save_all(results).await;
+    }
+}
+
+// Pros:
+// - Parallel processing (use all cores)
+// - Amortized I/O costs (batch writes)
+// - Better CPU utilization
+
+// Cons:
+// - Higher memory (batch in memory)
+// - Higher latency (wait for batch)
+```
+
+**Adaptive Batching**:
+
+```rust
+use tokio::time::{timeout, Duration};
+
+async fn process_adaptive_batches(mut rx: Receiver<Image>) {
+    let mut batch = Vec::new();
+    const MAX_BATCH: usize = 20;
+    const MAX_WAIT: Duration = Duration::from_millis(100);
+
+    loop {
+        // Collect up to MAX_BATCH items or wait MAX_WAIT
+        let deadline = tokio::time::Instant::now() + MAX_WAIT;
+
+        while batch.len() < MAX_BATCH {
+            match timeout_at(deadline, rx.recv()).await {
+                Ok(Some(image)) => batch.push(image),
+                Ok(None) => break,  // Channel closed
+                Err(_) => break,    // Timeout - process what we have
+            }
+        }
+
+        if batch.is_empty() {
+            break;  // No more items
+        }
+
+        // Process batch
+        process_and_save_batch(&batch).await;
+        batch.clear();
+    }
+}
+
+// Adaptive: batches under high load, streams under low load
+```
+
+---
+
+### Thread Pools for CPU-Bound Work
+
+Async is great for I/O, but CPU-bound work needs real parallelism.
+
+**The Problem with async for CPU**:
+
+```rust
+// This WON'T use multiple cores:
+let futures: Vec<_> = images
+    .iter()
+    .map(|img| async { resize_image(img) })  // CPU work
+    .collect();
+
+join_all(futures).await;
+
+// All run on same thread! No parallelism.
+// CPU: [██████████░░░░░░░░░░] (1 core at 100%, 7 idle)
+```
+
+**The Solution: rayon (Work-Stealing Thread Pool)**:
+
+```rust
+use rayon::prelude::*;
+
+let resized: Vec<_> = images
+    .par_iter()  // Parallel iterator
+    .map(|img| resize_image(img))  // CPU work
+    .collect();
+
+// Uses all cores automatically!
+// CPU: [██████████][██████████][██████████][██████████]
+//      Core 1      Core 2      Core 3      Core 4
+```
+
+**How rayon Works**:
+
+```
+Work-stealing algorithm:
+
+Thread 1: [Task1][Task2][Task3]     ← Busy
+Thread 2: [Task4]                   ← Done early, steals from Thread 1
+Thread 3: [Task5][Task6]            ← Busy
+Thread 4: []                        ← Idle, steals from others
+
+Result: Balanced load across all cores
+```
+
+**Combining async I/O + rayon CPU**:
+
+```rust
+// Perfect hybrid: async I/O + parallel CPU
+async fn process_pipeline(paths: Vec<PathBuf>) {
+    // Stage 1: Async load (I/O-bound)
+    let futures = paths.iter().map(|path| tokio::fs::read(path));
+    let file_data = join_all(futures).await;
+
+    // Stage 2: Parallel decode (CPU-bound)
+    let images: Vec<_> = file_data
+        .par_iter()
+        .filter_map(|data| image::load_from_memory(data).ok())
+        .collect();
+
+    // Stage 3: Parallel resize (CPU-bound)
+    let resized: Vec<_> = images
+        .par_iter()
+        .map(|img| img.resize(800, 800, FilterType::Lanczos3))
+        .collect();
+
+    // Stage 4: Parallel encode (CPU-bound)
+    let encoded: Vec<_> = resized
+        .par_iter()
+        .map(|img| encode_jpeg(img, 85))
+        .collect();
+
+    // Stage 5: Async save (I/O-bound)
+    let save_futures = encoded.iter().zip(&paths).map(|(data, path)| {
+        tokio::fs::write(path, data)
+    });
+    join_all(save_futures).await;
+}
+
+// Result: Maximum CPU and I/O utilization!
+```
+
+---
+
+### Progress Tracking with Atomics
+
+**The Requirement**: Show progress without slowing down the pipeline.
+
+**Wrong Approach: Mutex/RwLock**:
+
+```rust
+// BAD: Lock contention slows pipeline
+let progress = Arc::new(Mutex::new(0));
+
+// Every worker contends for lock
+for _ in 0..1000 {
+    let progress = Arc::clone(&progress);
+    tokio::spawn(async move {
+        process_image().await;
+        *progress.lock().unwrap() += 1;  // Lock! Contention!
+    });
+}
+
+// With 100 workers, lock becomes bottleneck
+// Throughput drops 10-50%
+```
+
+**Right Approach: Atomic Counters**:
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// GOOD: Lock-free atomic increment
+let progress = Arc::new(AtomicUsize::new(0));
+let total = 1000;
+
+for _ in 0..total {
+    let progress = Arc::clone(&progress);
+    tokio::spawn(async move {
+        process_image().await;
+        progress.fetch_add(1, Ordering::Relaxed);  // Lock-free!
+    });
+}
+
+// Monitor progress
+tokio::spawn(async move {
+    loop {
+        let current = progress.load(Ordering::Relaxed);
+        println!("Progress: {}/{} ({:.1}%)",
+            current, total, (current as f64 / total as f64) * 100.0);
+
+        if current >= total {
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+});
+
+// No contention, minimal overhead (~2ns per update)
+```
+
+**Multi-Metric Progress**:
+
+```rust
+struct ProgressMetrics {
+    total: AtomicUsize,
+    completed: AtomicUsize,
+    failed: AtomicUsize,
+    bytes_processed: AtomicUsize,
+}
+
+impl ProgressMetrics {
+    fn new(total: usize) -> Self {
+        Self {
+            total: AtomicUsize::new(total),
+            completed: AtomicUsize::new(0),
+            failed: AtomicUsize::new(0),
+            bytes_processed: AtomicUsize::new(0),
+        }
+    }
+
+    fn record_success(&self, bytes: usize) {
+        self.completed.fetch_add(1, Ordering::Relaxed);
+        self.bytes_processed.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn record_failure(&self) {
+        self.failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn report(&self) -> String {
+        let total = self.total.load(Ordering::Relaxed);
+        let completed = self.completed.load(Ordering::Relaxed);
+        let failed = self.failed.load(Ordering::Relaxed);
+        let bytes = self.bytes_processed.load(Ordering::Relaxed);
+
+        format!(
+            "Completed: {}/{}, Failed: {}, Processed: {:.2} MB",
+            completed, total, failed, bytes as f64 / 1_000_000.0
+        )
+    }
+}
+```
+
+---
+
+### Error Handling in Pipelines
+
+**The Challenge**: One corrupted image shouldn't crash entire pipeline.
+
+**Strategy 1: Fail Fast**:
+
+```rust
+// Stop on first error
+async fn process_all_strict(paths: Vec<PathBuf>) -> Result<Vec<Image>, Error> {
+    let mut results = Vec::new();
+
+    for path in paths {
+        let image = load_and_process(&path).await?;  // Propagates error
+        results.push(image);
+    }
+
+    Ok(results)
+}
+
+// Use when: Data integrity critical, can't tolerate partial results
+```
+
+**Strategy 2: Collect Errors**:
+
+```rust
+// Process all, return both successes and errors
+async fn process_all_resilient(paths: Vec<PathBuf>)
+    -> (Vec<Image>, Vec<(PathBuf, Error)>)
+{
+    let mut successes = Vec::new();
+    let mut errors = Vec::new();
+
+    for path in paths {
+        match load_and_process(&path).await {
+            Ok(image) => successes.push(image),
+            Err(e) => errors.push((path, e)),
+        }
+    }
+
+    (successes, errors)
+}
+
+// Use when: Partial results acceptable, want to know what failed
+```
+
+**Strategy 3: Retry with Circuit Breaker**:
+
+```rust
+struct CircuitBreaker {
+    failures: AtomicUsize,
+    max_failures: usize,
+}
+
+impl CircuitBreaker {
+    fn is_open(&self) -> bool {
+        self.failures.load(Ordering::Relaxed) >= self.max_failures
+    }
+
+    fn record_failure(&self) {
+        self.failures.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+async fn process_with_circuit_breaker(
+    paths: Vec<PathBuf>,
+    circuit: &CircuitBreaker,
+) -> Vec<Result<Image, Error>> {
+    let mut results = Vec::new();
+
+    for path in paths {
+        if circuit.is_open() {
+            results.push(Err(Error::CircuitOpen));
+            continue;
+        }
+
+        match retry_with_backoff(|| load_and_process(&path), 3).await {
+            Ok(img) => results.push(Ok(img)),
+            Err(e) => {
+                circuit.record_failure();
+                results.push(Err(e));
+            }
+        }
+    }
+
+    results
+}
+
+// Use when: Transient failures expected, want to prevent cascade failures
+```
+
+**Pipeline Error Handling**:
+
+```rust
+async fn resilient_pipeline(paths: Vec<PathBuf>) -> PipelineResult {
+    let metrics = Arc::new(ProgressMetrics::new(paths.len()));
+    let (tx, mut rx) = mpsc::channel(20);
+
+    // Producer: Load images
+    let loader_metrics = Arc::clone(&metrics);
+    tokio::spawn(async move {
+        for path in paths {
+            match load_image(&path).await {
+                Ok(img) => {
+                    if tx.send(Ok(img)).await.is_err() {
+                        break;  // Receiver dropped
+                    }
+                }
+                Err(e) => {
+                    loader_metrics.record_failure();
+                    eprintln!("Failed to load {:?}: {}", path, e);
+                    // Continue with other images
+                }
+            }
+        }
+    });
+
+    // Consumer: Process images
+    let processor_metrics = Arc::clone(&metrics);
+    tokio::spawn(async move {
+        while let Some(result) = rx.recv().await {
+            match result {
+                Ok(img) => {
+                    match process_image(img).await {
+                        Ok(size) => processor_metrics.record_success(size),
+                        Err(e) => {
+                            processor_metrics.record_failure();
+                            eprintln!("Processing failed: {}", e);
+                        }
+                    }
+                }
+                Err(_) => {}  // Already logged
+            }
+        }
+    });
+
+    metrics
+}
+
+// Errors are logged but don't stop the pipeline
+```
+
+---
+
+### Connection to This Project
+
+Now that you understand the core concepts, here's how they map to the milestones:
+
+**Milestone 1: Async Image Loading**
+- **Concepts Used**: tokio::fs async I/O, PathBuf, directory traversal
+- **Why**: Overlap disk I/O for multiple images, don't block CPU while waiting
+- **Key Insight**: `tokio::fs::read_dir()` + `join_all()` loads many images concurrently
+
+**Milestone 2: Image Decoding and Processing**
+- **Concepts Used**: image crate, DynamicImage, CPU-bound work
+- **Why**: Decode/resize are CPU-intensive, need real parallelism
+- **Key Insight**: Use rayon for parallel decoding/processing across all cores
+
+**Milestone 3: Pipeline with Channels**
+- **Concepts Used**: mpsc bounded channels, backpressure, producer-consumer
+- **Why**: Stream images through stages without loading all into memory
+- **Key Insight**: Bounded channels naturally throttle fast stages to match slow ones
+
+**Milestone 4: Batched Processing**
+- **Concepts Used**: Batching, rayon par_iter, adaptive timeouts
+- **Why**: Process multiple images in parallel for better CPU utilization
+- **Key Insight**: Batch size trades off latency vs throughput
+
+**Milestone 5: Progress Tracking**
+- **Concepts Used**: AtomicUsize, lock-free counters, periodic reporting
+- **Why**: Monitor pipeline without slowing it down
+- **Key Insight**: Atomics avoid lock contention that would bottleneck high-throughput pipeline
+
+**Milestone 6: Error Handling and Resilience**
+- **Concepts Used**: Result propagation, partial results, circuit breakers
+- **Why**: One bad image shouldn't crash entire batch
+- **Key Insight**: Collect errors separately, continue processing good images
+
+**Putting It All Together**:
+
+The complete pipeline combines all concepts:
+1. **Async I/O** loads images without blocking
+2. **Channels** connect stages with backpressure
+3. **Thread pools** parallelize CPU-bound work
+4. **Batching** optimizes throughput
+5. **Atomics** track progress without locks
+6. **Error handling** ensures resilience
+
+This architecture achieves:
+- **High throughput**: Saturates both CPU and I/O
+- **Bounded memory**: Processes datasets larger than RAM
+- **Observability**: Real-time progress updates
+- **Resilience**: Gracefully handles errors
+
+Each milestone builds incrementally toward a production-ready image processing system.
+
+---
+
 ## Milestone 1: Async Image Loading from Directory
 
 ### Introduction

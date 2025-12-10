@@ -4,7 +4,6 @@
 
 Implement a Least Recently Used (LRU) cache that tracks the most recently accessed items and evicts the least recently used item when capacity is reached. You'll start with a simple single-threaded version, then progress to thread-safe variants.
 
----
 
 ## Understanding Caches and the LRU Algorithm
 
@@ -112,20 +111,20 @@ When a cache is full, an **eviction policy** determines which item to remove. Di
 Cache capacity: 3 items
 Access sequence: A, B, C, D, A, E
 
-┌─────────┬──────────┬────────────┬─────────┬────────────┐
-│ Access  │ FIFO     │ LRU        │ LFU     │ Random     │
-├─────────┼──────────┼────────────┼─────────┼────────────┤
-│ A       │ [A]      │ [A]        │ [A:1]   │ [A]        │
-│ B       │ [A,B]    │ [A,B]      │ [A:1,B:1] │ [A,B]    │
-│ C       │ [A,B,C]  │ [A,B,C]    │ [A:1,B:1,C:1] │ [A,B,C] │
-│ D       │ [B,C,D]  │ [B,C,D]    │ [B:1,C:1,D:1] │ [A,C,D] │
-│         │ (evict A)│ (evict A)  │ (evict A) │ (evict B) │
-│ A       │ [B,C,D]  │ [B,D,A]    │ [C:1,D:1,A:1] │ [A,C,D] │
-│         │ MISS     │ (evict C)  │ (evict B) │ MISS      │
-│         │          │ HIT via A  │           │           │
-│ E       │ [C,D,E]  │ [D,A,E]    │ [D:1,A:1,E:1] │ [A,E,D] │
-│         │ (evict B)│ (evict B)  │ (evict C) │ (evict C) │
-└─────────┴──────────┴────────────┴─────────┴────────────┘
+┌─────────┬──────────┬────────────┬───────────────┬────────────┐
+│ Access  │ FIFO     │ LRU        │ LFU           │ Random     │
+├─────────┼──────────┼────────────┼───────────────┼────────────┤
+│ A       │ [A]      │ [A]        │ [A:1]         │ [A]        │
+│ B       │ [A,B]    │ [A,B]      │ [A:1,B:1]     │ [A,B]      │
+│ C       │ [A,B,C]  │ [A,B,C]    │ [A:1,B:1,C:1] │ [A,B,C]    │
+│ D       │ [B,C,D]  │ [B,C,D]    │ [B:1,C:1,D:1] │ [A,C,D]    │
+│         │ (evict A)│ (evict A)  │ (evict A)     │ (evict B)  │
+│ A       │ [B,C,D]  │ [B,D,A]    │ [C:1,D:1,A:1] │ [A,C,D]    │
+│         │ MISS     │ (evict C)  │ (evict B)     │ MISS       │
+│         │          │ HIT via A  │               │            │
+│ E       │ [C,D,E]  │ [D,A,E]    │ [D:1,A:1,E:1] │ [A,E,D]    │
+│         │ (evict B)│ (evict B)  │ (evict C)     │ (evict C)  │
+└─────────┴──────────┴────────────┴───────────────┴────────────┘
 
 Hit rates for this sequence:
 - FIFO: 0% (0 hits, 6 misses)
@@ -161,7 +160,7 @@ Order: []
 
 Access A:
 Cache: {A: "data_a"}
-Order: [A]  ← LRU                                    MRU →
+Order: [A]  ← LRU                                   MRU →
 
 Access B:
 Cache: {A: "data_a", B: "data_b"}
@@ -442,6 +441,328 @@ for i in 0..1_000_000 {
 
 ---
 
+## Rust Programming Concepts for This Project
+
+This project requires understanding several Rust-specific concepts that enable safe and efficient cache implementation. These concepts address challenges that don't exist in garbage-collected languages.
+
+### Interior Mutability: The Core Challenge
+
+**The Problem**: Rust's borrow checker normally requires `&mut self` to modify data. But caches need to update internal state (access tracking, statistics) during read operations that only have `&self`.
+
+```rust
+// This doesn't work - get() only has &self, can't modify!
+impl Cache {
+    fn get(&self, key: &K) -> Option<V> {
+        self.hits += 1;  // ❌ Error: cannot mutate through &self
+        // ...
+    }
+}
+
+// Requiring &mut self doesn't work either - prevents sharing!
+impl Cache {
+    fn get(&mut self, key: &K) -> Option<V> {
+        self.hits += 1;  // ✅ Compiles
+        // ...
+    }
+}
+
+let cache = Cache::new();
+let hits = cache.get(&"key1");  // ❌ Error: need mutable borrow
+let misses = cache.get(&"key2"); // Can't have multiple mutable refs!
+```
+
+**The Solution**: **Interior mutability** - types that provide mutable access through shared references (`&self`).
+
+---
+
+### Cell<T>: Zero-Cost Interior Mutability for Copy Types
+
+**What It Is**: A container that allows mutating the value inside through `&self`, but only for types that implement `Copy` (integers, booleans, small structs).
+
+**How It Works**:
+```rust
+use std::cell::Cell;
+
+let counter = Cell::new(0);
+counter.set(counter.get() + 1);  // Mutate through &self!
+println!("{}", counter.get());   // 1
+```
+
+**Key Properties**:
+- **Zero runtime cost**: Just moves bytes around
+- **Only for Copy types**: Can't use with `String`, `Vec`, `HashMap`
+- **No borrowing**: Values are copied in/out, never borrowed
+- **Not thread-safe**: Only works in single-threaded code
+
+**Why We Use It**: Perfect for counters (hits, misses) - they're just `usize` values.
+
+**Limitations**:
+```rust
+let cache_data = Cell::new(HashMap::new());
+// ❌ Error: HashMap doesn't implement Copy
+```
+
+---
+
+### RefCell<T>: Runtime-Checked Interior Mutability
+
+**What It Is**: Like `Cell`, but works with **any type**. Enforces borrow rules at runtime instead of compile time.
+
+**How It Works**:
+```rust
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+let cache = RefCell::new(HashMap::new());
+
+// Borrow for reading
+{
+    let data = cache.borrow();  // Returns Ref<HashMap>
+    println!("{:?}", data.get(&"key"));
+}  // Borrow released here
+
+// Borrow for writing
+{
+    let mut data = cache.borrow_mut();  // Returns RefMut<HashMap>
+    data.insert("key", "value");
+}  // Borrow released here
+```
+
+**Key Properties**:
+- **Works with any type**: `HashMap`, `Vec`, custom structs, etc.
+- **Runtime borrow checking**: Panics if borrow rules violated
+- **Small overhead**: Maintains borrow counters (~2-3 CPU instructions)
+- **Not thread-safe**: Panics if used across threads
+
+**Borrow Rules** (checked at runtime):
+- **Multiple readers OR one writer**: Can have many `borrow()` or one `borrow_mut()`, not both
+- **Borrows must be released**: The `Ref`/`RefMut` guards must drop before next borrow
+
+**Common Pitfalls**:
+```rust
+let cache = RefCell::new(HashMap::new());
+let data = cache.borrow();          // Acquire read borrow
+cache.borrow_mut().insert(1, 2);    // ❌ PANIC: already borrowed!
+drop(data);                          // Must release first
+cache.borrow_mut().insert(1, 2);    // ✅ Now it works
+```
+
+**Why We Use It**: Our cache needs to store `HashMap<K, V>` and `VecDeque<K>` - both require `RefCell` for interior mutability.
+
+---
+
+### Thread Safety: From RefCell to Mutex
+
+**The Problem**: `RefCell` is **NOT thread-safe**. If two threads access it simultaneously, you get undefined behavior (data races).
+
+```rust
+let cache = RefCell::new(HashMap::new());
+let cache_ref = &cache;
+
+// Thread 1
+std::thread::spawn(move || {
+    cache_ref.borrow_mut().insert(1, 100);  // ❌ DATA RACE!
+});
+
+// Thread 2 (simultaneously)
+cache.borrow_mut().insert(2, 200);  // ❌ DATA RACE!
+```
+
+**The Solution**: `Mutex<T>` - thread-safe interior mutability using OS-level locks.
+
+---
+
+### Mutex<T>: Thread-Safe Interior Mutability
+
+**What It Is**: A mutual exclusion lock that ensures only one thread can access the data at a time.
+
+**How It Works**:
+```rust
+use std::sync::Mutex;
+
+let cache = Mutex::new(HashMap::new());
+
+// Acquire lock (blocks if another thread holds it)
+let mut data = cache.lock().unwrap();  // Returns MutexGuard
+data.insert("key", "value");
+// Lock automatically released when guard drops
+```
+
+**Key Properties**:
+- **Thread-safe**: Safe to share between threads
+- **Blocking**: If locked, other threads wait
+- **Significant overhead**: System call (~20-100ns vs 0.2ns for `RefCell`)
+- **Poisoning**: If thread panics while holding lock, mutex is "poisoned"
+
+**Performance Impact**:
+```
+Operation          RefCell     Mutex      Slowdown
+Simple increment   0.2ns       20ns       100x
+HashMap lookup     10ns        30ns       3x
+Complex operation  100ns       150ns      1.5x
+```
+
+**Why We Need It**: To make the cache usable from multiple threads safely.
+
+---
+
+### Arc<T>: Shared Ownership Across Threads
+
+**The Problem**: Can't share `&Cache` across threads because threads might outlive the original owner.
+
+```rust
+let cache = LRUCache::new(100);
+std::thread::spawn(|| {
+    cache.put(1, 2);  // ❌ Error: cache may not live long enough
+});
+```
+
+**The Solution**: `Arc<T>` (Atomic Reference Counted) - shared ownership with atomic counters.
+
+**How It Works**:
+```rust
+use std::sync::Arc;
+
+let cache = Arc::new(LRUCache::new(100));
+let cache_clone = Arc::clone(&cache);  // Increment ref count
+
+std::thread::spawn(move || {
+    cache_clone.put(1, 2);  // ✅ Works! Thread owns a clone
+});
+
+cache.get(&1);  // ✅ Original still valid
+// Last Arc drops -> cache is freed
+```
+
+**Key Properties**:
+- **Atomic counters**: Thread-safe reference counting
+- **Shared ownership**: Multiple owners, freed when last one drops
+- **Clone is cheap**: Just increments counter (~5-10ns)
+- **Immutable by default**: Need `Arc<Mutex<T>>` or `Arc<RwLock<T>>` for mutation
+
+**Why We Need It**: Threads need independent ownership of the cache.
+
+---
+
+### Generics: Type-Agnostic Data Structures
+
+**The Problem**: We want our cache to work with any key/value types, not just `String` → `i32`.
+
+**The Solution**: Generic type parameters `<K, V>`.
+
+**How It Works**:
+```rust
+struct LRUCache<K, V> {
+    data: HashMap<K, V>,
+    // ...
+}
+
+impl<K, V> LRUCache<K, V>
+where
+    K: Eq + std::hash::Hash + Clone,
+    V: Clone,
+{
+    fn new(capacity: usize) -> Self { /* ... */ }
+    fn get(&self, key: &K) -> Option<V> { /* ... */ }
+}
+
+// Use with any types that satisfy the trait bounds:
+let int_cache: LRUCache<i32, String> = LRUCache::new(100);
+let str_cache: LRUCache<String, Vec<u8>> = LRUCache::new(50);
+```
+
+**Trait Bounds Explained**:
+- **`K: Eq + Hash`**: Keys must be comparable and hashable (required for `HashMap`)
+- **`K: Clone`**: Need to copy keys into `VecDeque` for order tracking
+- **`V: Clone`**: Need to return cloned values (can't give away ownership)
+
+**Why We Use It**: Makes the cache reusable for any data types.
+
+---
+
+### Understanding Trait Bounds
+
+This project uses several trait bounds. Here's what they mean:
+
+| Trait | Purpose | Example |
+|-------|---------|---------|
+| `Eq` | Equality comparison | Required for HashMap keys |
+| `Hash` | Hash function | Required for HashMap keys |
+| `Clone` | Deep copy | Needed to return values without moving |
+| `Copy` | Bitwise copy | Only for `Cell<T>` types like `usize` |
+| `Send` | Safe to send across threads | Required for thread-safe types |
+| `Sync` | Safe to share refs across threads | Required for thread-safe types |
+
+**Type Requirements Summary**:
+```rust
+// Milestone 1-4 (single-threaded with RefCell):
+K: Eq + Hash + Clone
+V: Clone
+
+// Milestone 5 (thread-safe with Mutex):
+K: Eq + Hash + Clone + Send
+V: Clone + Send
+```
+
+---
+
+### Performance Trade-offs: RefCell vs Mutex
+
+Understanding when to use each is critical:
+
+| Aspect | Cell<T> | RefCell<T> | Mutex<T> |
+|--------|---------|-----------|----------|
+| **Types** | `Copy` only | Any type | Any type |
+| **Thread-safe** | ❌ No | ❌ No | ✅ Yes |
+| **Overhead** | 0 cycles | ~2 cycles | ~50-100 cycles |
+| **Borrow check** | None | Runtime | Runtime |
+| **Failure mode** | Compile error | Panic | Deadlock/poison |
+| **Use case** | Counters | Single-thread collections | Multi-thread collections |
+
+**Decision Guide**:
+1. **Need to share across threads?** → Must use `Arc<Mutex<T>>`
+2. **Single thread + `Copy` type?** → Use `Cell<T>`
+3. **Single thread + non-`Copy` type?** → Use `RefCell<T>`
+
+---
+
+### Why Multiple Data Structures?
+
+**The Challenge**: LRU requires **both** fast lookup AND ordered access tracking.
+
+| Requirement | Data Structure | Time Complexity |
+|-------------|---------------|-----------------|
+| Fast lookup by key | `HashMap<K, V>` | O(1) |
+| Track access order | `VecDeque<K>` | O(1) evict, O(n) update |
+| (Optimal version) | `LinkedList<K>` | O(1) all ops |
+
+**Why We Use Both**:
+- **HashMap**: Stores actual key-value pairs, enables O(1) lookup
+- **VecDeque**: Tracks access order (back = most recent, front = least recent)
+
+**Synchronization Challenge**:
+```rust
+struct LRUCache<K, V> {
+    data: RefCell<HashMap<K, V>>,    // The actual cache data
+    order: RefCell<VecDeque<K>>,     // The access order
+}
+
+// Every operation must keep them in sync!
+fn put(&self, key: K, value: V) {
+    let mut data = self.data.borrow_mut();
+    let mut order = self.order.borrow_mut();
+
+    data.insert(key.clone(), value);
+    order.push_back(key);  // Must stay synchronized!
+}
+```
+
+**Why VecDeque Instead of Vec**:
+- `VecDeque` supports O(1) removal from front (LRU eviction)
+- `Vec` would require O(n) shifting when removing front element
+
+---
+
 ### Connection to This Project
 
 This project implements an LRU cache with the following progression:
@@ -456,13 +777,6 @@ This project implements an LRU cache with the following progression:
 - **Statistics matter**: Can't optimize what you don't measure
 - **Thread safety has costs**: `Mutex` is ~50-100x slower than `RefCell`
 - **Algorithm affects concurrency**: LRU requires write-on-read (updating order), limiting parallelism
-
-**Production considerations**:
-- Use `HashMap + LinkedList` for O(1) operations
-- Consider approximate LRU for better concurrency
-- Monitor hit rates to tune capacity
-- Benchmark with realistic workloads
-
 
 ---
 
@@ -752,7 +1066,6 @@ where
             drop(data);  // Release borrow before mutating order
             let mut order = self.order.borrow_mut();
             // ... your code here ...
-
             // Return cloned value
             todo!()
         } else {
@@ -787,6 +1100,75 @@ where
 
     fn len(&self) -> usize {
         self.data.borrow().len()
+    }
+}
+```
+
+**Checkpoint Tests**:
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lru_basic() {
+        let cache = LRUCache::new(2);
+        cache.put("a", 1);
+        cache.put("b", 2);
+
+        assert_eq!(cache.get(&"a"), Some(1));
+        assert_eq!(cache.get(&"b"), Some(2));
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_lru_eviction() {
+        let cache = LRUCache::new(2);
+        cache.put("a", 1);
+        cache.put("b", 2);
+        cache.put("c", 3);  // Should evict "a"
+
+        assert_eq!(cache.get(&"a"), None);  // "a" was evicted
+        assert_eq!(cache.get(&"b"), Some(2));
+        assert_eq!(cache.get(&"c"), Some(3));
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_lru_access_order() {
+        let cache = LRUCache::new(2);
+        cache.put("a", 1);
+        cache.put("b", 2);
+
+        // Access "a" to make it more recent
+        assert_eq!(cache.get(&"a"), Some(1));
+
+        // Insert "c" - should evict "b" (now least recent)
+        cache.put("c", 3);
+
+        assert_eq!(cache.get(&"a"), Some(1));
+        assert_eq!(cache.get(&"b"), None);  // "b" was evicted
+        assert_eq!(cache.get(&"c"), Some(3));
+    }
+
+    #[test]
+    fn test_update_existing() {
+        let cache = LRUCache::new(2);
+        cache.put("a", 1);
+        cache.put("a", 10);  // Update
+
+        assert_eq!(cache.get(&"a"), Some(10));
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_capacity_one() {
+        let cache = LRUCache::new(1);
+        cache.put("a", 1);
+        cache.put("b", 2);
+
+        assert_eq!(cache.get(&"a"), None);
+        assert_eq!(cache.get(&"b"), Some(2));
     }
 }
 ```
@@ -983,45 +1365,6 @@ fn test_concurrent_access() {
 - Why do we need `Arc` to share the cache between threads?
 - What happens if a thread panics while holding the lock?
 - Why can't we use `Cell<usize>` for stats in the thread-safe version?
-
----
-
-#### Why Milestone 5 Isn't Enough 
-
-**Limitation**: `Mutex` allows only **one** thread at a time. Even for reads! This serializes all cache access, wasting CPU cores.
-
-**The problem with Mutex for caches**:
-- Read-heavy workloads (common in caches: 90% reads, 10% writes)
-- With `Mutex`: 4 threads doing reads wait in line, using only 25% of CPU capacity
-- Ideal: Allow concurrent reads, exclusive writes
-
-**What we're adding**:
-- **`RwLock<T>`** - Multiple readers OR one writer
-- **Read locks**: Multiple threads can read simultaneously
-- **Write locks**: Exclusive access (like Mutex)
-
-**Performance Improvement**:
-- **Concurrent reads**: 4 threads reading simultaneously: 4x throughput on reads
-- **Read-heavy workloads**: 90% reads → ~3.5x overall throughput improvement
-- **Write penalty**: `RwLock` write is slightly slower than `Mutex` (more complex lock management)
-
-**The LRU dilemma**:
-- Problem: `get()` needs to update access order (move key to back) = **write operation**
-- Can't use read lock for `get()` → must use write lock
-- This negates RwLock's benefit for caches!
-
-**Solutions**:
-1. **Accept write-on-read**: Every get() takes write lock (defeats purpose)
-2. **Approximate LRU**: Update order only occasionally (trade accuracy for parallelism)
-3. **Two-lock design**: Separate RwLock for data + Mutex for order (complex)
-4. **Lock-free LRU**: Use atomics (very complex, covered in advanced courses)
-
-**Performance Comparison**:
-- `Mutex` cache: 20M ops/sec with 4 threads (all operations serialized)
-- `RwLock` cache (write-on-read): ~20M ops/sec (no benefit, LRU needs writes)
-- `RwLock` cache (approximate LRU): ~60M ops/sec (3x faster, but less accurate eviction)
-
-**Key Insight**: **Algorithm choice affects concurrency potential**. True LRU requires write-on-read, limiting parallelism. Alternative algorithms (LRU-K, segmented LRU) offer better concurrency.
 
 ---
 ### Complete Project Summary

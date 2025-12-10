@@ -39,6 +39,627 @@ Real-world impact: Prometheus client library uses atomics for metrics collection
 
 ---
 
+## Key Concepts Explained
+
+This project requires understanding atomic operations, memory ordering, and lock-free programming. These concepts enable building high-performance concurrent data structures that avoid the overhead and contention of traditional locks.
+
+### What Are Atomic Operations?
+
+**Definition**: Operations that execute as a single, indivisible unit—they either complete entirely or don't happen at all. No other thread can observe intermediate states.
+
+**The Problem Atomics Solve**:
+
+```rust
+// NON-ATOMIC (Race condition):
+static mut COUNTER: usize = 0;
+
+fn increment() {
+    unsafe {
+        let temp = COUNTER;      // Thread A reads 0
+        // Context switch here!
+        // Thread B reads 0, increments to 1, writes 1
+        COUNTER = temp + 1;      // Thread A writes 1 (should be 2!)
+    }
+}
+
+// Two increments → COUNTER = 1 (WRONG! Lost update)
+```
+
+**The Atomic Solution**:
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn increment() {
+    COUNTER.fetch_add(1, Ordering::SeqCst);  // Atomic: no race
+}
+
+// Two increments → COUNTER = 2 (CORRECT!)
+```
+
+**How Atomics Work (Hardware Level)**:
+
+Modern CPUs provide atomic instructions:
+```assembly
+# x86-64 LOCK prefix makes instruction atomic
+lock incq (%rax)      # Atomically increment memory at address rax
+
+# ARM64 Load-Exclusive/Store-Exclusive
+1: ldxr x1, [x0]      # Load-exclusive (mark cache line)
+   add  x1, x1, #1    # Increment
+   stxr w2, x1, [x0]  # Store-exclusive (fails if cache line changed)
+   cbnz w2, 1b        # Retry if store failed
+```
+
+**Key Point**: Atomics use hardware support (cache coherency protocols, memory barriers) to ensure operations are indivisible even across CPU cores.
+
+---
+
+### Atomic Types in Rust
+
+Rust provides atomic versions of primitive types:
+
+```rust
+use std::sync::atomic::*;
+
+// Integer atomics
+AtomicU8, AtomicU16, AtomicU32, AtomicU64, AtomicUsize
+AtomicI8, AtomicI16, AtomicI32, AtomicI64, AtomicIsize
+
+// Boolean atomic
+AtomicBool
+
+// Pointer atomic
+AtomicPtr<T>
+```
+
+**Common Operations**:
+
+```rust
+let counter = AtomicUsize::new(0);
+
+// Load (read)
+let value = counter.load(Ordering::SeqCst);
+
+// Store (write)
+counter.store(42, Ordering::SeqCst);
+
+// Fetch-and-modify (read-modify-write)
+let old = counter.fetch_add(5, Ordering::SeqCst);    // old = 42, counter = 47
+let old = counter.fetch_sub(3, Ordering::SeqCst);    // old = 47, counter = 44
+let old = counter.swap(100, Ordering::SeqCst);       // old = 44, counter = 100
+
+// Compare-and-swap (CAS) - foundation of lock-free algorithms
+let result = counter.compare_exchange(
+    100,                    // Expected current value
+    200,                    // New value to write
+    Ordering::SeqCst,       // Success ordering
+    Ordering::SeqCst,       // Failure ordering
+);
+// If counter == 100: counter becomes 200, returns Ok(100)
+// If counter != 100: counter unchanged, returns Err(actual_value)
+```
+
+**Why Different Types?**:
+
+Size matters for cache line packing:
+```rust
+struct Metrics {
+    requests: AtomicU64,     // 8 bytes
+    errors: AtomicU32,       // 4 bytes
+    warnings: AtomicU16,     // 2 bytes
+    flags: AtomicU8,         // 1 byte
+    // Total: 15 bytes (fits in one 64-byte cache line)
+}
+
+// vs.
+
+struct WastefulMetrics {
+    requests: AtomicUsize,   // 8 bytes
+    errors: AtomicUsize,     // 8 bytes (wasted 4 bytes!)
+    warnings: AtomicUsize,   // 8 bytes (wasted 6 bytes!)
+    flags: AtomicUsize,      // 8 bytes (wasted 7 bytes!)
+    // Total: 32 bytes (wasted 17 bytes)
+}
+```
+
+---
+
+### Memory Ordering: The Critical Detail
+
+**The Challenge**: Modern CPUs and compilers reorder memory operations for performance. Atomics need to control this reordering.
+
+**Example of Reordering**:
+
+```rust
+// Thread A
+x.store(1, Ordering::Relaxed);
+y.store(1, Ordering::Relaxed);
+
+// Thread B
+let b = y.load(Ordering::Relaxed);
+let a = x.load(Ordering::Relaxed);
+
+// Possible outcome: b = 1, a = 0 (y write seen before x write!)
+// CPU reordered the stores or loads
+```
+
+**The Five Memory Orderings**:
+
+#### 1. Relaxed - No Synchronization
+
+```rust
+counter.fetch_add(1, Ordering::Relaxed);
+```
+
+**Guarantees**:
+- ✅ Operation itself is atomic (no torn reads/writes)
+- ❌ NO ordering guarantees with other operations
+- ❌ NO cross-thread visibility guarantees (except eventual consistency)
+
+**Use case**: Simple counters where only final value matters, not order
+
+**Performance**: Fastest (~1-2 cycles)
+
+**Example**:
+```rust
+// Thread A
+REQUESTS.fetch_add(1, Ordering::Relaxed);
+BYTES.fetch_add(1024, Ordering::Relaxed);
+
+// Thread B
+let r = REQUESTS.load(Ordering::Relaxed);
+let b = BYTES.load(Ordering::Relaxed);
+// Possible: r and b are inconsistent (one updated, not the other yet)
+// That's OK for metrics! Eventually consistent.
+```
+
+#### 2. Acquire - Read Synchronization
+
+```rust
+let value = flag.load(Ordering::Acquire);
+```
+
+**Guarantees**:
+- ✅ All operations AFTER this load cannot move BEFORE it
+- ✅ If another thread used Release, see all its prior writes
+
+**Use case**: Reading a flag/pointer set by another thread
+
+**Example**:
+```rust
+// Thread A (producer)
+DATA.store(42, Ordering::Relaxed);
+READY.store(true, Ordering::Release);  // Ensures DATA write visible
+
+// Thread B (consumer)
+if READY.load(Ordering::Acquire) {     // Synchronizes with Release
+    let data = DATA.load(Ordering::Relaxed);  // Guaranteed to see 42
+    assert_eq!(data, 42);  // Always passes
+}
+```
+
+#### 3. Release - Write Synchronization
+
+```rust
+flag.store(true, Ordering::Release);
+```
+
+**Guarantees**:
+- ✅ All operations BEFORE this store cannot move AFTER it
+- ✅ Makes all prior writes visible to threads that Acquire this value
+
+**Use case**: Publishing data for other threads
+
+**Pair with Acquire**: Release-Acquire creates synchronization edge
+
+#### 4. AcqRel - Combined Acquire + Release
+
+```rust
+let old = counter.fetch_add(1, Ordering::AcqRel);
+```
+
+**Guarantees**:
+- ✅ Acquire semantics for the read part
+- ✅ Release semantics for the write part
+
+**Use case**: Read-modify-write operations in lock-free algorithms
+
+#### 5. SeqCst - Sequential Consistency
+
+```rust
+counter.fetch_add(1, Ordering::SeqCst);
+```
+
+**Guarantees**:
+- ✅ All SeqCst operations have a single total order across all threads
+- ✅ Strongest guarantee, easiest to reason about
+- ❌ Slowest (~30-50 cycles due to memory fences)
+
+**Use case**: When in doubt, start with SeqCst; optimize later
+
+**Example showing difference**:
+```rust
+// With SeqCst: Total order guaranteed
+// Thread A: X.store(1, SeqCst); Y.store(1, SeqCst);
+// Thread B: a = Y.load(SeqCst); b = X.load(SeqCst);
+// Thread C: c = X.load(SeqCst); d = Y.load(SeqCst);
+// Impossible: a=1,b=0,c=1,d=0 (would violate total order)
+
+// With Relaxed: This outcome IS possible (no total order)
+```
+
+**Visual Summary**:
+
+```
+Ordering:     Relaxed   Acquire   Release   AcqRel   SeqCst
+Speed:        Fastest   ------>   ------>   ------>  Slowest
+Guarantees:   Minimal   ------>   ------>   ------>  Strongest
+Reordering:   Most      ------>   ------>   ------>  None
+Use case:     Counters  Locks     Locks     RMW      Default
+```
+
+---
+
+### Compare-and-Swap (CAS): The Lock-Free Primitive
+
+**CAS** is the foundation of lock-free algorithms. It atomically performs:
+```
+if current_value == expected:
+    current_value = new
+    return success
+else:
+    return failure (with actual current value)
+```
+
+**Two Variants**:
+
+**1. compare_exchange - Strong CAS**:
+```rust
+let result = counter.compare_exchange(
+    expected,           // What I think the value is
+    new,                // What I want it to be
+    Ordering::SeqCst,   // Ordering if successful
+    Ordering::SeqCst,   // Ordering if failed
+);
+
+match result {
+    Ok(old_value) => println!("Success! Was {}", old_value),
+    Err(actual) => println!("Failed! Actually {}", actual),
+}
+```
+
+**2. compare_exchange_weak - Weak CAS**:
+```rust
+// May spuriously fail even if values match (hardware limitation on some platforms)
+// Must use in a loop
+loop {
+    let current = counter.load(Ordering::Relaxed);
+    let new = current + 1;
+
+    match counter.compare_exchange_weak(
+        current,
+        new,
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+    ) {
+        Ok(_) => break,  // Success
+        Err(_) => continue,  // Retry (spurious or actual failure)
+    }
+}
+```
+
+**When to use each**:
+- **Strong CAS**: One-shot attempts, complex retry logic
+- **Weak CAS**: Always in loops (faster on some architectures like ARM)
+
+**Lock-Free Stack Example**:
+
+```rust
+use std::sync::atomic::{AtomicPtr, Ordering};
+use std::ptr;
+
+struct Node<T> {
+    value: T,
+    next: *mut Node<T>,
+}
+
+struct LockFreeStack<T> {
+    head: AtomicPtr<Node<T>>,
+}
+
+impl<T> LockFreeStack<T> {
+    fn push(&self, value: T) {
+        let new_node = Box::into_raw(Box::new(Node {
+            value,
+            next: ptr::null_mut(),
+        }));
+
+        loop {
+            // Read current head
+            let old_head = self.head.load(Ordering::Relaxed);
+
+            // Point new node to current head
+            unsafe { (*new_node).next = old_head; }
+
+            // Try to swing head to new node
+            match self.head.compare_exchange_weak(
+                old_head,
+                new_node,
+                Ordering::Release,  // Success: publish new node
+                Ordering::Relaxed,  // Failure: retry
+            ) {
+                Ok(_) => break,  // Success!
+                Err(_) => continue,  // Another thread modified head, retry
+            }
+        }
+    }
+}
+```
+
+**Why CAS Works**:
+1. Multiple threads can attempt push simultaneously
+2. Only one CAS succeeds per head change
+3. Failed threads retry with updated head value
+4. No locks, no blocking—always progress
+
+---
+
+### Lock-Free vs Wait-Free vs Blocking
+
+**Progress Guarantees** (from weakest to strongest):
+
+#### Blocking (Locks/Mutexes):
+```rust
+let mut data = mutex.lock().unwrap();
+data.counter += 1;
+// If thread holding lock dies → deadlock
+// If thread holding lock is slow → all waiters blocked
+```
+
+**Guarantee**: None (thread can be permanently blocked)
+
+**Example**: `Mutex<T>`, `RwLock<T>`
+
+#### Obstruction-Free:
+**Guarantee**: Thread makes progress if it runs without interference
+
+**Rarely used in practice** (too weak)
+
+#### Lock-Free:
+```rust
+loop {
+    let current = counter.load(Ordering::Relaxed);
+    let new = current + 1;
+
+    if counter.compare_exchange_weak(
+        current, new,
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+    ).is_ok() {
+        break;
+    }
+}
+```
+
+**Guarantee**: At least one thread always makes progress (system-wide)
+
+**Tradeoff**: Individual thread might retry many times (but won't deadlock)
+
+**Example**: Most CAS-based algorithms, `Arc<T>`
+
+#### Wait-Free:
+```rust
+counter.fetch_add(1, Ordering::Relaxed);  // Never retries
+```
+
+**Guarantee**: Every thread makes progress in bounded steps
+
+**Tradeoff**: Hardest to implement for complex data structures
+
+**Example**: `fetch_add`, `fetch_sub`, simple atomic operations
+
+**Comparison Table**:
+
+| Property | Blocking | Lock-Free | Wait-Free |
+|----------|----------|-----------|-----------|
+| **Can deadlock?** | Yes | No | No |
+| **Can starve?** | Yes | Individual threads, yes | No |
+| **System progress?** | No guarantee | Always | Always |
+| **Per-thread progress?** | No guarantee | No guarantee | Always |
+| **Complexity** | Simple | Medium | Hard |
+| **Performance** | Good (low contention) | Excellent | Excellent |
+
+---
+
+### False Sharing: The Hidden Performance Killer
+
+**The Problem**: Different threads updating different variables can still contend if those variables share a cache line.
+
+**Cache Line Size**: 64 bytes on most modern CPUs
+
+**Example of False Sharing**:
+
+```rust
+struct BadMetrics {
+    thread1_counter: AtomicUsize,  // Bytes 0-7
+    thread2_counter: AtomicUsize,  // Bytes 8-15  ← Same cache line!
+    thread3_counter: AtomicUsize,  // Bytes 16-23 ← Same cache line!
+    thread4_counter: AtomicUsize,  // Bytes 24-31 ← Same cache line!
+}
+
+// Thread 1 increments thread1_counter
+// → Entire cache line marked modified on Thread 1's core
+// → Thread 2's cache line invalidated
+// → Thread 2 must reload cache line to increment thread2_counter
+// → Thread 1's cache line invalidated
+// → Ping-pong continues → 10-100x slowdown!
+```
+
+**The Solution: Padding**:
+
+```rust
+use std::sync::atomic::AtomicUsize;
+
+#[repr(align(64))]  // Force 64-byte alignment
+struct PaddedAtomic {
+    value: AtomicUsize,
+    _padding: [u8; 64 - 8],  // Pad to 64 bytes
+}
+
+struct GoodMetrics {
+    thread1_counter: PaddedAtomic,  // Bytes 0-63 (cache line 0)
+    thread2_counter: PaddedAtomic,  // Bytes 64-127 (cache line 1)
+    thread3_counter: PaddedAtomic,  // Bytes 128-191 (cache line 2)
+    thread4_counter: PaddedAtomic,  // Bytes 192-255 (cache line 3)
+}
+
+// Now each counter in its own cache line
+// No invalidation ping-pong
+// Full parallel performance
+```
+
+**Performance Impact**:
+
+```
+Without padding (false sharing):
+4 threads, 1M increments each: 2000ms (cache line bouncing)
+
+With padding (separate cache lines):
+4 threads, 1M increments each: 250ms (8x faster!)
+```
+
+**When to Use Padding**:
+- ✅ High-contention atomic updates from different threads
+- ✅ Per-thread metrics that are updated frequently
+- ❌ Low-contention scenarios (wastes memory)
+- ❌ Read-mostly data (false sharing only affects writes)
+
+---
+
+### Relaxed Ordering for Metrics: When It's Safe
+
+**Key Insight**: Metrics collection has unique properties that make Relaxed ordering safe:
+
+1. **Commutative**: Order of increments doesn't matter (1+2+3 = 3+1+2)
+2. **Eventually consistent**: Okay if readers see slightly stale values
+3. **No causality**: Counter A doesn't depend on counter B's value
+
+**Example: Safe Relaxed Usage**:
+
+```rust
+struct Metrics {
+    requests: AtomicU64,
+    errors: AtomicU64,
+    bytes_sent: AtomicU64,
+}
+
+impl Metrics {
+    fn record_request(&self, bytes: u64, is_error: bool) {
+        // All Relaxed: safe because operations are independent
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        if is_error {
+            self.errors.fetch_add(1, Ordering::Relaxed);
+        }
+        self.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> MetricsSnapshot {
+        // Relaxed reads: values may be inconsistent snapshot
+        // But that's OK for monitoring dashboards
+        MetricsSnapshot {
+            requests: self.requests.load(Ordering::Relaxed),
+            errors: self.errors.load(Ordering::Relaxed),
+            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
+        }
+    }
+}
+```
+
+**Why This Works**:
+- Dashboard reads snapshot at time T
+- Some updates from time T-1ms might not be visible yet
+- Some updates from time T+1ms might already be visible
+- But **all updates are eventually visible**
+- Totals are accurate over time
+
+**When Relaxed is NOT Safe**:
+
+```rust
+// WRONG: Using Relaxed for synchronization
+if READY.load(Ordering::Relaxed) {  // ❌ Need Acquire
+    let data = DATA.load(Ordering::Relaxed);  // Might not see DATA update!
+}
+
+// CORRECT: Use Acquire-Release
+if READY.load(Ordering::Acquire) {  // ✅
+    let data = DATA.load(Ordering::Relaxed);  // Guaranteed to see DATA
+}
+```
+
+**Rules of Thumb**:
+- ✅ Relaxed for independent counters/metrics
+- ✅ Relaxed for statistics where slight inconsistency is acceptable
+- ❌ Relaxed for flags/pointers that protect other data
+- ❌ Relaxed for operations with cross-variable dependencies
+
+---
+
+### Connection to This Project
+
+Now that you understand the core concepts, here's how they map to the milestones:
+
+**Milestone 1: Basic Atomic Counter**
+- **Concepts Used**: `AtomicUsize`, `fetch_add`, `load/store`, SeqCst ordering
+- **Why**: Establish foundation of atomic operations and memory ordering
+- **Key Insight**: SeqCst is easiest to reason about but has performance cost
+
+**Milestone 2: Multiple Metric Types**
+- **Concepts Used**: Multiple atomic types (counter, gauge), Relaxed ordering
+- **Why**: Real metrics systems track different kinds of measurements
+- **Key Insight**: Relaxed ordering is safe for independent metrics (10-30x faster than SeqCst)
+
+**Milestone 3: Histogram with Buckets**
+- **Concepts Used**: Array of atomics, bucketing algorithm, cache line awareness
+- **Why**: Latency distributions need bucketed measurements
+- **Key Insight**: Padding prevents false sharing between bucket counters
+
+**Milestone 4: Thread-Local Aggregation**
+- **Concepts Used**: Thread-local storage, periodic aggregation, reduced contention
+- **Why**: Per-thread counters eliminate contention entirely
+- **Key Insight**: Aggregate infrequently to balance memory vs synchronization cost
+
+**Milestone 5: Lock-Free Snapshot**
+- **Concepts Used**: Atomic loads for consistent snapshots, generation counters
+- **Why**: Export metrics without blocking writers
+- **Key Insight**: Relaxed loads give eventually-consistent snapshot without coordination
+
+**Milestone 6: High-Resolution Timestamps**
+- **Concepts Used**: Atomic timestamps, CAS for concurrent updates, temporal ordering
+- **Why**: Track when metrics change for time-series analysis
+- **Key Insight**: CAS enables lock-free timestamp updates with conflict resolution
+
+**Putting It All Together**:
+
+The complete metrics collector demonstrates:
+1. **Lock-free counters** using `fetch_add` (wait-free)
+2. **Memory ordering optimization** (Relaxed for metrics, Acquire/Release for synchronization)
+3. **False sharing mitigation** (padding hot counters)
+4. **Hybrid approach** (thread-local + periodic aggregation)
+5. **Snapshot consistency** (atomic reads without blocking writers)
+
+This architecture achieves:
+- **Millions of updates/second** per thread with ~2ns overhead
+- **Zero contention** in common case (thread-local)
+- **Lock-free reads** for monitoring dashboards
+- **Minimal memory** compared to per-thread histograms
+
+Each milestone builds practical understanding of atomic operations, from simple counters to production-ready metrics infrastructure.
+
+---
+
 ## Milestone 1: Basic Atomic Counter
 
 ### Introduction

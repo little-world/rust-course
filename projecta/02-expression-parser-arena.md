@@ -531,6 +531,715 @@ Each stage is simpler and more testable because of this separation!
 
 ---
 
+## Rust Programming Concepts for This Project
+
+This project requires understanding several advanced Rust concepts related to memory management, lifetimes, and unsafe code. These concepts enable building high-performance systems that would be difficult or impossible in garbage-collected languages.
+
+### Lifetimes: Expressing Object Dependencies
+
+**The Problem**: Rust needs to know how long references live to prevent dangling pointers. When we build a tree of references, we need to express that all the references share the same lifetime.
+
+```rust
+// This doesn't compile - lifetime unclear
+struct TreeNode {
+    left: &TreeNode,   // ❌ Error: missing lifetime
+    right: &TreeNode,  // ❌ Error: missing lifetime
+}
+
+// This works - all references tied to 'tree lifetime
+struct TreeNode<'tree> {
+    left: &'tree TreeNode<'tree>,
+    right: &'tree TreeNode<'tree>,
+}
+```
+
+**What is a Lifetime?**
+
+A lifetime is a **compile-time annotation** that tells Rust how long a reference is valid. It's not a runtime concept—it exists purely for the compiler's static analysis.
+
+**Lifetime Notation**:
+```rust
+// 'arena is a lifetime parameter
+// Read as: "apostrophe arena"
+fn alloc<'arena>(&'arena self, value: T) -> &'arena T
+
+// Multiple lifetimes
+fn example<'a, 'b>(x: &'a i32, y: &'b i32) -> &'a i32
+```
+
+**The Arena Lifetime Pattern**:
+
+In this project, all AST nodes live in an arena, and all references point into that arena:
+
+```rust
+#[derive(Debug, PartialEq)]
+enum Expr<'arena> {
+    Literal(i64),
+    BinOp {
+        op: OpType,
+        left: &'arena Expr<'arena>,   // Reference valid for 'arena lifetime
+        right: &'arena Expr<'arena>,  // Same lifetime
+    },
+}
+
+struct Arena {
+    storage: RefCell<Vec<u8>>,
+}
+
+impl Arena {
+    fn alloc<'arena, T>(&'arena self, value: T) -> &'arena T {
+        // Allocate T in arena, return reference with 'arena lifetime
+        // The reference is valid as long as the arena exists
+    }
+}
+```
+
+**Key Insight**: The `'arena` lifetime connects three things:
+1. **The arena itself** - must live as long as `'arena`
+2. **All allocated objects** - stored in the arena
+3. **All references to objects** - can't outlive the arena
+
+**Why This Works**:
+```rust
+{
+    let arena = Arena::new();           // Arena created
+    let expr = build_tree(&arena);      // AST built in arena
+    let result = expr.eval();           // Can use AST
+    // arena dropped here, all references invalidated
+}
+// Can't use expr here - compiler prevents it!
+```
+
+**What Lifetimes Prevent**:
+```rust
+let dangling_ref = {
+    let arena = Arena::new();
+    let expr = arena.alloc(Expr::Literal(42));
+    expr  // ❌ Error: expr references arena, which is about to be dropped
+};
+// If this compiled, we'd have a dangling pointer!
+```
+
+**Lifetime Elision** (when you don't see lifetimes):
+
+Sometimes Rust infers lifetimes:
+```rust
+// Written:
+fn first(x: &i32, y: &i32) -> &i32 { x }
+
+// Compiler sees:
+fn first<'a, 'b>(x: &'a i32, y: &'b i32) -> &'a i32 { x }
+```
+
+**Why We Need Explicit Lifetimes for Arena**:
+
+Self-referential structures require explicit lifetime annotations because Rust can't infer the relationship:
+```rust
+// Compiler can't infer these relationships automatically
+enum Expr<'arena> {
+    BinOp {
+        left: &'arena Expr<'arena>,   // Must be explicit
+        right: &'arena Expr<'arena>,
+    }
+}
+```
+
+---
+
+### Arena Allocation: The Core Performance Technique
+
+**The Traditional Allocation Problem**:
+
+```rust
+// Each Box::new() calls malloc() - expensive!
+let expr = Box::new(BinOp {
+    op: Add,
+    left: Box::new(Literal(2)),      // malloc #1
+    right: Box::new(Literal(3)),     // malloc #2
+});                                   // malloc #3
+
+// For expression (1+2)*(3+4):
+// - 7 nodes = 7 malloc calls
+// - Each malloc: ~50-100ns
+// - Total: ~525ns just for allocation
+```
+
+**The Arena Solution**:
+
+An **arena allocator** (also called bump allocator) pre-allocates a large chunk of memory and hands out pieces by incrementing a pointer.
+
+```rust
+struct Arena {
+    storage: RefCell<Vec<u8>>,  // Big buffer of bytes
+}
+
+impl Arena {
+    fn alloc<T>(&self, value: T) -> &mut T {
+        // 1. Calculate size and alignment
+        // 2. Bump pointer forward
+        // 3. Write value at new position
+        // 4. Return reference
+        // Total: ~2-5ns (25x faster than malloc!)
+    }
+}
+```
+
+**How Arena Allocation Works**:
+
+```
+Initial state:
+┌─────────────────────────────────────────┐
+│ [empty buffer, 4096 bytes]              │
+└─────────────────────────────────────────┘
+ ↑
+ position = 0
+
+After alloc(42i64):
+┌─────────────────────────────────────────┐
+│ [42][empty space...]                    │
+└─────────────────────────────────────────┘
+     ↑
+     position = 8 (size of i64)
+
+After alloc(100i32):
+┌─────────────────────────────────────────┐
+│ [42][100][empty space...]               │
+└─────────────────────────────────────────┘
+         ↑
+         position = 12 (8 + 4)
+
+After alloc(Expr::Literal(5)):
+┌─────────────────────────────────────────┐
+│ [42][100][Literal(5)][empty space...]   │
+└─────────────────────────────────────────┘
+                     ↑
+                     position = 12 + sizeof(Expr)
+```
+
+**Key Characteristics**:
+
+1. **Fast Allocation**: Just pointer arithmetic and write
+   ```rust
+   // Pseudocode for allocation:
+   let start = current_position;
+   current_position += size;
+   write_value_at(start, value);
+   return reference_to(start);
+   ```
+
+2. **No Individual Deallocation**: Can't free single objects
+   ```rust
+   let arena = Arena::new();
+   let x = arena.alloc(42);
+   // No way to free just x!
+   // Drop arena → everything freed at once
+   ```
+
+3. **Perfect for Phase-Based Allocation**: Allocate many objects, use them, discard all at once
+   ```rust
+   fn parse(input: &str) -> Result<i64, String> {
+       let arena = Arena::new();        // Create arena
+       let ast = parse_to_ast(input, &arena);  // Allocate many nodes
+       let result = eval(ast);          // Use AST
+       Ok(result)
+       // arena dropped here → all nodes freed instantly
+   }
+   ```
+
+4. **Better Cache Locality**: Objects allocated sequentially are stored sequentially
+   ```
+   Box allocations (scattered in memory):
+   Node1 @ 0x1000, Node2 @ 0x5000, Node3 @ 0x2000  ← Cache misses!
+
+   Arena allocations (contiguous):
+   Node1 @ 0x1000, Node2 @ 0x1018, Node3 @ 0x1030  ← Cache hits!
+   ```
+
+**Performance Comparison**:
+
+| Operation | Box<T> | Arena<T> | Speedup |
+|-----------|--------|----------|---------|
+| Single allocation | ~75ns | ~3ns | 25x |
+| 10,000 nodes | 750μs | 30μs | 25x |
+| Cache misses | High | Low | 2-3x |
+| **Total speedup** | - | - | **15-20x** |
+
+**When to Use Arena Allocation**:
+
+✅ **Good fit**:
+- Parsing (ASTs, JSON, XML)
+- Compilers (IR nodes, symbol tables)
+- Game engines (per-frame objects)
+- Request handlers (per-request temps)
+- Any "allocate many, free all" pattern
+
+❌ **Bad fit**:
+- Long-lived objects with individual lifecycles
+- Objects that need to be freed independently
+- Incremental data structures (growing over time)
+
+---
+
+### Memory Alignment: Why It Matters
+
+**The Problem**: CPUs require certain types to be stored at addresses that are multiples of their size. Misaligned access can crash (ARM) or be slow (x86).
+
+```rust
+// Good: u64 at address 0x1000 (8-byte aligned)
+// Bad:  u64 at address 0x1001 (not 8-byte aligned) → CRASH or 2x slower!
+```
+
+**Alignment Requirements**:
+
+| Type | Size | Alignment | Valid Addresses |
+|------|------|-----------|-----------------|
+| `u8` | 1 byte | 1 | Any address |
+| `u16` | 2 bytes | 2 | 0x1000, 0x1002, 0x1004... |
+| `u32` | 4 bytes | 4 | 0x1000, 0x1004, 0x1008... |
+| `u64` | 8 bytes | 8 | 0x1000, 0x1008, 0x1010... |
+| `Expr` | varies | 8 (largest field) | 0x1000, 0x1008... |
+
+**Why Alignment in Arena Allocation**:
+
+When we bump allocate, we must ensure each allocation is properly aligned:
+
+```rust
+fn alloc<T>(&self, value: T) -> &mut T {
+    let size = std::mem::size_of::<T>();
+    let align = std::mem::align_of::<T>();  // e.g., 8 for u64
+
+    let current_len = self.storage.borrow().len();
+
+    // Calculate padding needed for alignment
+    let padding = (align - (current_len % align)) % align;
+    let start = current_len + padding;  // Now aligned!
+
+    // ... allocate at start ...
+}
+```
+
+**Example Calculation**:
+
+```
+Current position: 13 (after allocating u8 at 12)
+Want to allocate u64 (needs 8-byte alignment)
+
+current_len = 13
+align = 8
+current_len % align = 13 % 8 = 5
+padding = (8 - 5) % 8 = 3
+
+start = 13 + 3 = 16 (divisible by 8 ✓)
+
+Memory layout:
+┌────────────────────────────────────┐
+│ [prev][X][X][X][u64 goes here...] │
+└────────────────────────────────────┘
+       ^pad^    ^16 (aligned)
+```
+
+**The Modulo Formula**:
+```rust
+let padding = (align - (current_len % align)) % align;
+```
+
+Why the second `% align`? Handle the case when already aligned:
+```
+current_len = 16, align = 8
+16 % 8 = 0  (already aligned)
+(8 - 0) % 8 = 0  (no padding needed) ✓
+
+Without the second %:
+(8 - 0) = 8  (would add unnecessary padding!) ✗
+```
+
+---
+
+### Unsafe Rust: Working with Raw Pointers
+
+**Why We Need Unsafe**:
+
+Rust's safety guarantees rely on the borrow checker. But arena allocation requires operations the borrow checker can't verify:
+- Converting raw bytes to typed references
+- Writing to uninitialized memory
+- Extending reference lifetimes
+
+**The Unsafe Operations We Use**:
+
+1. **`std::ptr::write`**: Write a value to a raw pointer without reading the old value (for uninitialized memory)
+
+```rust
+unsafe {
+    std::ptr::write(ptr, value);  // Write value to ptr
+    // Doesn't call Drop on old value (because there isn't one!)
+}
+```
+
+vs. normal assignment:
+```rust
+*ptr = value;  // Reads old value, calls Drop, then writes new value
+```
+
+2. **Raw pointer casting**: Convert between pointer types
+
+```rust
+let byte_ptr: *mut u8 = &mut storage[start];
+let typed_ptr: *mut T = byte_ptr as *mut T;  // Cast to correct type
+```
+
+3. **Dereferencing raw pointers**: Access data through raw pointer
+
+```rust
+unsafe {
+    let reference: &mut T = &mut *typed_ptr;  // Create reference
+}
+```
+
+**Our Arena Allocation (with unsafe)**:
+
+```rust
+fn alloc<T>(&self, value: T) -> &mut T {
+    let mut storage = self.storage.borrow_mut();
+
+    // Safe: size and alignment calculation
+    let size = std::mem::size_of::<T>();
+    let align = std::mem::align_of::<T>();
+
+    // Safe: calculating aligned position
+    let current_len = storage.len();
+    let padding = (align - (current_len % align)) % align;
+    let start = current_len + padding;
+
+    // Safe: resizing buffer
+    storage.resize(start + size, 0);
+
+    // UNSAFE: Casting bytes to typed pointer
+    let ptr = &mut storage[start] as *mut u8 as *mut T;
+
+    unsafe {
+        // UNSAFE: Writing to uninitialized memory
+        std::ptr::write(ptr, value);
+
+        // UNSAFE: Creating reference from raw pointer
+        &mut *ptr
+    }
+}
+```
+
+**Why Each `unsafe` Is Safe** (programmer reasoning):
+
+1. **Casting**: We ensured `start` is aligned for `T`, so `ptr` is valid
+2. **`std::ptr::write`**: We resized storage to have space, so `ptr` points to valid memory
+3. **Creating reference**: The memory contains a valid `T` (we just wrote it), and the lifetime is tied to the arena
+
+**The Contract**:
+
+When you write `unsafe`, you're telling the compiler: "I've verified these safety properties manually. Trust me."
+
+**What Could Go Wrong** (if we make mistakes):
+
+```rust
+// Bug 1: Forget to align → CRASH
+let ptr = &mut storage[current_len] as *mut u8 as *mut T;  // Not aligned!
+
+// Bug 2: Not enough space → CORRUPTION
+// storage.resize(start + size, 0);  // Forgot this line!
+unsafe { std::ptr::write(ptr, value); }  // Writes past end of buffer!
+
+// Bug 3: Use after free → UNDEFINED BEHAVIOR
+let expr = {
+    let arena = Arena::new();
+    arena.alloc(Expr::Literal(42))
+};  // arena dropped, but expr still references it!
+```
+
+**Guidelines for Unsafe Code**:
+
+1. **Minimize unsafe blocks**: Keep them small and well-commented
+2. **Document invariants**: Explain why the unsafe code is safe
+3. **Test thoroughly**: Unsafe bugs can be silent (corruption, not crashes)
+4. **Use tools**: Miri can detect some undefined behavior
+
+---
+
+### RefCell: Interior Mutability for Arena
+
+**The Problem**: The arena's `alloc()` method takes `&self` (shared reference), but needs to modify the internal `Vec<u8>` storage.
+
+```rust
+impl Arena {
+    fn alloc<T>(&self, value: T) -> &mut T {
+        // Need to mutate storage, but only have &self!
+        self.storage.push(value);  // ❌ Error: can't mutate through &self
+    }
+}
+```
+
+**Why `&self` Instead of `&mut self`?**
+
+We need multiple references into the arena simultaneously:
+
+```rust
+let arena = Arena::new();
+let two = arena.alloc(Expr::Literal(2));      // Borrow 1
+let three = arena.alloc(Expr::Literal(3));    // Borrow 2
+let sum = arena.alloc(Expr::BinOp {
+    op: Add,
+    left: two,     // Still using borrow 1
+    right: three,  // Still using borrow 2
+});
+```
+
+With `&mut self`, we could only have one allocation at a time!
+
+**The Solution: RefCell**:
+
+```rust
+use std::cell::RefCell;
+
+struct Arena {
+    storage: RefCell<Vec<u8>>,  // Interior mutability
+}
+
+impl Arena {
+    fn alloc<T>(&self, value: T) -> &mut T {
+        let mut storage = self.storage.borrow_mut();  // Get mutable borrow
+        // ... modify storage ...
+        // Borrow released when `storage` drops at end of function
+    }
+}
+```
+
+**How RefCell Works**:
+
+- **Compile-time**: Allows mutation through `&self`
+- **Runtime**: Tracks borrows dynamically, panics if rules violated
+- **Cost**: Small overhead (~2-3 CPU cycles) for borrow checking
+
+**Borrow Rules** (enforced at runtime):
+- Multiple readers OR one writer
+- Not both simultaneously
+
+**Example of RefCell Panic**:
+
+```rust
+let arena = Arena::new();
+let storage1 = arena.storage.borrow_mut();  // Acquire write lock
+let storage2 = arena.storage.borrow_mut();  // ❌ PANIC: already borrowed!
+```
+
+**Why Our Code Is Safe**:
+
+Each `alloc()` call borrows, does its work, and releases before the next borrow:
+
+```rust
+fn alloc(&self, value: T) -> &mut T {
+    {
+        let mut storage = self.storage.borrow_mut();  // Borrow
+        // ... work ...
+    }  // Borrow released here
+
+    // Return reference (points into arena, not into RefCell)
+}
+```
+
+The returned reference points to data in the arena's buffer, not the `RefCell` itself, so we can have many of them simultaneously.
+
+---
+
+### Result Type: Structured Error Handling
+
+**The Problem**: Parsing can fail in many ways—invalid syntax, unexpected tokens, division by zero. We need to propagate errors up the call stack with context.
+
+```rust
+// Bad: Using panic for expected failures
+fn eval(expr: &Expr) -> i64 {
+    match expr {
+        Expr::BinOp { op: Div, right, .. } if right.eval() == 0 => {
+            panic!("Division by zero");  // ❌ Too harsh!
+        }
+        // ...
+    }
+}
+
+// Good: Using Result
+fn eval(expr: &Expr) -> Result<i64, String> {
+    match expr {
+        Expr::BinOp { op: Div, left, right } => {
+            let r = right.eval()?;  // Propagate error if any
+            if r == 0 {
+                return Err("Division by zero".to_string());
+            }
+            Ok(left.eval()? / r)
+        }
+        // ...
+    }
+}
+```
+
+**Result Type Basics**:
+
+```rust
+enum Result<T, E> {
+    Ok(T),      // Success case with value
+    Err(E),     // Failure case with error
+}
+```
+
+**The `?` Operator**: Syntactic sugar for error propagation
+
+```rust
+// Without ?
+let left_val = match left.eval() {
+    Ok(v) => v,
+    Err(e) => return Err(e),  // Propagate error
+};
+
+// With ? (equivalent)
+let left_val = left.eval()?;
+```
+
+**Our Error Types**:
+
+```rust
+// Simple string errors (fine for learning project)
+Result<i64, String>
+Result<&'arena Expr<'arena>, String>
+Result<Vec<Token>, String>
+
+// Examples:
+Err("Expected number, found '+'"to_string())
+Err("Division by zero".to_string())
+Err("Unmatched parenthesis".to_string())
+```
+
+**Error Propagation in Parsing**:
+
+```rust
+fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
+    let left = self.parse_term()?;  // If error, return immediately
+
+    while matches!(self.peek(), Token::Plus | Token::Minus) {
+        let op = self.consume_op()?;
+        let right = self.parse_term()?;
+        left = self.builder.binary(op, left, right);
+    }
+
+    Ok(left)
+}
+```
+
+If any nested call returns `Err`, it bubbles up through all the `?` operators automatically!
+
+---
+
+### Pattern Matching: Structural Decomposition
+
+Pattern matching is Rust's way of deconstructing enums and extracting data. This project uses it extensively.
+
+**Basic Enum Matching**:
+
+```rust
+match expr {
+    Expr::Literal(n) => Ok(*n),  // Extract the number
+    Expr::BinOp { op, left, right } => {  // Extract all fields
+        // Use op, left, right
+    }
+}
+```
+
+**Matching Tokens in Parser**:
+
+```rust
+match self.peek() {
+    Token::Number(n) => {
+        let n = *n;  // Copy the value
+        self.advance();
+        Ok(self.builder.literal(n))
+    }
+    Token::LeftParen => {
+        self.advance();
+        let expr = self.parse_expr()?;
+        self.expect(Token::RightParen)?;
+        Ok(expr)
+    }
+    token => Err(format!("Unexpected token: {:?}", token)),
+}
+```
+
+**Guards and Nested Patterns**:
+
+```rust
+match token {
+    Token::Plus | Token::Minus => OpType::Additive,  // Match either
+    Token::Star | Token::Slash => OpType::Multiplicative,
+    _ => unreachable!(),  // All other cases impossible here
+}
+```
+
+**Destructuring in Let Bindings**:
+
+```rust
+let Expr::BinOp { op, left, right } = expr else {
+    panic!("Expected binary operation");
+};
+```
+
+---
+
+### Performance Concepts: Why Arena Wins
+
+**Cache Locality**:
+
+Modern CPUs have a memory hierarchy. Accessing RAM is ~100x slower than L1 cache. Arena allocation keeps related objects close together in memory.
+
+```
+Box allocations:
+Node1 @ 0x1000 → Node2 @ 0x8000 → Node3 @ 0x2000
+Each access: likely cache miss (~100 cycles)
+
+Arena allocations:
+Node1 @ 0x1000 → Node2 @ 0x1018 → Node3 @ 0x1030
+All in same cache line (~4 cycles after first load)
+```
+
+**Allocation Overhead**:
+
+```rust
+// Box<T>: Global allocator
+Box::new(value)
+  → lock allocator mutex (~10ns)
+  → find free block (~20ns)
+  → update metadata (~10ns)
+  → unlock mutex (~10ns)
+  Total: ~50-100ns
+
+// Arena: Bump allocator
+arena.alloc(value)
+  → calculate position (~1ns)
+  → write value (~1ns)
+  → return reference (~1ns)
+  Total: ~2-5ns
+
+Speedup: 25x per allocation!
+```
+
+**Deallocation Overhead**:
+
+```rust
+// Box<T>: Individual drops
+drop(box1);  // ~50ns
+drop(box2);  // ~50ns
+drop(box3);  // ~50ns
+// ... thousands of drops
+
+// Arena: Bulk free
+drop(arena);  // ~10ns total
+// OS reclaims entire buffer at once
+```
+
+---
+
 ### Connection to This Project
 
 In this project, you'll implement the complete pipeline:
