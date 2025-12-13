@@ -67,6 +67,356 @@ let user = sqlx::query!("SELECT * FROM users WHERE usrname = $1", "alice");  // 
 
 ---
 
+## Introduction to SQLx and Type-Safe Database Concepts
+
+SQLx brings a revolutionary approach to database programming: compile-time verification of SQL queries. This means errors that would typically crash your application at runtime are caught during compilation. Understanding the concepts behind SQLx transforms how you think about database interactions.
+
+### 1. Compile-Time SQL Verification
+
+Most database libraries verify SQL at runtime—when your code executes:
+
+**Traditional Approach (Runtime Verification)**:
+```python
+# Python with SQLAlchemy
+user = session.query(User).filter_by(usrname="alice").first()  # Typo!
+# Error discovered only when this line runs in production
+```
+
+**SQLx Approach (Compile-Time Verification)**:
+```rust
+// SQLx connects to database during compilation
+let user = sqlx::query!("SELECT * FROM users WHERE usrname = $1", "alice");
+// Won't compile! SQLx checks "usrname" column doesn't exist
+```
+
+**How It Works**:
+1. During compilation, SQLx macros (`query!`, `query_as!`) connect to your database
+2. The actual SQL is sent to PostgreSQL for analysis
+3. PostgreSQL returns the query plan, column types, and validates syntax
+4. SQLx generates Rust code with exact types inferred from database schema
+5. Compiler enforces these types throughout your code
+
+**Benefits**:
+- Typos in column names = compile error
+- Type mismatches = compile error
+- Non-existent tables = compile error
+- Wrong number of parameters = compile error
+- **Zero runtime overhead** - all verification done at compile time
+
+### 2. The `query!()` and `query_as!()` Macros
+
+These macros are the core of SQLx's type safety:
+
+**`query!()` - Anonymous Records**:
+```rust
+let row = sqlx::query!("SELECT id, username FROM users WHERE id = $1", 42)
+    .fetch_one(&pool)
+    .await?;
+
+// row.id has type i32 (inferred from database)
+// row.username has type String
+// If you typo row.usrname, won't compile!
+```
+
+**`query_as!()` - Map to Structs**:
+```rust
+#[derive(sqlx::FromRow)]
+struct User {
+    id: i32,
+    username: String,
+}
+
+let user = sqlx::query_as!(User, "SELECT id, username FROM users WHERE id = $1", 42)
+    .fetch_one(&pool)
+    .await?;
+
+// Returns User struct directly
+// Field names must match SQL columns (compile-time verified)
+```
+
+**Key Difference**: `query!()` creates anonymous struct, `query_as!()` maps to your struct.
+
+### 3. Foreign Keys and Referential Integrity
+
+Foreign keys ensure relationships between tables remain valid—you can't have orphaned records.
+
+**Foreign Key Definition**:
+```sql
+CREATE TABLE posts (
+    id SERIAL PRIMARY KEY,
+    author_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+**What This Enforces**:
+- Can't insert post with non-existent `author_id` (database rejects it)
+- `ON DELETE CASCADE`: Deleting a user automatically deletes their posts
+- `ON DELETE RESTRICT`: Prevents deleting user if they have posts
+- `ON DELETE SET NULL`: Sets `author_id` to NULL when user deleted
+
+**SQLx Verification**: At compile time, SQLx verifies the `author_id` column exists and is the correct type (INT matching `users.id`).
+
+### 4. JOIN Queries for Efficient Data Retrieval
+
+JOINs combine data from multiple tables in a single query, avoiding the N+1 problem.
+
+**N+1 Problem (Bad)**:
+```rust
+// 1 query for posts
+let posts = get_all_posts().await?;
+
+// N queries for authors (one per post)
+for post in posts {
+    let author = get_user(post.author_id).await?;  // N separate queries!
+    println!("{} by {}", post.title, author.username);
+}
+// Total: 1 + N queries
+```
+
+**JOIN Solution (Good)**:
+```rust
+// Single query fetches posts WITH authors
+let posts = sqlx::query_as!(
+    PostWithAuthor,
+    "SELECT posts.*, users.username FROM posts JOIN users ON posts.author_id = users.id"
+)
+.fetch_all(&pool)
+.await?;
+
+// Total: 1 query
+for post in posts {
+    println!("{} by {}", post.title, post.username);
+}
+```
+
+**JOIN Types**:
+- `INNER JOIN`: Only rows with matches in both tables
+- `LEFT JOIN`: All rows from left table, NULL for missing right table matches
+- `RIGHT JOIN`: All rows from right table, NULL for missing left table matches
+
+### 5. Many-to-Many Relationships with Junction Tables
+
+When entities have multiple relationships (post has many tags, tag has many posts), use a junction table:
+
+**Schema**:
+```sql
+CREATE TABLE tags (id SERIAL PRIMARY KEY, name VARCHAR(50));
+CREATE TABLE post_tags (
+    post_id INT REFERENCES posts(id),
+    tag_id INT REFERENCES tags(id),
+    PRIMARY KEY (post_id, tag_id)  -- Composite key prevents duplicates
+);
+```
+
+**Querying**:
+```rust
+// Find all posts with "rust" tag
+let posts = sqlx::query_as!(
+    Post,
+    "SELECT posts.* FROM posts
+     JOIN post_tags ON posts.id = post_tags.post_id
+     JOIN tags ON post_tags.tag_id = tags.id
+     WHERE tags.name = $1",
+    "rust"
+)
+.fetch_all(&pool)
+.await?;
+```
+
+**Pattern**: Join through the junction table to connect the two entities.
+
+### 6. Dynamic Query Building with QueryBuilder
+
+Hard-coded queries can't handle optional filters. `QueryBuilder` builds SQL dynamically while preventing SQL injection:
+
+**The Problem**:
+```rust
+// API endpoint: /posts?author=alice&tag=rust&published=true
+// Need different WHERE clauses based on which params are provided
+```
+
+**QueryBuilder Solution**:
+```rust
+let mut query = QueryBuilder::new("SELECT * FROM posts WHERE 1=1");
+
+if let Some(author) = filter.author {
+    query.push(" AND author_id = ");
+    query.push_bind(author);  // Safely bound, not concatenated
+}
+
+if let Some(tag) = filter.tag {
+    query.push(" AND id IN (SELECT post_id FROM post_tags WHERE tag_id = ");
+    query.push_bind(tag);
+    query.push(")");
+}
+
+let posts = query.build_query_as::<Post>().fetch_all(pool).await?;
+```
+
+**SQL Injection Prevention**: `push_bind()` uses parameterized queries—values are never concatenated into SQL string, preventing injection attacks.
+
+### 7. Aggregation Functions and GROUP BY
+
+Aggregations compute summary statistics across multiple rows:
+
+**Common Aggregates**:
+```sql
+COUNT(*)        -- Number of rows
+COUNT(DISTINCT column) -- Unique values
+SUM(amount)     -- Total
+AVG(rating)     -- Average
+MAX(created_at) -- Latest timestamp
+MIN(price)      -- Lowest price
+```
+
+**GROUP BY Pattern**:
+```rust
+struct UserPostCount {
+    username: String,
+    post_count: i64,  // Note: ! in query means NOT NULL
+}
+
+let stats = sqlx::query_as!(
+    UserPostCount,
+    r#"
+    SELECT users.username, COUNT(posts.id) as "post_count!"
+    FROM users
+    LEFT JOIN posts ON users.id = posts.author_id
+    GROUP BY users.id, users.username
+    HAVING COUNT(posts.id) > 5  -- Filter groups
+    ORDER BY post_count DESC
+    "#
+)
+.fetch_all(&pool)
+.await?;
+```
+
+**Key Insight**: `GROUP BY` collapses rows, aggregates compute values for each group.
+
+### 8. PostgreSQL Full-Text Search
+
+Full-text search is far superior to `LIKE` queries for text searching:
+
+**LIKE Approach (Slow)**:
+```sql
+-- Scans entire table, no ranking, case-sensitive
+SELECT * FROM posts WHERE content LIKE '%rust%';
+```
+
+**Full-Text Search (Fast)**:
+```sql
+-- Uses GIN index, ranked results, stemming support
+SELECT *, ts_rank(search_vector, query) as rank
+FROM posts, to_tsquery('english', 'rust & programming') query
+WHERE search_vector @@ query
+ORDER BY rank DESC;
+```
+
+**Key Components**:
+- **tsvector**: Pre-processed, indexed text column (stored in database)
+- **tsquery**: Search query with operators (`&` = AND, `|` = OR, `!` = NOT)
+- **GIN index**: Makes search 1000x faster than LIKE
+- **ts_rank**: Computes relevance score
+- **Stemming**: Searches "running" matches "run", "runs", "runner"
+
+**Setup**:
+```sql
+ALTER TABLE posts ADD COLUMN search_vector tsvector;
+CREATE INDEX idx_search ON posts USING GIN(search_vector);
+
+-- Auto-update trigger
+CREATE TRIGGER update_search
+BEFORE INSERT OR UPDATE ON posts
+FOR EACH ROW EXECUTE FUNCTION
+tsvector_update_trigger(search_vector, 'pg_catalog.english', title, content);
+```
+
+### 9. Database Migrations
+
+Migrations are version-controlled schema changes, ensuring all environments have the same database structure.
+
+**Migration File** (`migrations/001_create_users.sql`):
+```sql
+-- Up migration
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Down migration (in separate file or section)
+DROP TABLE users;
+```
+
+**Running Migrations**:
+```bash
+sqlx migrate run  # Apply pending migrations
+sqlx migrate revert  # Rollback last migration
+```
+
+**Benefits**:
+- Database schema in version control (git)
+- Reproducible: Same schema in dev, staging, production
+- Rollback support: Undo migrations if needed
+- Team collaboration: Everyone applies same schema changes
+
+### 10. Offline Mode for CI/CD
+
+SQLx macros need database access at compile time. Offline mode solves the CI/CD problem:
+
+**The Problem**: GitHub Actions doesn't have your PostgreSQL database.
+
+**The Solution**: Cache query metadata locally.
+
+**Workflow**:
+```bash
+# Developer (with database running)
+cargo sqlx prepare
+# Creates .sqlx/query-abc123.json files with type metadata
+
+# Commit to git
+git add .sqlx/
+git commit -m "Update SQLx metadata"
+
+# CI (no database)
+SQLX_OFFLINE=true cargo build
+# Uses cached metadata instead of connecting to database
+```
+
+**Metadata Files**: JSON files containing column names, types, nullability for each query.
+
+**Verification**:
+```bash
+cargo sqlx prepare --check  # Fails if metadata outdated
+```
+
+### Connection to This Project
+
+This blog API project applies every SQLx concept in a practical, real-world context:
+
+**Compile-Time Verification (All Milestones)**: Every `query!()` and `query_as!()` call is verified against your actual database schema. Renaming a column triggers compile errors everywhere that column is used—refactoring with confidence.
+
+**Type Safety (Milestone 1)**: You'll experience the difference between runtime SQL errors (other languages) and compile-time verification (Rust+SQLx). A typo in a column name won't compile, period.
+
+**Foreign Keys (Milestone 2)**: The `posts.author_id → users.id` relationship is enforced by PostgreSQL and verified by SQLx at compile time. Deleting a user cascades to their posts, preventing orphaned data.
+
+**JOINs (Milestone 2)**: Fetching posts with author information demonstrates the N+1 problem and how a single JOIN query is more efficient than multiple queries.
+
+**Many-to-Many (Milestone 3)**: The `posts ↔ tags` relationship via `post_tags` junction table is the standard pattern for tagging systems (like Medium, Dev.to).
+
+**QueryBuilder (Milestone 3)**: The dynamic search API (`/posts?author=alice&tag=rust&page=2`) requires building queries at runtime. QueryBuilder provides flexibility without SQL injection risk.
+
+**Aggregations (Milestone 4)**: Analytics like "most prolific authors" and "most commented posts" use `GROUP BY` and `COUNT()` to generate statistics—common in admin dashboards.
+
+**Full-Text Search (Milestone 5)**: The `/search?q=rust+programming` endpoint uses PostgreSQL's tsvector/tsquery, providing Google-like search with ranking and stemming.
+
+**Migrations (All Milestones)**: Each milestone adds tables/columns via migration files, showing how to evolve database schema over time in a controlled, version-controlled way.
+
+**Offline Mode (Milestone 6)**: The `cargo sqlx prepare` workflow enables CI/CD pipelines to build your project without database access, critical for GitHub Actions and Docker builds.
+
+By the end of this project, you'll have built a **production-ready blog API** with the same architecture as Medium, Dev.to, and WordPress—with compile-time guarantees that prevent entire classes of runtime errors.
+
+---
+
 ## Milestone 1: Basic CRUD with query!() Macro
 
 ### Introduction

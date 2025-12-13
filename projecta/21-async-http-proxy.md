@@ -1,5 +1,5 @@
 
-## Project: Async HTTP Proxy Server with Connection Pooling
+# Async HTTP Proxy Server with Connection Pooling
 
 ### Problem Statement
 

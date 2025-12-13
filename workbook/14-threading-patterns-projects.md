@@ -39,7 +39,7 @@ Your pipeline should:
 - Gracefully shutdown all stages
 ---
 
-## Milestone 1: Basic MPSC Channel Communication
+#### Milestone 1: Basic MPSC Channel Communication
 
 ### Introduction
 
@@ -188,7 +188,7 @@ For 8 producers + 1 consumer:
 
 ---
 
-## Milestone 2: Multi-Stage Pipeline
+#### Milestone 2: Multi-Stage Pipeline
 
 ### Introduction
 
@@ -343,7 +343,7 @@ For 1000 messages:
 
 ---
 
-## Milestone 3: Bounded Channels and Backpressure
+#### Milestone 3: Bounded Channels and Backpressure
 
 ### Introduction
 
@@ -452,7 +452,7 @@ For production systems, bounded channels prevent cascading failures.
 
 ---
 
-## Milestone 4: Graceful Shutdown
+#### Milestone 4: Graceful Shutdown
 
 ### Introduction
 
@@ -581,7 +581,7 @@ For critical systems (databases, payment processing), graceful shutdown is manda
 
 ---
 
-## Milestone 5: Error Handling and Monitoring
+#### Milestone 5: Error Handling and Monitoring
 
 ### Introduction
 
@@ -707,7 +707,7 @@ Metrics enable optimization:
 
 ---
 
-## Milestone 6: Benchmark vs Shared State
+#### Milestone 6: Benchmark vs Shared State
 
 
 
@@ -1047,7 +1047,7 @@ Your image processor should:
 - Handle errors gracefully (corrupted images, disk full)
 
 
-## Milestone 1: Basic Thread Pool Implementation
+#### Milestone 1: Basic Thread Pool Implementation
 
 Implement a simple thread pool with fixed number of worker threads. Workers pull tasks from shared queue and execute them.
 
@@ -1177,7 +1177,7 @@ For high-frequency tasks (web requests, image tiles), thread pool is mandatory.
 
 ---
 
-## Milestone 2: Image Processing Tasks
+#### Milestone 2: Image Processing Tasks
 
 ### Introduction
 
@@ -1285,7 +1285,7 @@ For batch processing (thousands of images), parallelism is essential.
 
 ---
 
-## Milestone 3: Progress Tracking and Results
+#### Milestone 3: Progress Tracking and Results
 
 ### Introduction
 
@@ -1430,7 +1430,7 @@ For long-running batch jobs, progress reporting is mandatory.
 
 ---
 
-## Milestone 4: Dynamic Task Submission
+#### Milestone 4: Dynamic Task Submission
 
 ### Introduction
 
@@ -1532,7 +1532,7 @@ impl ThreadPool {
 
 ---
 
-## Milestone 5: Adaptive Pool Sizing
+#### Milestone 5: Adaptive Pool Sizing
 
 ### Introduction
 
@@ -1638,7 +1638,7 @@ For cloud deployments, adaptive sizing reduces costs by 50-90%.
 
 ---
 
-## Milestone 6: Benchmark vs Sequential
+#### Milestone 6: Benchmark vs Sequential
 
 ### Introduction
 
@@ -1879,7 +1879,7 @@ Critical for: metrics systems, caches, connection pools, resource managers.
 
 ---
 
-## Milestone 1: Basic Arc/Mutex Counter
+#### Milestone 1: Basic Arc/Mutex Counter
 
 ### Introduction
 
@@ -2009,7 +2009,7 @@ For concurrent counters, Arc/Mutex is the safe default.
 
 ---
 
-## Milestone 2: Contention Monitoring
+#### Milestone 2: Contention Monitoring
 
 ### Introduction
 
@@ -2121,7 +2121,7 @@ impl MonitoredCounter {
 
 ---
 
-## Milestone 3: RwLock for Read-Heavy Workloads
+#### Milestone 3: RwLock for Read-Heavy Workloads
 
 ### Introduction
 
@@ -2245,7 +2245,7 @@ For caches and metrics, RwLock is often 5-10× faster.
 
 ---
 
-## Milestone 4: Lock-Free with Atomics
+#### Milestone 4: Lock-Free with Atomics
 
 ### Introduction
 
@@ -2362,7 +2362,7 @@ For high-frequency counters (metrics, rate limiters), atomics are mandatory.
 
 ---
 
-## Milestone 5: Deadlock Prevention
+#### Milestone 5: Deadlock Prevention
 
 ### Introduction
 
@@ -2461,7 +2461,7 @@ For production systems, deadlock freedom is mandatory.
 
 ---
 
-## Milestone 6: Performance Comparison
+#### Milestone 6: Performance Comparison
 
 ### Introduction
 

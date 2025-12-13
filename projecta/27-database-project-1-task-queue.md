@@ -58,6 +58,279 @@ The system will use PostgreSQL with connection pooling (deadpool), atomic task c
 
 ---
 
+## Introduction to Database Concepts
+
+Building a distributed task queue requires deep understanding of database patterns that ensure correctness and performance under high concurrency. These concepts are fundamental to production database applications.
+
+### 1. Connection Pooling
+
+**The Problem**: Creating a new database connection is expensive (50-200ms):
+- TCP handshake with the database server
+- SSL/TLS negotiation if encrypted
+- Authentication and authorization
+- Session initialization (setting timezone, character encoding, etc.)
+
+**The Solution**: Connection pooling maintains a pool of pre-established connections that can be reused:
+
+```rust
+// Without pooling - slow!
+for task in tasks {
+    let conn = create_connection().await; // 100ms overhead
+    process(conn, task).await;            // 10ms actual work
+}
+
+// With pooling - fast!
+let pool = create_pool(size: 20);
+for task in tasks {
+    let conn = pool.get().await;          // <1ms to acquire
+    process(conn, task).await;            // 10ms actual work
+    // Connection automatically returned to pool on drop
+}
+```
+
+**Key Characteristics**:
+- **Pool size**: Number of connections to maintain (typically 10-50)
+- **Timeout handling**: What happens when pool is exhausted (wait or error)
+- **Connection validation**: Check if pooled connection is still alive before reusing
+- **Async-aware**: deadpool integrates with Tokio for efficient async operations
+
+**Performance Impact**: 200x faster than creating connections (1ms vs 200ms)
+
+### 2. Transactions and ACID Properties
+
+Transactions ensure that a series of database operations either all succeed together or all fail together—no partial state.
+
+**ACID Guarantees**:
+- **Atomicity**: All operations in transaction succeed or all are rolled back
+- **Consistency**: Database moves from one valid state to another
+- **Isolation**: Concurrent transactions don't interfere with each other
+- **Durability**: Committed changes persist even after crash
+
+**Transaction Pattern**:
+```rust
+// BEGIN transaction
+let mut tx = client.transaction().await?;
+
+// Multiple operations - all or nothing
+tx.execute("UPDATE accounts SET balance = balance - 100 WHERE id = 1", &[]).await?;
+tx.execute("UPDATE accounts SET balance = balance + 100 WHERE id = 2", &[]).await?;
+
+// COMMIT (or ROLLBACK on error)
+tx.commit().await?;
+```
+
+**Why This Matters**: Without transactions, a crash between two operations leaves the database in an inconsistent state (money deducted but not deposited).
+
+### 3. Row-Level Locking with `FOR UPDATE`
+
+When multiple processes try to modify the same row simultaneously, locking prevents race conditions.
+
+**Locking Modes**:
+```sql
+-- Shared lock - allows reads, blocks writes
+SELECT * FROM tasks WHERE id = 1 FOR SHARE;
+
+-- Exclusive lock - blocks both reads and writes
+SELECT * FROM tasks WHERE id = 1 FOR UPDATE;
+```
+
+**NOWAIT vs SKIP LOCKED**:
+```sql
+-- NOWAIT: Immediately error if row is locked
+SELECT * FROM tasks WHERE status = 'pending' LIMIT 1 FOR UPDATE NOWAIT;
+
+-- SKIP LOCKED: Skip locked rows, return next unlocked row
+SELECT * FROM tasks WHERE status = 'pending' LIMIT 1 FOR UPDATE SKIP LOCKED;
+```
+
+**Work Queue Pattern**: `SKIP LOCKED` is perfect for work queues—when Worker A locks task 1, Worker B automatically gets task 2 instead of waiting or erroring.
+
+### 4. Database Indexes
+
+Indexes are data structures that make searches fast by maintaining sorted/hashed copies of specific columns.
+
+**Without Index**:
+```sql
+-- Full table scan: O(n) - checks every row
+SELECT * FROM tasks WHERE status = 'pending';
+-- 1 million tasks → 1 million row reads
+```
+
+**With Index**:
+```sql
+CREATE INDEX idx_tasks_status ON tasks(status);
+SELECT * FROM tasks WHERE status = 'pending';
+-- Index lookup: O(log n) - binary search on index
+-- 1 million tasks → ~20 index node reads
+```
+
+**Composite Indexes** for multiple columns:
+```sql
+CREATE INDEX idx_tasks_priority ON tasks(status, priority DESC, run_at);
+-- Optimizes: WHERE status = 'pending' ORDER BY priority DESC, run_at
+```
+
+**Cost**: Indexes speed up reads but slow down writes (must update index on INSERT/UPDATE).
+
+### 5. PostgreSQL JSONB Data Type
+
+JSONB stores JSON documents in a binary format that's both efficient and queryable.
+
+**Advantages over text JSON**:
+```rust
+// JSONB - indexed, queryable, validates structure
+CREATE TABLE tasks (
+    id SERIAL,
+    payload JSONB  -- Can query nested fields, create indexes on JSON keys
+);
+
+// Query JSON fields
+SELECT * FROM tasks WHERE payload->>'priority' = 'high';
+SELECT * FROM tasks WHERE payload @> '{"action": "send_email"}';
+
+// Index JSON fields
+CREATE INDEX idx_payload_action ON tasks((payload->>'action'));
+```
+
+**Flexibility**: Different task types can have different payload structures without schema migrations.
+
+### 6. Async Database Operations
+
+Tokio-postgres provides non-blocking database I/O, allowing thousands of concurrent operations without blocking threads.
+
+**Blocking vs Async**:
+```rust
+// Blocking - ties up OS thread while waiting for database
+let result = blocking_query(); // Thread blocked for 10ms
+
+// Async - yields to event loop while waiting
+let result = async_query().await; // Thread free to do other work
+```
+
+**Concurrency Model**:
+- Single-threaded async runtime can handle 10K+ concurrent database queries
+- Each query is a lightweight future (~100 bytes), not an OS thread (~2MB stack)
+- Database I/O happens in background, CPU used only when data arrives
+
+### 7. Timestamp Handling with `TIMESTAMPTZ`
+
+`TIMESTAMPTZ` stores timestamps with timezone information, crucial for distributed systems.
+
+**TIMESTAMP vs TIMESTAMPTZ**:
+```sql
+-- TIMESTAMP - no timezone, ambiguous
+created_at TIMESTAMP  -- "2024-01-15 14:30:00" - which timezone?
+
+-- TIMESTAMPTZ - stores UTC, displays in session timezone
+created_at TIMESTAMPTZ  -- Internally UTC, auto-converts on display
+```
+
+**Why This Matters**:
+- Servers in different timezones
+- Daylight saving time transitions
+- Comparing times across regions
+
+**Best Practice**: Always use `TIMESTAMPTZ`, store in UTC, convert to local for display.
+
+### 8. Atomic Compare-and-Swap Operations
+
+Atomic operations combine read-check-update into a single indivisible step, preventing race conditions.
+
+**Race Condition**:
+```rust
+// NON-ATOMIC - race condition!
+let task = SELECT * FROM tasks WHERE status = 'pending' LIMIT 1;
+// Another worker might claim same task here
+UPDATE tasks SET status = 'processing' WHERE id = task.id;
+```
+
+**Atomic Solution**:
+```sql
+-- Single atomic operation
+BEGIN;
+SELECT * FROM tasks WHERE status = 'pending' LIMIT 1 FOR UPDATE SKIP LOCKED;
+UPDATE tasks SET status = 'processing' WHERE id = task.id;
+COMMIT;
+```
+
+The `FOR UPDATE` lock ensures no other transaction can read/modify the row until committed.
+
+### 9. Optimistic vs Pessimistic Locking
+
+Two strategies for handling concurrent modifications:
+
+**Pessimistic Locking** (what this project uses):
+```sql
+-- Lock row immediately
+SELECT * FROM tasks WHERE id = 1 FOR UPDATE;
+-- Do work while holding lock
+UPDATE tasks SET status = 'completed' WHERE id = 1;
+```
+- **Pros**: Guaranteed no conflicts
+- **Cons**: Reduces concurrency (others wait)
+
+**Optimistic Locking** (not used here):
+```sql
+-- Read with version number
+SELECT id, status, version FROM tasks WHERE id = 1;
+-- Update only if version unchanged
+UPDATE tasks SET status = 'completed', version = version + 1
+WHERE id = 1 AND version = old_version;
+```
+- **Pros**: Higher concurrency
+- **Cons**: Must handle retry when version mismatch
+
+**When to Use**: Pessimistic for work queues (low contention), optimistic for high-traffic updates.
+
+### 10. Idempotency and Exactly-Once Processing
+
+Ensuring an operation can be safely retried without side effects.
+
+**Idempotent Operation**:
+```sql
+-- Safe to run multiple times
+UPDATE users SET status = 'active' WHERE id = 1;
+```
+
+**Non-Idempotent Operation**:
+```sql
+-- Dangerous to retry!
+UPDATE accounts SET balance = balance + 100 WHERE id = 1;
+```
+
+**Techniques for Idempotency**:
+- **Unique constraint**: Prevent duplicate inserts
+- **Transaction log**: Record operation ID, skip if already processed
+- **Status transitions**: Only allow valid state changes (pending → processing, not processing → processing)
+
+### Connection to This Project
+
+This task queue project demonstrates all these database concepts in a production context:
+
+**Connection Pooling (Milestone 2)**: You'll configure `deadpool` to maintain a pool of 20 connections shared across 100 workers, experiencing the dramatic performance difference between pooled and unpooled access.
+
+**Transactions (Milestone 3)**: The atomic task claiming pattern uses transactions to combine `SELECT FOR UPDATE` and `UPDATE status` into a single indivisible operation, preventing race conditions.
+
+**Row-Level Locking (Milestone 3)**: `SELECT FOR UPDATE SKIP LOCKED` allows multiple workers to claim different tasks simultaneously without blocking or duplicates—the foundation of work queue correctness.
+
+**Indexes (Milestone 1+)**: You'll create indexes on `status`, `priority`, and `run_at` columns to make task queries fast even with millions of tasks in the queue.
+
+**JSONB (Milestone 1+)**: Task payloads use JSONB to store arbitrary task-specific data (email content, image URLs, etc.) without requiring schema migrations for new task types.
+
+**Async Operations (All Milestones)**: The entire system uses `tokio-postgres` for async database I/O, enabling high concurrency with minimal resource usage.
+
+**Timestamps (Milestone 4+)**: `next_retry_at` and `run_at` use `TIMESTAMPTZ` to correctly handle scheduled tasks and exponential backoff across timezone changes.
+
+**Atomic Operations (Milestone 3)**: The claim-and-mark-processing operation is atomic via `FOR UPDATE` within a transaction, ensuring exactly-once processing.
+
+**Pessimistic Locking (Milestone 3)**: The project uses `FOR UPDATE` rather than optimistic locking because task claiming has low contention—each worker targets different tasks.
+
+**Idempotency (Milestone 4+)**: Task status transitions enforce valid state machines (pending→processing→completed), and retry logic increments `attempts` atomically to prevent duplicate processing.
+
+By the end of this project, you'll have built a **production-ready distributed system** that handles the same challenges as Sidekiq, Celery, and AWS SQS—with full understanding of the database patterns that make it correct and performant.
+
+---
+
 ## Milestone 1: Basic Task Queue with Raw SQL
 
 ### Introduction

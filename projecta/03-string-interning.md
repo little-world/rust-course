@@ -1,4 +1,4 @@
-## Project 3: Custom String Interning with Cow Patterns
+# String Interning
 
 ### Problem Statement
 
@@ -1990,3 +1990,5 @@ fn benchmark_without_interner() {
 - Trade-offs between copying and interning
 
 ---
+## Complete Working Example
+

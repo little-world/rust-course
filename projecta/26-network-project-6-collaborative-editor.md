@@ -39,6 +39,571 @@ Build a real-time collaborative text editor where multiple users can simultaneou
 - **Etherpad**: Open-source collaborative editor using Easysync (OT variant)
 - **ShareDB**: Real-time database with OT support, powers many collaborative apps
 
+## Core Concepts
+
+This project requires understanding several advanced distributed systems concepts that enable real-time collaborative editing without conflicts or data loss.
+
+#### 1. **WebSocket Protocol: Bidirectional Real-Time Communication**
+
+**What It Is**: Unlike HTTP (request-response), WebSocket provides a persistent, bidirectional connection between client and server.
+
+**HTTP vs WebSocket**:
+```
+HTTP (polling approach):
+Client → Request → Server
+Client ← Response ← Server
+(Repeat every 1 second)
+
+Problem: High latency (up to 1s), wasteful (many empty responses)
+
+WebSocket (push approach):
+Client ⟷ Server (persistent connection)
+Server → Client (instant push when data changes)
+
+Benefit: ~1ms latency, efficient (push only when needed)
+```
+
+**WebSocket Lifecycle**:
+1. **Handshake**: HTTP Upgrade request → WebSocket connection
+2. **Message exchange**: Bidirectional frames (text or binary)
+3. **Close**: Either side can close the connection
+
+**Example**:
+```rust
+// Server side (Axum)
+async fn websocket_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket))
+}
+
+async fn handle_socket(socket: WebSocket) {
+    let (mut sender, mut receiver) = socket.split();
+
+    // Receive from client
+    while let Some(Ok(msg)) = receiver.next().await {
+        // Process message
+        sender.send(response).await.ok();
+    }
+}
+```
+
+**Performance**:
+- **Connection overhead**: ~100ms for initial handshake
+- **Message latency**: 1-50ms (depends on network)
+- **Throughput**: 10,000+ messages/sec per connection
+- **Scalability**: 10,000+ concurrent connections per server (with proper async runtime)
+
+#### 2. **Delta-Based Updates: Bandwidth Efficiency**
+
+**The Problem**: Broadcasting the entire 10KB document on every keystroke wastes bandwidth.
+
+**The Solution**: Send only the change (delta):
+```
+Full document broadcast:
+"Hello World" → "Hello World!" = Send entire 12 bytes
+
+Delta broadcast:
+INSERT:11:! = Send only 3 bytes (position + character)
+400% more efficient!
+```
+
+**Delta Operations**:
+```rust
+#[derive(Clone, Serialize, Deserialize)]
+enum Delta {
+    Insert { pos: usize, text: String },
+    Delete { pos: usize, len: usize },
+}
+```
+
+**Bandwidth Comparison**:
+```
+Scenario: 10 users, each types 60 keystrokes/min
+
+Full document (10KB each edit):
+10 users × 60 edits/min × 10KB = 6,000 KB/min = 100 KB/sec
+
+Delta-based (10 bytes per edit):
+10 users × 60 edits/min × 10B = 6 KB/min = 0.1 KB/sec
+
+Improvement: 1000x reduction in bandwidth!
+```
+
+**Client-Side Application**:
+```rust
+// Client maintains local document
+struct ClientDocument {
+    content: String,
+}
+
+impl ClientDocument {
+    fn apply_delta(&mut self, delta: &Delta) {
+        match delta {
+            Delta::Insert { pos, text } => {
+                self.content.insert_str(*pos, text);
+            }
+            Delta::Delete { pos, len } => {
+                self.content.drain(*pos..*pos + *len);
+            }
+        }
+    }
+}
+```
+
+#### 3. **Operational Transformation (OT): Conflict Resolution**
+
+**The Problem**: When two users edit simultaneously, their deltas conflict.
+
+**Example Conflict**:
+```
+Initial document: "ABC"
+
+User 1: INSERT:1:X → "AXBC"  (insert X after A)
+User 2: INSERT:2:Y → "ABYC"  (insert Y after B)
+
+If applied naively:
+- User 1 applies own edit: "ABC" → "AXBC"
+- User 1 receives User 2's delta: INSERT:2:Y
+- Applies to "AXBC": "AXYBC" ❌ Wrong! (Y should be after B, not X)
+
+User 2 applies in reverse order:
+- User 2: "ABC" → "ABYC"
+- Receives INSERT:1:X → "AXBYC" ✓ Correct!
+
+Result: Divergence! User 1 has "AXYBC", User 2 has "AXBYC"
+```
+
+**Operational Transformation Solution**:
+
+Transform operations so they can be applied in any order and converge to the same result.
+
+**Transform Function**:
+```rust
+fn transform(op1: Delta, op2: &Delta) -> Delta {
+    // Transform op1 to apply after op2
+    match (&op1, op2) {
+        (Insert { pos: p1, text: t1 }, Insert { pos: p2, .. }) => {
+            // If op2 inserted before op1, shift op1 right
+            if *p2 <= *p1 {
+                Insert { pos: *p1 + t2.len(), text: t1.clone() }
+            } else {
+                op1 // No change needed
+            }
+        }
+        // ... other cases
+    }
+}
+```
+
+**Example Resolution**:
+```
+Initial: "ABC"
+
+User 1:
+- Applies own: INSERT:1:X → "AXBC"
+- Receives: INSERT:2:Y
+- Transforms: INSERT:2:Y against INSERT:1:X → INSERT:3:Y (shifted right!)
+- Applies transformed: "AXBC" → "AXBYC" ✓
+
+User 2:
+- Applies own: INSERT:2:Y → "ABYC"
+- Receives: INSERT:1:X
+- Transforms: INSERT:1:X against INSERT:2:Y → INSERT:1:X (unchanged)
+- Applies transformed: "ABYC" → "AXBYC" ✓
+
+Result: Both converge to "AXBYC"
+```
+
+**OT Complexity**:
+- **Time**: O(n) where n = number of concurrent operations
+- **Space**: Must track operation history for transformation
+- **Correctness**: Requires careful handling of all operation pairs (Insert-Insert, Insert-Delete, Delete-Delete)
+
+#### 4. **Version Vectors: Causality Tracking**
+
+**The Problem**: How do we know if two operations are concurrent (conflict) or sequential (no conflict)?
+
+**Version Vector**: A map from `user_id → version_number` tracking what each user has seen.
+
+**Example**:
+```rust
+type VersionVector = HashMap<u32, u64>;
+
+// User 1 makes 3 edits, User 2 makes 2 edits
+let v1 = { 1 => 3, 2 => 2 };  // User 1 has seen: own 3 edits + User 2's 2 edits
+
+// User 2 makes another edit
+let v2 = { 1 => 3, 2 => 3 };  // User 2: 3 own edits, seen User 1's 3
+
+// User 1 makes concurrent edit (hasn't seen User 2's latest)
+let v3 = { 1 => 4, 2 => 2 };  // User 1: 4 own edits, only seen 2 from User 2
+
+// Concurrent detection:
+// v3 and v2 are concurrent because:
+// v3[1]=4 > v2[1]=3 (User 1 ahead)
+// v3[2]=2 < v2[2]=3 (User 2 ahead)
+// Neither "happened before" the other → CONCURRENT!
+```
+
+**Happened-Before Relation**:
+```rust
+impl VersionVector {
+    fn happened_before(&self, other: &VersionVector) -> bool {
+        // v1 ≤ v2 if for all users: v1[user] ≤ v2[user]
+        self.iter().all(|(user, &version)| {
+            version <= *other.get(user).unwrap_or(&0)
+        })
+    }
+
+    fn concurrent_with(&self, other: &VersionVector) -> bool {
+        !self.happened_before(other) && !other.happened_before(self)
+    }
+}
+```
+
+**Use in Conflict Detection**:
+```rust
+struct VersionedDelta {
+    delta: Delta,
+    version: VersionVector,
+    user_id: u32,
+}
+
+fn detect_conflict(d1: &VersionedDelta, d2: &VersionedDelta) -> bool {
+    // Concurrent edits that affect overlapping regions
+    d1.version.concurrent_with(&d2.version) &&
+    deltas_overlap(&d1.delta, &d2.delta)
+}
+```
+
+#### 5. **Cursor Tracking and Presence Awareness**
+
+**Why It Matters**: Users need to see where others are editing to avoid conflicts naturally.
+
+**Cursor Update**:
+```rust
+#[derive(Clone, Serialize, Deserialize)]
+struct CursorUpdate {
+    user_id: u32,
+    user_name: String,
+    cursor_pos: usize,
+    selection: Option<(usize, usize)>,  // Start, end of selection
+}
+```
+
+**Update Frequency**:
+- **Too frequent**: Cursor moves on every keystroke → 60 updates/min/user = 600 updates/min with 10 users (spam!)
+- **Throttled**: Update every 100ms → 10 updates/sec/user = 100 updates/sec with 10 users (acceptable)
+
+**Cursor Position Transformation**:
+
+When document changes, cursor positions must shift!
+
+```rust
+// Document: "ABC|DEF" (cursor at position 3)
+// User 2 inserts "XY" at position 1: "A|XYBCDEF"
+// User 1's cursor must shift: 3 → 5
+
+fn transform_cursor(cursor_pos: usize, delta: &Delta) -> usize {
+    match delta {
+        Insert { pos, text } if *pos <= cursor_pos => {
+            cursor_pos + text.len()  // Shift right
+        }
+        Delete { pos, len } if *pos < cursor_pos => {
+            cursor_pos.saturating_sub(*len)  // Shift left
+        }
+        _ => cursor_pos  // No change
+    }
+}
+```
+
+**UI Representation**:
+```
+Document: "Hello World"
+           ^     ^
+           |     User 2 (Bob): position 6
+           User 1 (Alice): position 0, selection [0, 5]
+
+Render:
+[Hello] World
+ ^^^^^  ^
+ Alice  Bob
+ (blue) (red cursor)
+```
+
+#### 6. **Undo/Redo in Collaborative Context**
+
+**The Challenge**: Simple undo (revert last operation) doesn't work when others have edited since.
+
+**Example**:
+```
+Document: "ABC"
+User 1: INSERT:3:D → "ABCD"
+User 2: INSERT:0:X → "XABCD"
+User 1 undos: Need to remove D, but position changed!
+  Naive undo: DELETE:3:1 → "XABD" ❌ (deleted C instead of D!)
+  Correct undo: DELETE:4:1 → "XABC" ✓
+```
+
+**Solution: Inverse Operations + Transformation**:
+
+```rust
+fn inverse_delta(delta: &Delta) -> Delta {
+    match delta {
+        Insert { pos, text } => Delete {
+            pos: *pos,
+            len: text.len(),
+            deleted_text: text.clone(),  // Store for redo!
+        },
+        Delete { pos, deleted_text, .. } => Insert {
+            pos: *pos,
+            text: deleted_text.clone(),
+        },
+    }
+}
+
+async fn undo_user(&self, user_id: u32) {
+    // 1. Get user's last operation
+    let original_op = user.undo_stack.pop();
+
+    // 2. Compute inverse
+    let mut inverse = inverse_delta(&original_op.delta);
+
+    // 3. Transform inverse against all operations since original
+    for later_op in operations_since(&original_op) {
+        inverse = transform(inverse, &later_op.delta);
+    }
+
+    // 4. Apply transformed inverse
+    apply_delta(inverse);
+
+    // 5. Push to redo stack
+    user.redo_stack.push(original_op);
+}
+```
+
+#### 7. **CRDT vs OT: Two Approaches to Consistency**
+
+**Operational Transformation (OT)**:
+- ✅ **Pros**: Lower bandwidth (smaller operations), deterministic convergence
+- ❌ **Cons**: Complex transformation logic, must handle all operation pairs correctly
+- **Used by**: Google Docs, Etherpad, ShareDB
+
+**Conflict-Free Replicated Data Types (CRDT)**:
+- ✅ **Pros**: Simpler algorithm (no transformation), mathematically proven convergence
+- ❌ **Cons**: Higher metadata overhead, harder to optimize
+- **Used by**: Figma, Apple Notes, Automerge
+
+**Comparison**:
+```
+Feature              OT                     CRDT
+Bandwidth            Low (10-50 bytes)      Medium (50-200 bytes)
+Algorithm complexity High                   Medium
+Convergence proof    Manual                 Mathematical
+Undo/redo            Complex                Very complex
+Best for             Text editing           Structured data
+```
+
+**This project uses OT** because:
+1. Text editing is OT's ideal use case
+2. Lower bandwidth (better for learning)
+3. Industry standard (Google Docs approach)
+
+#### 8. **Eventual Consistency and Distributed Systems**
+
+**CAP Theorem Applied**:
+- **Consistency**: All users see the same document
+- **Availability**: System always accepts edits
+- **Partition Tolerance**: Works despite network delays/failures
+
+Collaborative editors choose **AP (Availability + Partition Tolerance)**:
+- Users can always edit (even offline!)
+- System handles conflicts when reconnecting
+- Eventual consistency via OT/CRDT
+
+**Network Failure Handling**:
+```
+User 1 (offline):
+  Makes edits → Queued locally
+
+User 1 (reconnects):
+  Uploads queued edits with old version vectors
+  Server transforms against all operations since disconnect
+  User 1 receives all missed operations
+
+Result: Documents eventually converge (may take seconds)
+```
+
+**Performance Metrics**:
+```
+Metric                   Target          Actual (Google Docs)
+Latency (local network)  < 100ms         ~50ms
+Latency (internet)       < 500ms         ~200ms
+Conflict resolution      < 1ms           ~0.1ms
+Max concurrent editors   100+            200+
+Bandwidth per user       < 10 KB/min     ~5 KB/min
+```
+
+---
+
+## Connection to This Project
+
+This project implements a complete collaborative text editor through 6 progressive milestones, each building on the concepts above:
+
+### Milestone Progression
+
+**Milestone 1: Simple Text Broadcast (Full Document Sync)**
+- **Concepts applied**: WebSocket bidirectional communication, broadcast channels
+- **Limitation**: 10KB × 60 edits/min = 600KB/min per user (unusable at scale)
+- **Learning**: Understand WebSocket lifecycle and basic state synchronization
+
+**Milestone 2: Delta-Based Updates (Send Only Changes)**
+- **Concepts applied**: Delta operations (Insert/Delete), efficient serialization
+- **Improvement**: 600KB/min → 600 bytes/min (1000x reduction!)
+- **Architecture**: Client maintains local document, applies received deltas
+- **Real-world**: This is how Dropbox, Git, and rsync work (diff-based sync)
+
+**Milestone 3: User Cursors and Selections**
+- **Concepts applied**: Presence awareness, cursor position transformation
+- **User experience**: Blind editing → see where others are working
+- **Challenge**: Cursor positions must update when document changes
+- **Performance**: Throttle to 10 updates/sec to avoid spam (100ms intervals)
+
+**Milestone 4: Conflict Detection (Version Vectors)**
+- **Concepts applied**: Causality tracking, happened-before relation, concurrent operation detection
+- **Visibility**: Silent conflicts → explicit conflict markers
+- **Example**: Two users insert at same position → detect via concurrent version vectors
+- **Foundation**: Required for OT in Milestone 5 (must know what to transform)
+
+**Milestone 5: Operational Transformation (Conflict Resolution)**
+- **Concepts applied**: OT algorithm, delta transformation, convergence guarantees
+- **Automation**: Manual resolution → automatic via transformation
+- **Correctness**: All clients converge to identical document despite network delays
+- **Complexity**: Must handle all operation pairs correctly:
+  ```
+  Insert + Insert: Shift position if needed
+  Insert + Delete: Adjust for deleted range
+  Delete + Insert: Shift delete position
+  Delete + Delete: Reduce length if overlapping
+  ```
+- **Real-world**: This is the Google Docs algorithm (simplified)
+
+**Milestone 6: Undo/Redo with Collaborative Edits**
+- **Concepts applied**: Inverse operations, transformation against operation history
+- **Challenge**: Undo must account for others' edits since original operation
+- **Example**:
+  ```
+  User A: INSERT:5:X
+  User B: INSERT:3:Y
+  User A undos: Must DELETE:6:1 (not DELETE:5:1, because Y shifted it)
+  ```
+- **Stack management**: Undo stack per user, redo cleared on new edit
+- **Production-complete**: Full collaborative editor feature set
+
+### Design Decisions
+
+**Why WebSocket over HTTP polling?**
+- Latency: 1ms vs 1000ms
+- Efficiency: Push when needed vs poll every second
+- Real-time: True bidirectional vs request-response
+
+**Why deltas over full document?**
+- Bandwidth: 10 bytes vs 10,000 bytes per edit
+- Scalability: 10 users typing = 100 bytes/sec vs 100KB/sec
+- Mobile-friendly: Works on slow 3G connections
+
+**Why OT over CRDT?**
+- Learning: OT is industry standard for text (Google Docs)
+- Bandwidth: Smaller operations (10 bytes vs 50+ bytes)
+- Determinism: Easier to reason about convergence
+
+**Why version vectors over timestamps?**
+- Causality: Timestamps can't detect concurrent events (clock skew!)
+- Correctness: Version vectors provide true happens-before relation
+- Offline: Works without synchronized clocks
+
+### Performance Evolution
+
+```
+Milestone 1 (full sync):
+- Bandwidth: 600 KB/min per user
+- Latency: 50ms (network) + 0ms (processing)
+- Scalability: ~10 users max
+
+Milestone 2 (delta-based):
+- Bandwidth: 600 bytes/min per user (1000x better!)
+- Latency: 50ms (network) + 0ms (processing)
+- Scalability: ~100 users
+
+Milestone 3 (cursors):
+- Bandwidth: +600 bytes/min (cursor updates)
+- Latency: 50ms (network) + 0ms (processing)
+- UX: Huge improvement (see others' cursors)
+
+Milestone 4 (conflict detection):
+- Bandwidth: Same (version vectors add ~20 bytes per delta)
+- Latency: 50ms (network) + 0.1ms (detection)
+- Correctness: Can now detect conflicts
+
+Milestone 5 (OT):
+- Bandwidth: Same
+- Latency: 50ms (network) + 0.5ms (transformation)
+- Correctness: Guaranteed convergence!
+
+Milestone 6 (undo/redo):
+- Bandwidth: Same
+- Latency: 50ms (network) + 1ms (transform against history)
+- Features: Production-complete collaborative editor
+```
+
+### Real-World Comparison
+
+**Google Docs**:
+- Uses custom OT algorithm (based on Jupiter/Operational Transformation)
+- Supports 50+ concurrent editors
+- ~50ms latency on good network
+- Falls back to full sync on extreme conflicts
+- **This project teaches the core concepts!**
+
+**Figma**:
+- Uses CRDT (different approach)
+- Supports 100+ concurrent designers
+- ~100ms latency
+- Higher bandwidth but simpler algorithm
+- **Different trade-off (structure vs text)**
+
+**VS Code Live Share**:
+- Uses OT for text edits
+- Adds cursor tracking (like Milestone 3)
+- Supports ~10 concurrent editors
+- **Similar architecture to this project**
+
+### What You'll Build
+
+By completing all 6 milestones, you'll have:
+
+1. ✅ **Full WebSocket server**: Handle 100+ concurrent connections
+2. ✅ **Delta synchronization**: 1000x more efficient than full sync
+3. ✅ **Presence awareness**: See others' cursors and selections
+4. ✅ **Conflict detection**: Track causality with version vectors
+5. ✅ **Automatic resolution**: OT algorithm for convergence
+6. ✅ **Undo/redo**: Works correctly with concurrent edits
+
+**Skills gained**:
+- WebSocket protocol and async networking
+- Distributed systems (eventual consistency, CAP theorem)
+- Operational Transformation algorithms
+- Concurrent state management (Arc, RwLock, broadcast channels)
+- Real-time system design (low latency, high throughput)
+
+**Applicable to**:
+- Any real-time collaborative application
+- Distributed databases (conflict resolution)
+- Multiplayer games (state synchronization)
+- Live streaming (broadcast patterns)
+- IoT systems (distributed state)
+
+---
+
 ### Learning Goals
 
 - Master WebSocket bidirectional communication patterns

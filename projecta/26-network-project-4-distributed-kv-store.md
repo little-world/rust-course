@@ -53,6 +53,713 @@ Build a distributed key-value database that evolves from a simple in-memory Hash
 
 ---
 
+### Core Concepts
+
+Before building a distributed key-value store, let's understand the fundamental concepts that make distributed databases work:
+
+#### 1. Key-Value Store Fundamentals
+
+**What is a Key-Value Store?**
+A key-value store is the simplest form of database: a giant HashMap that maps keys to values, accessible over the network.
+
+```rust
+// In-memory version
+let mut db: HashMap<String, String> = HashMap::new();
+db.insert("user:123".to_string(), "Alice".to_string());
+let value = db.get("user:123"); // Some("Alice")
+```
+
+**Network Protocol**:
+```
+Client → Server: GET user:123\n
+Server → Client: VALUE Alice\n
+
+Client → Server: SET user:123 Bob\n
+Server → Client: OK\n
+
+Client → Server: DELETE user:123\n
+Server → Client: OK\n
+```
+
+**Why KV Stores?**
+- **Simple API**: Just GET/SET/DELETE (vs SQL with complex queries)
+- **Fast**: O(1) lookups with hash table
+- **Scalable**: Easy to partition data across machines
+- **Foundation**: Building block for complex databases (Redis, DynamoDB, etcd)
+
+**Use Cases**:
+- **Caching**: Store frequently accessed data (avoid DB queries)
+- **Sessions**: Web session storage across servers
+- **Counters**: Real-time metrics (page views, likes)
+- **Configuration**: Distributed config for microservices
+
+#### 2. Write-Ahead Logging (WAL)
+
+**The Problem**: In-memory data is lost on crash. How do we make it durable?
+
+**The Solution: Write-Ahead Log**
+
+Before modifying in-memory state, write the operation to an append-only log file on disk. On crash, replay the log to rebuild state.
+
+**WAL Pattern**:
+```rust
+// Every write operation:
+1. Append operation to log file
+2. Call fsync() to force disk write
+3. Update in-memory HashMap
+4. Return OK to client
+
+// On server restart:
+1. Read entire WAL file
+2. Replay each operation
+3. Rebuild in-memory HashMap
+4. Resume normal operation
+```
+
+**Example**:
+```
+# wal.log
+SET key1 value1
+SET key2 value2
+DELETE key1
+SET key3 value3
+
+# After replay:
+HashMap = {key2: value2, key3: value3}
+```
+
+**Performance Cost**:
+```rust
+// Without WAL (memory-only)
+HashMap.insert(key, value);  // ~0.01ms
+→ 50,000 writes/sec
+
+// With WAL (durable)
+wal.append(SET key value);   // ~1ms (disk I/O + fsync)
+HashMap.insert(key, value);  // ~0.01ms
+→ 10,000 writes/sec
+```
+
+**Why `fsync()` is Critical**:
+```rust
+// WITHOUT fsync - data can be lost!
+file.write(b"SET key value\n")?;  // Writes to OS buffer (not disk!)
+// CRASH → Data in buffer is lost
+
+// WITH fsync - guaranteed durability
+file.write(b"SET key value\n")?;
+file.sync_all()?;  // Forces OS to flush to physical disk
+// CRASH → Data is on disk, safe!
+```
+
+**WAL is used by**:
+- PostgreSQL (write-ahead log for ACID transactions)
+- Redis (AOF - Append-Only File)
+- etcd, Consul, Raft implementations
+
+#### 3. Replication: Async vs Synchronous
+
+**Why Replicate?**
+- **Durability**: Multiple copies survive disk failures
+- **Availability**: System continues if one server fails
+- **Read Scaling**: Distribute reads across replicas
+
+**Async Replication (Fire-and-Forget)**:
+```rust
+// Master receives write
+master.set("key", "value");
+
+// Send to replicas WITHOUT waiting
+for replica in replicas {
+    tokio::spawn(async move {
+        replica.send("REPLICATE SET key value").await;
+    });
+}
+
+// Immediately return OK to client
+return Ok(());
+```
+
+**Pros**: Fast writes (don't wait for replicas)
+**Cons**: Data loss if master crashes before replicas receive write
+
+**Synchronous Replication (Wait for ACK)**:
+```rust
+// Master receives write
+master.set("key", "value");
+
+// Send to replicas and WAIT for acknowledgments
+let (tx, mut rx) = mpsc::channel(replicas.len());
+
+for replica in replicas {
+    tokio::spawn(async move {
+        replica.send("REPLICATE SET key value").await;
+        let ack = replica.recv_ack().await;
+        tx.send(ack).await;
+    });
+}
+
+// Wait for W replicas to acknowledge
+let mut acks = 0;
+while let Some(ack) = rx.recv().await {
+    acks += 1;
+    if acks >= WRITE_QUORUM {
+        break;
+    }
+}
+
+return Ok();  // Guaranteed on W replicas
+```
+
+**Pros**: No data loss (data on multiple servers before OK)
+**Cons**: Slower writes (wait for network + replica processing)
+
+**Performance Comparison**:
+```
+Async Replication:
+  Write latency: 1ms (local write only)
+  Throughput: 30,000 writes/sec
+  Data loss risk: YES (if master crashes)
+
+Sync Replication (W=2 out of N=3):
+  Write latency: 5ms (local + network + replica)
+  Throughput: 15,000 writes/sec
+  Data loss risk: NO (data on 2 servers)
+```
+
+#### 4. Quorum-Based Consistency (CAP Theorem)
+
+**CAP Theorem**: You can only have 2 out of 3:
+- **C**onsistency: All nodes see the same data
+- **A**vailability: System responds to all requests
+- **P**artition tolerance: System works despite network failures
+
+**In Practice**: Network partitions happen, so choose between C and A.
+
+**Quorum Writes (Choose Consistency)**:
+```
+N = Total replicas (e.g., 3)
+W = Write quorum (e.g., 2) - must ack before success
+R = Read quorum (e.g., 2) - must read from this many
+
+Consistency guarantee: If W + R > N, reads see committed writes
+Example: N=3, W=2, R=2 → 2+2 > 3 ✓ Strong consistency
+```
+
+**How Quorum Works**:
+```
+Write "key=value" with N=3, W=2:
+
+Client → Master: SET key value
+Master → Replica1: REPLICATE SET key value
+Master → Replica2: REPLICATE SET key value
+Master → Replica3: REPLICATE SET key value
+
+Wait for 2 ACKs:
+Replica1 → Master: ACK ✓
+Replica2 → Master: ACK ✓
+[Replica3 is slow/dead, ignore]
+
+Master → Client: OK (data is durable on 2/3 nodes)
+```
+
+**Fault Tolerance**:
+```
+N=3, W=2, R=2:
+  Can survive: 1 node failure
+  - Writes: 2 nodes still form quorum
+  - Reads: 2 nodes still available
+
+N=5, W=3, R=3:
+  Can survive: 2 node failures
+  - Writes: 3 nodes still form quorum
+  - Reads: 3 nodes still available
+```
+
+**Trade-offs**:
+```
+Higher W (stronger consistency):
+  ✓ More durable (data on more nodes)
+  ✗ Slower writes (wait for more ACKs)
+  ✗ Less available (more nodes must be up)
+
+Lower W (higher availability):
+  ✓ Faster writes
+  ✓ More available (fewer nodes needed)
+  ✗ Less durable
+```
+
+#### 5. Leader Election and Raft Consensus
+
+**The Problem**: In a replicated system, who decides the order of writes?
+
+**The Solution**: Elect one node as the leader. Only the leader accepts writes.
+
+**Leader Election Algorithm (Simplified Raft)**:
+
+**States**:
+- **Leader**: Accepts writes, sends heartbeats
+- **Follower**: Redirects writes to leader, receives replication
+- **Candidate**: Requesting votes to become leader
+
+**Normal Operation**:
+```
+Leader → Followers: HEARTBEAT (every 1 second)
+Followers: "Leader is alive, don't start election"
+```
+
+**Leader Failure**:
+```
+Time 0:  Leader sends heartbeats
+Time 5:  Leader crashes (no more heartbeats)
+Time 6:  Follower times out (no heartbeat for 5s)
+Time 6:  Follower becomes Candidate
+         - Increment term: 1 → 2
+         - Vote for self
+         - Request votes from other nodes
+
+Time 6.1: Candidate → Other nodes: VOTE_REQUEST term=2
+Time 6.2: Nodes respond: VOTE_GRANTED (if haven't voted)
+Time 6.3: Candidate receives majority → becomes Leader
+Time 6.4: New Leader → All: HEARTBEAT (establish leadership)
+```
+
+**Voting Rules**:
+A node grants a vote if:
+1. Candidate's term is higher than current term
+2. Node hasn't voted for anyone else this term
+
+**Majority Quorum**:
+```
+3 nodes: Need 2 votes (majority)
+5 nodes: Need 3 votes (majority)
+7 nodes: Need 4 votes (majority)
+
+Formula: (N / 2) + 1
+```
+
+**Split Vote Handling**:
+```
+4-node cluster, 2 candidates start election simultaneously:
+
+Candidate A: Votes from A, B (2/4 - not majority)
+Candidate B: Votes from C, D (2/4 - not majority)
+
+No majority → Election times out → Retry with higher term
+Random timeouts prevent repeated split votes
+```
+
+**Why Raft?**
+- **Safety**: At most one leader per term
+- **Liveness**: Eventually elects a leader (if majority available)
+- **Understandable**: Simpler than Paxos
+- **Production-proven**: etcd, Consul, TiKV use it
+
+#### 6. Distributed Systems Failure Modes
+
+**Network Partitions (Split Brain)**:
+```
+Before:
+  [Leader - Replica1 - Replica2]  (all connected)
+
+After network split:
+  [Leader] | [Replica1 - Replica2]  (network partition)
+
+Without quorum:
+  - Leader thinks it's still leader (bad!)
+  - Replica1 could become new leader (two leaders!)
+
+With quorum (N=3, W=2):
+  - Leader can't reach quorum → stops accepting writes ✓
+  - Replica1+Replica2 can elect new leader ✓
+  - Only one side accepts writes (safe)
+```
+
+**Partial Failures**:
+```
+Scenario: Master receives write, sends to 3 replicas
+
+Replica1: ACK (success)
+Replica2: Timeout (network slow)
+Replica3: NACK (disk full)
+
+Question: Did the write succeed?
+Answer: Depends on quorum!
+  - W=2: YES (1 replica + master = 2)
+  - W=3: NO (only 1 replica confirmed)
+```
+
+**Clock Skew**:
+```
+Server A: time = 10:00:00.000
+Server B: time = 10:00:05.123 (5 seconds ahead!)
+
+Problem: Can't use timestamps for ordering
+Solution: Logical clocks (version numbers, Lamport clocks)
+```
+
+**Byzantine Failures**: Nodes lie or behave maliciously (not covered here, see BFT algorithms)
+
+#### 7. Connection Pooling
+
+**The Problem**: Creating TCP connections is expensive.
+
+**TCP 3-Way Handshake**:
+```
+Client → Server: SYN (synchronize)
+Server → Client: SYN-ACK
+Client → Server: ACK
+[Connection established - took 1-3ms]
+
+Total overhead: 1-3ms per connection
+```
+
+**Without Pooling**:
+```rust
+for _ in 0..1000 {
+    let stream = TcpStream::connect("db:6379")?;  // 3ms handshake
+    stream.write(b"GET key\n")?;                   // 0.5ms
+    stream.read(&mut buf)?;                        // 0.5ms
+}
+// Total: 1000 * (3ms + 0.5ms + 0.5ms) = 4000ms = 4 seconds
+```
+
+**With Pooling**:
+```rust
+let pool = ConnectionPool::new("db:6379", 10);
+
+for _ in 0..1000 {
+    let stream = pool.acquire()?;  // 0ms (reuse existing)
+    stream.write(b"GET key\n")?;   // 0.5ms
+    stream.read(&mut buf)?;        // 0.5ms
+    // stream returns to pool on drop
+}
+// Total: 3ms (first conn) + 1000 * 1ms = 1003ms = 1 second
+```
+
+**Connection Pool Implementation**:
+```rust
+struct ConnectionPool {
+    available: Arc<Mutex<VecDeque<TcpStream>>>,
+    max_size: usize,
+}
+
+impl ConnectionPool {
+    fn acquire(&self) -> PooledConnection {
+        let mut pool = self.available.lock();
+
+        // Reuse connection if available
+        if let Some(stream) = pool.pop_front() {
+            return PooledConnection { stream, pool };
+        }
+
+        // Otherwise create new
+        let stream = TcpStream::connect(addr)?;
+        PooledConnection { stream, pool }
+    }
+}
+
+// Auto-return to pool on drop
+impl Drop for PooledConnection {
+    fn drop(&mut self) {
+        self.pool.lock().push_back(self.stream);
+    }
+}
+```
+
+**Benefits**:
+- **Lower latency**: 1-3ms saved per request
+- **Higher throughput**: 3-10x more requests/sec
+- **TCP window tuning**: Reused connections have optimized TCP window
+- **TLS session resumption**: Reuse TLS sessions (if using HTTPS)
+
+#### 8. Smart Client Routing
+
+**The Problem**: Clients need to find the leader and balance reads.
+
+**Naive Client**:
+```rust
+// Always connect to server1
+let mut stream = TcpStream::connect("server1:6379")?;
+stream.write(b"SET key value\n")?;
+
+// Problems:
+// - What if server1 is not the leader?
+// - What if server1 is down?
+// - All reads go to one server (no load balancing)
+```
+
+**Smart Client**:
+```rust
+struct KvClient {
+    pools: HashMap<String, ConnectionPool>,  // Pool per server
+    leader: Arc<RwLock<Option<String>>>,     // Cached leader
+    replicas: Vec<String>,                   // All servers
+}
+
+impl KvClient {
+    async fn set(&self, key: String, value: String) {
+        loop {
+            // Get leader (cached or discover)
+            let leader = self.get_leader().await;
+
+            // Try write
+            match self.send_write(&leader, SET, key, value).await {
+                Ok(_) => return Ok(()),
+                Err(NotLeader(new_leader)) => {
+                    // Update cache and retry
+                    *self.leader.write().await = Some(new_leader);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn get(&self, key: &str) {
+        // Pick random replica (load balancing)
+        let replica = self.replicas.choose_random();
+
+        // Send read
+        self.send_read(&replica, GET, key).await
+    }
+}
+```
+
+**Discovery Protocol**:
+```
+Client → Any Server: WHO_IS_LEADER\n
+Server → Client: LEADER server2:6379\n
+
+Client caches: leader = server2:6379
+
+Client → server2: SET key value\n
+server2 → Client: OK\n
+
+If server2 crashes:
+Client → server2: SET key value\n
+(timeout or connection refused)
+
+Client → server1: WHO_IS_LEADER\n
+Server1 → Client: LEADER server3:6379\n
+(server3 was elected)
+
+Client → server3: SET key value\n
+server3 → Client: OK\n
+```
+
+**Load Balancing Strategies**:
+- **Random**: Pick random replica
+- **Round-robin**: Cycle through replicas
+- **Least-loaded**: Track connection count, pick lowest
+- **Geographically closest**: Minimize network latency
+
+### Connection to This Project
+
+Now let's see how all these concepts come together in building a distributed KV store:
+
+**1. Progressive Complexity: From Local to Distributed**
+
+This project takes you from a simple HashMap to a full distributed system:
+
+**Milestone 1 (Local KV Store)**:
+- Start with `Arc<RwLock<HashMap>>` for thread-safe in-memory storage
+- Learn TCP protocol design (GET/SET/DELETE)
+- Understand concurrent access patterns (many readers, few writers)
+
+**Milestone 2 (Persistence)**:
+- Add durability with Write-Ahead Log
+- Experience the 5-10x slowdown from `fsync()`
+- Build crash recovery (replay WAL on startup)
+- Understand the durability vs performance trade-off
+
+**Milestone 3 (Replication)**:
+- Scale to multiple servers with async replication
+- Experience the simplicity and speed of fire-and-forget
+- Also experience the risk: data loss if master crashes
+
+**2. The CAP Theorem in Practice**
+
+Each milestone makes different CAP trade-offs:
+
+**Milestone 1-2 (CP: Consistency + Partition tolerance)**:
+```
+Single node:
+  ✓ Consistency: One source of truth
+  ✓ Partition tolerance: N/A (no network)
+  ✗ Availability: Node down = system down
+```
+
+**Milestone 3 (AP: Availability + Partition tolerance)**:
+```
+Async replication:
+  ✗ Consistency: Replicas lag behind master
+  ✓ Availability: Reads work even if master is slow
+  ✓ Partition tolerance: System continues during partition
+```
+
+**Milestone 4 (CP: Consistency + Partition tolerance)**:
+```
+Quorum writes (N=3, W=2, R=2):
+  ✓ Consistency: W+R > N guarantees reads see writes
+  ✗ Availability: Can't write if < W nodes available
+  ✓ Partition tolerance: Majority side continues
+```
+
+**3. Building Consensus from Scratch**
+
+Milestone 5 implements simplified Raft:
+
+**Core Algorithm**:
+```rust
+// 1. Leader sends heartbeats
+async fn run_heartbeat_loop(&self) {
+    loop {
+        sleep(1s).await;
+        for peer in peers {
+            send_heartbeat(peer, self.term, self.id).await;
+        }
+    }
+}
+
+// 2. Followers timeout → election
+async fn run_election_timeout(&self) {
+    if last_heartbeat.elapsed() > 5s {
+        self.start_election().await;
+    }
+}
+
+// 3. Voting
+async fn start_election(&self) {
+    self.term += 1;
+    self.vote_for_self();
+
+    for peer in peers {
+        votes += request_vote(peer, self.term).await;
+    }
+
+    if votes > majority {
+        self.become_leader();
+    }
+}
+```
+
+**Why This Matters**:
+- etcd (Kubernetes' brain) uses this exact algorithm
+- Consul (service discovery) uses Raft
+- CockroachDB uses multi-Raft
+- Understanding Raft = understanding modern distributed databases
+
+**4. Performance Evolution**
+
+Watch performance change across milestones:
+
+```
+Milestone 1: In-Memory
+  - Writes: 50,000/sec
+  - Latency: 0.02ms
+  - Durability: None
+  - Availability: None
+
+Milestone 2: WAL
+  - Writes: 10,000/sec (-80%)
+  - Latency: 1ms (+50x)
+  - Durability: Survives crashes
+  - Availability: Still single node
+
+Milestone 3: Async Replication
+  - Writes: 30,000/sec
+  - Latency: 1ms (no wait for replicas)
+  - Durability: Multiple copies (but async)
+  - Availability: Reads scale 3x
+
+Milestone 4: Quorum Writes
+  - Writes: 15,000/sec (-50%)
+  - Latency: 5ms (wait for W replicas)
+  - Durability: Strong (data on W nodes before OK)
+  - Availability: Survives F = W-1 failures
+
+Milestone 6: Connection Pooling
+  - Requests: 10,000/sec per client (+10x)
+  - Latency: 1ms (no handshake overhead)
+  - Client failover: Automatic
+```
+
+**5. Failure Handling Throughout**
+
+Each milestone adds resilience:
+
+**Milestone 2**: Crash recovery (WAL replay)
+**Milestone 3**: Replica failure (master continues)
+**Milestone 4**: Master failure (quorum still works if W nodes up)
+**Milestone 5**: Automatic master recovery (leader election)
+**Milestone 6**: Network failure (client retries with new leader)
+
+**6. Real-World Architecture**
+
+This is exactly how production systems work:
+
+**Redis**:
+- Milestone 1-2: Redis single node with AOF
+- Milestone 3: Redis with async replication to replicas
+- Milestone 5: Redis Sentinel for leader election
+
+**etcd** (Kubernetes control plane):
+- Milestone 2: WAL for durability
+- Milestone 4: Raft consensus with W=majority
+- Milestone 5: Full Raft leader election
+- Milestone 6: gRPC client with smart routing
+
+**Cassandra**:
+- Milestone 3: Async replication (eventually consistent)
+- Milestone 4: Tunable quorum (CL=QUORUM)
+- No leader: peer-to-peer (different from this project)
+
+**7. Design Decisions You'll Make**
+
+This project forces you to answer real engineering questions:
+
+**Q: Async or sync replication?**
+- Async: Fast writes, risk of data loss
+- Sync: Slow writes, guaranteed durability
+- Answer: Depends on use case (caching vs financial transactions)
+
+**Q: What quorum size (W)?**
+- W=1: Fast, no fault tolerance
+- W=majority: Balance of speed and safety
+- W=all: Maximum safety, no availability
+- Answer: Most systems use W=majority (N/2 + 1)
+
+**Q: How long to wait for election?**
+- Too short: Elections during network hiccups
+- Too long: Long downtime on failure
+- Answer: 5-10 seconds is typical
+
+**Q: Connection pool size?**
+- Too small: Connection creation overhead
+- Too large: Memory waste, TCP congestion
+- Answer: 10-50 connections per client is common
+
+**8. From Learning to Production**
+
+After this project, you'll be able to:
+
+- Read the etcd/Raft papers and understand them
+- Evaluate Redis vs etcd vs Consul for your use case
+- Tune replication settings (W, R, N) for your needs
+- Debug distributed systems: "Why did this write succeed on 2/3 nodes but the client saw an error?"
+- Build custom distributed systems for specific needs
+
+**You've built your own etcd/Redis/Consul!**
+
+This is the foundation of:
+- **etcd**: Kubernetes uses this for all cluster state
+- **Redis Cluster**: Sharded KV store with replication
+- **Consul**: Service discovery with Raft consensus
+- **CockroachDB**: Distributed SQL with Raft
+- Every distributed database system
+
+---
+
 ## Milestone 1: In-Memory KV Store (TCP Protocol)
 
 ### Introduction

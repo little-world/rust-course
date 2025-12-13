@@ -1,4 +1,4 @@
-## Project 5: Custom Iterator Trait for Paginated API Client
+# Iterator for Paginating
 
 ### Problem Statement
 
@@ -413,6 +413,8 @@ let avg_age = iter.clone_iter()
 This project teaches patterns used in production Rust SDK clients processing billions of API requests daily.
 
 ---
+
+## Build The Project
 
 ### Milestone 1: Basic Paginated Iterator with Offset-Based Pagination
 

@@ -1,5 +1,5 @@
 
-## Project: Build System Pipeline Executor
+# Build System Pipeline Executor
 
 ### Problem Statement
 

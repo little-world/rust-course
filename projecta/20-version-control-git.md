@@ -1,5 +1,5 @@
 
-## Project: Version Control System (Git Clone)
+# Version Control System (Git Clone)
 
 ### Problem Statement
 

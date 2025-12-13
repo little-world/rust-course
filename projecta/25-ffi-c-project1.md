@@ -2,6 +2,133 @@
 
 ## Project 1: Safe Wrapper over C qsort/bsearch (Callbacks across the FFI boundary)
 
+### Introduction to FFI Concepts
+
+Foreign Function Interface (FFI) enables Rust code to call functions written in other languages (primarily C) and vice versa. This capability is crucial for integrating with existing C libraries, operating system APIs, and legacy codebases. Understanding FFI requires mastering several interconnected concepts:
+
+#### 1. The `extern` Keyword and ABI Compatibility
+
+The `extern "C"` syntax specifies that a function follows the C calling convention (Application Binary Interface). This ensures that Rust and C code agree on how arguments are passed, how the stack is managed, and how return values are handled. Without matching ABIs, function calls would corrupt memory and crash.
+
+```rust
+extern "C" {
+    fn qsort(base: *mut c_void, nmemb: usize, size: usize,
+             compar: extern "C" fn(*const c_void, *const c_void) -> i32);
+}
+```
+
+The `extern "C"` block declares functions implemented elsewhere (in C libraries), while `extern "C" fn` defines Rust functions callable from C.
+
+#### 2. Raw Pointers and Memory Safety
+
+FFI requires raw pointers (`*const T` and `*mut T`) instead of Rust references because:
+- C has no concept of Rust's borrowing rules or lifetimes
+- Raw pointers can be null, which Rust references cannot
+- Raw pointers don't enforce aliasing guarantees
+
+Working with raw pointers is inherently `unsafe` because the compiler cannot verify:
+- The pointer is valid and properly aligned
+- The memory it points to is initialized
+- No data races occur
+- Lifetimes are respected
+
+#### 3. Memory Layout and `#[repr(C)]`
+
+Rust's default memory layout may differ from C's expectations. The `#[repr(C)]` attribute forces Rust to lay out a struct exactly as C would, ensuring field order and padding match C conventions. This is critical when:
+- Passing structs across the FFI boundary
+- Casting between pointer types
+- Reading C-formatted binary data
+
+```rust
+#[repr(C)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+```
+
+#### 4. Function Pointers and Callbacks
+
+Function pointers allow passing executable code as data. In FFI contexts, callbacks enable C code to call back into Rust. The key challenges are:
+- Type signatures must exactly match C expectations (return type, argument types, calling convention)
+- Callbacks must be `extern "C" fn` types, not closures (closures capture environment and have incompatible layouts)
+- Panicking in a callback crosses the FFI boundary and causes undefined behavior
+
+#### 5. Name Mangling and `#[no_mangle]`
+
+Rust "mangles" function names by encoding type information and module paths into the symbol name. This prevents accidental name collisions but makes functions invisible to C. The `#[no_mangle]` attribute preserves the original function name in the compiled binary:
+
+```rust
+#[no_mangle]
+pub extern "C" fn process_data(ptr: *mut u8, len: usize) -> i32 {
+    // C can call this as "process_data"
+}
+```
+
+#### 6. Building C-Compatible Libraries with `cdylib`
+
+The `cdylib` crate type produces a C-compatible dynamic library (`.so` on Linux, `.dylib` on macOS, `.dll` on Windows). Unlike `rlib` (Rust library) or `dylib` (Rust dynamic library), `cdylib` exports functions with C ABI and can be loaded by any language with C FFI support.
+
+#### 7. Void Pointers and Type Erasure
+
+C uses `void*` for generic pointers that can point to any type. Rust's equivalent is `*mut c_void` or `*const c_void` from `core::ffi`. Converting between typed pointers and void pointers requires casting:
+
+```rust
+let typed: *mut i32 = data.as_mut_ptr();
+let erased: *mut c_void = typed as *mut c_void;
+let restored: *mut i32 = erased as *mut i32;
+```
+
+This pattern is common in C APIs that work with generic data (like `qsort`).
+
+#### 8. Panic Safety Across FFI
+
+Rust panics unwind the stack by default, which is incompatible with C's error handling model. Unwinding into C code causes undefined behavior. Safe FFI code must either:
+- Use `catch_unwind` to prevent panics from crossing the boundary
+- Ensure callbacks cannot panic (using `extern "C" fn` instead of closures helps)
+- Document panic behavior and mark functions as `unsafe` if they can panic
+
+#### 9. Lifetimes at the FFI Boundary
+
+Raw pointers have no lifetime tracking, so it's your responsibility to ensure:
+- Data outlives all pointers to it
+- No use-after-free occurs
+- Mutable pointers don't alias with other pointers to the same data
+
+Common patterns include:
+- Converting `&[T]` to `*const T` for the duration of a C function call
+- Ensuring Rust owns data until C is done with it
+- Using pinning for data that must not move in memory
+
+#### 10. Size and Alignment Guarantees
+
+When interfacing with C, verify that:
+- `size_of::<T>()` matches C's `sizeof(T)`
+- `align_of::<T>()` meets C's alignment requirements
+- Zero-sized types (ZSTs) are handled correctly (C has no equivalent)
+
+### Connection to This Project
+
+This project exercises FFI fundamentals by wrapping C standard library functions `qsort` and `bsearch`. Here's how each concept applies:
+
+**ABI Compatibility**: You'll declare `extern "C"` function signatures matching the C standard library and define `extern "C" fn` comparators that C's `qsort` can call back into.
+
+**Raw Pointers**: The wrapper converts Rust slices (`&mut [T]`) to raw pointers (`*mut c_void`) for C consumption, then safely reconstructs them after C operations complete.
+
+**Memory Layout**: The `#[repr(C)]` attribute ensures custom structs (like `Pair`) have C-compatible layout when passed to `qsort`.
+
+**Callbacks**: Writing comparator functions as `extern "C" fn` types demonstrates the constraints of FFI callbacks—no closures, no panic unwinding, exact type signatures.
+
+**Void Pointers**: You'll implement the double-cast pattern: typed Rust pointer → void pointer for C → typed pointer in the callback, mirroring how C generic algorithms work.
+
+**Panic Safety**: The project highlights why `extern "C" fn` comparators are safer than closures—they cannot capture environments or accidentally panic across the FFI boundary.
+
+**Python Bindings**: The final milestone uses `#[no_mangle]` and `cdylib` to expose functions to Python via `ctypes`, demonstrating how one Rust library can serve multiple language ecosystems.
+
+By the end of this project, you'll have created a **safe abstraction** over unsafe FFI, understanding both the low-level mechanics and the design principles for sound wrapper APIs.
+
+---
+
 ### Problem Statement
 
 Implement a safe, idiomatic Rust wrapper around the C standard library’s `qsort` and `bsearch` that can sort and search primitive types and C-compatible structs via user-supplied comparison functions. Provide zero-copy interop from Rust slices to C pointers, preserve Rust’s aliasing guarantees, and avoid UB around lifetimes, alignment, and callback trampolines.

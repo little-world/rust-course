@@ -1,4 +1,4 @@
-# Project 7: Streaming Iterator with Higher-Ranked Trait Bounds (HRTB)
+# Streaming Iterator with HRTB
 
 ## Problem Statement
 

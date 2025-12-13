@@ -83,6 +83,347 @@ impl UserController {
 - Proc macros parse and generate Rust syntax at compile-time
 - Enable framework-like APIs in a systems language
 
+---
+
+### Core Concepts
+
+Before diving into the project, let's understand the key concepts that make this framework possible:
+
+#### 1. Procedural Macros
+
+**What are they?**
+Procedural macros are Rust's most powerful metaprogramming feature. Unlike declarative macros (`macro_rules!`), procedural macros can:
+- Parse Rust code as an abstract syntax tree (AST)
+- Analyze and transform code structures
+- Generate entirely new code based on the input
+- Run arbitrary Rust code during compilation
+
+**Types of Procedural Macros**:
+- **Attribute macros**: `#[component]`, `#[get("/path")]` - Attach to items and transform them
+- **Derive macros**: `#[derive(Serialize)]` - Automatically implement traits
+- **Function-like macros**: `sql!("SELECT * FROM users")` - Look like function calls but run at compile-time
+
+**How they work**:
+```rust
+// Input (what you write)
+#[component]
+struct UserService {
+    #[inject]
+    repo: UserRepository,
+}
+
+// Output (what the macro generates)
+struct UserService {
+    repo: UserRepository,
+}
+
+impl UserService {
+    fn new() -> Self {
+        let repo = ServiceRegistry::global().get::<UserRepository>();
+        Self { repo }
+    }
+}
+
+// Auto-registration code
+inventory::submit! {
+    ComponentRegistration::new::<UserService>()
+}
+```
+
+#### 2. The `syn` Crate - Parsing Rust Syntax
+
+**Purpose**: `syn` is the standard library for parsing Rust code in procedural macros.
+
+**Key capabilities**:
+- Parse Rust tokens into typed syntax trees
+- Provides types for every Rust construct (structs, enums, functions, etc.)
+- Handles all Rust syntax, including attributes, generics, lifetimes
+- Type-safe API prevents generating invalid Rust code
+
+**Example usage**:
+```rust
+use syn::{parse_macro_input, ItemStruct, Field};
+
+#[proc_macro_attribute]
+pub fn component(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse input as a struct definition
+    let input = parse_macro_input!(item as ItemStruct);
+
+    // Extract struct name
+    let name = &input.ident;
+
+    // Access fields
+    if let Fields::Named(fields) = &input.fields {
+        for field in &fields.named {
+            // Check attributes on each field
+            for attr in &field.attrs {
+                if attr.path().is_ident("inject") {
+                    // Found #[inject] attribute
+                }
+            }
+        }
+    }
+}
+```
+
+#### 3. The `quote` Crate - Generating Code
+
+**Purpose**: `quote!` provides an ergonomic way to generate Rust code.
+
+**Key features**:
+- Template syntax for code generation
+- Interpolation with `#variable` syntax
+- Repeating patterns with `#()*`
+- Generates `proc_macro2::TokenStream` (convertible to `TokenStream`)
+
+**Example usage**:
+```rust
+use quote::quote;
+
+let field_name = &field.ident;
+let field_type = &field.ty;
+
+let generated = quote! {
+    impl MyStruct {
+        fn new() -> Self {
+            let #field_name = ServiceRegistry::global().get::<#field_type>();
+            Self { #field_name }
+        }
+    }
+};
+```
+
+**Repeating patterns**:
+```rust
+let field_names = vec![field1, field2, field3];
+
+quote! {
+    Self {
+        #(#field_names),*  // Expands to: field1, field2, field3
+    }
+}
+```
+
+#### 4. Dependency Injection (DI)
+
+**What is it?**
+Dependency Injection is a design pattern where objects receive their dependencies from external sources rather than creating them internally.
+
+**Without DI**:
+```rust
+struct UserService {
+    repo: UserRepository,
+}
+
+impl UserService {
+    fn new() -> Self {
+        Self {
+            repo: UserRepository::new(),  // Hard-coded dependency
+        }
+    }
+}
+```
+
+**With DI**:
+```rust
+struct UserService {
+    repo: UserRepository,
+}
+
+impl UserService {
+    fn new(repo: UserRepository) -> Self {  // Injected dependency
+        Self { repo }
+    }
+}
+```
+
+**Benefits**:
+- **Testability**: Easy to inject mock dependencies
+- **Loose coupling**: Services don't know how dependencies are created
+- **Configuration**: Dependencies can be swapped without changing code
+- **Lifecycle management**: Framework controls object creation and lifecycle
+
+**DI Container**:
+A service registry that:
+- Stores registered service instances
+- Resolves dependencies automatically
+- Ensures singleton behavior (one instance per type)
+- Manages service lifecycle
+
+#### 5. Type-Safe Storage with `TypeId` and `Any`
+
+**The Problem**: How do you store different types in the same container?
+
+**The Solution**: Use `TypeId` as keys and `Box<dyn Any>` for values.
+
+```rust
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
+
+struct ServiceRegistry {
+    services: HashMap<TypeId, Box<dyn Any>>,
+}
+
+impl ServiceRegistry {
+    fn register<T: 'static>(&mut self, service: T) {
+        let type_id = TypeId::of::<T>();
+        self.services.insert(type_id, Box::new(service));
+    }
+
+    fn get<T: 'static>(&self) -> &T {
+        let type_id = TypeId::of::<T>();
+        self.services.get(&type_id)
+            .expect("Service not found")
+            .downcast_ref::<T>()
+            .unwrap()
+    }
+}
+```
+
+**How it works**:
+- `TypeId::of::<T>()` generates a unique ID for each type at compile-time
+- `Box<dyn Any>` can hold any type, erasing its concrete type
+- `downcast_ref::<T>()` safely casts back to the original type
+- Type safety: You can only retrieve the type you registered
+
+#### 6. HTTP Routing and Parameter Extraction
+
+**Path Patterns**:
+Routes like `/users/{id}/posts/{post_id}` need to:
+1. Match incoming request paths
+2. Extract parameters (`id`, `post_id`)
+3. Parse parameters to correct types (`u32`, `String`, etc.)
+
+**Parameter Sources**:
+- **Path parameters**: `/users/{id}` → `id: PathParam<u32>`
+- **Query parameters**: `/search?q=rust&limit=10` → `q: String, limit: u32`
+- **Request body**: JSON payload → `user: Json<User>`
+- **Headers**: `Authorization: Bearer token` → `token: String`
+
+**Type-Safe Extraction**:
+```rust
+#[get("/users/{id}")]
+fn get_user(
+    id: PathParam<u32>,           // From path
+    #[query] search: SearchQuery,  // From query string
+    #[header("Authorization")] token: String,  // From headers
+) -> Json<User> {
+    // All parameters automatically extracted and parsed
+}
+```
+
+#### 7. Compile-Time Code Generation
+
+**The Power**: All framework code is generated at compile-time, resulting in:
+
+**Zero Runtime Overhead**:
+- No reflection or dynamic dispatch
+- No runtime parsing or configuration
+- Generated code is as fast as hand-written code
+- All type checking happens at compile-time
+
+**Compile-Time Safety**:
+```rust
+#[get("/users/{id}")]
+fn get_user(id: PathParam<u32>) -> Json<User> {
+    // If parameter types don't match, compilation fails
+    // If route pattern is invalid, compilation fails
+    // If dependencies are missing, compilation fails
+}
+```
+
+**What gets generated**:
+1. Dependency resolution code (constructor generation)
+2. Route registration code (adding routes to global router)
+3. Parameter extraction code (parsing path/query/body/headers)
+4. Type conversions (JSON serialization/deserialization)
+5. Error handling (missing services, parse errors)
+
+### Connection to This Project
+
+Now that we understand the core concepts, let's see how they all come together in this Spring-style framework:
+
+**1. Procedural Macros as the Foundation**
+
+This project builds three types of macros:
+- **`#[component]`**: Transforms structs into managed services with automatic dependency resolution
+- **`#[get]`, `#[post]`, etc.**: Transforms functions into HTTP route handlers with parameter extraction
+- **`#[controller]`**: Groups related routes and applies dependency injection to controller classes
+
+Each macro uses `syn` to parse the input code and `quote` to generate boilerplate code that you would otherwise write manually.
+
+**2. Dependency Injection Container**
+
+The `ServiceRegistry` demonstrates:
+- Using `TypeId` and `Box<dyn Any>` for type-safe heterogeneous storage
+- Thread-safe global state with `lazy_static` and `RwLock`
+- Automatic dependency resolution in generated constructors
+- The `#[inject]` attribute marks fields that should be resolved from the registry
+
+**3. HTTP Routing System**
+
+The routing implementation shows:
+- Pattern matching: Converting `/users/{id}` into path parameter extraction
+- Method dispatch: Routing based on HTTP method (GET, POST, etc.)
+- Parameter extraction: Automatically parsing path params, query strings, headers, and JSON bodies
+- Type safety: All parameters are parsed to the correct types at compile-time
+
+**4. Code Generation Strategy**
+
+Each milestone generates increasingly sophisticated code:
+- **Milestone 1**: Simple trait implementations and registration
+- **Milestone 2**: Constructor generation with dependency resolution
+- **Milestone 3**: Route registration and handler wrappers
+- **Milestone 4**: Complex parameter extraction with multiple sources
+- **Milestone 5**: Complete application bootstrap with component scanning
+
+**5. Framework Design Patterns**
+
+This project demonstrates how modern web frameworks work:
+- **Axum**: Uses similar macro-based routing and parameter extraction
+- **Rocket**: Pioneered compile-time route validation in Rust
+- **Actix-web**: Uses attributes for routes and middleware
+- **Spring Boot**: The inspiration for annotation-based configuration
+
+**6. Why This Matters**
+
+By building this framework, you'll understand:
+- How frameworks eliminate boilerplate through code generation
+- Why Rust's proc macros are powerful yet zero-cost
+- How to design extensible, type-safe APIs
+- The trade-offs between runtime flexibility and compile-time safety
+- How dependency injection works under the hood
+
+**What You'll Build**:
+A complete framework where this minimal code:
+```rust
+#[component]
+struct UserService {
+    #[inject]
+    repo: UserRepository,
+}
+
+#[controller("/api/users")]
+impl UserController {
+    #[get("/{id}")]
+    async fn get_user(&self, id: PathParam<u32>) -> Json<User> {
+        // Implementation
+    }
+}
+```
+
+Generates hundreds of lines of boilerplate including:
+- Service registration and retrieval
+- Dependency resolution constructors
+- Route parsing and registration
+- HTTP parameter extraction
+- JSON serialization/deserialization
+- Error handling and type conversions
+
+All validated at compile-time with zero runtime overhead!
+
+---
+
 ### Learning Goals
 
 By completing this project, you will:

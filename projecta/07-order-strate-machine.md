@@ -1,21 +1,9 @@
 
-## Project 7: Order Processing State Machine with Enums
+# Order Processing State Machine
 
 ### Problem Statement
 
-Build a type-safe order processing system that uses enums to model state transitions. You'll start with basic enum variants, add exhaustive pattern matching for state transitions, then implement compile-time state checking using the typestate pattern.
-
-
-### Use Cases
-
-**When you need this pattern**:
-1. **Order/Payment processing**: Pending → Paid → Shipped → Delivered
-2. **Document workflows**: Draft → Review → Approved → Published
-3. **Network connections**: Connecting → Connected → Closing → Closed
-4. **Game states**: Menu → Playing → Paused → GameOver
-5. **User authentication**: Anonymous → LoggedIn → Verified → Admin
-6. **File uploads**: Validating → Uploading → Processing → Complete
-
+Build a type-safe order processing system that uses enums to model state transitions. You'll start with basic enum variants, add exhaustive pattern matching for state transitions, then implement compile-time state checking using the typestate patterns
 
 ### Why It Matters
 

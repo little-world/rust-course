@@ -1,5 +1,5 @@
 
-## Project 4: CSV Stream Transformer with Iterator Adapters
+# CSV Stream Transformer
 
 ### Problem Statement
 
@@ -636,7 +636,7 @@ By combining these concepts, your CSV processor achieves:
 - ✅ Minimal memory footprint (suitable for containers/edge devices)
 - ✅ Near-optimal performance (zero-cost abstractions)
 
-
+## Build The Project
 
 ### Milestone 1: Basic CSV Record Parser
 

@@ -64,6 +64,410 @@ users.filter(tenant_id.eq(current_tenant))  // ✅ Compiler ensures tenant filte
 
 ---
 
+## Introduction to Diesel ORM and Multi-Tenant Database Concepts
+
+Diesel represents the pinnacle of type-safe database programming—queries are pure Rust code with the strongest compile-time guarantees possible. Multi-tenancy adds architectural patterns ensuring complete data isolation between organizations. Together, they form the foundation of secure, scalable SaaS applications.
+
+### 1. Diesel's Type-Safe Query DSL
+
+Unlike SQL-in-strings approaches, Diesel queries are pure Rust expressions that the compiler fully understands:
+
+**Traditional SQL (Runtime Errors)**:
+```rust
+// String-based query - errors only at runtime
+let query = "SELECT * FROM usres WHERE email = ?";  // Typo!
+```
+
+**Diesel Query DSL (Compile-Time Errors)**:
+```rust
+// Pure Rust - typos won't compile
+users::table
+    .filter(users::emial.eq("alice@example.com"))  // Won't compile!
+    //              ^^^^^ No such field
+```
+
+**How It Works**:
+1. `diesel print-schema` introspects your database, generates `schema.rs`
+2. `schema.rs` defines tables as Rust structs with typed columns
+3. Query methods are generic over these types
+4. Compiler verifies column names, types, table relationships at compile time
+
+**Benefits**:
+- **Refactoring safety**: Rename a column → compiler finds all usages
+- **Type inference**: `load::<User>()` automatically ensures SELECT returns correct columns
+- **No SQL injection**: Values are always bound parameters
+- **IDE support**: Autocomplete for columns, methods, table names
+
+**Comparison to SQLx**:
+- SQLx: SQL in macros, verified at compile time
+- Diesel: Pure Rust DSL, no SQL strings at all
+- Both prevent runtime SQL errors, Diesel feels more "Rust-native"
+
+### 2. Multi-Tenant Architecture Patterns
+
+Multi-tenancy allows a single application instance to serve multiple isolated organizations (tenants):
+
+**Single Database, Shared Schema**:
+```
+Database
+├── organizations (org1, org2, org3)
+├── users (all orgs, filtered by organization_id)
+├── projects (all orgs, filtered by organization_id)
+└── tasks (all orgs, filtered by organization_id)
+```
+
+**Key Pattern**: Add `organization_id` to every resource table:
+```sql
+CREATE TABLE projects (
+    id SERIAL PRIMARY KEY,
+    organization_id INT NOT NULL REFERENCES organizations(id),
+    name VARCHAR(255) NOT NULL,
+    -- Every query MUST filter by organization_id
+);
+```
+
+**Why This Matters**:
+- **Cost efficiency**: One database serves 100K+ tenants (vs 100K separate databases)
+- **Operational simplicity**: One migration applies to all tenants
+- **Resource sharing**: Shared connection pool, cache, backups
+
+**Security Critical**: Forgetting `WHERE organization_id = ?` exposes all tenants' data!
+
+### 3. Tenant Context Pattern for Isolation
+
+The tenant context pattern ensures queries are automatically scoped to the correct tenant:
+
+**Without Pattern (Dangerous)**:
+```rust
+// ❌ Easily forget to filter by tenant
+users::table.load::<User>(conn)?  // Returns ALL tenants' users!
+```
+
+**With Tenant Context (Safe)**:
+```rust
+struct TenantContext {
+    organization_id: i32,
+}
+
+impl TenantContext {
+    fn get_users(&self, conn: &mut PgConnection) -> QueryResult<Vec<User>> {
+        users::table
+            .filter(users::organization_id.eq(self.organization_id))
+            .load(conn)
+    }
+}
+
+// ✅ All queries automatically scoped to tenant
+let ctx = TenantContext::new(current_org_id);
+let users = ctx.get_users(&mut conn)?;  // Only this tenant's users
+```
+
+**Benefits**:
+- **Impossible to forget filtering**: All data access goes through `TenantContext`
+- **Type safety**: Compiler ensures context is used
+- **Middleware pattern**: Extract tenant from JWT/session in web layer
+
+### 4. Schema Generation and Introspection
+
+Diesel generates Rust code from your actual database schema, ensuring perfect synchronization:
+
+**Workflow**:
+```bash
+# 1. Create table in database
+psql -c "CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255))"
+
+# 2. Generate Rust schema
+diesel print-schema > src/schema.rs
+
+# 3. Use in code
+use schema::users;
+users::table.filter(users::email.eq("alice@example.com"))
+```
+
+**Generated Code** (`schema.rs`):
+```rust
+diesel::table! {
+    users (id) {
+        id -> Int4,          // PostgreSQL INT → i32
+        email -> Varchar,    // VARCHAR → String
+    }
+}
+```
+
+**Key Features**:
+- **Automatic type mapping**: SQL types → Rust types
+- **Foreign key declarations**: `joinable!()` macros for relationships
+- **Nullability tracking**: `Nullable<Text>` → `Option<String>`
+
+**Staying in Sync**: Re-run `diesel print-schema` after schema changes.
+
+### 5. Database Migrations with Diesel CLI
+
+Migrations are version-controlled SQL files that evolve your schema over time:
+
+**Migration Structure**:
+```
+migrations/
+├── 00000000000000_diesel_initial_setup/
+│   ├── up.sql
+│   └── down.sql
+├── 20240101000000_create_users/
+│   ├── up.sql    # Apply change
+│   └── down.sql  # Rollback change
+└── 20240102000000_add_user_bio/
+    ├── up.sql
+    └── down.sql
+```
+
+**Creating Migrations**:
+```bash
+diesel migration generate create_users
+# Generates timestamped folder with up.sql and down.sql
+
+# Edit the files:
+# up.sql: CREATE TABLE users ...
+# down.sql: DROP TABLE users;
+
+diesel migration run      # Apply all pending migrations
+diesel migration revert   # Rollback last migration
+```
+
+**Production Pattern**:
+1. Write migration locally
+2. Test both `up` and `down`
+3. Commit to git
+4. Deploy: Run migrations before deploying new code
+5. Rollback: If deployment fails, revert migration
+
+**Tracking**: `__diesel_schema_migrations` table records applied migrations.
+
+### 6. Optimistic Locking for Concurrency Control
+
+Optimistic locking detects conflicting concurrent edits without pessimistic locks:
+
+**The Problem (Lost Update)**:
+```
+Time  User A              User B
+1     Read task (v1)      -
+2     Modify locally      Read task (v1)
+3     -                   Modify locally
+4     UPDATE task         -
+5     -                   UPDATE task (overwrites A's change!)
+```
+
+**The Solution (Version Column)**:
+```sql
+ALTER TABLE tasks ADD COLUMN version INT NOT NULL DEFAULT 1;
+```
+
+**Update Pattern**:
+```rust
+// Update only if version matches
+diesel::update(tasks::table)
+    .filter(tasks::id.eq(task_id))
+    .filter(tasks::version.eq(current_version))  // Key!
+    .set((
+        tasks::title.eq(new_title),
+        tasks::version.eq(current_version + 1),
+    ))
+    .execute(conn)?;
+// If version changed, 0 rows affected → conflict
+```
+
+**With Retry**:
+```
+Time  User A                    User B
+1     Read task (v1)            -
+2     -                         Read task (v1)
+3     UPDATE WHERE version=1    -
+      SET ..., version=2
+4     -                         UPDATE WHERE version=1 ❌ (0 rows)
+5     -                         Refresh → Read task (v2)
+6     -                         UPDATE WHERE version=2 ✅
+```
+
+**Benefits**:
+- **No database locks**: Better concurrency than pessimistic locking
+- **Detects conflicts**: Clear error when simultaneous edits occur
+- **Standard pattern**: Used in Salesforce, Stripe, many SaaS platforms
+
+### 7. Connection Pooling with r2d2
+
+Creating database connections is expensive (50-200ms). Connection pools reuse connections:
+
+**Without Pooling (Slow)**:
+```rust
+for request in requests {
+    let conn = PgConnection::establish(&url)?;  // 100ms overhead
+    process(conn, request)?;                    // 10ms work
+}
+```
+
+**With Pooling (Fast)**:
+```rust
+let pool = r2d2::Pool::builder()
+    .max_size(15)
+    .build(manager)?;
+
+for request in requests {
+    let mut conn = pool.get()?;  // <1ms to acquire from pool
+    process(&mut conn, request)?;
+    // Connection automatically returned on drop
+}
+```
+
+**Configuration**:
+- **max_size**: Maximum connections in pool (typically 10-50)
+- **min_idle**: Keep this many connections alive even when idle
+- **connection_timeout**: How long to wait if pool exhausted
+
+**Architecture**:
+```
+Web Server (1000 requests/sec)
+    ↓
+Connection Pool (15 connections)
+    ↓
+PostgreSQL (handles 15 concurrent queries)
+```
+
+### 8. Diesel Query Builder Patterns
+
+Diesel's DSL allows building complex queries programmatically:
+
+**Filter Chaining**:
+```rust
+let mut query = users::table.into_boxed();
+
+if let Some(email) = search_email {
+    query = query.filter(users::email.like(format!("%{}%", email)));
+}
+
+if let Some(org_id) = org_filter {
+    query = query.filter(users::organization_id.eq(org_id));
+}
+
+let results = query.load::<User>(conn)?;
+```
+
+**JOIN Syntax**:
+```rust
+// Inner join
+let results = projects::table
+    .inner_join(users::table.on(projects::owner_id.eq(users::id)))
+    .select((Project::as_select(), User::as_select()))
+    .load::<(Project, User)>(conn)?;
+
+// Left join (projects without owners included)
+let results = projects::table
+    .left_join(users::table)
+    .select((Project::as_select(), Option::<User>::as_select()))
+    .load::<(Project, Option<User>)>(conn)?;
+```
+
+**Aggregations**:
+```rust
+use diesel::dsl::count;
+
+let task_count: i64 = tasks::table
+    .filter(tasks::project_id.eq(project_id))
+    .count()
+    .get_result(conn)?;
+```
+
+### 9. Insertable and Queryable Traits
+
+Diesel uses traits to separate insert models from query results:
+
+**Queryable (Read from database)**:
+```rust
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = users)]
+struct User {
+    id: i32,           // Includes auto-generated ID
+    email: String,
+    created_at: NaiveDateTime,
+}
+```
+
+**Insertable (Write to database)**:
+```rust
+#[derive(Insertable)]
+#[diesel(table_name = users)]
+struct NewUser<'a> {
+    email: &'a str,    // No ID (auto-generated)
+    // No created_at (database default)
+}
+```
+
+**Why Separate**:
+- Insert models exclude auto-generated fields (ID, timestamps)
+- Query models include all fields
+- Different lifetimes: Insert uses `&str` (borrowed), Query uses `String` (owned)
+
+### 10. Transactions in Diesel
+
+Transactions ensure multiple operations are atomic (all-or-nothing):
+
+**Transaction Pattern**:
+```rust
+conn.transaction(|conn| {
+    // All operations succeed together or rollback together
+    diesel::insert_into(users::table)
+        .values(&new_user)
+        .execute(conn)?;
+
+    diesel::insert_into(projects::table)
+        .values(&new_project)
+        .execute(conn)?;
+
+    Ok(())  // Commits transaction
+    // Err(_) would rollback
+})?;
+```
+
+**Nested Transactions**:
+```rust
+conn.transaction(|conn| {
+    create_organization(conn)?;
+
+    conn.transaction(|conn| {
+        create_user(conn)?;
+        create_project(conn)?;
+        Ok(())  // Inner commit (savepoint)
+    })?;
+
+    Ok(())  // Outer commit
+})?;
+```
+
+**Savepoints**: Diesel uses PostgreSQL savepoints for nested transactions.
+
+### Connection to This Project
+
+This multi-tenant SaaS project demonstrates Diesel's power in a production context:
+
+**Type-Safe DSL (Milestone 1)**: You'll write queries like `users::table.filter(users::email.eq("alice@example.com"))` instead of SQL strings. Typos in column names or table names won't compile—refactoring is safe.
+
+**Schema Generation (Milestone 1)**: Running `diesel print-schema` after each migration keeps your Rust code perfectly synchronized with the database schema. No manual type definitions needed.
+
+**Multi-Tenant Architecture (Milestone 2)**: The `TenantContext` struct enforces that every query includes `WHERE organization_id = ?`. Forgetting to filter by tenant becomes a compile error, not a security breach.
+
+**Tenant Isolation (Milestone 2)**: You'll create data for Organization A and Organization B, then verify each can only see their own data through the context pattern. This is the foundation of secure SaaS architecture.
+
+**Complex Queries (Milestone 3)**: JOIN queries fetch projects with their owners in a single query, avoiding the N+1 problem. Filter chaining builds dynamic queries based on search parameters.
+
+**Migrations (Milestone 4)**: Each feature addition (priority column, due dates, status) gets a versioned migration with both `up.sql` and `down.sql`. This tracks schema evolution in git alongside code.
+
+**Optimistic Locking (Milestone 5)**: The `version` column pattern detects when two users edit the same task simultaneously. The second update fails gracefully, allowing a retry with fresh data.
+
+**Connection Pooling (Milestone 6)**: The r2d2 pool maintains 15 reusable connections. A web server handling 1000 requests/second efficiently shares these connections instead of creating 1000 new ones.
+
+**Production Patterns (Milestone 6)**: Database seeding populates test data for development. Backup scripts create point-in-time snapshots. These operational patterns are essential for real SaaS deployments.
+
+By the end of this project, you'll have built a **production-grade multi-tenant database layer** matching the architecture of Salesforce, Slack, and GitHub—with Diesel's compile-time guarantees preventing entire classes of SQL errors and security vulnerabilities.
+
+---
+
 ## Milestone 1: Diesel Setup and Basic CRUD with Type-Safe DSL
 
 ### Introduction

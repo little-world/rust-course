@@ -1,4 +1,4 @@
-## Project 8: Plugin System with Trait Objects and Dynamic Dispatch
+# Plugin System with Trait Objects
 
 ### Problem Statement
 

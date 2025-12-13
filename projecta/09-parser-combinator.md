@@ -1,5 +1,5 @@
 
-## Project 9: Parser Combinator Library with Associated Types
+# Parser Combinator
 
 ### Problem Statement
 

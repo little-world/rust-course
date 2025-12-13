@@ -1,5 +1,5 @@
 
-## Project: File Synchronization Tool (Simplified rsync)
+# File Synchronization Tool (Simplified rsync)
 
 ### Problem Statement
 

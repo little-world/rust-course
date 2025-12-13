@@ -1,4 +1,4 @@
-## Project 3: Binary Search and Sorted Data Structures
+# Binary Search and Sorted Data Structures
 
 ### Problem Statement
 

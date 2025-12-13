@@ -1,4 +1,4 @@
-# Project 2: Chat Server with Broadcast and Backpressure
+# Chat Server with Broadcast and Backpressure
 
 ## Problem Statement
 

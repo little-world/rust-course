@@ -1,5 +1,18 @@
-# Project 2: Network Packet Inspector with Binary Pattern Matching
+# Network Packet Inspector
 
+## Problem Statement
+
+Build a network packet inspector that:
+- Parses binary network protocols (Ethernet, IPv4, TCP, UDP, HTTP)
+- Uses pattern matching to destructure packet headers from byte arrays
+- Implements a firewall rule engine with complex filtering
+- Supports deep packet inspection through all protocol layers
+- Detects security threats (SQL injection, XSS, suspicious patterns)
+- Tracks TCP connection state using pattern matching
+- Provides statistics and connection monitoring
+- Demonstrates ALL binary pattern matching techniques
+
+---
 
 ## Network Protocol Packet Layouts
 

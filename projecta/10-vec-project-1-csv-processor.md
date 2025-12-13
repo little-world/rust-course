@@ -1,6 +1,5 @@
-# Chapter 10: Vec & Slice Manipulation - Project 1
 
-## Project 1: High-Performance CSV Batch Processor
+# High-Performance CSV Batch Processor
 
 ### Problem Statement
 
@@ -965,8 +964,7 @@ vec.par_iter().map(|x| read_file(x))  // ~1× speedup
 vec.par_iter().map(|x| x + 1)  // 0.5× speedup (2× slower!)
 ```
 
----
-
+## Building The Project
 
 ### Milestone 1: Basic CSV Parser with Structured Records
 

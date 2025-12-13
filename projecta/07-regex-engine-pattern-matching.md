@@ -1,4 +1,4 @@
-# Project 1: Regular Expression Engine with Pattern Matching
+# Regular Expression Engine
 
 
 ## Problem Statement

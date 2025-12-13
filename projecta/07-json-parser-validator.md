@@ -1,4 +1,4 @@
-# Project 4: JSON Parser with Pattern-Based Validation
+# JSON Parser
 
 ## Problem Statement
 

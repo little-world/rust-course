@@ -1,4 +1,4 @@
-## Project 1: Generic Priority Queue with Custom Ordering
+# Generic Priority Queue
 
 ### Problem Statement
 
@@ -1062,6 +1062,8 @@ for i in 0..10_000 {
 ---
 
 
+## Build The Project
+
 ### Milestone 1: Basic Generic Structure with Vec Backend
 
 Implement a simple priority queue using Rust's `Vec<T>` as the backing storage with a naive approach: sort on every insertion. This milestone focuses on understanding generic type parameters and trait bounds before optimizing for performance.
@@ -1513,86 +1515,6 @@ fn test_two_elements() {
 
     assert_eq!(pq.pop(), Some(20));
     assert_eq!(pq.pop(), Some(10));
-}
-```
-
-
-**Solution**
-
-```rust
-impl<T: Ord> PriorityQueue<T> {
-    // Helper: Calculate parent index
-    fn parent(i: usize) -> usize {
-        (i - 1) / 2
-    }
-
-    // Helper: Calculate left child index
-    fn left_child(i: usize) -> usize {
-        2 * i + 1
-    }
-
-    // Helper: Calculate right child index
-    fn right_child(i: usize) -> usize {
-        2 * i + 2
-    }
-
-    // Sift up: bubble element at index i upward to restore heap property
-    fn sift_up(&mut self, mut i: usize) {
-        while i > 0 {
-            let parent = Self::parent(i);
-            if self.items[i] <= self.items[parent] {
-                break;  // Heap property satisfied
-            }
-            self.items.swap(i, parent);
-            i = parent;
-        }
-    }
-
-    // Sift down: bubble element at index i downward to restore heap property
-    fn sift_down(&mut self, mut i: usize) {
-        loop {
-            let left = Self::left_child(i);
-            let right = Self::right_child(i);
-            let mut largest = i;
-
-            // Find largest among node, left child, right child
-            if left < self.items.len() && self.items[left] > self.items[largest] {
-                largest = left;
-            }
-            if right < self.items.len() && self.items[right] > self.items[largest] {
-                largest = right;
-            }
-
-            if largest == i {
-                break;  // Heap property satisfied
-            }
-
-            self.items.swap(i, largest);
-            i = largest;
-        }
-    }
-
-    pub fn push(&mut self, item: T) {
-        self.items.push(item);          // Add to end
-        let last_idx = self.items.len() - 1;
-        self.sift_up(last_idx);         // Restore heap property: O(log n)
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.items.is_empty() {
-            return None;
-        }
-
-        let len = self.items.len();
-        self.items.swap(0, len - 1);    // Move root to end
-        let result = self.items.pop();  // Remove old root
-
-        if !self.items.is_empty() {
-            self.sift_down(0);          // Restore heap property: O(log n)
-        }
-
-        result
-    }
 }
 ```
 

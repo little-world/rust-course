@@ -53,6 +53,625 @@ Build a real-time multiplayer game server that evolves from a simple UDP echo to
 
 ---
 
+### Core Concepts
+
+Before building a UDP game server, let's understand the fundamental concepts that make UDP ideal for real-time games:
+
+#### 1. UDP vs TCP: The Fundamental Trade-off
+
+**TCP (Transmission Control Protocol)**:
+- **Connection-oriented**: Requires handshake before data transfer
+- **Reliable**: Guarantees delivery, in-order, no duplicates
+- **Automatic retransmission**: Lost packets are automatically resent
+- **Flow control**: Slows down if network is congested
+- **Head-of-line blocking**: One lost packet blocks all subsequent packets
+
+**UDP (User Datagram Protocol)**:
+- **Connectionless**: No handshake, just send packets
+- **Unreliable**: Packets may be lost, duplicated, or arrive out-of-order
+- **No automatic retransmission**: Application decides what to retransmit
+- **No flow control**: Send as fast as you want
+- **No head-of-line blocking**: Each packet is independent
+
+**The Performance Difference**:
+```
+TCP latency for a single message:
+  SYN → SYN-ACK → ACK (handshake) = 50ms
+  Data → ACK = 25ms
+  Total: 75ms minimum
+
+UDP latency for a single message:
+  Data = 10-20ms
+  Total: 10-20ms (3-7x faster!)
+```
+
+**When to Use UDP**:
+- **Real-time games**: Position updates arrive 30-120 times/sec, old data is useless
+- **Voice/video chat**: Drop old audio frames, don't wait for retransmission
+- **Physics simulation**: Latest state matters more than perfect history
+- **High-frequency sensors**: Temperature, GPS updates
+
+**When to Use TCP**:
+- **File transfer**: Every byte must arrive correctly
+- **Chat messages**: Can't lose "You won!" message
+- **Database queries**: Results must be complete and correct
+- **Web pages**: HTML must be perfect
+
+#### 2. Connectionless Communication
+
+**TCP Connection Model**:
+```rust
+// Server
+let listener = TcpListener::bind("0.0.0.0:8080")?;
+let (stream, addr) = listener.accept()?;  // Wait for client connection
+stream.write(b"Hello")?;  // Send to this specific client
+```
+
+**UDP Connectionless Model**:
+```rust
+// Server
+let socket = UdpSocket::bind("0.0.0.0:8080")?;
+let (len, addr) = socket.recv_from(&mut buf)?;  // Receive from anyone
+socket.send_to(b"Hello", addr)?;  // Send to whoever just sent
+```
+
+**Key Differences**:
+- **No "connection"**: UDP doesn't maintain state between server and client
+- **No accept()**: Any client can send to server anytime
+- **No streams**: Each datagram is independent (no continuous byte stream)
+- **Address on every send**: Must specify destination for each packet
+
+**Implications for Games**:
+```rust
+// UDP game server handles 100 players without 100 connections
+let mut players: HashMap<SocketAddr, PlayerState> = HashMap::new();
+
+loop {
+    let (len, player_addr) = socket.recv_from(&mut buf).await?;
+
+    // First packet from new player? Add them
+    players.entry(player_addr).or_insert(PlayerState::new());
+
+    // Process packet
+    update_player_state(player_addr, &buf[..len]);
+
+    // Broadcast to all players
+    for addr in players.keys() {
+        socket.send_to(&game_state, addr).await?;
+    }
+}
+```
+
+#### 3. Packet Loss and Unreliability
+
+**UDP's "Guarantees"** (or lack thereof):
+- **May be lost**: Network congestion, router overflow → packet dropped
+- **May be duplicated**: Network glitch → packet arrives twice
+- **May arrive out-of-order**: Different routes → packet B before packet A
+- **No notification**: You don't know if packet was delivered
+
+**Real-World Loss Rates**:
+- **Good network**: 0.1-1% packet loss
+- **WiFi**: 1-5% packet loss
+- **Mobile/LTE**: 2-10% packet loss
+- **Poor conditions**: 10-20% packet loss
+
+**Designing for Packet Loss**:
+
+**Strategy 1: Accept Loss (Position Updates)**:
+```rust
+// Send position 30 times per second
+loop {
+    send_position(player.x, player.y, player.z);
+    sleep(33ms);  // 30 Hz
+}
+
+// If one packet is lost, next one arrives in 33ms
+// Old position data is worthless anyway
+```
+
+**Strategy 2: Add Reliability (Critical Events)**:
+```rust
+// Player joined - MUST be delivered
+send_reliable(Message::PlayerJoined { name: "Alice" });
+
+// Implementation:
+// 1. Assign sequence number
+// 2. Wait for ACK
+// 3. Retransmit if no ACK after timeout
+```
+
+**Out-of-Order Example**:
+```
+Send: seq=1 (player moved), seq=2 (player jumped), seq=3 (player fired)
+Arrive: seq=1, seq=3, seq=2 (jumped arrives last!)
+
+Solution: Use sequence numbers to reorder or discard stale data
+```
+
+#### 4. Broadcast and Multicast
+
+**Why Service Discovery?**
+Players want to join games on their local network without typing IP addresses. "Find servers on LAN" button = broadcast/multicast.
+
+**Broadcast (255.255.255.255)**:
+Sends packet to all devices on the local network.
+
+```rust
+let socket = UdpSocket::bind("0.0.0.0:0").await?;
+
+// Enable broadcast permission
+socket.set_broadcast(true)?;
+
+// Send to all devices on LAN
+socket.send_to(b"DISCOVER_SERVER", "255.255.255.255:8080").await?;
+
+// All devices on network receive the packet
+```
+
+**How It Works**:
+```
+Your Computer (192.168.1.5) → Broadcast (255.255.255.255:8080)
+                                       ↓
+              ┌─────────────────────────┼─────────────────────────┐
+              ↓                         ↓                         ↓
+    Game Server (192.168.1.10)    Laptop (192.168.1.20)    Phone (192.168.1.30)
+         Responds!                    Ignores               Ignores
+```
+
+**Multicast (224.0.0.0 - 239.255.255.255)**:
+Sends packet only to devices that have "subscribed" to a multicast group.
+
+```rust
+use std::net::Ipv4Addr;
+
+// Server joins multicast group 224.0.0.1
+let socket = UdpSocket::bind("0.0.0.0:8080").await?;
+let multicast_addr: Ipv4Addr = "224.0.0.1".parse()?;
+socket.join_multicast_v4(multicast_addr, Ipv4Addr::new(0,0,0,0))?;
+
+// Client sends to multicast group
+let client = UdpSocket::bind("0.0.0.0:0").await?;
+client.send_to(b"DISCOVER", (multicast_addr, 8080)).await?;
+
+// Only servers that joined 224.0.0.1 receive it
+```
+
+**Broadcast vs Multicast**:
+- **Broadcast**: Simple, works everywhere, but spams entire LAN
+- **Multicast**: Efficient, but requires router support (may not work on all networks)
+- **Games**: Usually use broadcast for simplicity
+
+#### 5. Reliable Messaging on Unreliable Transport
+
+**The Challenge**: UDP is unreliable, but some messages (player joined, score changed) MUST be delivered.
+
+**Solution: Layer Reliability on Top of UDP**
+
+**Sequence Numbers**:
+```rust
+struct ReliableMessage {
+    seq: u32,        // Unique message ID
+    data: Vec<u8>,   // Actual game message
+}
+
+let mut next_seq = 0;
+
+fn send_reliable(msg: &[u8]) {
+    let reliable = ReliableMessage {
+        seq: next_seq,
+        data: msg.to_vec(),
+    };
+    next_seq += 1;
+
+    // Send packet with sequence number
+    socket.send_to(&serialize(reliable), server_addr)?;
+}
+```
+
+**Acknowledgments (ACKs)**:
+```rust
+// Receiver gets message
+let msg: ReliableMessage = deserialize(&packet);
+
+// Send ACK back to sender
+let ack = Ack { seq: msg.seq };
+socket.send_to(&serialize(ack), sender_addr)?;
+
+// Mark sequence number as received (detect duplicates)
+received_seqs.insert(msg.seq);
+```
+
+**Flow**:
+```
+Client → Server: ReliableMsg { seq: 5, data: "PlayerJoined" }
+Server → Client: Ack { seq: 5 }
+[Client receives ACK, removes seq=5 from pending list]
+
+If ACK is lost:
+Client → Server: ReliableMsg { seq: 5, data: "PlayerJoined" } (retransmit)
+Server: "Already received seq=5, send ACK again but don't process"
+Server → Client: Ack { seq: 5 }
+```
+
+#### 6. Retransmission and Timeouts
+
+**The Problem**: What if the packet OR its ACK is lost?
+
+**Solution: Retransmission Timeout (RTO)**
+
+```rust
+struct PendingMessage {
+    seq: u32,
+    msg: Vec<u8>,
+    send_time: Instant,
+    rto: Duration,  // How long to wait before retransmit
+}
+
+let mut pending: HashMap<u32, PendingMessage> = HashMap::new();
+
+// Send reliable message
+fn send_reliable(seq: u32, msg: Vec<u8>) {
+    socket.send_to(&msg, addr)?;
+
+    pending.insert(seq, PendingMessage {
+        seq,
+        msg: msg.clone(),
+        send_time: Instant::now(),
+        rto: Duration::from_millis(500),  // Wait 500ms for ACK
+    });
+}
+
+// Check for timeouts periodically
+fn check_timeouts() {
+    for (seq, pending_msg) in pending.iter_mut() {
+        if pending_msg.send_time.elapsed() > pending_msg.rto {
+            // Timeout! Retransmit
+            socket.send_to(&pending_msg.msg, addr)?;
+            pending_msg.send_time = Instant::now();
+        }
+    }
+}
+
+// Receive ACK
+fn handle_ack(seq: u32) {
+    pending.remove(&seq);  // Message delivered, stop retransmitting
+}
+```
+
+**Exponential Backoff**:
+```rust
+// Avoid overwhelming network if it's congested
+fn retransmit(pending_msg: &mut PendingMessage) {
+    socket.send_to(&pending_msg.msg, addr)?;
+
+    // Double the timeout each retry
+    pending_msg.rto *= 2;  // 500ms → 1000ms → 2000ms → 4000ms
+    pending_msg.send_time = Instant::now();
+    pending_msg.retransmit_count += 1;
+
+    // Give up after 3 retries
+    if pending_msg.retransmit_count >= 3 {
+        pending.remove(&pending_msg.seq);  // Accept loss
+    }
+}
+```
+
+**Why Exponential Backoff?**
+- **Network congestion**: Constant retransmits make congestion worse
+- **TCP uses it**: Proven strategy, backs off when network is struggling
+- **Gives up gracefully**: After 3 retries, accept that the other side is unreachable
+
+#### 7. Sequence Number Management
+
+**The Problem**: How do we track which messages were received?
+
+**Received Set (Simple but Memory-Heavy)**:
+```rust
+let mut received_seqs: HashSet<u32> = HashSet::new();
+
+fn handle_message(seq: u32, data: &[u8]) -> Option<Vec<u8>> {
+    if received_seqs.contains(&seq) {
+        // Duplicate! Ignore
+        return None;
+    }
+
+    received_seqs.insert(seq);
+    Some(data.to_vec())  // Process message
+}
+
+// Problem: HashSet grows forever (memory leak!)
+```
+
+**Sliding Window (Better)**:
+```rust
+let mut expected_seq: u32 = 0;
+let mut out_of_order: HashMap<u32, Vec<u8>> = HashMap::new();
+
+fn handle_message(seq: u32, data: &[u8]) -> Option<Vec<u8>> {
+    if seq == expected_seq {
+        // In order! Process immediately
+        expected_seq += 1;
+
+        // Check if next messages are in out_of_order buffer
+        while let Some(buffered) = out_of_order.remove(&expected_seq) {
+            process_message(buffered);
+            expected_seq += 1;
+        }
+
+        Some(data.to_vec())
+    } else if seq > expected_seq {
+        // Future message, buffer it
+        out_of_order.insert(seq, data.to_vec());
+        None
+    } else {
+        // Old message (seq < expected_seq), duplicate
+        None
+    }
+}
+```
+
+**Real-World Approach (QUIC, RakNet)**:
+- Track last N received sequences in a bitmap
+- Allows detecting duplicates within window
+- Old sequences are assumed received or lost (don't care)
+
+#### 8. Hybrid Protocols: Best of Both Worlds
+
+**The Insight**: Not all messages need the same guarantees.
+
+**Message Classification**:
+```rust
+enum MessageType {
+    // Send 30-120 times/sec, latest is most valuable
+    PositionUpdate { x: f32, y: f32, z: f32 },       // Unreliable
+    VelocityUpdate { vx: f32, vy: f32 },             // Unreliable
+    WeaponFired { weapon_id: u32 },                   // Unreliable
+
+    // Send rarely, must arrive exactly once
+    PlayerJoined { name: String },                    // Reliable
+    PlayerLeft { player_id: u32 },                    // Reliable
+    ScoreChanged { player_id: u32, score: u32 },      // Reliable
+    GameStateChange { new_state: GameState },         // Reliable
+}
+
+fn get_channel(msg: &MessageType) -> Channel {
+    match msg {
+        MessageType::PositionUpdate { .. } => Channel::Unreliable,
+        MessageType::VelocityUpdate { .. } => Channel::Unreliable,
+        MessageType::WeaponFired { .. } => Channel::Unreliable,
+        _ => Channel::Reliable,
+    }
+}
+```
+
+**Protocol Structure**:
+```rust
+enum Packet {
+    Unreliable { data: Vec<u8> },                    // Just data
+    Reliable { seq: u32, data: Vec<u8> },            // Data + sequence
+    Ack { seq: u32 },                                 // Acknowledgment
+}
+
+fn send(msg: MessageType) {
+    match get_channel(&msg) {
+        Channel::Unreliable => {
+            let packet = Packet::Unreliable { data: serialize(msg) };
+            socket.send_to(&packet, addr)?;
+            // Done! No tracking
+        }
+        Channel::Reliable => {
+            let seq = next_seq();
+            let packet = Packet::Reliable { seq, data: serialize(msg) };
+            socket.send_to(&packet, addr)?;
+            track_for_ack(seq, packet);  // Track for retransmission
+        }
+    }
+}
+```
+
+**Bandwidth Savings**:
+```
+All Reliable Protocol:
+  - Position update (20 bytes) + seq (4 bytes) = 24 bytes
+  - ACK packet (8 bytes)
+  - 30 updates/sec = (24 + 8) × 30 = 960 bytes/sec per player
+
+Hybrid Protocol:
+  - Position update (20 bytes, unreliable) = 20 bytes
+  - 30 updates/sec = 20 × 30 = 600 bytes/sec per player
+  - Occasional reliable events: ~10 bytes/sec
+  - Total: 610 bytes/sec (36% reduction!)
+
+100 players: All reliable = 96 KB/sec, Hybrid = 61 KB/sec
+```
+
+**Real-World Examples**:
+- **Overwatch**: Position/rotation unreliable, ability usage reliable
+- **Valorant**: Movement unreliable, weapon fire unreliable, hit detection reliable
+- **Minecraft**: Block placement reliable, player position unreliable
+- **Rocket League**: Physics unreliable at 120Hz, goals reliable
+
+### Connection to This Project
+
+Now let's see how all these concepts come together in our UDP game server:
+
+**1. Progressive Understanding of UDP**
+
+This project takes you from basic UDP to production-ready game networking:
+
+- **Milestone 1 (UDP Echo)**: Learn connectionless communication with `send_to`/`recv_from`. No state, no connections, just packets. Understand that UDP is stateless—server doesn't "know" about clients until they send.
+
+- **Milestone 2 (Game Loop)**: Add state management. Track players in `HashMap<SocketAddr, PlayerState>`. Implement 30 Hz broadcast loop—the heartbeat of every real-time game. Experience continuous streaming vs request-response.
+
+- **Milestone 3 (Service Discovery)**: Implement broadcast discovery so players can find servers on LAN without typing IPs. This is how Minecraft, Age of Empires, and StarCraft work.
+
+**2. Building Reliability Layer from Scratch**
+
+The most valuable learning comes from implementing your own reliable protocol:
+
+**Milestone 4 (Sequence Numbers + ACKs)**:
+- Assign unique ID to each reliable message
+- Receiver sends ACK back
+- Track pending messages in `HashMap<u32, PendingMessage>`
+- Detect duplicates with `HashSet<u32>` of received sequences
+
+**Milestone 5 (Retransmission)**:
+- Check pending messages periodically for timeouts
+- Resend if no ACK received within RTO
+- Exponential backoff: 500ms → 1000ms → 2000ms
+- Give up after 3 retries
+
+This is essentially building TCP's reliability guarantees yourself! You'll deeply understand why TCP is reliable and what the cost is.
+
+**3. Hybrid Protocol Design**
+
+Milestone 6 demonstrates the key insight that makes modern games performant:
+
+**Not all data needs reliability**:
+- **Position updates (30-120 Hz)**: Latest position matters, old data is garbage. Send unreliable.
+- **Player joined (1 time)**: Must arrive exactly once. Send reliable.
+- **Weapon fired (frequent)**: Latest shot matters, miss a few? Next shot arrives soon. Unreliable.
+- **Score changed (rare)**: Critical game state. Reliable.
+
+**Architecture**:
+```
+┌─────────────────────────────────────────┐
+│           UDP Socket (Single)            │
+└───────────┬─────────────────────────────┘
+            │
+       ┌────┴────┐
+       ↓         ↓
+┌──────────┐ ┌──────────────┐
+│Unreliable│ │   Reliable   │
+│ Channel  │ │   Channel    │
+├──────────┤ ├──────────────┤
+│ Position │ │ Seq Numbers  │
+│ Velocity │ │ ACKs         │
+│ Shooting │ │ Retransmit   │
+└──────────┘ └──────────────┘
+```
+
+Both channels multiplex over the same UDP socket, differentiated by packet type flag.
+
+**4. Real-World Game Networking Patterns**
+
+**Game Loop (30-120 Hz)**:
+```rust
+loop {
+    tick_start = Instant::now();
+
+    // 1. Receive player inputs (non-blocking)
+    while let Ok((data, addr)) = socket.try_recv_from(&mut buf) {
+        update_player_state(addr, data);
+    }
+
+    // 2. Simulate game world
+    physics_update(dt);
+    collision_detection();
+
+    // 3. Broadcast state to all players
+    for player in &players {
+        broadcast_state_unreliable(player);
+    }
+
+    // 4. Wait for next tick
+    sleep_until(tick_start + tick_duration);
+}
+```
+
+**Retransmission Loop (Background Task)**:
+```rust
+loop {
+    sleep(100ms);  // Check every 100ms
+
+    // Find timed-out reliable messages
+    for (seq, pending) in &reliable_channel.pending_acks {
+        if pending.send_time.elapsed() > pending.rto {
+            retransmit(seq, pending);
+        }
+    }
+}
+```
+
+**5. Performance Characteristics**
+
+By the end, you'll understand the exact performance trade-offs:
+
+| Aspect | TCP | UDP (Unreliable) | UDP (Reliable Layer) |
+|--------|-----|------------------|---------------------|
+| Latency | 50-100ms | 10-30ms | 30-50ms |
+| Overhead | High | None | Moderate |
+| Loss Handling | Automatic | Accept loss | Manual retransmit |
+| Order | Guaranteed | No guarantee | Optional |
+| Use Case | Chat, files | Position updates | Critical events |
+
+**Real Numbers from This Project**:
+- **100 players**, **30 Hz** position updates
+- **Unreliable only**: 100 × 30 × 20 bytes = 60 KB/sec
+- **All reliable**: 100 × 30 × (20 + 4 seq + 8 ACK) = 96 KB/sec
+- **Hybrid**: 60 KB/sec (positions) + 2 KB/sec (events) = 62 KB/sec
+
+**6. Why This Matters**
+
+Every modern multiplayer game uses these exact techniques:
+
+**Fortnite (100 players, Battle Royale)**:
+- Position/rotation: Unreliable at 30 Hz
+- Building placement: Reliable
+- Storm circle changes: Reliable
+- Player elimination: Reliable
+
+**Rocket League (Physics-heavy, 120 Hz)**:
+- Ball position: Unreliable at 120 Hz
+- Car physics: Unreliable at 120 Hz
+- Goals scored: Reliable
+- Match state: Reliable
+
+**Valorant (Tactical FPS)**:
+- Player movement: Unreliable at 60 Hz
+- Weapon fire: Unreliable (client-side prediction)
+- Hit detection: Reliable (server-authoritative)
+- Round start/end: Reliable
+
+**7. Design Decisions You'll Make**
+
+This project forces you to answer real engineering questions:
+
+**Q: How often should I broadcast positions?**
+- 10 Hz: Too laggy (100ms between updates)
+- 30 Hz: Standard for most games (33ms updates)
+- 60 Hz: Smooth for fast-paced games (16ms updates)
+- 120 Hz: Competitive games (8ms updates, high bandwidth)
+
+**Q: When do I give up on retransmission?**
+- Too aggressive: Spam network, make congestion worse
+- Too patient: Stale data arrives too late to be useful
+- Sweet spot: 3 retries with exponential backoff
+
+**Q: How big should my receive buffer be?**
+- Too small: Lose packets before processing
+- Too large: Memory waste
+- Rule of thumb: 1024-4096 bytes (handles fragmentation)
+
+**8. From Learning to Production**
+
+After completing this project, you'll be able to:
+- Read game networking papers (e.g., Overwatch, Valorant GDC talks) and understand them
+- Evaluate networking libraries (RakNet, Photon, Mirror) and know what they're doing under the hood
+- Optimize network code: "We're using 200 KB/sec per player—why? Can we make some messages unreliable?"
+- Debug networking issues: "Packet loss is 5%—how does that affect our reliable message delivery time?"
+
+**You've built your own QUIC/RakNet/game networking stack from scratch!**
+
+This is the foundation of:
+- **QUIC protocol** (HTTP/3's transport layer)
+- **RakNet** (Used in Minecraft, many Unity games)
+- **Photon Engine** (Unity's multiplayer framework)
+- Every game engine's networking system
+
+---
+
 ## Milestone 1: Basic UDP Echo Server
 
 ### Introduction

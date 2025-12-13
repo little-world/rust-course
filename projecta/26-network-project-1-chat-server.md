@@ -49,6 +49,598 @@ Build a real-time chat server that evolves from a simple echo server to a produc
 
 ---
 
+### Core Concepts
+
+Before diving into the implementation, let's understand the fundamental concepts that power modern network servers:
+
+#### 1. TCP Networking Fundamentals
+
+**What is TCP?**
+Transmission Control Protocol (TCP) is a reliable, connection-oriented network protocol that guarantees ordered delivery of data between applications over a network.
+
+**Key Components**:
+- **Socket**: An endpoint for network communication (IP address + port number)
+- **TcpListener**: Listens for incoming connections on a specific port
+- **TcpStream**: Represents an established connection to a remote client
+- **Buffered I/O**: Reading/writing data efficiently using buffers
+
+**How it works**:
+```rust
+// Server side
+let listener = TcpListener::bind("127.0.0.1:8080")?;  // Listen on port 8080
+
+for stream in listener.incoming() {  // Wait for connections
+    let stream = stream?;  // TcpStream to connected client
+
+    // Read from client
+    let mut buffer = [0u8; 1024];
+    stream.read(&mut buffer)?;
+
+    // Write to client
+    stream.write_all(b"Hello, client!")?;
+}
+```
+
+**Client side**:
+```rust
+let mut stream = TcpStream::connect("127.0.0.1:8080")?;
+stream.write_all(b"Hello, server!")?;
+
+let mut buffer = [0u8; 1024];
+stream.read(&mut buffer)?;
+```
+
+**Line-Based Protocol**:
+Most text-based protocols (like HTTP, SMTP, chat) use newline-delimited messages:
+```rust
+// Using BufReader for efficient line reading
+let reader = BufReader::new(&stream);
+for line in reader.lines() {
+    let line = line?;  // Read until '\n'
+    println!("Received: {}", line);
+}
+```
+
+#### 2. Thread-per-Connection vs Task-per-Connection
+
+**Thread-per-Connection (Traditional)**:
+```rust
+for stream in listener.incoming() {
+    std::thread::spawn(move || {
+        handle_client(stream);  // Each client gets its own OS thread
+    });
+}
+```
+
+**Costs**:
+- Each thread = ~2MB stack memory (1,000 threads = 2GB RAM)
+- Context switching overhead between threads
+- Limited by OS thread limits (~10,000 max on Linux)
+
+**Task-per-Connection (Async)**:
+```rust
+loop {
+    let (stream, _) = listener.accept().await?;
+    tokio::spawn(async move {
+        handle_client(stream).await;  // Lightweight async task
+    });
+}
+```
+
+**Benefits**:
+- Each task = ~2KB memory (1,000x smaller)
+- Cooperative multitasking (no context switch overhead)
+- Can handle 100,000+ concurrent connections
+
+**The C10K Problem**: In the 2000s, servers struggled to handle 10,000 concurrent connections due to thread limitations. Async I/O solved this.
+
+#### 3. Async/Await and Tokio Runtime
+
+**What is async/await?**
+Async/await is Rust's way of writing non-blocking concurrent code that looks like synchronous code.
+
+**Without async (blocking)**:
+```rust
+fn download(url: &str) -> String {
+    // Blocks thread for seconds while waiting for network
+    http_get(url)
+}
+
+// Sequential - takes 6 seconds total
+let data1 = download("url1");  // 2 seconds
+let data2 = download("url2");  // 2 seconds
+let data3 = download("url3");  // 2 seconds
+```
+
+**With async (non-blocking)**:
+```rust
+async fn download(url: &str) -> String {
+    // Yields control while waiting, other tasks can run
+    http_get(url).await
+}
+
+// Concurrent - takes 2 seconds total (all run simultaneously)
+let (data1, data2, data3) = tokio::join!(
+    download("url1"),
+    download("url2"),
+    download("url3"),
+);
+```
+
+**Key Concepts**:
+- **Future**: A value that will be available in the future (lazy, does nothing until awaited)
+- **await**: Suspends current task until future completes, yields CPU to other tasks
+- **Runtime**: Tokio's executor that schedules and runs async tasks
+- **Task**: Lightweight unit of execution (like green threads)
+
+**Tokio Runtime**:
+```rust
+#[tokio::main]  // Creates runtime, runs async main
+async fn main() {
+    // This code runs on tokio's thread pool
+    let task1 = tokio::spawn(async { /* work */ });
+    let task2 = tokio::spawn(async { /* work */ });
+
+    // Both tasks run concurrently on the runtime
+    task1.await.unwrap();
+    task2.await.unwrap();
+}
+```
+
+**When to await?**:
+- **Blocking operations**: `listener.accept().await` (waits for connection)
+- **I/O operations**: `stream.read().await`, `stream.write().await`
+- **Waiting for tasks**: `task.await` (wait for task to complete)
+
+#### 4. Broadcast Channels (Publish-Subscribe Pattern)
+
+**The Problem**: How do we send one message to many receivers?
+
+**Naive approach (doesn't work)**:
+```rust
+let msg = "Hello".to_string();
+for client in clients {
+    client.send(msg);  // ERROR: msg moved on first iteration
+}
+```
+
+**Solution: Broadcast Channel**:
+```rust
+use tokio::sync::broadcast;
+
+// Create channel with capacity 100
+let (tx, _rx) = broadcast::channel::<String>(100);
+
+// Each subscriber gets their own receiver
+let rx1 = tx.subscribe();
+let rx2 = tx.subscribe();
+let rx3 = tx.subscribe();
+
+// Send message once
+tx.send("Hello everyone".to_string()).ok();
+
+// All receivers get the message
+assert_eq!(rx1.recv().await.unwrap(), "Hello everyone");
+assert_eq!(rx2.recv().await.unwrap(), "Hello everyone");
+assert_eq!(rx3.recv().await.unwrap(), "Hello everyone");
+```
+
+**How it works**:
+- **Sender (tx)**: Cloneable, can be shared across tasks
+- **Receiver (rx)**: Created via `tx.subscribe()`, each gets a copy of messages
+- **Broadcasting**: `tx.send(msg)` clones message to all receivers
+- **Capacity**: Older messages are dropped if receivers are slow (configurable)
+
+**Perfect for chat servers**:
+```rust
+// When client sends message
+tx.send(format!("{}: {}", username, message)).ok();
+
+// All clients receive it via their rx.recv().await
+```
+
+#### 5. Shared State with Arc and RwLock
+
+**The Problem**: Multiple tasks need to access the same data (room list, user list).
+
+**Ownership Challenge**:
+```rust
+let rooms = HashMap::new();
+
+tokio::spawn(async move {
+    rooms.insert("general", room);  // ERROR: rooms moved here
+});
+
+tokio::spawn(async move {
+    rooms.insert("random", room);  // ERROR: rooms already moved
+});
+```
+
+**Solution: Arc (Atomic Reference Counting)**:
+```rust
+use std::sync::Arc;
+
+let rooms = Arc::new(HashMap::new());
+
+// Clone Arc (cheap - just increments ref count)
+let rooms1 = rooms.clone();
+let rooms2 = rooms.clone();
+
+tokio::spawn(async move {
+    // rooms1 is a smart pointer to shared data
+});
+
+tokio::spawn(async move {
+    // rooms2 points to same data
+});
+```
+
+**But Arc is immutable!** We need interior mutability:
+
+**RwLock (Read-Write Lock)**:
+```rust
+use tokio::sync::RwLock;
+
+let rooms = Arc::new(RwLock::new(HashMap::new()));
+
+// Many readers simultaneously (doesn't block each other)
+{
+    let rooms_read = rooms.read().await;  // Shared lock
+    let room = rooms_read.get("general");
+    // ... read operations ...
+}  // Lock released
+
+// Only one writer at a time (blocks readers and other writers)
+{
+    let mut rooms_write = rooms.write().await;  // Exclusive lock
+    rooms_write.insert("new_room".to_string(), room);
+}  // Lock released
+```
+
+**Pattern Summary**:
+- `Arc<T>`: Share ownership across tasks
+- `RwLock<T>`: Allow concurrent reads, exclusive writes
+- `Arc<RwLock<HashMap<K, V>>>`: Shared mutable state
+
+**Performance**:
+- Read lock: Multiple simultaneous readers (great for read-heavy workloads)
+- Write lock: Exclusive access (blocks everything)
+- Choose wisely: Lock only what you need, release quickly
+
+#### 6. WebSocket Protocol
+
+**What is WebSocket?**
+WebSocket is a protocol that enables full-duplex (two-way) communication between a client and server over a single TCP connection. Unlike HTTP (request-response), WebSocket keeps the connection open for real-time messaging.
+
+**HTTP vs WebSocket**:
+```
+HTTP (Request-Response):
+Client → Server: GET /messages HTTP/1.1
+Server → Client: HTTP/1.1 200 OK [messages]
+[Connection closes]
+[Client must poll repeatedly]
+
+WebSocket (Persistent Connection):
+Client → Server: [HTTP Upgrade request]
+Server → Client: [HTTP 101 Switching Protocols]
+[Connection stays open]
+Client ↔ Server: [Messages flow both ways anytime]
+```
+
+**HTTP Upgrade Handshake**:
+```
+Client:
+GET /ws HTTP/1.1
+Host: localhost:3000
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+
+Server:
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+
+[Now WebSocket connection is established]
+```
+
+**WebSocket Messages**:
+- **Text**: String messages (`Message::Text("hello")`)
+- **Binary**: Raw bytes (`Message::Binary(vec![1,2,3])`)
+- **Ping/Pong**: Keepalive heartbeat
+- **Close**: Graceful shutdown
+
+**Using WebSocket in Rust with Axum**:
+```rust
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+
+async fn websocket_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(|socket: WebSocket| async {
+        let (mut sender, mut receiver) = socket.split();
+
+        // Send to client
+        sender.send(Message::Text("Hello".into())).await.ok();
+
+        // Receive from client
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(text) => println!("Got: {}", text),
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    })
+}
+```
+
+**Why WebSocket for Chat?**
+- **Real-time**: Messages delivered instantly (no polling)
+- **Efficient**: One connection, not thousands of HTTP requests
+- **Browser support**: Built into all modern browsers
+- **Bi-directional**: Server can push to clients anytime
+
+#### 7. Graceful Shutdown
+
+**The Problem**: When server stops (Ctrl+C, deployment, crash), active connections are abruptly closed, losing in-flight messages.
+
+**What is Graceful Shutdown?**
+A clean stop where the server:
+1. Stops accepting new connections
+2. Drains existing connections (let them finish)
+3. Waits for in-flight work to complete
+4. Shuts down cleanly
+
+**Without Graceful Shutdown**:
+```rust
+// Ctrl+C → Process killed → All connections dropped
+// Lost messages, clients see connection errors
+```
+
+**With Graceful Shutdown**:
+```rust
+use tokio_util::sync::CancellationToken;
+
+let token = CancellationToken::new();
+let token_clone = token.clone();
+
+// Listen for Ctrl+C
+tokio::spawn(async move {
+    tokio::signal::ctrl_c().await.ok();
+    token_clone.cancel();  // Signal shutdown
+});
+
+loop {
+    tokio::select! {
+        // Normal operation
+        result = listener.accept() => {
+            // Handle new connection
+        }
+
+        // Shutdown signal
+        _ = token.cancelled() => {
+            println!("Stopping new connections...");
+            break;  // Stop accepting
+        }
+    }
+}
+
+// Wait for existing connections to finish (timeout after 30s)
+println!("Draining connections...");
+```
+
+**Kubernetes Integration**:
+```
+1. kubectl delete pod chat-server
+2. Kubernetes sends SIGTERM to pod
+3. Server receives signal, stops accepting connections
+4. Server drains existing connections (30s grace period)
+5. Kubernetes sends SIGKILL if still running after 30s
+```
+
+**Production Benefits**:
+- **Zero downtime deployments**: Old version drains while new version starts
+- **Data integrity**: No lost messages during restart
+- **Better UX**: Clients see clean disconnection, not errors
+
+#### 8. Production Observability (Metrics and Health Checks)
+
+**The Problem**: Production servers are black boxes. Is it healthy? Overloaded? How many users?
+
+**Health Checks**:
+```rust
+// Simple endpoint for load balancers
+async fn health_handler() -> &'static str {
+    "OK"  // 200 status = healthy
+}
+
+// Load balancer uses this:
+// - Every 10s: GET /health
+// - If 200 OK: Send traffic
+// - If error/timeout: Remove from rotation
+```
+
+**Metrics (Prometheus Format)**:
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct Metrics {
+    active_connections: AtomicUsize,
+    total_messages: AtomicUsize,
+    active_rooms: AtomicUsize,
+}
+
+async fn metrics_handler(metrics: Arc<Metrics>) -> String {
+    format!(
+        "active_connections {}\ntotal_messages {}\nactive_rooms {}\n",
+        metrics.active_connections.load(Ordering::Relaxed),
+        metrics.total_messages.load(Ordering::Relaxed),
+        metrics.active_rooms.load(Ordering::Relaxed),
+    )
+}
+```
+
+**Prometheus scrapes this**:
+```
+GET /metrics every 15 seconds
+Stores time-series data
+Grafana visualizes it
+Alerts fire if thresholds exceeded
+```
+
+**Real-World Example**:
+```
+Dashboard shows:
+- Active connections: 15,234 (up from 10k an hour ago)
+- Message rate: 2,500 msg/sec
+- CPU: 45% (healthy)
+- Memory: 2.1GB (healthy)
+
+Alert fires: "Active connections > 20,000" → Scale up!
+```
+
+**Why Atomic Types?**
+```rust
+// Lock-free concurrent access
+metrics.total_messages.fetch_add(1, Ordering::Relaxed);
+
+// Multiple threads can increment simultaneously
+// No mutex, no blocking, extremely fast
+```
+
+### Connection to This Project
+
+Now let's see how all these concepts come together to build our chat server:
+
+**1. Progressive Architecture Evolution**
+
+This project takes you through the evolution of network server architecture:
+
+- **Milestone 1 (Blocking I/O)**: Learn TCP fundamentals with `TcpListener` and `TcpStream`. Understand the baseline: one client at a time, completely blocking.
+
+- **Milestone 2 (Thread-per-Connection)**: Scale to multiple clients using `std::thread::spawn`. Experience the limitation: 1,000 clients = 2GB RAM. This is how Apache and traditional servers work.
+
+- **Milestone 3 (Async/Task-per-Connection)**: Breakthrough to modern async I/O with `tokio`. One runtime handles 100,000+ clients. This is how Discord, Slack, and all modern chat servers work.
+
+**2. Broadcast Pattern for Chat**
+
+The core of any chat server is broadcasting messages:
+
+- **`tokio::sync::broadcast`** implements the pub/sub pattern perfectly
+- When Client A sends "Hello", the server broadcasts to all clients in the room
+- Each client has its own `Receiver`, all connected to one `Sender`
+- Messages are cloned efficiently to each subscriber
+
+**Architecture**:
+```
+Client A ──> [Reader Task] ──> broadcast::Sender ──┬──> Receiver ──> [Writer Task] ──> Client A
+                                                    ├──> Receiver ──> [Writer Task] ──> Client B
+                                                    └──> Receiver ──> [Writer Task] ──> Client C
+```
+
+**3. Room Isolation with Shared State**
+
+Milestone 4 adds rooms using the `Arc<RwLock<HashMap>>` pattern:
+
+```rust
+struct ChatServer {
+    rooms: Arc<RwLock<HashMap<String, Room>>>,
+}
+
+struct Room {
+    tx: broadcast::Sender<String>,   // One broadcast channel per room
+    users: HashSet<SocketAddr>,       // Who's in this room?
+}
+```
+
+**Why this structure?**
+- `Arc`: Share across all client tasks
+- `RwLock`: Many concurrent readers (checking rooms), few writers (join/leave)
+- `HashMap<String, Room>`: Fast lookup by room name
+- Each room has its own broadcast channel for message isolation
+
+**4. Multi-Protocol Support**
+
+Milestone 5 demonstrates protocol abstraction:
+
+- **Same backend (`ChatServer`)** serves both TCP and WebSocket
+- TCP clients and WebSocket clients chat together seamlessly
+- WebSocket uses HTTP upgrade from `axum`
+- Both protocols share the same room and broadcast infrastructure
+
+**Why this matters**: Modern apps need multiple protocols. Your API might be HTTP REST, but real-time features need WebSocket. This project shows how to unify them.
+
+**5. Production-Ready Features**
+
+Milestone 6 adds the polish that separates toys from production systems:
+
+- **Graceful Shutdown**: `CancellationToken` signals all tasks to stop accepting work and drain
+- **Metrics**: `AtomicUsize` for lock-free counters, Prometheus format for observability
+- **Health Checks**: `/health` endpoint for Kubernetes liveness probes
+- **Keepalive**: WebSocket ping/pong to detect and clean up dead connections
+
+**6. Async I/O Patterns**
+
+Throughout the project, you'll master critical async patterns:
+
+**Splitting streams**:
+```rust
+let (reader, writer) = stream.into_split();
+// Now we can read and write concurrently
+```
+
+**Select pattern** (wait for multiple events):
+```rust
+tokio::select! {
+    msg = client_receiver.recv() => { /* client input */ }
+    msg = room_broadcast.recv() => { /* broadcast from room */ }
+    _ = shutdown_token.cancelled() => { /* shutdown */ }
+}
+```
+
+**Spawning tasks**:
+```rust
+tokio::spawn(async move {
+    // Runs concurrently on tokio runtime
+    handle_client(stream).await;
+});
+```
+
+**7. Real-World Performance Gains**
+
+By the end, you'll have built:
+
+| Milestone | Architecture | Max Clients | Memory per Client | Use Case |
+|-----------|-------------|-------------|-------------------|----------|
+| 1 | Blocking I/O | 1 | N/A | Learning TCP |
+| 2 | Thread-per-connection | ~1,000 | 2MB | Apache-style |
+| 3 | Async tasks | 100,000+ | 2KB | Modern servers |
+| 6 | Production | 100,000+ | 2KB | Discord/Slack scale |
+
+**8. Why This Architecture Matters**
+
+This exact architecture pattern is used by:
+
+- **Discord**: WebSocket for real-time chat, handles 19M concurrent connections
+- **Slack**: WebSocket primary, HTTP fallback, room-based channels
+- **Gaming servers**: Lobbies and team chat in multiplayer games
+- **Trading platforms**: Real-time order updates to thousands of traders
+- **IoT platforms**: Millions of devices sending sensor data
+
+**What You'll Understand**:
+
+After completing this project, when you see "built with async Rust and tokio," you'll know exactly what that means:
+- Lightweight tasks instead of heavy threads
+- Non-blocking I/O that scales to hundreds of thousands of connections
+- Broadcast channels for efficient pub/sub
+- Shared state with lock-free atomics where possible, RwLock where needed
+- Production features like graceful shutdown and observability
+
+This is the foundation of modern high-performance network services in Rust!
+
+---
+
 ## Milestone 1: Simple Echo Server (Synchronous, Single-Threaded)
 
 ### Introduction

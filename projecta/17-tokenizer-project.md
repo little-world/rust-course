@@ -1,6 +1,6 @@
-# Chapter 17: Advanced String Processing - Neural Network Tokenizers
 
-## Project: High-Performance Text Tokenizer for Neural Networks
+
+# Text Tokenizer for Neural Networks
 
 ### Problem Statement
 
@@ -57,6 +57,1672 @@ Training LLaMA on 1TB text:
 
 ---
 
+## Key Concepts Explained
+
+Before diving into implementation, let's understand the core concepts that make modern tokenizers fast and effective. This project progresses from simple character tokenization to production-grade BPE with extreme optimizations.
+
+### 1. Subword Tokenization and the Vocabulary Trade-off
+
+**What Is It?**
+
+Subword tokenization breaks words into smaller meaningful units (subwords) rather than treating entire words or individual characters as atomic tokens. It represents the sweet spot between character-level and word-level tokenization.
+
+**The Three Approaches:**
+
+```
+Text: "unhappiness"
+
+Character-level (vocab=256):
+Tokens: [u, n, h, a, p, p, i, n, e, s, s]
+Length: 11 tokens
+Pros: Can represent any text, tiny vocabulary
+Cons: Very long sequences → slow inference, hard to learn semantics
+
+Word-level (vocab=50k-100k):
+Tokens: [UNK]  (if "unhappiness" not in vocabulary)
+Length: 1 token
+Pros: Short sequences, natural semantic units
+Cons: Can't handle rare words/typos, huge vocabulary
+
+Subword BPE (vocab=32k):
+Tokens: [un, happ, iness]
+Length: 3 tokens
+Pros: Handles any word, reasonable sequence length, shared roots
+Cons: Needs training algorithm, slightly complex
+```
+
+**Why It Matters:**
+
+Modern language models (GPT, BERT, LLaMA) all use subword tokenization because:
+1. **Generalization**: "running" and "runner" share "run" prefix → model learns relationships
+2. **Vocabulary efficiency**: 32k tokens vs 100k+ words
+3. **Unknown word handling**: Any word can be represented via subwords
+4. **Inference speed**: Shorter sequences than character-level (4-10x reduction)
+
+**Real-World Example:**
+
+```rust
+// GPT-2 tokenizer example
+"unhappiness" → [un, happ, iness]
+"antidisestablishmentarianism" → [ant, idis, establish, ment, arian, ism]
+"COVID-19" → [COVID, -, 19]  (handles new words!)
+
+// Character-level would need 28 tokens for the long word
+// Word-level would output [UNK] and lose all information
+```
+
+**Performance Impact:**
+
+For GPT-3 inference on 1000 tokens:
+- Character-level: ~4000 tokens → 4x slower, 4x more memory
+- Subword BPE: 1000 tokens → baseline
+- Word-level: ~500 tokens but can't handle OOV words → fails on real text
+
+---
+
+### 2. Byte-Pair Encoding (BPE) Algorithm
+
+**What Is It?**
+
+BPE is a greedy algorithm that iteratively merges the most frequent pair of adjacent tokens in the corpus. It starts with individual bytes/characters and builds up to common subwords.
+
+**The Algorithm:**
+
+```
+Corpus: "low low low lower lower newest widest"
+
+Step 1: Initialize with characters
+Words: [l,o,w], [l,o,w], [l,o,w], [l,o,w,e,r], ...
+
+Step 2: Count all adjacent pairs
+Pairs: {(l,o): 5, (o,w): 5, (w,e): 2, (e,r): 2, ...}
+
+Step 3: Merge most frequent pair (l,o) → "lo"
+Words: [lo,w], [lo,w], [lo,w], [lo,w,e,r], ...
+
+Step 4: Count pairs again
+Pairs: {(lo,w): 5, (w,e): 2, (e,r): 2, ...}
+
+Step 5: Merge (lo,w) → "low"
+Words: [low], [low], [low], [low,e,r], ...
+
+Step 6: Continue until vocab_size reached
+Final vocab: [l, o, w, e, r, n, i, s, t, d, lo, ow, low, er, lower, est, ...]
+```
+
+**Training vs Encoding:**
+
+```rust
+// Training: Learn which pairs to merge
+fn train(corpus: &str, vocab_size: usize) -> Vec<(String, String)> {
+    let mut words = split_into_chars(corpus);
+    let mut merges = vec![];
+
+    while merges.len() < vocab_size {
+        // Count all pairs
+        let pair_counts = count_pairs(&words);
+
+        // Find most frequent
+        let best_pair = pair_counts.max_by_key(|pair, count| count);
+
+        // Merge this pair everywhere
+        merge_pair(&mut words, best_pair);
+        merges.push(best_pair);
+    }
+
+    merges  // Ordered list of merges
+}
+
+// Encoding: Apply learned merges in order
+fn encode(text: &str, merges: &[(String, String)]) -> Vec<String> {
+    let mut tokens = split_into_chars(text);
+
+    // Apply each merge in learned order
+    for (a, b) in merges {
+        tokens = apply_merge(tokens, (a, b));
+    }
+
+    tokens
+}
+```
+
+**Why This Works:**
+
+1. **Frequency captures importance**: Common subwords get merged first
+2. **Order matters**: "low" must be learned before "lowest"
+3. **Greedy is good enough**: Optimal merging is NP-hard, greedy works well in practice
+4. **Deterministic encoding**: Same merges → same tokens
+
+**Complexity Analysis:**
+
+Naive BPE (what we'll implement first):
+```
+For each merge iteration (vocab_size iterations):
+  - Count all pairs: O(n) where n = total characters
+  - Find max: O(unique_pairs)
+  - Merge pair: O(n)
+Total: O(vocab_size × n) = O(n²) for large vocab
+
+Example: 100MB corpus, 32k vocab → 3200 × 100M = 320 billion operations → 10+ hours
+```
+
+Optimized BPE (with priority queue):
+```
+- Build initial pair counts: O(n)
+- Use binary heap to track max: O(log k) where k = unique pairs
+- Update counts after merge: O(affected_pairs × log k)
+Total: O(n + vocab_size × log k) = O(n log n)
+
+Same example: 100M + 32k × log(100k) ≈ 100M + 500k = ~5 minutes
+```
+
+**Real-World Scale:**
+
+- GPT-2 (50k vocab, 40GB corpus): ~8 hours with optimized BPE
+- SentencePiece (32k vocab, 20GB Wikipedia): ~30 minutes with advanced optimizations
+- This project target: 100MB corpus in 2-5 minutes (Milestone 5)
+
+---
+
+### 3. HashMap, Vocabulary Management, and Bidirectional Mappings
+
+**What Is It?**
+
+Tokenizers need to map between three representations: text ↔ tokens ↔ IDs. Efficient bidirectional mappings are critical for both encoding (text → IDs) and decoding (IDs → text).
+
+**The Data Structures:**
+
+```rust
+pub struct Tokenizer {
+    // Forward: token string to ID
+    vocab: HashMap<String, u32>,
+
+    // Reverse: ID to token string
+    id_to_token: HashMap<u32, String>,
+
+    // Or more efficiently:
+    id_to_token: Vec<String>,  // Direct indexing
+
+    // Special tokens
+    special_tokens: HashMap<String, u32>,  // <PAD>=0, <UNK>=1, <BOS>=2, <EOS>=3
+}
+```
+
+**Why Two Mappings?**
+
+```rust
+// Encoding: Need fast "hello" → ID lookup
+fn encode(&self, text: &str) -> Vec<u32> {
+    text.split_whitespace()
+        .map(|word| {
+            // O(1) HashMap lookup
+            *self.vocab.get(word).unwrap_or(&self.unk_id)
+        })
+        .collect()
+}
+
+// Decoding: Need fast ID → "hello" lookup
+fn decode(&self, ids: &[u32]) -> String {
+    ids.iter()
+        .map(|&id| {
+            // O(1) HashMap or Vec indexing
+            self.id_to_token.get(&id).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+```
+
+**Vec vs HashMap for Reverse Mapping:**
+
+```rust
+// Option 1: HashMap<u32, String>
+// - Flexible: IDs don't need to be contiguous
+// - Slower: Hash function + collision resolution (~50-100ns)
+// - More memory: Hash table overhead
+
+// Option 2: Vec<String>
+// - Fast: Direct array indexing (~2ns)
+// - Memory efficient: No hash table overhead
+// - Requirement: IDs must be 0..n-1
+// - This is what production tokenizers use!
+
+pub struct FastTokenizer {
+    vocab: HashMap<String, u32>,  // Still need HashMap for text lookup
+    id_to_token: Vec<String>,      // Vec for fast ID lookup
+}
+
+impl FastTokenizer {
+    fn add_token(&mut self, token: String) -> u32 {
+        let id = self.id_to_token.len() as u32;
+        self.vocab.insert(token.clone(), id);
+        self.id_to_token.push(token);
+        id
+    }
+}
+```
+
+**Special Tokens:**
+
+```rust
+// Special tokens have reserved IDs
+pub const PAD_ID: u32 = 0;   // Padding for batching sequences
+pub const UNK_ID: u32 = 1;   // Unknown token
+pub const BOS_ID: u32 = 2;   // Beginning of sequence
+pub const EOS_ID: u32 = 3;   // End of sequence
+
+// Usage in training:
+let input_ids = vec![BOS_ID, 15, 42, 103, EOS_ID, PAD_ID, PAD_ID];
+//                   ^                       ^      ^padding^
+//                   start marker            end marker
+
+// Why they matter:
+// - PAD: All sequences in a batch must have same length
+// - UNK: Handle characters/words not in vocabulary
+// - BOS/EOS: Model learns sentence boundaries
+```
+
+**Memory Layout:**
+
+```rust
+// Small vocabulary (vocab_size=1000):
+// HashMap: ~48 bytes per entry × 1000 = 48KB (8B key + 8B value + 32B overhead)
+// Vec: ~24 bytes per entry × 1000 = 24KB (8B pointer + 16B String metadata)
+
+// Large vocabulary (vocab_size=50k):
+// HashMap: ~2.4MB
+// Vec: ~1.2MB
+
+// Lookup performance (1M lookups):
+// HashMap: ~50-100ns per lookup = 50-100ms total
+// Vec: ~2ns per lookup = 2ms total (25-50x faster!)
+```
+
+**Best Practice:**
+
+Use Vec for ID→token (frequent during decoding), HashMap for token→ID (frequent during encoding). This is what HuggingFace tokenizers, SentencePiece, and tiktoken all do.
+
+---
+
+### 4. Priority Queue and Binary Heap for Efficient Pair Selection
+
+**What Is It?**
+
+A priority queue (implemented as binary heap) allows efficient retrieval of the maximum element. In BPE, we need to find the most frequent pair thousands of times, making this data structure critical for performance.
+
+**The Problem:**
+
+```rust
+// Naive BPE: Find max pair every iteration
+for _ in 0..vocab_size {
+    let pair_counts = count_pairs(&words);  // O(n)
+
+    // Linear scan to find max - O(k) where k = unique pairs
+    let max_pair = pair_counts.iter()
+        .max_by_key(|(pair, &count)| count)
+        .unwrap();
+
+    merge_pair(&mut words, max_pair);
+}
+// Total: O(vocab_size × (n + k))
+// For 100k unique pairs, k=100k → very slow!
+```
+
+**The Solution: Priority Queue:**
+
+```rust
+use std::collections::BinaryHeap;
+
+#[derive(Eq, PartialEq)]
+struct PairCount {
+    pair: (String, String),
+    count: usize,
+}
+
+// Implement Ord to make BinaryHeap a max-heap
+impl Ord for PairCount {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.count.cmp(&other.count)  // Compare by count
+    }
+}
+
+fn optimized_bpe(corpus: &str, vocab_size: usize) {
+    let mut words = split_into_chars(corpus);
+
+    // Build initial priority queue - O(k log k)
+    let pair_counts = count_pairs(&words);
+    let mut heap: BinaryHeap<PairCount> = pair_counts
+        .into_iter()
+        .map(|(pair, count)| PairCount { pair, count })
+        .collect();
+
+    for _ in 0..vocab_size {
+        // Get max pair - O(1)
+        let max_pair = heap.peek().unwrap();
+
+        // Merge this pair
+        merge_pair(&mut words, &max_pair.pair);
+
+        // Update affected pairs - O(affected × log k)
+        update_heap_after_merge(&mut heap, &max_pair.pair);
+    }
+}
+// Total: O(k log k + vocab_size × affected × log k)
+// If affected is small (local changes), this is ~O(n log k)
+```
+
+**Binary Heap Structure:**
+
+```
+           (l,o):100
+          /         \
+      (o,w):95    (w,e):80
+      /     \      /     \
+  (e,r):70 (r,e):65 (e,s):60 (s,t):55
+
+Properties:
+- Max element at root: O(1) access
+- Insert: O(log n) - bubble up
+- Remove max: O(log n) - bubble down
+- Stored as Vec: [100, 95, 80, 70, 65, 60, 55]
+  - Parent of i: (i-1)/2
+  - Children of i: 2i+1, 2i+2
+```
+
+**Operations:**
+
+```rust
+let mut heap = BinaryHeap::new();
+
+// Insert - O(log n)
+heap.push(PairCount { pair: ("l", "o"), count: 100 });
+heap.push(PairCount { pair: ("o", "w"), count: 95 });
+
+// Peek max - O(1)
+let max = heap.peek();  // Some(PairCount { count: 100, ... })
+
+// Remove max - O(log n)
+let max = heap.pop();   // Removes and returns max
+
+// Update count (need to remove + re-insert) - O(log n)
+// BinaryHeap doesn't support update, so:
+heap.pop();  // Remove old
+heap.push(PairCount { pair: ("l", "o"), count: 105 });  // Insert new
+```
+
+**Performance Comparison:**
+
+```rust
+// Test: Find max element 10,000 times in 100,000 pairs
+
+// Linear scan (naive):
+// - 10,000 × 100,000 = 1 billion comparisons
+// - Time: ~10 seconds
+
+// Binary heap:
+// - Build heap: 100,000 × log(100,000) ≈ 1.7M operations
+// - 10,000 pops: 10,000 × log(100,000) ≈ 170k operations
+// - Time: ~20 milliseconds
+// - Speedup: 500x!
+```
+
+**Why It Matters for BPE:**
+
+Milestone 3 (Naive): O(n² × vocab_size) - 30+ minutes for 100MB
+Milestone 4 (Priority Queue): O(n log n × vocab_size) - 5-10 minutes for 100MB
+Speedup: 3-6x just from data structure choice!
+
+---
+
+### 5. String Interning and Memory Optimization
+
+**What Is It?**
+
+String interning is a memory optimization where we store each unique string once and refer to it via a small integer ID. This reduces memory usage and makes string comparisons as fast as integer comparisons.
+
+**The Problem:**
+
+```rust
+// Naive BPE: Store pairs as strings
+let pairs: HashMap<(String, String), usize> = HashMap::new();
+pairs.insert(("hello".to_string(), "world".to_string()), 42);
+
+// Memory per pair:
+// - Two String objects: 24 bytes each × 2 = 48 bytes
+// - Heap allocations: "hello" (5 bytes) + "world" (5 bytes) = 10 bytes
+// - HashMap overhead: ~32 bytes
+// Total: ~90 bytes per pair
+
+// For 100k unique pairs: 9MB just for pair keys!
+```
+
+**The Solution: String Interning:**
+
+```rust
+pub struct StringInterner {
+    string_to_id: HashMap<String, u32>,  // Intern table
+    id_to_string: Vec<String>,           // Reverse lookup
+}
+
+impl StringInterner {
+    pub fn intern(&mut self, s: &str) -> u32 {
+        // Check if already interned
+        if let Some(&id) = self.string_to_id.get(s) {
+            return id;
+        }
+
+        // Allocate new ID
+        let id = self.id_to_string.len() as u32;
+        self.string_to_id.insert(s.to_string(), id);
+        self.id_to_string.push(s.to_string());
+        id
+    }
+
+    pub fn get_string(&self, id: u32) -> &str {
+        &self.id_to_string[id as usize]
+    }
+}
+
+// Now store pairs as IDs
+let pairs: HashMap<(u32, u32), usize> = HashMap::new();
+let hello_id = interner.intern("hello");  // 0
+let world_id = interner.intern("world");  // 1
+pairs.insert((hello_id, world_id), 42);
+
+// Memory per pair:
+// - Two u32s: 4 bytes × 2 = 8 bytes
+// - HashMap overhead: ~8 bytes
+// Total: ~16 bytes per pair
+
+// For 100k pairs: 1.6MB (5.6x reduction!)
+```
+
+**Benefits:**
+
+1. **Memory reduction**: 48 bytes → 8 bytes per pair (6x less)
+2. **Faster comparisons**: String comparison O(n) → Integer comparison O(1)
+3. **Better cache locality**: Small integers fit in CPU cache
+4. **Faster hashing**: Hash u32 (~2ns) vs hash string (~10-50ns)
+
+**Encoding Pairs as u64:**
+
+```rust
+// Further optimization: Pack two u32s into one u64
+fn encode_pair(a: u32, b: u32) -> u64 {
+    ((a as u64) << 32) | (b as u64)
+}
+
+fn decode_pair(packed: u64) -> (u32, u32) {
+    let a = (packed >> 32) as u32;
+    let b = (packed & 0xFFFFFFFF) as u32;
+    (a, b)
+}
+
+// Now HashMap key is single u64 instead of (u32, u32) tuple
+let pairs: HashMap<u64, usize> = HashMap::new();
+let pair_id = encode_pair(hello_id, world_id);
+pairs.insert(pair_id, 42);
+
+// Benefits:
+// - Single 8-byte key instead of 16-byte tuple
+// - Faster hashing (one hash instead of two)
+// - Better memory layout
+```
+
+**Performance Impact:**
+
+```rust
+// Benchmark: Count 1M pairs in 100MB corpus
+
+// With String pairs:
+// - HashMap inserts: 1M × 100ns = 100ms (slow hash + allocation)
+// - Memory: 90MB for pair storage
+// - Cache misses: High (strings scattered in heap)
+
+// With interned u32 pairs:
+// - HashMap inserts: 1M × 20ns = 20ms (fast hash, no allocation)
+// - Memory: 16MB for pair storage
+// - Cache misses: Low (integers are compact)
+
+// Speedup: 5x faster, 5.6x less memory
+```
+
+**When to Use:**
+
+- ✅ Many duplicate strings (BPE has ~32k unique tokens, millions of repetitions)
+- ✅ Need fast equality checks (pair comparison in BPE)
+- ✅ Memory constrained (large corpora)
+- ❌ Few unique strings (overhead not worth it)
+- ❌ Strings rarely compared (benefit is small)
+
+---
+
+### 6. Rayon and Data Parallelism
+
+**What Is It?**
+
+Rayon is a data parallelism library that makes it trivial to parallelize operations on collections. It automatically splits work across CPU cores and handles thread management.
+
+**The Problem:**
+
+```rust
+// Sequential pair counting
+fn count_pairs(words: &[Vec<String>]) -> HashMap<(String, String), usize> {
+    let mut counts = HashMap::new();
+
+    for word in words {  // Process one word at a time
+        for i in 0..word.len()-1 {
+            let pair = (word[i].clone(), word[i+1].clone());
+            *counts.entry(pair).or_insert(0) += 1;
+        }
+    }
+
+    counts
+}
+
+// Problem: Uses only 1 CPU core
+// Modern machines have 8-16 cores → 87-93% of CPU sitting idle!
+```
+
+**The Solution: Rayon:**
+
+```rust
+use rayon::prelude::*;
+
+fn parallel_count_pairs(words: &[Vec<String>]) -> HashMap<(String, String), usize> {
+    // Split words into chunks, process in parallel
+    words.par_iter()  // Parallel iterator
+        .fold(
+            || HashMap::new(),  // Each thread gets own HashMap
+            |mut counts, word| {
+                // Count pairs in this word
+                for i in 0..word.len()-1 {
+                    let pair = (word[i].clone(), word[i+1].clone());
+                    *counts.entry(pair).or_insert(0) += 1;
+                }
+                counts
+            }
+        )
+        .reduce(
+            || HashMap::new(),
+            |mut a, b| {
+                // Merge thread-local HashMaps
+                for (pair, count) in b {
+                    *a.entry(pair).or_insert(0) += count;
+                }
+                a
+            }
+        )
+}
+```
+
+**How It Works:**
+
+```
+Words: [word1, word2, word3, word4, word5, word6, word7, word8]
+         ↓       ↓       ↓       ↓       ↓       ↓       ↓       ↓
+      Split into chunks (automatically by Rayon)
+         [word1, word2] [word3, word4] [word5, word6] [word7, word8]
+              ↓              ↓              ↓              ↓
+           Thread 1       Thread 2       Thread 3       Thread 4
+              ↓              ↓              ↓              ↓
+          counts1        counts2        counts3        counts4
+              ↓              ↓              ↓              ↓
+                    Merge (reduce) all counts
+                              ↓
+                       Final counts
+```
+
+**Rayon Patterns:**
+
+```rust
+// Pattern 1: par_iter + fold + reduce
+let sum: i32 = (0..1000)
+    .par_iter()
+    .fold(|| 0, |acc, &x| acc + x)  // Each thread sums its chunk
+    .reduce(|| 0, |a, b| a + b);     // Combine thread results
+
+// Pattern 2: par_iter + map + collect
+let squares: Vec<i32> = (0..1000)
+    .par_iter()
+    .map(|&x| x * x)
+    .collect();
+
+// Pattern 3: par_iter + for_each (side effects)
+(0..1000)
+    .par_iter()
+    .for_each(|&x| {
+        println!("{}", x);  // Order not guaranteed!
+    });
+```
+
+**Performance Characteristics:**
+
+```rust
+// Amdahl's Law: Speedup limited by sequential portion
+// If 90% of work is parallelizable:
+// - 2 cores: 1.82x speedup
+// - 4 cores: 3.08x speedup
+// - 8 cores: 4.71x speedup
+// - 16 cores: 6.40x speedup (diminishing returns)
+
+// Overhead considerations:
+// - Thread spawning: ~1-2μs per thread
+// - Work splitting: ~100ns per chunk
+// - Merging results: Depends on data structure
+
+// Rule of thumb: Parallelize if work > 10-100μs per item
+```
+
+**Real-World Performance:**
+
+```rust
+// BPE pair counting on 100MB corpus
+// 10M words, 100M characters
+
+// Sequential:
+// - Time: 5000ms
+// - CPU usage: 12.5% (1 of 8 cores)
+
+// Rayon parallel (8 cores):
+// - Time: 800ms
+// - CPU usage: 85% (7 of 8 cores, some overhead)
+// - Speedup: 6.25x
+
+// Why not 8x?
+// - Thread overhead: ~50ms
+// - Load imbalance: Some words longer than others
+// - Merge phase: Sequential (reduce)
+// - Cache effects: More cache misses with parallel access
+```
+
+**When to Use Rayon:**
+
+- ✅ CPU-bound work (computation, not I/O)
+- ✅ Independent iterations (no dependencies between items)
+- ✅ Enough work per item (>10μs, otherwise overhead dominates)
+- ✅ Want automatic load balancing (Rayon handles work stealing)
+- ❌ Tiny workloads (overhead > benefit)
+- ❌ Sequential dependencies (item N depends on item N-1)
+- ❌ I/O-bound work (use async instead)
+
+---
+
+### 7. DashMap and Lock-Free Concurrent Data Structures
+
+**What Is It?**
+
+DashMap is a concurrent HashMap that allows multiple threads to read and write simultaneously without explicit locks. It achieves this through sharding and fine-grained locking.
+
+**The Problem with Standard HashMap:**
+
+```rust
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+
+// Naive concurrent HashMap: Global lock
+let counts = Arc::new(Mutex::new(HashMap::new()));
+
+// All threads share one lock
+thread::spawn({
+    let counts = counts.clone();
+    move || {
+        for pair in pairs {
+            let mut map = counts.lock().unwrap();  // LOCK ENTIRE MAP
+            *map.entry(pair).or_insert(0) += 1;
+        }  // Lock released here
+    }
+});
+
+// Problem: Only ONE thread can access map at a time
+// - Thread 1: Writing to key "ab"... LOCKED
+// - Thread 2: Wants to write to key "cd"... WAITING (different key, but still blocked!)
+// - Thread 3: Wants to write to key "ef"... WAITING
+// - Result: Serialization → No parallelism!
+```
+
+**The Solution: DashMap (Sharding):**
+
+```rust
+use dashmap::DashMap;
+
+// DashMap internally splits into N shards (default: num_cpus * 4)
+// Each shard has its own lock
+let counts = Arc::new(DashMap::new());
+
+thread::spawn({
+    let counts = counts.clone();
+    move || {
+        for pair in pairs {
+            // NO explicit locking by user
+            counts.entry(pair)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+        }
+    }
+});
+
+// How it works:
+// - Hash key to determine shard: hash("ab") % num_shards
+// - Lock only that shard (other shards remain accessible)
+// - Thread 1: shard 3 (key "ab") ← LOCKED
+// - Thread 2: shard 7 (key "cd") ← UNLOCKED ✓
+// - Thread 3: shard 2 (key "ef") ← UNLOCKED ✓
+```
+
+**DashMap Internals:**
+
+```
+DashMap with 16 shards:
+
+┌─────────┬─────────┬─────────┬─────────┐
+│ Shard 0 │ Shard 1 │ Shard 2 │ Shard 3 │ ...
+│ (lock)  │ (lock)  │ (lock)  │ (lock)  │
+├─────────┼─────────┼─────────┼─────────┤
+│ "ab": 5 │ "cd": 3 │ "ef": 7 │ "gh": 2 │
+│ "xy": 1 │ "pq": 9 │ "mn": 4 │ "ij": 6 │
+└─────────┴─────────┴─────────┴─────────┘
+
+Key routing:
+- hash("ab") % 16 = 0 → Shard 0
+- hash("cd") % 16 = 1 → Shard 1
+- hash("ef") % 16 = 2 → Shard 2
+
+If Thread 1 locks Shard 0, Threads 2 and 3 can still access Shards 1-15
+```
+
+**API Usage:**
+
+```rust
+use dashmap::DashMap;
+
+let map = DashMap::new();
+
+// Insert
+map.insert("key", 42);
+
+// Get (returns reference guard, auto-releases lock)
+if let Some(value) = map.get("key") {
+    println!("Value: {}", *value);  // *value = 42
+}  // Lock released here
+
+// Entry API (atomic update)
+map.entry("key")
+    .and_modify(|v| *v += 1)  // If exists, increment
+    .or_insert(1);             // If not, insert 1
+
+// Iteration (locks each shard temporarily)
+for entry in map.iter() {
+    println!("{}: {}", entry.key(), entry.value());
+}
+```
+
+**Performance Comparison:**
+
+```rust
+// Benchmark: 8 threads each inserting 100k items
+
+// Mutex<HashMap>:
+// - Time: 2000ms
+// - Throughput: 400k inserts/sec
+// - Problem: Threads wait for lock most of the time
+
+// DashMap (16 shards):
+// - Time: 300ms
+// - Throughput: 2.7M inserts/sec
+// - Speedup: 6.7x
+
+// Why not 8x?
+// - Collision: Sometimes 2 threads want same shard
+// - Lock overhead: Fine-grained locks have some cost
+// - Cache effects: More cache line bouncing
+```
+
+**Contention and Shard Count:**
+
+```rust
+// Too few shards: More contention
+DashMap::with_capacity_and_shard_amount(1000, 4);  // 4 shards
+// - 8 threads → 2 threads per shard on average
+// - More waiting
+
+// Too many shards: More overhead
+DashMap::with_capacity_and_shard_amount(1000, 1024);  // 1024 shards
+// - Memory overhead: 1024 locks
+// - Iteration overhead: Must visit 1024 shards
+
+// Sweet spot: num_cpus * 4 (default)
+// - 8 cores → 32 shards
+// - Low contention, reasonable overhead
+```
+
+**When to Use DashMap:**
+
+- ✅ Concurrent reads and writes from multiple threads
+- ✅ Independent keys (no cross-key operations)
+- ✅ High contention (many threads, frequent access)
+- ✅ Want simple API (no manual lock management)
+- ❌ Single-threaded (overhead not worth it)
+- ❌ Read-only access (use Arc<HashMap> instead)
+- ❌ Need cross-key atomicity (use Mutex for consistency)
+
+**Trade-offs:**
+
+| Data Structure | Throughput | Memory | Consistency | Use Case |
+|----------------|------------|--------|-------------|----------|
+| `HashMap` | Fastest | Lowest | Serial | Single-threaded |
+| `Mutex<HashMap>` | Slowest | Low | Strong | Need atomicity |
+| `RwLock<HashMap>` | Medium | Low | Strong | Read-heavy |
+| `DashMap` | Fast | Medium | Eventual | High concurrency |
+
+---
+
+### 8. SIMD (Single Instruction Multiple Data) and Vectorization
+
+**What Is It?**
+
+SIMD allows processing multiple data elements in a single CPU instruction. Instead of processing bytes one at a time, SIMD can process 16, 32, or even 64 bytes simultaneously.
+
+**The Concept:**
+
+```
+Scalar processing (normal):
+  for i in 0..16 {
+      result[i] = data[i] + 1;
+  }
+  → 16 instructions (one per byte)
+
+SIMD processing:
+  result[0..16] = data[0..16] + [1; 16];
+  → 1 instruction (processes 16 bytes at once)
+  → 16x speedup (theoretical)
+```
+
+**CPU SIMD Instructions:**
+
+Modern CPUs have SIMD instruction sets:
+- **SSE** (128-bit): 16 bytes at once (4 × i32 or 16 × u8)
+- **AVX** (256-bit): 32 bytes at once (8 × i32 or 32 × u8)
+- **AVX-512** (512-bit): 64 bytes at once (16 × i32 or 64 × u8)
+
+**Rust SIMD:**
+
+```rust
+// Option 1: Auto-vectorization (compiler does it)
+fn add_scalar(a: &[u8], b: &[u8]) -> Vec<u8> {
+    a.iter().zip(b.iter())
+        .map(|(&x, &y)| x.wrapping_add(y))
+        .collect()
+}
+// Compiler may auto-vectorize this with -C target-cpu=native
+
+// Option 2: Explicit SIMD (portable_simd)
+#![feature(portable_simd)]
+use std::simd::{u8x16, SimdUint};
+
+fn add_simd(a: &[u8], b: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(a.len());
+
+    // Process 16 bytes at a time
+    for i in (0..a.len()).step_by(16) {
+        let va = u8x16::from_slice(&a[i..i+16]);
+        let vb = u8x16::from_slice(&b[i..i+16]);
+        let vr = va + vb;  // 16 additions in one instruction!
+        result.extend_from_slice(vr.as_array());
+    }
+
+    result
+}
+```
+
+**Tokenizer SIMD Opportunities:**
+
+```rust
+// 1. Byte scanning: Find characters in text
+fn find_spaces_scalar(text: &[u8]) -> Vec<usize> {
+    text.iter()
+        .enumerate()
+        .filter(|(_, &b)| b == b' ')
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn find_spaces_simd(text: &[u8]) -> Vec<usize> {
+    let space = u8x16::splat(b' ');  // [' ', ' ', ..., ' '] (16 copies)
+    let mut positions = vec![];
+
+    for i in (0..text.len()).step_by(16) {
+        let chunk = u8x16::from_slice(&text[i..]);
+        let mask = chunk.simd_eq(space);  // Compare 16 bytes at once
+
+        // Extract positions where mask is true
+        for j in 0..16 {
+            if mask.test(j) {
+                positions.push(i + j);
+            }
+        }
+    }
+
+    positions
+}
+// Speedup: 4-8x for large texts
+```
+
+```rust
+// 2. UTF-8 validation
+fn validate_utf8_simd(text: &[u8]) -> bool {
+    use std::simd::u8x32;
+
+    for chunk in text.chunks_exact(32) {
+        let bytes = u8x32::from_slice(chunk);
+
+        // Check ASCII (< 0x80)
+        let ascii_mask = bytes.simd_lt(u8x32::splat(0x80));
+
+        // Check valid UTF-8 continuation bytes (0x80-0xBF)
+        let cont_mask = bytes.simd_ge(u8x32::splat(0x80)) & bytes.simd_lt(u8x32::splat(0xC0));
+
+        // Complex logic for multi-byte sequences...
+    }
+
+    true
+}
+// Used by: SentencePiece, tokenizers library
+```
+
+**Performance Example:**
+
+```rust
+// Benchmark: Count spaces in 10MB text file
+
+// Scalar:
+let start = Instant::now();
+let count = text.iter().filter(|&&b| b == b' ').count();
+let time = start.elapsed();  // 15ms
+
+// SIMD (AVX2, 32 bytes):
+let start = Instant::now();
+let count = count_spaces_simd(text);
+let time = start.elapsed();  // 2ms
+
+// Speedup: 7.5x
+```
+
+**When SIMD Helps Tokenizers:**
+
+1. **Byte scanning**: Find whitespace, punctuation for word splitting
+2. **UTF-8 validation**: Check text is valid before processing
+3. **Pattern matching**: Find special tokens like `<|endoftext|>`
+4. **Encoding**: Parallel lookup of character codes (limited usefulness)
+
+**Limitations:**
+
+- **Not all operations vectorize**: HashMap lookups, branching, irregular access patterns
+- **Alignment requirements**: Data must be 16/32/64-byte aligned (or use unaligned loads, slower)
+- **Overhead for small data**: SIMD setup costs ~10ns, so need >100 bytes to benefit
+- **Platform-specific**: AVX-512 not available on all CPUs
+
+**Realistic Speedups for Tokenizers:**
+
+- Byte scanning (find whitespace): 4-8x speedup ✓
+- UTF-8 validation: 3-5x speedup ✓
+- BPE merging: 1.2-1.5x speedup (memory-bound, not compute-bound)
+- Encoding/decoding: 1.1-1.3x speedup (dominated by HashMap lookups)
+
+**Overall**: SIMD gives 2-3x end-to-end speedup for production tokenizers when combined with other optimizations.
+
+---
+
+### 9. Cache-Friendly Memory Layout and Data-Oriented Design
+
+**What Is It?**
+
+Modern CPUs are 100-1000x faster than RAM. To bridge this gap, CPUs use caches (L1, L2, L3). Organizing data to maximize cache hits is critical for performance.
+
+**The Memory Hierarchy:**
+
+```
+CPU Registers: 1 cycle (~0.3ns)
+L1 Cache (32KB): 4 cycles (~1ns)
+L2 Cache (256KB): 12 cycles (~3ns)
+L3 Cache (8MB): 40 cycles (~10ns)
+RAM (16GB): 200 cycles (~60ns)
+SSD: 100,000 cycles (~30μs)
+
+Ratio:
+L1 → RAM: 60x slower
+L1 → SSD: 100,000x slower!
+```
+
+**Cache Lines:**
+
+CPUs fetch memory in 64-byte chunks called cache lines:
+```
+Memory: [byte0, byte1, byte2, ..., byte63] [byte64, byte65, ..., byte127]
+          ^────── Cache line 1 ──────^       ^────── Cache line 2 ─────^
+
+When you access byte0, CPU fetches bytes 0-63 into cache.
+If you next access byte1, it's already in cache → fast!
+If you next access byte1000, need new cache line → slow.
+```
+
+**Problem: Pointer Chasing**
+
+```rust
+// Bad: Vec<Vec<String>> (nested structure)
+let words: Vec<Vec<String>> = vec![
+    vec!["h".to_string(), "e".to_string(), "l".to_string()],
+    vec!["w".to_string(), "o".to_string(), "r".to_string()],
+];
+
+// Memory layout:
+//
+// Stack:
+// words: [ptr] ────────┐
+//                      ▼
+// Heap:
+// [ptr, ptr] ──────────┬──────────┐
+//      │               │          │
+//      ▼               ▼          ▼
+//    [ptr] → "h"     [ptr] → "e" [ptr] → "l"  (word 1)
+//    [ptr] → "w"     [ptr] → "o" [ptr] → "r"  (word 2)
+//
+// Problem: 7 pointers to chase, 7 potential cache misses!
+// Scattered allocations, poor cache locality
+```
+
+**Solution: Flat Arrays**
+
+```rust
+// Good: Flat Vec with offsets
+struct FlatWords {
+    chars: Vec<u8>,       // All characters in one array
+    offsets: Vec<usize>,  // Start of each word
+}
+
+let words = FlatWords {
+    chars: vec![b'h', b'e', b'l', b'w', b'o', b'r'],  // Contiguous!
+    offsets: vec![0, 3],  // Word 0 starts at 0, word 1 starts at 3
+};
+
+// Memory layout:
+//
+// Stack:
+// words: [chars_ptr, offsets_ptr]
+//           │           │
+//           ▼           ▼
+// Heap:
+// chars:   [h, e, l, w, o, r]  ← ONE allocation, cache-friendly
+// offsets: [0, 3]              ← ONE allocation
+
+// Access word 0: chars[offsets[0]..offsets[1]] = "hel"
+// Access word 1: chars[offsets[1]..] = "wor"
+
+// Only 2 cache lines needed (best case: 1 if chars fit in 64 bytes)
+```
+
+**Performance Impact:**
+
+```rust
+// Benchmark: Iterate 1M words, count pairs
+
+// Nested Vec<Vec<String>>:
+// - Time: 150ms
+// - Cache misses: ~500k (measured with perf)
+// - Memory bandwidth: 2GB/s (slow)
+
+// Flat Vec<u8> + offsets:
+// - Time: 20ms
+// - Cache misses: ~10k (measured with perf)
+// - Memory bandwidth: 15GB/s (fast)
+
+// Speedup: 7.5x just from memory layout!
+```
+
+**Struct Layout:**
+
+```rust
+// Bad: Poor packing
+struct Token {
+    id: u32,         // 4 bytes
+    text: String,    // 24 bytes (fat pointer)
+    frequency: u64,  // 8 bytes
+    is_special: bool,// 1 byte
+}
+// Total: 37 bytes, but actually 40 due to alignment (padding)
+
+// Good: Separate hot and cold data
+struct TokenId {
+    id: u32,         // 4 bytes (hot: accessed every encoding)
+    frequency: u64,  // 8 bytes (hot: accessed during training)
+}
+// 12 bytes, tightly packed
+
+struct TokenMetadata {
+    text: String,    // 24 bytes (cold: accessed rarely)
+    is_special: bool,// 1 byte (cold)
+}
+// 25 bytes, but we rarely access this
+
+// Store separately:
+let tokens: Vec<TokenId> = vec![...];  // Hot path
+let metadata: Vec<TokenMetadata> = vec![...];  // Rarely accessed
+
+// When encoding, we only touch `tokens` → better cache usage
+```
+
+**Array of Structs (AoS) vs Struct of Arrays (SoA):**
+
+```rust
+// AoS: Bad for selective access
+struct Token { id: u32, freq: u64, len: u8 }
+let tokens: Vec<Token> = vec![...];
+
+// If we only need IDs:
+for token in &tokens {
+    process(token.id);  // Load entire Token (13 bytes), waste 9 bytes per iteration
+}
+
+// SoA: Good for selective access
+struct Tokens {
+    ids: Vec<u32>,   // Packed together
+    freqs: Vec<u64>, // Packed together
+    lens: Vec<u8>,   // Packed together
+}
+
+// If we only need IDs:
+for &id in &tokens.ids {
+    process(id);  // Load only IDs (4 bytes each), perfect cache usage
+}
+```
+
+**Real-World Example: Tokenizer Encoding:**
+
+```rust
+// Before optimization:
+pub struct BPETokenizer {
+    merges: Vec<(String, String)>,  // 48 bytes per merge, scattered in heap
+}
+
+fn encode(&self, text: &str) -> Vec<u32> {
+    let mut tokens = split_chars(text);
+
+    for (a, b) in &self.merges {  // Each iteration: 2 pointer dereferences
+        tokens = apply_merge(tokens, a, b);
+    }
+
+    tokens
+}
+// 1M tokens, 32k merges: 32B merge operations × 2 cache misses each = slow
+
+// After optimization:
+pub struct OptimizedBPETokenizer {
+    merge_table: Vec<Option<u32>>,  // Flat array indexed by pair_id
+}
+
+fn encode(&self, text: &str) -> Vec<u32> {
+    let mut tokens: Vec<u32> = split_chars_as_ids(text);
+
+    for i in 0..tokens.len()-1 {
+        let pair_id = encode_pair(tokens[i], tokens[i+1]);
+        if let Some(merged_id) = self.merge_table[pair_id as usize] {
+            // Merge tokens[i] and tokens[i+1]
+        }
+    }
+
+    tokens
+}
+// Direct array indexing, sequential access → excellent cache behavior
+```
+
+**Speedup Summary:**
+
+| Optimization | Technique | Speedup |
+|-------------|-----------|---------|
+| Flat arrays | Avoid nested Vec | 5-8x |
+| SoA layout | Separate hot/cold data | 2-3x |
+| Aligned allocations | Use `align_to` | 1.1-1.2x |
+| Smaller types | u32 instead of usize | 1.5-2x (32-bit workloads) |
+
+**Combined**: 10-30x speedup for memory-bound algorithms like BPE training.
+
+---
+
+### 10. Algorithmic Complexity and Performance Profiling
+
+**What Is It?**
+
+Understanding Big-O complexity and measuring real-world performance are essential for optimizing tokenizers. Theoretical complexity tells us what to optimize; profiling tells us where to optimize.
+
+**BPE Complexity Analysis:**
+
+```rust
+// Naive BPE (Milestone 3)
+fn train_naive(text: &str, vocab_size: usize) {
+    let mut words = split_into_chars(text);  // O(n)
+
+    for _ in 0..vocab_size {  // vocab_size iterations
+        // Count all pairs: scan all characters
+        let pair_counts = count_pairs(&words);  // O(n)
+
+        // Find max: scan all unique pairs
+        let max_pair = pair_counts.iter().max();  // O(k) where k = unique pairs
+
+        // Merge this pair: scan all characters
+        merge_pair(&mut words, max_pair);  // O(n)
+    }
+}
+// Total: O(vocab_size × (n + k))
+// Worst case: k ≈ n/2 (many unique pairs)
+// → O(vocab_size × n) = O(n²) for large vocab
+
+// Example: 100MB text (100M chars), vocab=32k
+// Operations: 32k × 100M = 3.2 trillion
+// At 1GHz: 3200 seconds = 53 minutes (best case)
+// Reality: 2-10 hours due to memory overhead
+```
+
+```rust
+// Optimized BPE with Priority Queue (Milestone 4)
+fn train_optimized(text: &str, vocab_size: usize) {
+    let mut words = split_into_chars(text);  // O(n)
+
+    // Build initial priority queue
+    let pair_counts = count_pairs(&words);  // O(n)
+    let mut heap = BinaryHeap::from_iter(pair_counts);  // O(k log k)
+
+    for _ in 0..vocab_size {  // vocab_size iterations
+        // Get max pair: O(1)
+        let max_pair = heap.peek();
+
+        // Merge pair: O(affected_chars)
+        let affected = merge_pair(&mut words, max_pair);  // O(m) where m << n
+
+        // Update heap: O(affected_pairs × log k)
+        for pair in affected {
+            heap.decrease_key(pair);  // O(log k)
+        }
+    }
+}
+// Total: O(n + k log k + vocab_size × (m + a × log k))
+// Where: m = affected chars (local to merge),
+//        a = affected pairs (~10-100 typically)
+// → O(n log k) amortized
+
+// Same example: 100MB, vocab=32k, k=100k unique pairs
+// Operations: 100M + 32k × (1000 + 50 × log(100k))
+//           ≈ 100M + 32k × 1800 ≈ 160M
+// At 1GHz: 0.16 seconds (theoretical)
+// Reality: 5-10 minutes (memory bandwidth limited)
+// Speedup: 12-60x!
+```
+
+**Parallelization Speedup:**
+
+```rust
+// Parallel BPE (Milestone 5)
+fn train_parallel(text: &str, vocab_size: usize) {
+    let mut words = split_into_chars(text);
+
+    for _ in 0..vocab_size {
+        // Count pairs in parallel
+        let pair_counts = words
+            .par_chunks(words.len() / num_cpus)  // Split work
+            .map(|chunk| count_pairs_local(chunk))  // O(n / num_cpus)
+            .reduce(merge_counts);  // O(k)
+
+        // Rest is sequential (finding max, merging)
+        let max_pair = find_max(pair_counts);
+        merge_pair(&mut words, max_pair);
+    }
+}
+
+// Amdahl's Law: Speedup = 1 / (S + P/N)
+// Where: S = sequential fraction (10%)
+//        P = parallel fraction (90%)
+//        N = num cores (8)
+// Speedup = 1 / (0.1 + 0.9/8) = 1 / 0.2125 = 4.7x (theoretical)
+
+// Reality: 3-4x on 8 cores due to:
+// - Synchronization overhead
+// - Cache coherence traffic
+// - Load imbalance (some chunks have more pairs)
+```
+
+**Profiling Tools:**
+
+```bash
+# CPU profiling (Linux)
+perf record -g ./tokenizer
+perf report
+
+# Example output:
+#  40.2%  count_pairs
+#  25.3%  merge_pair
+#  15.1%  hashmap_lookup
+#   8.7%  string_clone
+#   6.3%  heap_operations
+#   4.4%  other
+
+# → Optimize count_pairs and merge_pair first (65% of time)
+
+# Cache profiling
+perf stat -e cache-references,cache-misses ./tokenizer
+
+# Example output:
+# 10,000,000 cache-references
+#  5,000,000 cache-misses # 50% miss rate (BAD!)
+
+# After flat array optimization:
+# 10,000,000 cache-references
+#    200,000 cache-misses # 2% miss rate (GOOD!)
+```
+
+```bash
+# Flamegraph visualization
+cargo install flamegraph
+cargo flamegraph --bin tokenizer
+
+# Generates flamegraph.svg showing call stack and time distribution
+```
+
+**Performance Metrics:**
+
+```rust
+// Training throughput
+let start = Instant::now();
+tokenizer.train(corpus, vocab_size);
+let time = start.elapsed();
+
+let chars_per_sec = corpus.len() as f64 / time.as_secs_f64();
+println!("Training: {:.2} MB/s", chars_per_sec / 1_000_000.0);
+
+// Target: 20-50 MB/s (Milestone 5)
+
+// Encoding throughput
+let start = Instant::now();
+let encoded = tokenizer.encode(text);
+let time = start.elapsed();
+
+let tokens_per_sec = encoded.len() as f64 / time.as_secs_f64();
+println!("Encoding: {:.2} M tokens/s", tokens_per_sec / 1_000_000.0);
+
+// Target: 50-100 M tokens/s (Milestone 6-7)
+```
+
+**Optimization Priorities:**
+
+1. **Algorithm**: O(n²) → O(n log n) (10-100x speedup)
+2. **Data structures**: Priority queue, flat arrays (5-20x speedup)
+3. **Parallelization**: Use all cores (3-8x speedup)
+4. **Memory layout**: Cache-friendly access (2-10x speedup)
+5. **SIMD**: Vectorized operations (1.5-3x speedup)
+6. **Micro-optimizations**: Inlining, branch prediction (1.1-1.3x speedup)
+
+**Rule of thumb**: Optimize in this order until you hit your performance target. Don't micro-optimize until algorithmic improvements are done.
+
+---
+
+## Connection to This Project
+
+Now let's see how these concepts map to the seven milestones of the tokenizer project. Each milestone introduces new concepts and optimizations, building toward a production-grade BPE tokenizer.
+
+### Milestone 1: Character-Level Tokenizer
+
+**Concepts Used:**
+- **HashMap and Bidirectional Mappings**: Implement `vocab: HashMap<char, u32>` and `id_to_char: HashMap<u32, char>` for character ↔ ID conversion
+- **Special Tokens**: Add `<PAD>`, `<UNK>`, `<BOS>`, `<EOS>` tokens for model training
+
+**What You'll Learn:**
+- How to build vocabulary incrementally from text
+- Bidirectional mapping pattern (used in all tokenizers)
+- Encoding: text → IDs (for model input)
+- Decoding: IDs → text (for model output)
+
+**Performance Characteristics:**
+- Training: O(n) where n = characters in corpus
+- Encoding: O(m) where m = characters in text
+- Memory: O(unique_chars) ≈ 256 characters + specials ≈ 2KB
+
+**Why This Milestone:**
+Establishes the foundation. All tokenizers (word-level, BPE) use the same vocabulary management pattern. Character-level is simplest: no algorithm, just map each character to ID.
+
+**Expected Output:**
+```
+Vocabulary size: 260 (256 chars + 4 special tokens)
+Training time: ~1ms for 1MB corpus
+Encoding speed: ~50M chars/sec
+```
+
+---
+
+### Milestone 2: Word-Level Tokenizer
+
+**Concepts Used:**
+- **HashMap and Bidirectional Mappings**: Same pattern as M1, but tokens are words instead of characters
+- **Text Splitting**: Use `text.split_whitespace()` to extract words
+- **Unknown Token Handling**: Map unseen words to `<UNK>` during encoding
+
+**What You'll Learn:**
+- Word tokenization reduces sequence length 4-5x vs character-level
+- Trade-off: Larger vocabulary (50k+ words) vs shorter sequences
+- Problem: Can't handle rare words, typos, morphological variants
+
+**Performance Characteristics:**
+- Training: O(n) where n = characters (word extraction is linear)
+- Encoding: O(w) where w = words in text, each word is O(1) HashMap lookup
+- Memory: O(unique_words) ≈ 50k-100k words × 20 bytes ≈ 1-2MB
+
+**Why This Milestone:**
+Demonstrates the limitations that motivate BPE. Word-level can't handle "unhappiness" if it only saw "happy" during training → outputs `<UNK>` → information loss.
+
+**Expected Output:**
+```
+Vocabulary size: ~10k words for 1MB corpus
+Training time: ~5ms
+Encoding speed: ~20M chars/sec (fewer tokens than char-level)
+Problem: ~5-10% unknown word rate on unseen text
+```
+
+---
+
+### Milestone 3: Naive BPE Tokenizer
+
+**Concepts Used:**
+- **Byte-Pair Encoding Algorithm**: Implement iterative pair merging
+- **Subword Tokenization**: Learn common subwords from corpus frequency
+- **Algorithmic Complexity**: Understand O(n² × vocab_size) complexity of naive approach
+
+**What You'll Learn:**
+- BPE training: Start with characters, merge frequent pairs
+- Encoding with merges: Apply learned merges in order
+- Why naive BPE is slow (but correct)
+
+**Performance Characteristics:**
+- Training: O(vocab_size × n) ≈ O(n²) for large vocabularies
+  - Example: 10MB corpus, vocab=500 → ~30 seconds
+  - Example: 100MB corpus, vocab=2000 → ~30 minutes
+- Encoding: O(m × num_merges) where m = characters in text
+- Memory: O(n) for storing word representations during training
+
+**Why This Milestone:**
+Implements the core BPE algorithm correctly but inefficiently. This gives you a reference implementation to test optimized versions against. Understanding why it's slow (linear scan for max pair every iteration) motivates the next optimization.
+
+**Expected Output:**
+```
+Vocabulary size: 500 (256 base + 244 merges)
+Training time: 10-30 seconds for 10MB corpus
+Encoding speed: ~5M chars/sec
+Learns subwords like: ["th", "ing", "er", "low", "est"]
+```
+
+---
+
+### Milestone 4: Optimized BPE with Priority Queue
+
+**Concepts Used:**
+- **Priority Queue / Binary Heap**: Use `BinaryHeap` to maintain max pair efficiently
+- **Algorithmic Complexity**: Reduce complexity from O(n²) to O(n log n)
+- **Incremental Updates**: Update heap counts after each merge instead of full recount
+
+**What You'll Learn:**
+- How data structure choice affects performance (linear scan → heap)
+- Big-O improvement translates to real speedup (5-10x)
+- Trade-off: More complex code for better performance
+
+**Performance Characteristics:**
+- Training: O(n + k log k + vocab_size × a × log k)
+  - Where k = unique pairs, a = affected pairs per merge
+  - Example: 10MB corpus, vocab=500 → ~3-5 seconds (6-10x faster than M3)
+  - Example: 100MB corpus, vocab=2000 → ~3-5 minutes (10x faster than M3)
+- Encoding: Same as M3
+- Memory: O(k) for heap + O(n) for words
+
+**Why This Milestone:**
+First major optimization. Shows that algorithmic improvement (better data structure) has bigger impact than any micro-optimization. Priority queue is the key insight that makes BPE practical for large corpora.
+
+**Expected Output:**
+```
+Training time: 3-5 seconds for 10MB corpus (10x faster than M3)
+Same vocabulary quality as M3
+Encoding speed: ~5M chars/sec (unchanged)
+```
+
+---
+
+### Milestone 5: Parallel BPE Training with Concurrent HashMap
+
+**Concepts Used:**
+- **Rayon and Data Parallelism**: Use `par_iter()` to parallelize pair counting
+- **DashMap / Concurrent HashMap**: Thread-safe pair counting across cores
+- **Load Balancing**: Rayon's work stealing for uneven workloads
+
+**What You'll Learn:**
+- How to parallelize algorithms with independent work (pair counting)
+- Concurrent data structures (DashMap) for lock-free updates
+- Amdahl's Law: Speedup limited by sequential portions
+
+**Performance Characteristics:**
+- Training: O((n + k log k) / num_cores) amortized
+  - Example: 100MB corpus, 8 cores → ~30-60 seconds (4-6x faster than M4)
+  - Speedup: 4-6x on 8 cores (not 8x due to overhead and sequential merge phase)
+- Encoding: Still sequential (could parallelize text splitting, but encoding is already fast)
+- Memory: O(k × num_cores) for thread-local counts before merging
+
+**Why This Milestone:**
+Demonstrates parallelization for CPU-bound work. BPE training is embarrassingly parallel for pair counting (the bottleneck), so we get good speedups. This milestone brings 100MB corpus training from minutes to seconds.
+
+**Expected Output:**
+```
+Training time: 30-60 seconds for 100MB corpus on 8 cores (40-50x faster than M3!)
+CPU usage: 85-95% (using all cores)
+Encoding speed: ~5M chars/sec (unchanged)
+```
+
+---
+
+### Milestone 6: Extreme Optimization - SIMD, Caching, and Memory Layout
+
+**Concepts Used:**
+- **String Interning**: Replace string pairs with integer IDs
+- **Cache-Friendly Memory Layout**: Flat arrays instead of nested Vec
+- **SIMD**: Vectorized byte scanning for text processing
+- **Encoding Cache**: Memoize common word encodings
+
+**What You'll Learn:**
+- Memory layout dramatically affects performance (pointer chasing → flat arrays)
+- String operations are expensive; intern to u32 IDs (6x memory reduction, 5x speedup)
+- SIMD gives 2-4x speedup for byte-level operations
+- Caching trades memory for speed (encode popular words once)
+
+**Performance Characteristics:**
+- Training: O(n log k) with much better constant factors
+  - Example: 100MB corpus → ~10-20 seconds (2-3x faster than M5)
+  - Memory: 5-10x less due to interning (no duplicate strings)
+- Encoding: O(m) with SIMD and caching
+  - Example: 1M chars → ~10ms (50M chars/sec) vs ~200ms in M3 (20x faster!)
+- Memory: Encoding cache can be 10-100MB for common words
+
+**Why This Milestone:**
+Combines multiple optimization techniques for production-grade performance. String interning alone gives 5x speedup. Flat arrays improve cache hit rate from 50% to 98%. SIMD adds another 2-3x for byte scanning. This milestone shows how low-level optimizations compound.
+
+**Expected Output:**
+```
+Training time: 10-20 seconds for 100MB corpus (100-180x faster than M3!)
+Encoding speed: 50M chars/sec (10x faster than M3)
+Memory usage: 100-200MB (vs 500MB+ in M3)
+Cache hit rate: 80-90% on real text (encode "the" once, reuse 100k times)
+```
+
+---
+
+### Milestone 7: Ultra-Optimized Production BPE
+
+**Concepts Used:**
+- All concepts from M1-M6 combined and refined
+- **Advanced Profiling**: Use `perf`, flamegraphs to find remaining bottlenecks
+- **Benchmarking**: Compare against HuggingFace tokenizers, SentencePiece
+- **Vocabulary Serialization**: Save/load trained vocabularies efficiently
+
+**What You'll Learn:**
+- How to profile and iteratively optimize
+- Comparison with production tokenizers (tiktoken, tokenizers crate)
+- End-to-end system design: training, encoding, serialization, error handling
+- Performance targets: 50-100M tokens/sec encoding, 20-50 MB/s training
+
+**Performance Characteristics:**
+- Training: Target 20-50 MB/s (100MB in 2-5 minutes)
+- Encoding: Target 50-100M tokens/sec
+- Memory: Minimal allocations, reuse buffers
+- Comparison: Should be within 2-3x of HuggingFace tokenizers (written by Rust experts)
+
+**Why This Milestone:**
+Brings all techniques together into a cohesive, production-quality system. Includes serialization (save vocab to disk), error handling (invalid UTF-8), and comprehensive benchmarks. Shows the path from naive implementation (M3) to production-grade (M7): 200-500x total speedup!
+
+**Expected Output:**
+```
+Training: 100MB corpus in 2-5 minutes (200-500x faster than M3!)
+Encoding: 50-100M tokens/sec (10-20x faster than M3, competitive with HuggingFace)
+Memory: <200MB for 100MB corpus training
+Vocabulary save/load: <10ms for 32k vocab
+Production-ready: Error handling, comprehensive tests, documentation
+```
+
+---
+
+### Summary Table
+
+| Milestone | Key Concepts | Training Time (100MB) | Encoding Speed | Speedup vs M3 |
+|-----------|-------------|----------------------|----------------|---------------|
+| M1: Character | HashMap, special tokens | ~10ms (no learning) | 50M chars/sec | N/A (different task) |
+| M2: Word-level | Splitting, UNK handling | ~50ms (simple) | 20M chars/sec | N/A (different task) |
+| M3: Naive BPE | BPE algorithm, O(n²) | ~30 min | 5M chars/sec | 1x (baseline) |
+| M4: Priority Queue | Binary heap, O(n log n) | ~3-5 min | 5M chars/sec | 6-10x training |
+| M5: Parallel | Rayon, DashMap | ~30-60 sec | 5M chars/sec | 30-60x training |
+| M6: SIMD + Caching | Interning, flat arrays, SIMD | ~10-20 sec | 50M chars/sec | 100-180x overall |
+| M7: Production | All techniques + profiling | ~2-5 min* | 100M chars/sec | 200-500x overall |
+
+*M7 is slower than M6 because it targets larger vocab (32k vs 2k) and includes serialization overhead, but has higher quality and throughput.
+
+**Progressive Complexity:**
+1. **M1-M2**: Learn basics (vocabulary management)
+2. **M3**: Implement core algorithm (correct but slow)
+3. **M4**: First optimization (algorithmic improvement)
+4. **M5**: Parallelization (use all cores)
+5. **M6**: Low-level optimizations (memory + SIMD)
+6. **M7**: Production polish (benchmarks + serialization)
+
+**Key Insights:**
+- Algorithmic improvement (M4): Biggest single win (10x)
+- Parallelization (M5): Good returns (4-6x on 8 cores)
+- Memory optimization (M6): Compounding gains (cache + interning + SIMD = 10-20x)
+- Combined: 200-500x total speedup from M3 to M7
+
+This progression teaches you how to build production systems: start simple (M1-M3), optimize algorithms (M4), scale with parallelism (M5), optimize memory (M6), and polish for production (M7).
+
+---
+# Build The Project
+
 ## Milestone 1: Character-Level Tokenizer
 
 ### Introduction
@@ -92,61 +1758,6 @@ Character-level tokenization is used in early language models and character-base
 - Encode: Convert string to numerical representation
 - Decode: Convert IDs back to human-readable text
 
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_char_tokenizer_basic() {
-    let mut tokenizer = CharTokenizer::new();
-    tokenizer.train("hello world");
-
-    let encoded = tokenizer.encode("hello");
-    assert_eq!(encoded.len(), 5);
-
-    let decoded = tokenizer.decode(&encoded);
-    assert_eq!(decoded, "hello");
-}
-
-#[test]
-fn test_special_tokens() {
-    let tokenizer = CharTokenizer::new();
-
-    // Special tokens should be first IDs
-    assert_eq!(tokenizer.encode("<PAD>"), vec![0]);
-    assert_eq!(tokenizer.encode("<UNK>"), vec![1]);
-    assert_eq!(tokenizer.encode("<BOS>"), vec![2]);
-    assert_eq!(tokenizer.encode("<EOS>"), vec![3]);
-}
-
-#[test]
-fn test_unknown_characters() {
-    let mut tokenizer = CharTokenizer::new();
-    tokenizer.train("abc");
-
-    // 'x' is unknown, should map to <UNK>
-    let encoded = tokenizer.encode("axc");
-    assert!(encoded.contains(&1)); // Contains UNK tokenz
-}
-
-#[test]
-fn test_unicode_support() {
-    let mut tokenizer = CharTokenizer::new();
-    tokenizer.train("Hello 世界 🚀");
-
-    let encoded = tokenizer.encode("世界");
-    let decoded = tokenizer.decode(&encoded);
-    assert_eq!(decoded, "世界");
-}
-
-#[test]
-fn test_vocab_size() {
-    let mut tokenizer = CharTokenizer::new();
-    tokenizer.train("aabbcc");
-
-    // 4 special tokens + 3 unique chars
-    assert_eq!(tokenizer.vocab_size(), 7);
-}
-```
 
 ### Starter Code
 
@@ -231,6 +1842,61 @@ impl CharTokenizer {
 ```
 
 ---
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_char_tokenizer_basic() {
+    let mut tokenizer = CharTokenizer::new();
+    tokenizer.train("hello world");
+
+    let encoded = tokenizer.encode("hello");
+    assert_eq!(encoded.len(), 5);
+
+    let decoded = tokenizer.decode(&encoded);
+    assert_eq!(decoded, "hello");
+}
+
+#[test]
+fn test_special_tokens() {
+    let tokenizer = CharTokenizer::new();
+
+    // Special tokens should be first IDs
+    assert_eq!(tokenizer.encode("<PAD>"), vec![0]);
+    assert_eq!(tokenizer.encode("<UNK>"), vec![1]);
+    assert_eq!(tokenizer.encode("<BOS>"), vec![2]);
+    assert_eq!(tokenizer.encode("<EOS>"), vec![3]);
+}
+
+#[test]
+fn test_unknown_characters() {
+    let mut tokenizer = CharTokenizer::new();
+    tokenizer.train("abc");
+
+    // 'x' is unknown, should map to <UNK>
+    let encoded = tokenizer.encode("axc");
+    assert!(encoded.contains(&1)); // Contains UNK tokenz
+}
+
+#[test]
+fn test_unicode_support() {
+    let mut tokenizer = CharTokenizer::new();
+    tokenizer.train("Hello 世界 🚀");
+
+    let encoded = tokenizer.encode("世界");
+    let decoded = tokenizer.decode(&encoded);
+    assert_eq!(decoded, "世界");
+}
+
+#[test]
+fn test_vocab_size() {
+    let mut tokenizer = CharTokenizer::new();
+    tokenizer.train("aabbcc");
+
+    // 4 special tokens + 3 unique chars
+    assert_eq!(tokenizer.vocab_size(), 7);
+}
+```
 
 ## Milestone 2: Word-Level Tokenizer
 
@@ -269,65 +1935,6 @@ Word-level tokenization: split on whitespace and punctuation. "The cat sat." →
 - Word counts: Frequency analysis for vocabulary pruning
 - Min frequency: Filter rare words to control vocab size
 - UNK handling: Map rare/unknown words to UNK token
-
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_word_tokenizer_basic() {
-    let mut tokenizer = WordTokenizer::new(1);
-    tokenizer.train("the cat sat on the mat");
-
-    let encoded = tokenizer.encode("the cat");
-    assert_eq!(encoded.len(), 2);
-
-    let decoded = tokenizer.decode(&encoded);
-    assert_eq!(decoded, "the cat");
-}
-
-#[test]
-fn test_punctuation_splitting() {
-    let tokenizer = WordTokenizer::new(1);
-    let words = tokenizer.tokenize("Hello, world!");
-
-    // Should split: ["Hello", ",", "world", "!"]
-    assert_eq!(words.len(), 4);
-    assert_eq!(words[0], "Hello");
-    assert_eq!(words[1], ",");
-}
-
-#[test]
-fn test_frequency_filtering() {
-    let mut tokenizer = WordTokenizer::new(2); // Min frequency = 2
-    tokenizer.train("the cat the dog the bird cat");
-
-    // "the" appears 3 times, "cat" appears 2 times
-    // "dog" and "bird" appear 1 time (should be UNK)
-
-    let encoded = tokenizer.encode("the dog");
-    // "dog" should be UNK
-    assert!(encoded.contains(&1)); // Contains UNK
-}
-
-#[test]
-fn test_case_sensitivity() {
-    let mut tokenizer = WordTokenizer::new(1);
-    tokenizer.train("The the THE");
-
-    // Should treat as different words (case-sensitive)
-    assert!(tokenizer.vocab_size() > 4); // More than just special tokens
-}
-
-#[test]
-fn test_unknown_words() {
-    let mut tokenizer = WordTokenizer::new(1);
-    tokenizer.train("hello world");
-
-    let encoded = tokenizer.encode("hello universe");
-    // "universe" is unknown, should be UNK (ID 1)
-    assert_eq!(encoded[1], 1);
-}
-```
 
 ### Starter Code
 
@@ -434,6 +2041,65 @@ impl WordTokenizer {
 
 ---
 
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_word_tokenizer_basic() {
+    let mut tokenizer = WordTokenizer::new(1);
+    tokenizer.train("the cat sat on the mat");
+
+    let encoded = tokenizer.encode("the cat");
+    assert_eq!(encoded.len(), 2);
+
+    let decoded = tokenizer.decode(&encoded);
+    assert_eq!(decoded, "the cat");
+}
+
+#[test]
+fn test_punctuation_splitting() {
+    let tokenizer = WordTokenizer::new(1);
+    let words = tokenizer.tokenize("Hello, world!");
+
+    // Should split: ["Hello", ",", "world", "!"]
+    assert_eq!(words.len(), 4);
+    assert_eq!(words[0], "Hello");
+    assert_eq!(words[1], ",");
+}
+
+#[test]
+fn test_frequency_filtering() {
+    let mut tokenizer = WordTokenizer::new(2); // Min frequency = 2
+    tokenizer.train("the cat the dog the bird cat");
+
+    // "the" appears 3 times, "cat" appears 2 times
+    // "dog" and "bird" appear 1 time (should be UNK)
+
+    let encoded = tokenizer.encode("the dog");
+    // "dog" should be UNK
+    assert!(encoded.contains(&1)); // Contains UNK
+}
+
+#[test]
+fn test_case_sensitivity() {
+    let mut tokenizer = WordTokenizer::new(1);
+    tokenizer.train("The the THE");
+
+    // Should treat as different words (case-sensitive)
+    assert!(tokenizer.vocab_size() > 4); // More than just special tokens
+}
+
+#[test]
+fn test_unknown_words() {
+    let mut tokenizer = WordTokenizer::new(1);
+    tokenizer.train("hello world");
+
+    let encoded = tokenizer.encode("hello universe");
+    // "universe" is unknown, should be UNK (ID 1)
+    assert_eq!(encoded[1], 1);
+}
+```
+
 ## Milestone 3: Naive BPE Tokenizer
 
 ### Introduction
@@ -488,68 +2154,6 @@ Implement BPE training and encoding. This milestone uses naive O(n²) algorithm 
 - Merge priority: Rank of each merge (lower = applied earlier)
 - Pair counting: Find most frequent adjacent token pair
 - Merge operation: Combine pair into single token across corpus
-
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_bpe_basic() {
-    let mut tokenizer = BPETokenizer::new();
-
-    // Train on simple corpus
-    let corpus = "low low low low lower lower newest newest newest newest newest newest widest widest widest";
-    tokenizer.train(corpus, 100);
-
-    // Should learn common subwords like "low", "est"
-    let encoded = tokenizer.encode("lowest");
-    assert!(encoded.len() < 6); // Fewer than character-level
-}
-
-#[test]
-fn test_bpe_merges() {
-    let mut tokenizer = BPETokenizer::new();
-    tokenizer.train("aaaa bbbb", 20);
-
-    // Should learn to merge repeated characters
-    assert!(tokenizer.merges.len() > 0);
-}
-
-#[test]
-fn test_bpe_encode_decode() {
-    let mut tokenizer = BPETokenizer::new();
-    let text = "hello world hello world";
-    tokenizer.train(text, 50);
-
-    let encoded = tokenizer.encode("hello");
-    let decoded = tokenizer.decode(&encoded);
-
-    assert_eq!(decoded, "hello");
-}
-
-#[test]
-fn test_bpe_subword_splitting() {
-    let mut tokenizer = BPETokenizer::new();
-
-    // Train on words with common prefix
-    let corpus = "running runner run runs";
-    tokenizer.train(corpus, 50);
-
-    let run_tokens = tokenizer.encode("run");
-    let running_tokens = tokenizer.encode("running");
-
-    // "running" should share prefix tokens with "run"
-    assert!(running_tokens.len() > run_tokens.len());
-}
-
-#[test]
-fn test_bpe_vocab_size() {
-    let mut tokenizer = BPETokenizer::new();
-    tokenizer.train("a b c d e f", 30);
-
-    // Vocab should be close to target size
-    assert!(tokenizer.vocab_size() <= 30);
-}
-```
 
 ### Starter Code
 
@@ -744,6 +2348,68 @@ impl BPETokenizer {
 
 ---
 
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_bpe_basic() {
+    let mut tokenizer = BPETokenizer::new();
+
+    // Train on simple corpus
+    let corpus = "low low low low lower lower newest newest newest newest newest newest widest widest widest";
+    tokenizer.train(corpus, 100);
+
+    // Should learn common subwords like "low", "est"
+    let encoded = tokenizer.encode("lowest");
+    assert!(encoded.len() < 6); // Fewer than character-level
+}
+
+#[test]
+fn test_bpe_merges() {
+    let mut tokenizer = BPETokenizer::new();
+    tokenizer.train("aaaa bbbb", 20);
+
+    // Should learn to merge repeated characters
+    assert!(tokenizer.merges.len() > 0);
+}
+
+#[test]
+fn test_bpe_encode_decode() {
+    let mut tokenizer = BPETokenizer::new();
+    let text = "hello world hello world";
+    tokenizer.train(text, 50);
+
+    let encoded = tokenizer.encode("hello");
+    let decoded = tokenizer.decode(&encoded);
+
+    assert_eq!(decoded, "hello");
+}
+
+#[test]
+fn test_bpe_subword_splitting() {
+    let mut tokenizer = BPETokenizer::new();
+
+    // Train on words with common prefix
+    let corpus = "running runner run runs";
+    tokenizer.train(corpus, 50);
+
+    let run_tokens = tokenizer.encode("run");
+    let running_tokens = tokenizer.encode("running");
+
+    // "running" should share prefix tokens with "run"
+    assert!(running_tokens.len() > run_tokens.len());
+}
+
+#[test]
+fn test_bpe_vocab_size() {
+    let mut tokenizer = BPETokenizer::new();
+    tokenizer.train("a b c d e f", 30);
+
+    // Vocab should be close to target size
+    assert!(tokenizer.vocab_size() <= 30);
+}
+```
+
 ## Milestone 4: Optimized BPE with Priority Queue
 
 ### Introduction
@@ -790,66 +2456,6 @@ For large corpora: 100-1000x speedup!
 - Pair positions: Track where to update after merge
 - Incremental updates: Only recount pairs affected by merge
 
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_optimized_bpe_correctness() {
-    let mut tokenizer = BPETokenizer::new();
-    let text = "low low low low lower lower newest newest newest newest newest newest";
-
-    tokenizer.train(text, 50);
-
-    // Should produce same results as naive
-    let encoded = tokenizer.encode("lowest");
-    let decoded = tokenizer.decode(&encoded);
-    assert_eq!(decoded, "lowest");
-}
-
-#[test]
-fn test_optimized_bpe_performance() {
-    use std::time::Instant;
-
-    let mut tokenizer = BPETokenizer::new();
-
-    // Large corpus
-    let corpus = "hello world ".repeat(10000);
-
-    let start = Instant::now();
-    tokenizer.train(&corpus, 500);
-    let elapsed = start.elapsed();
-
-    println!("Optimized BPE trained in {:?}", elapsed);
-
-    // Should be much faster than naive
-    assert!(elapsed.as_secs() < 10);
-}
-
-#[test]
-fn test_heap_ordering() {
-    use std::collections::BinaryHeap;
-
-    let mut heap = BinaryHeap::new();
-
-    heap.push(PairCount {
-        pair: ("a".into(), "b".into()),
-        count: 10,
-    });
-    heap.push(PairCount {
-        pair: ("c".into(), "d".into()),
-        count: 50,
-    });
-    heap.push(PairCount {
-        pair: ("e".into(), "f".into()),
-        count: 30,
-    });
-
-    // Should pop in descending order
-    assert_eq!(heap.pop().unwrap().count, 50);
-    assert_eq!(heap.pop().unwrap().count, 30);
-    assert_eq!(heap.pop().unwrap().count, 10);
-}
-```
 
 ### Starter Code
 
@@ -919,6 +2525,67 @@ impl BPETokenizer {
 
 ---
 
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_optimized_bpe_correctness() {
+    let mut tokenizer = BPETokenizer::new();
+    let text = "low low low low lower lower newest newest newest newest newest newest";
+
+    tokenizer.train(text, 50);
+
+    // Should produce same results as naive
+    let encoded = tokenizer.encode("lowest");
+    let decoded = tokenizer.decode(&encoded);
+    assert_eq!(decoded, "lowest");
+}
+
+#[test]
+fn test_optimized_bpe_performance() {
+    use std::time::Instant;
+
+    let mut tokenizer = BPETokenizer::new();
+
+    // Large corpus
+    let corpus = "hello world ".repeat(10000);
+
+    let start = Instant::now();
+    tokenizer.train(&corpus, 500);
+    let elapsed = start.elapsed();
+
+    println!("Optimized BPE trained in {:?}", elapsed);
+
+    // Should be much faster than naive
+    assert!(elapsed.as_secs() < 10);
+}
+
+#[test]
+fn test_heap_ordering() {
+    use std::collections::BinaryHeap;
+
+    let mut heap = BinaryHeap::new();
+
+    heap.push(PairCount {
+        pair: ("a".into(), "b".into()),
+        count: 10,
+    });
+    heap.push(PairCount {
+        pair: ("c".into(), "d".into()),
+        count: 50,
+    });
+    heap.push(PairCount {
+        pair: ("e".into(), "f".into()),
+        count: 30,
+    });
+
+    // Should pop in descending order
+    assert_eq!(heap.pop().unwrap().count, 50);
+    assert_eq!(heap.pop().unwrap().count, 30);
+    assert_eq!(heap.pop().unwrap().count, 10);
+}
+```
+
 ## Milestone 5: Parallel BPE Training with Concurrent HashMap
 
 ### Introduction
@@ -973,71 +2640,6 @@ reqwest = { version = "0.11", features = ["blocking"] }
 - Chunking: Divide work across threads
 - Atomic counters: Thread-safe frequency counting
 
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_parallel_bpe_correctness() {
-    let mut tokenizer = ParallelBPETokenizer::new();
-
-    let corpus = "hello world hello world".repeat(100);
-    tokenizer.train(&corpus, 100);
-
-    // Results should match sequential version
-    let encoded = tokenizer.encode("hello");
-    let decoded = tokenizer.decode(&encoded);
-    assert_eq!(decoded, "hello");
-}
-
-#[test]
-fn test_parallel_speedup() {
-    use std::time::Instant;
-
-    let corpus = "the quick brown fox jumps over the lazy dog ".repeat(50000);
-
-    // Sequential
-    let mut seq_tokenizer = BPETokenizer::new();
-    let start = Instant::now();
-    seq_tokenizer.train(&corpus, 500);
-    let seq_time = start.elapsed();
-
-    // Parallel
-    let mut par_tokenizer = ParallelBPETokenizer::new();
-    let start = Instant::now();
-    par_tokenizer.train(&corpus, 500);
-    let par_time = start.elapsed();
-
-    println!("Sequential: {:?}", seq_time);
-    println!("Parallel: {:?}", par_time);
-    println!("Speedup: {:.2}x", seq_time.as_secs_f64() / par_time.as_secs_f64());
-
-    // Should be faster (at least 1.5x on multi-core)
-    assert!(par_time < seq_time);
-}
-
-#[test]
-fn test_dashmap_concurrent_updates() {
-    use dashmap::DashMap;
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    let map = DashMap::new();
-
-    // Concurrent increments from multiple threads
-    (0..10000).into_par_iter().for_each(|i| {
-        let key = i % 100;
-        map.entry(key)
-            .and_modify(|count: &mut usize| *count += 1)
-            .or_insert(1);
-    });
-
-    // Each key should have ~100 increments
-    assert_eq!(map.len(), 100);
-    for entry in map.iter() {
-        assert!(*entry.value() >= 90 && *entry.value() <= 110);
-    }
-}
-```
 
 ### Starter Code
 
@@ -1131,6 +2733,72 @@ impl ParallelBPETokenizer {
 
 ---
 
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_parallel_bpe_correctness() {
+    let mut tokenizer = ParallelBPETokenizer::new();
+
+    let corpus = "hello world hello world".repeat(100);
+    tokenizer.train(&corpus, 100);
+
+    // Results should match sequential version
+    let encoded = tokenizer.encode("hello");
+    let decoded = tokenizer.decode(&encoded);
+    assert_eq!(decoded, "hello");
+}
+
+#[test]
+fn test_parallel_speedup() {
+    use std::time::Instant;
+
+    let corpus = "the quick brown fox jumps over the lazy dog ".repeat(50000);
+
+    // Sequential
+    let mut seq_tokenizer = BPETokenizer::new();
+    let start = Instant::now();
+    seq_tokenizer.train(&corpus, 500);
+    let seq_time = start.elapsed();
+
+    // Parallel
+    let mut par_tokenizer = ParallelBPETokenizer::new();
+    let start = Instant::now();
+    par_tokenizer.train(&corpus, 500);
+    let par_time = start.elapsed();
+
+    println!("Sequential: {:?}", seq_time);
+    println!("Parallel: {:?}", par_time);
+    println!("Speedup: {:.2}x", seq_time.as_secs_f64() / par_time.as_secs_f64());
+
+    // Should be faster (at least 1.5x on multi-core)
+    assert!(par_time < seq_time);
+}
+
+#[test]
+fn test_dashmap_concurrent_updates() {
+    use dashmap::DashMap;
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let map = DashMap::new();
+
+    // Concurrent increments from multiple threads
+    (0..10000).into_par_iter().for_each(|i| {
+        let key = i % 100;
+        map.entry(key)
+            .and_modify(|count: &mut usize| *count += 1)
+            .or_insert(1);
+    });
+
+    // Each key should have ~100 increments
+    assert_eq!(map.len(), 100);
+    for entry in map.iter() {
+        assert!(*entry.value() >= 90 && *entry.value() <= 110);
+    }
+}
+```
+
 ## Milestone 6: Extreme Optimization - SIMD, Caching, and Memory Layout
 
 ### Introduction
@@ -1193,6 +2861,152 @@ After:  Update indices in-place → no allocation
 - Flat layout: Better cache locality
 - Merge table: Constant-time merge queries
 
+
+### Starter Code
+
+```rust
+use std::collections::HashMap;
+
+// ============================================================================
+// STRING INTERNER
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct StringInterner {
+    string_to_id: HashMap<String, u32>,
+    id_to_string: Vec<String>,
+}
+
+impl StringInterner {
+    pub fn new() -> Self {
+        Self {
+            string_to_id: HashMap::new(),
+            id_to_string: Vec::new(),
+        }
+    }
+
+    pub fn intern(&mut self, s: &str) -> u32 {
+        // TODO: Get existing ID or create new one
+        // if let Some(&id) = self.string_to_id.get(s) {
+        //     id
+        // } else {
+        //     let id = self.id_to_string.len() as u32;
+        //     self.string_to_id.insert(s.to_string(), id);
+        //     self.id_to_string.push(s.to_string());
+        //     id
+        // }
+        todo!()
+    }
+
+    pub fn get_string(&self, id: u32) -> &str {
+        &self.id_to_string[id as usize]
+    }
+
+    pub fn get_id(&self, s: &str) -> Option<u32> {
+        self.string_to_id.get(s).copied()
+    }
+}
+
+// ============================================================================
+// OPTIMIZED BPE TOKENIZER
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct OptimizedBPETokenizer {
+    interner: StringInterner,
+    vocab: HashMap<u32, u32>, // Interned string ID → token ID
+    id_to_token_id: Vec<u32>,
+    merges: Vec<(u32, u32)>, // Pairs of interned IDs
+    merge_table: HashMap<u64, u32>, // Encoded pair → merged token ID
+    encoding_cache: HashMap<u64, Vec<u32>>, // Hash of word → encoding
+    next_id: u32,
+}
+
+impl OptimizedBPETokenizer {
+    pub fn new() -> Self {
+        Self {
+            interner: StringInterner::new(),
+            vocab: HashMap::new(),
+            id_to_token_id: Vec::new(),
+            merges: Vec::new(),
+            merge_table: HashMap::new(),
+            encoding_cache: HashMap::new(),
+            next_id: 4, // After special tokens
+        }
+    }
+
+    fn encode_pair(a: u32, b: u32) -> u64 {
+        // TODO: Pack two u32s into one u64
+        // ((a as u64) << 32) | (b as u64)
+        todo!()
+    }
+
+    fn hash_word(word: &[u32]) -> u64 {
+        // TODO: Simple hash for caching
+        // Use FxHash or compute simple hash
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        word.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn train(&mut self, text: &str, target_vocab_size: usize) {
+        // TODO: Optimized training
+        //
+        // 1. Intern all characters upfront
+        // 2. Convert corpus to Vec<Vec<u32>> (interned IDs)
+        // 3. Use pair encoding (u64) for fast HashMap lookups
+        // 4. Build merge_table for O(1) merge queries
+        // 5. Store merges as (u32, u32) instead of (String, String)
+        //
+        // Key optimization: Work with integers only, no string ops
+        todo!()
+    }
+
+    pub fn encode(&self, text: &str) -> Vec<u32> {
+        // TODO: Optimized encoding with caching
+        //
+        // 1. Split text into words
+        // 2. For each word:
+        //    a. Compute hash
+        //    b. Check cache
+        //    c. If miss: encode and cache result
+        // 3. Use merge_table for O(1) merge lookups
+        //
+        // let hash = Self::hash_word(word_as_ids);
+        // if let Some(cached) = self.encoding_cache.get(&hash) {
+        //     return cached.clone();
+        // }
+        // // Encode and cache
+        todo!()
+    }
+
+    pub fn decode(&self, ids: &[u32]) -> String {
+        // TODO: Decode using interner
+        // Map token IDs → interned IDs → strings
+        todo!()
+    }
+
+    pub fn vocab_size(&self) -> usize {
+        self.next_id as usize
+    }
+
+    pub fn save(&self, path: &str) -> std::io::Result<()> {
+        // TODO: Serialize vocabulary and merges to file
+        // Use bincode or serde_json
+        todo!()
+    }
+
+    pub fn load(path: &str) -> std::io::Result<Self> {
+        // TODO: Deserialize from file
+        todo!()
+    }
+}
+```
+
+---
 ### Checkpoint Tests
 
 ```rust
@@ -1361,152 +3175,6 @@ fn benchmark_all_versions() {
     println!("  M6: {:.2}x faster training", opt_train.as_secs_f64() / ext_train.as_secs_f64());
 }
 ```
-
-### Starter Code
-
-```rust
-use std::collections::HashMap;
-
-// ============================================================================
-// STRING INTERNER
-// ============================================================================
-
-#[derive(Debug, Clone)]
-pub struct StringInterner {
-    string_to_id: HashMap<String, u32>,
-    id_to_string: Vec<String>,
-}
-
-impl StringInterner {
-    pub fn new() -> Self {
-        Self {
-            string_to_id: HashMap::new(),
-            id_to_string: Vec::new(),
-        }
-    }
-
-    pub fn intern(&mut self, s: &str) -> u32 {
-        // TODO: Get existing ID or create new one
-        // if let Some(&id) = self.string_to_id.get(s) {
-        //     id
-        // } else {
-        //     let id = self.id_to_string.len() as u32;
-        //     self.string_to_id.insert(s.to_string(), id);
-        //     self.id_to_string.push(s.to_string());
-        //     id
-        // }
-        todo!()
-    }
-
-    pub fn get_string(&self, id: u32) -> &str {
-        &self.id_to_string[id as usize]
-    }
-
-    pub fn get_id(&self, s: &str) -> Option<u32> {
-        self.string_to_id.get(s).copied()
-    }
-}
-
-// ============================================================================
-// OPTIMIZED BPE TOKENIZER
-// ============================================================================
-
-#[derive(Debug, Clone)]
-pub struct OptimizedBPETokenizer {
-    interner: StringInterner,
-    vocab: HashMap<u32, u32>, // Interned string ID → token ID
-    id_to_token_id: Vec<u32>,
-    merges: Vec<(u32, u32)>, // Pairs of interned IDs
-    merge_table: HashMap<u64, u32>, // Encoded pair → merged token ID
-    encoding_cache: HashMap<u64, Vec<u32>>, // Hash of word → encoding
-    next_id: u32,
-}
-
-impl OptimizedBPETokenizer {
-    pub fn new() -> Self {
-        Self {
-            interner: StringInterner::new(),
-            vocab: HashMap::new(),
-            id_to_token_id: Vec::new(),
-            merges: Vec::new(),
-            merge_table: HashMap::new(),
-            encoding_cache: HashMap::new(),
-            next_id: 4, // After special tokens
-        }
-    }
-
-    fn encode_pair(a: u32, b: u32) -> u64 {
-        // TODO: Pack two u32s into one u64
-        // ((a as u64) << 32) | (b as u64)
-        todo!()
-    }
-
-    fn hash_word(word: &[u32]) -> u64 {
-        // TODO: Simple hash for caching
-        // Use FxHash or compute simple hash
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        word.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    pub fn train(&mut self, text: &str, target_vocab_size: usize) {
-        // TODO: Optimized training
-        //
-        // 1. Intern all characters upfront
-        // 2. Convert corpus to Vec<Vec<u32>> (interned IDs)
-        // 3. Use pair encoding (u64) for fast HashMap lookups
-        // 4. Build merge_table for O(1) merge queries
-        // 5. Store merges as (u32, u32) instead of (String, String)
-        //
-        // Key optimization: Work with integers only, no string ops
-        todo!()
-    }
-
-    pub fn encode(&self, text: &str) -> Vec<u32> {
-        // TODO: Optimized encoding with caching
-        //
-        // 1. Split text into words
-        // 2. For each word:
-        //    a. Compute hash
-        //    b. Check cache
-        //    c. If miss: encode and cache result
-        // 3. Use merge_table for O(1) merge lookups
-        //
-        // let hash = Self::hash_word(word_as_ids);
-        // if let Some(cached) = self.encoding_cache.get(&hash) {
-        //     return cached.clone();
-        // }
-        // // Encode and cache
-        todo!()
-    }
-
-    pub fn decode(&self, ids: &[u32]) -> String {
-        // TODO: Decode using interner
-        // Map token IDs → interned IDs → strings
-        todo!()
-    }
-
-    pub fn vocab_size(&self) -> usize {
-        self.next_id as usize
-    }
-
-    pub fn save(&self, path: &str) -> std::io::Result<()> {
-        // TODO: Serialize vocabulary and merges to file
-        // Use bincode or serde_json
-        todo!()
-    }
-
-    pub fn load(path: &str) -> std::io::Result<Self> {
-        // TODO: Deserialize from file
-        todo!()
-    }
-}
-```
-
----
 
 ## Complete Working Example
 
@@ -2079,161 +3747,6 @@ words.par_iter()
 - Rayon: Parallel processing across CPU cores
 - Bincode: Fast binary serialization (vs JSON)
 
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_ultra_bpe_correctness() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-
-    let corpus = "hello world hello world".repeat(100);
-    tokenizer.train(&corpus, 100);
-
-    let encoded = tokenizer.encode("hello world");
-    let decoded = tokenizer.decode(&encoded);
-
-    assert_eq!(decoded, "hello world");
-}
-
-#[test]
-fn test_ascii_cache() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-    tokenizer.train("abc", 50);
-
-    // ASCII characters should use cache
-    let encoded = tokenizer.encode("abc");
-    assert_eq!(encoded.len(), 3);
-}
-
-#[test]
-fn test_byte_encoding() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-    tokenizer.train("hello world", 50);
-
-    // encode_bytes should work with byte slices
-    let encoded = tokenizer.encode_bytes(b"hello");
-    let encoded_str = tokenizer.encode("hello");
-
-    assert_eq!(encoded, encoded_str);
-}
-
-#[test]
-fn test_unicode_handling() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-    tokenizer.train("Hello 世界 🚀", 100);
-
-    let encoded = tokenizer.encode("世界");
-    let decoded = tokenizer.decode(&encoded);
-
-    assert_eq!(decoded, "世界");
-}
-
-#[test]
-fn test_serialization() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-    tokenizer.train("the quick brown fox", 50);
-
-    // Save and load
-    tokenizer.save_binary("test_tokenizer.bin").unwrap();
-    let loaded = UltraOptimizedBPE::load_binary("test_tokenizer.bin").unwrap();
-
-    let encoded1 = tokenizer.encode("quick");
-    let encoded2 = loaded.encode("quick");
-
-    assert_eq!(encoded1, encoded2);
-
-    std::fs::remove_file("test_tokenizer.bin").ok();
-}
-
-#[test]
-fn test_parallel_speedup() {
-    use std::time::Instant;
-
-    let corpus = "the quick brown fox jumps over the lazy dog ".repeat(100000);
-
-    let mut tokenizer = UltraOptimizedBPE::new();
-    let start = Instant::now();
-    tokenizer.train(&corpus, 500);
-    let train_time = start.elapsed();
-
-    println!("Ultra-optimized training: {:?}", train_time);
-
-    // Should be very fast
-    assert!(train_time.as_secs() < 5);
-}
-
-#[test]
-fn test_encoding_performance() {
-    let mut tokenizer = UltraOptimizedBPE::new();
-    let corpus = "hello world ".repeat(1000);
-    tokenizer.train(&corpus, 100);
-
-    let text = "hello world ".repeat(100000);
-
-    let start = std::time::Instant::now();
-    let encoded = tokenizer.encode(&text);
-    let elapsed = start.elapsed();
-
-    let tokens_per_sec = encoded.len() as f64 / elapsed.as_secs_f64();
-    println!("Encoding speed: {:.2}M tokens/sec", tokens_per_sec / 1_000_000.0);
-
-    // Should achieve millions of tokens/sec
-    assert!(tokens_per_sec > 1_000_000.0);
-}
-
-#[test]
-fn benchmark_all_optimizations() {
-    use std::time::Instant;
-
-    let corpus = get_tiny_shakespeare();
-    let vocab_size = 500;
-
-    println!("\n=== Ultimate BPE Benchmark ===");
-    println!("Dataset: tiny-shakespeare ({} bytes)\n", corpus.len());
-
-    // Milestone 3: Naive BPE (if you want to compare, may be slow)
-    // Skipped for time
-
-    // Milestone 6: Optimized BPE with interning
-    println!("Testing Milestone 6 (Interning)...");
-    let mut m6 = OptimizedBPETokenizer::new();
-    let start = Instant::now();
-    m6.train(&corpus, vocab_size);
-    let m6_train = start.elapsed();
-
-    let start = Instant::now();
-    let m6_encoded = m6.encode(&corpus);
-    let m6_encode = start.elapsed();
-
-    println!("  Training: {:?}", m6_train);
-    println!("  Encoding: {:?} ({:.2}M tokens/sec)",
-        m6_encode,
-        m6_encoded.len() as f64 / m6_encode.as_secs_f64() / 1_000_000.0);
-
-    // Milestone 7: Ultra-optimized
-    println!("\nTesting Milestone 7 (Ultra-optimized)...");
-    let mut m7 = UltraOptimizedBPE::new();
-    let start = Instant::now();
-    m7.train(&corpus, vocab_size);
-    let m7_train = start.elapsed();
-
-    let start = Instant::now();
-    let m7_encoded = m7.encode(&corpus);
-    let m7_encode = start.elapsed();
-
-    println!("  Training: {:?} ({:.2}x speedup)",
-        m7_train,
-        m6_train.as_secs_f64() / m7_train.as_secs_f64());
-    println!("  Encoding: {:?} ({:.2}M tokens/sec)",
-        m7_encode,
-        m7_encoded.len() as f64 / m7_encode.as_secs_f64() / 1_000_000.0);
-
-    println!("\n=== Summary ===");
-    println!("Speedup (M7 vs M6):");
-    println!("  Training: {:.2}x faster", m6_train.as_secs_f64() / m7_train.as_secs_f64());
-    println!("  Encoding: {:.2}x faster", m6_encode.as_secs_f64() / m7_encode.as_secs_f64());
-}
-```
 
 ### Starter Code
 
@@ -2604,6 +4117,162 @@ where
 ```
 
 ---
+
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_ultra_bpe_correctness() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+
+    let corpus = "hello world hello world".repeat(100);
+    tokenizer.train(&corpus, 100);
+
+    let encoded = tokenizer.encode("hello world");
+    let decoded = tokenizer.decode(&encoded);
+
+    assert_eq!(decoded, "hello world");
+}
+
+#[test]
+fn test_ascii_cache() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+    tokenizer.train("abc", 50);
+
+    // ASCII characters should use cache
+    let encoded = tokenizer.encode("abc");
+    assert_eq!(encoded.len(), 3);
+}
+
+#[test]
+fn test_byte_encoding() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+    tokenizer.train("hello world", 50);
+
+    // encode_bytes should work with byte slices
+    let encoded = tokenizer.encode_bytes(b"hello");
+    let encoded_str = tokenizer.encode("hello");
+
+    assert_eq!(encoded, encoded_str);
+}
+
+#[test]
+fn test_unicode_handling() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+    tokenizer.train("Hello 世界 🚀", 100);
+
+    let encoded = tokenizer.encode("世界");
+    let decoded = tokenizer.decode(&encoded);
+
+    assert_eq!(decoded, "世界");
+}
+
+#[test]
+fn test_serialization() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+    tokenizer.train("the quick brown fox", 50);
+
+    // Save and load
+    tokenizer.save_binary("test_tokenizer.bin").unwrap();
+    let loaded = UltraOptimizedBPE::load_binary("test_tokenizer.bin").unwrap();
+
+    let encoded1 = tokenizer.encode("quick");
+    let encoded2 = loaded.encode("quick");
+
+    assert_eq!(encoded1, encoded2);
+
+    std::fs::remove_file("test_tokenizer.bin").ok();
+}
+
+#[test]
+fn test_parallel_speedup() {
+    use std::time::Instant;
+
+    let corpus = "the quick brown fox jumps over the lazy dog ".repeat(100000);
+
+    let mut tokenizer = UltraOptimizedBPE::new();
+    let start = Instant::now();
+    tokenizer.train(&corpus, 500);
+    let train_time = start.elapsed();
+
+    println!("Ultra-optimized training: {:?}", train_time);
+
+    // Should be very fast
+    assert!(train_time.as_secs() < 5);
+}
+
+#[test]
+fn test_encoding_performance() {
+    let mut tokenizer = UltraOptimizedBPE::new();
+    let corpus = "hello world ".repeat(1000);
+    tokenizer.train(&corpus, 100);
+
+    let text = "hello world ".repeat(100000);
+
+    let start = std::time::Instant::now();
+    let encoded = tokenizer.encode(&text);
+    let elapsed = start.elapsed();
+
+    let tokens_per_sec = encoded.len() as f64 / elapsed.as_secs_f64();
+    println!("Encoding speed: {:.2}M tokens/sec", tokens_per_sec / 1_000_000.0);
+
+    // Should achieve millions of tokens/sec
+    assert!(tokens_per_sec > 1_000_000.0);
+}
+
+#[test]
+fn benchmark_all_optimizations() {
+    use std::time::Instant;
+
+    let corpus = get_tiny_shakespeare();
+    let vocab_size = 500;
+
+    println!("\n=== Ultimate BPE Benchmark ===");
+    println!("Dataset: tiny-shakespeare ({} bytes)\n", corpus.len());
+
+    // Milestone 3: Naive BPE (if you want to compare, may be slow)
+    // Skipped for time
+
+    // Milestone 6: Optimized BPE with interning
+    println!("Testing Milestone 6 (Interning)...");
+    let mut m6 = OptimizedBPETokenizer::new();
+    let start = Instant::now();
+    m6.train(&corpus, vocab_size);
+    let m6_train = start.elapsed();
+
+    let start = Instant::now();
+    let m6_encoded = m6.encode(&corpus);
+    let m6_encode = start.elapsed();
+
+    println!("  Training: {:?}", m6_train);
+    println!("  Encoding: {:?} ({:.2}M tokens/sec)",
+        m6_encode,
+        m6_encoded.len() as f64 / m6_encode.as_secs_f64() / 1_000_000.0);
+
+    // Milestone 7: Ultra-optimized
+    println!("\nTesting Milestone 7 (Ultra-optimized)...");
+    let mut m7 = UltraOptimizedBPE::new();
+    let start = Instant::now();
+    m7.train(&corpus, vocab_size);
+    let m7_train = start.elapsed();
+
+    let start = Instant::now();
+    let m7_encoded = m7.encode(&corpus);
+    let m7_encode = start.elapsed();
+
+    println!("  Training: {:?} ({:.2}x speedup)",
+        m7_train,
+        m6_train.as_secs_f64() / m7_train.as_secs_f64());
+    println!("  Encoding: {:?} ({:.2}M tokens/sec)",
+        m7_encode,
+        m7_encoded.len() as f64 / m7_encode.as_secs_f64() / 1_000_000.0);
+
+    println!("\n=== Summary ===");
+    println!("Speedup (M7 vs M6):");
+    println!("  Training: {:.2}x faster", m6_train.as_secs_f64() / m7_train.as_secs_f64());
+    println!("  Encoding: {:.2}x faster", m6_encode.as_secs_f64() / m7_encode.as_secs_f64());
+}
+```
 
 ## Final Performance Comparison
 

@@ -1,5 +1,5 @@
 
-## Project 6: Type-Safe Configuration System with Newtype Pattern
+# Type-Safe Configuration System
 
 ### Problem Statement
 

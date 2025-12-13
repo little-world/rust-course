@@ -1,4 +1,4 @@
-# Project 8: Zero-Copy Text Parser with Lifetime-Aware Tokens
+# Zero-Copy Text Parser
 
 ## Problem Statement
 

@@ -1,6 +1,5 @@
-# Chapter 10: Vec & Slice Manipulation - Project 2
 
-## Project 2: Time-Series Data Analyzer with Sliding Windows
+# Time-Series Data Analyzer with Sliding Windows
 
 ### Problem Statement
 
@@ -1047,6 +1046,7 @@ Alert triggered when:
 6. **Z-score for anomaly detection** (simple, effective, interpretable)
 
 ---
+## Build The Project
 
 ### Milestone 1: Basic Sliding Window with VecDeque
 

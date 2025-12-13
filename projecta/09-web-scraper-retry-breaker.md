@@ -1,5 +1,5 @@
 
-## Project 2: Async Web Scraper with Retry Logic and Circuit Breaker
+# Web Scraper with Retry and Circuit Breaker
 
 ### Problem Statement
 
@@ -998,7 +998,6 @@ pub fn create_client(timeout_ms: u64) -> reqwest::Client {
 }
 ```
 
----
 
 **Checkpoint Tests**:
 
