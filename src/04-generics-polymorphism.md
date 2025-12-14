@@ -48,9 +48,8 @@ struct Tagged<T, Tag> { value: T, _tag: PhantomData<Tag> }
 ## Pattern 1: Type-Safe Generic Functions
 
 *   **Problem**: You need to write functions that perform the same operation on different types. Without generics, you'd either duplicate code for each type (error-prone, unmaintainable) or use dynamic typing with runtime casts (unsafe, slow).
-*   **Solution**: Define functions with type parameters `<T>` that can be instantiated with any concrete type. Add trait bounds to constrain `T` to types that support required operations. The compiler generates specialized machine code for each type used.
+*   **Solution**: Define functions with type parameters `<T>` that can be instantiated with any concrete type. Add trait bounds to constrain `T` to types that support required operations.
 *   **Why It Matters**: Monomorphization means generic code is as fast as hand-written specialized code—there's no vtable lookup, no boxing, no dynamic dispatch. The `Vec::push` you call on `Vec<i32>` is different compiled code than `Vec::push` on `Vec<String>`, each optimized for its type.
-*   **Use Cases**: Container operations, sorting algorithms, serialization/deserialization, mathematical computations, comparison utilities, formatting helpers.
 
 ### Examples
 ```rust
@@ -165,10 +164,9 @@ fn get_or_else<T, F: FnOnce() -> T>(opt: Option<T>, f: F) -> T {
 
 ## Pattern 2: Generic Structs and Enums
 
-*   **Problem**: Data structures need to store values of various types. Hard-coding types limits reusability—you'd need `IntStack`, `StringStack`, `FloatStack`, etc. Using `Box<dyn Any>` loses type safety and incurs runtime overhead.
-*   **Solution**: Parameterize structs and enums over type parameters. `struct Stack<T>` can hold any type while remaining fully type-safe. Each instantiation creates a specialized type: `Stack<i32>` and `Stack<String>` are distinct types.
-*   **Why It Matters**: Generic data structures are the foundation of Rust's standard library. `Vec<T>`, `HashMap<K, V>`, `Option<T>`, `Result<T, E>`—these are all generic types. Understanding how to design generic structures enables building reusable, composable abstractions.
-*   **Use Cases**: Collections (vectors, maps, sets), option/result wrappers, configuration containers, state machines, protocol messages, tree structures.
+*   **Problem**: Data structures need to store values of various types. Hard-coding types limits reusability—you'd need `IntStack`, `StringStack`, `FloatStack`, etc.
+*   **Solution**: Parameterize structs and enums over type parameters. `struct Stack<T>` can hold any type while remaining fully type-safe.
+*   **Why It Matters**: Generic data structures are the foundation of Rust's standard library. `Vec<T>`, `HashMap<K, V>`, `Option<T>`, `Result<T, E>`—these are all generic types.
 
 ### Examples
 ```rust
@@ -390,9 +388,8 @@ impl<T> Container<T> {
 ## Pattern 3: Trait Bounds and Constraints
 
 *   **Problem**: Generic functions need to perform operations on their type parameters, but `T` could be any type—how do you call `.clone()` on `T` if `T` might not implement `Clone`? Without constraints, you can only move, drop, or pass the value around.
-*   **Solution**: Use trait bounds to constrain type parameters to types implementing specific traits. Bounds can be inline (`fn foo<T: Clone>`) or in where clauses (`where T: Clone + Debug`). Multiple bounds create intersection requirements.
-*   **Why It Matters**: Trait bounds are the contract between generic code and its callers. They specify exactly what capabilities are required, enabling the compiler to verify correctness. Well-chosen bounds make APIs flexible yet safe—accept the minimum needed, not more.
-*   **Use Cases**: Requiring comparison (`Ord`, `PartialOrd`), hashing (`Hash`), serialization (`Serialize`), formatting (`Debug`, `Display`), cloning (`Clone`), default construction (`Default`).
+*   **Solution**: Use trait bounds to constrain type parameters to types implementing specific traits. Bounds can be inline (`fn foo<T: Clone>`) or in where clauses (`where T: Clone + Debug`).
+*   **Why It Matters**: Trait bounds are the contract between generic code and its callers. They specify exactly what capabilities are required, enabling the compiler to verify correctness.
 
 ### Examples
 ```rust
@@ -592,8 +589,7 @@ where
 
 *   **Problem**: When designing a trait, should you use `trait Foo<T>` (generic parameter) or `trait Foo { type T; }` (associated type)? Both allow types to vary by implementation, but they have different semantics and ergonomics.
 *   **Solution**: Use **associated types** for "output" types where each implementation specifies exactly one type (Iterator::Item). Use **generic parameters** for "input" types where the same type can implement the trait multiple times with different parameters (From<T>).
-*   **Why It Matters**: Associated types simplify APIs dramatically. With `Iterator<Item = i32>`, you know the item type. With `Iterator<T>` (if it existed), you'd have multiple impls per type, ambiguity everywhere, and verbose bounds. Choosing correctly makes APIs intuitive and prevents implementation conflicts.
-*   **Use Cases**: Iterator::Item, Deref::Target, collection traits, conversion traits (associated) vs From<T>, Add<Rhs>, comparison traits (generic).
+*   **Why It Matters**: Associated types simplify APIs dramatically. With `Iterator<Item = i32>`, you know the item type.
 
 ### Examples
 ```rust
@@ -773,10 +769,9 @@ trait DerefGeneric<Target: ?Sized> {
 
 ## Pattern 5: Blanket Implementations
 
-*   **Problem**: You want to provide trait implementations for all types meeting certain criteria, not just specific types. For example, any type implementing `Display` should automatically get `ToString`. Implementing manually for every type is impossible and unmaintainable.
-*   **Solution**: Use blanket implementations: `impl<T: Bound> Trait for T`. This implements `Trait` for all types `T` that satisfy `Bound`. The standard library uses this extensively—`impl<T: Display> ToString for T` is a blanket impl.
-*   **Why It Matters**: Blanket implementations enable powerful trait composition. You define the relationship once, and it applies to all qualifying types—past, present, and future. This is how Rust achieves "if it compiles, it works" ergonomics while maintaining zero-cost abstractions.
-*   **Use Cases**: `ToString` for `Display`, `Into<U>` from `From<U>`, `Iterator` adapters, automatic trait derivation, extension traits.
+*   **Problem**: You want to provide trait implementations for all types meeting certain criteria, not just specific types. For example, any type implementing `Display` should automatically get `ToString`.
+*   **Solution**: Use blanket implementations: `impl<T: Bound> Trait for T`. This implements `Trait` for all types `T` that satisfy `Bound`.
+*   **Why It Matters**: Blanket implementations enable powerful trait composition. You define the relationship once, and it applies to all qualifying types—past, present, and future.
 
 ### Examples
 ```rust
@@ -944,10 +939,9 @@ impl Display for MyType {
 
 ## Pattern 6: Phantom Types and Type-Level State
 
-*   **Problem**: You want to track state or constraints at compile time without runtime overhead. For example, a file handle should only allow reading if opened in read mode, or a builder should require certain fields before building. Runtime checks waste cycles and can be forgotten.
+*   **Problem**: You want to track state or constraints at compile time without runtime overhead. For example, a file handle should only allow reading if opened in read mode, or a builder should require certain fields before building.
 *   **Solution**: Use phantom types—type parameters that exist only in the type signature, not in the data layout. `PhantomData<T>` is a zero-sized type marker that tells the compiler "pretend this struct contains a T." Combined with zero-sized state marker types, this enables the type-state pattern.
-*   **Why It Matters**: Phantom types move invariants from runtime to compile time. Invalid states become unrepresentable—you literally cannot call `.read()` on a write-only handle because the method doesn't exist for that type. This is "making illegal states unrepresentable" in action.
-*   **Use Cases**: Units of measure, authentication/authorization state, protocol state machines, builder pattern validation, FFI ownership markers, capability tokens.
+*   **Why It Matters**: Phantom types move invariants from runtime to compile time. Invalid states become unrepresentable—you literally cannot call `.read()` on a write-only handle because the method doesn't exist for that type.
 
 ### Examples
 ```rust
@@ -1190,10 +1184,9 @@ impl CString<Borrowed> {
 
 ## Pattern 7: Higher-Ranked Trait Bounds (HRTBs)
 
-*   **Problem**: You want to accept a closure that works with references of any lifetime, not a specific one. For example, a function that calls a closure with temporary references created inside the function. Normal lifetime parameters can't express "works for any lifetime."
+*   **Problem**: You want to accept a closure that works with references of any lifetime, not a specific one. For example, a function that calls a closure with temporary references created inside the function.
 *   **Solution**: Use higher-ranked trait bounds with `for<'a>` syntax: `F: for<'a> Fn(&'a str) -> &'a str`. This means "F implements Fn for all possible lifetimes 'a." The closure must work regardless of what lifetime the references have.
-*   **Why It Matters**: HRTBs are essential for closure-heavy APIs. Without them, you couldn't write functions like `Vec::sort_by` that accept comparison closures operating on temporary references. HRTBs enable higher-order functions that are fundamental to Rust's functional programming style.
-*   **Use Cases**: Iterator adapters (map, filter with borrowing), callback registries, parser combinators, sorting with custom comparators, visitor patterns.
+*   **Why It Matters**: HRTBs are essential for closure-heavy APIs. Without them, you couldn't write functions like `Vec::sort_by` that accept comparison closures operating on temporary references.
 
 ### Examples
 ```rust
@@ -1361,10 +1354,9 @@ where
 
 ## Pattern 8: Const Generics
 
-*   **Problem**: You need to parameterize types by compile-time constant values, not just types. Arrays in Rust have their size in the type: `[i32; 5]` is different from `[i32; 10]`. Without const generics, you'd need separate impls for each size or use runtime-sized `Vec`.
-*   **Solution**: Use const generics: `struct Array<T, const N: usize>`. The `N` is a compile-time constant that becomes part of the type. Rust currently supports const generics for integers, bools, and chars. This enables truly generic fixed-size types.
-*   **Why It Matters**: Const generics enable zero-cost fixed-size abstractions. Matrix multiplication `Matrix<3, 4>` * `Matrix<4, 5>` = `Matrix<3, 5>` is checked at compile time. Buffer sizes, protocol frame lengths, and SIMD vector widths can all be type-level constants, catching dimension mismatches before runtime.
-*   **Use Cases**: Fixed-size arrays, matrices with compile-time dimension checking, network protocol frames, ring buffers, SIMD vectors, lookup tables.
+*   **Problem**: You need to parameterize types by compile-time constant values, not just types. Arrays in Rust have their size in the type: `[i32; 5]` is different from `[i32; 10]`.
+*   **Solution**: Use const generics: `struct Array<T, const N: usize>`. The `N` is a compile-time constant that becomes part of the type.
+*   **Why It Matters**: Const generics enable zero-cost fixed-size abstractions. Matrix multiplication `Matrix<3, 4>` * `Matrix<4, 5>` = `Matrix<3, 5>` is checked at compile time.
 
 ### Examples
 ```rust

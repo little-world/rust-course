@@ -73,11 +73,11 @@ Locks are:
 
 ## Pattern 1: Memory Ordering Semantics
 
-**Problem**: CPU reordering and compiler optimizations can break lock-free algorithms—writes may be visible in different order than written. `Relaxed` ordering is fast but provides no guarantees, causing race conditions. `SeqCst` (sequentially consistent) is slow—acts like global lock on all atomics. Wrong ordering causes subtle bugs: ABA problem, data races, lost updates. Memory fence placement is complex and error-prone.
+**Problem**: CPU reordering and compiler optimizations can break lock-free algorithms—writes may be visible in different order than written. `Relaxed` ordering is fast but provides no guarantees, causing race conditions.
 
-**Solution**: Use `Acquire` for reads that need to see all previous writes. Use `Release` for writes that make previous operations visible. Combine `AcqRel` for read-modify-write. Use `Relaxed` only for counters where ordering doesn't matter. Use `SeqCst` when correctness is unclear or for debugging. Understand happens-before relationships to reason about correctness.
+**Solution**: Use `Acquire` for reads that need to see all previous writes. Use `Release` for writes that make previous operations visible.
 
-**Why It Matters**: Ordering determines correctness and performance. Wrong ordering: lock-free queue corrupts data, appears to work in tests, fails randomly in production. `Relaxed` is 1-2 cycles, `Acquire`/`Release` is 5-10 cycles, `SeqCst` is 20-50 cycles—10x performance difference. Spinlock with `Release`/`Acquire`: correct and fast. With `Relaxed`: broken. With `SeqCst`: correct but slow. Understanding memory ordering is essential for lock-free programming.
+**Why It Matters**: Ordering determines correctness and performance. Wrong ordering: lock-free queue corrupts data, appears to work in tests, fails randomly in production.
 
 **Use Cases**: Lock-free data structures (queues, stacks, maps), reference counting (Arc), flags and signals, atomic counters, synchronization primitives, wait-free algorithms.
 
@@ -92,9 +92,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-//======================================================
-// Pattern 1: Relaxed - No ordering guarantees (fastest)
-//======================================================
+```
+
+### Example: Relaxed - No ordering guarantees (fastest)
+This example shows how to use Relaxed to no ordering guarantees (fastest) without over-synchronizing.
+
+```rust
+
 // Use for: Counters where exact ordering doesn't matter
 fn relaxed_ordering_example() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -119,9 +123,13 @@ fn relaxed_ordering_example() {
     println!("Counter (Relaxed): {}", counter.load(Ordering::Relaxed));
 }
 
-//============================================================================
-// Pattern 2: Acquire/Release - Synchronization without sequential consistency
-//============================================================================
+```
+
+### Example: Acquire/Release - Synchronization without sequential consistency
+This example shows how to use Acquire/Release to synchronization without sequential consistency without over-synchronizing.
+
+```rust
+
 // Use for: Producer-consumer, message passing
 fn acquire_release_ordering() {
     let data = Arc::new(AtomicUsize::new(0));
@@ -156,9 +164,13 @@ fn acquire_release_ordering() {
     consumer.join().unwrap();
 }
 
-//==============================================================================
-// Pattern 3: SeqCst - Sequential consistency (slowest, easiest to reason about)
-//==============================================================================
+```
+
+### Example: SeqCst - Sequential consistency (slowest, easiest to reason about)
+This example shows how to use SeqCst to sequential consistency (slowest, easiest to reason about) without over-synchronizing.
+
+```rust
+
 // Use for: When correctness is critical and performance is secondary
 fn seq_cst_ordering() {
     let x = Arc::new(AtomicBool::new(false));
@@ -197,9 +209,13 @@ fn seq_cst_ordering() {
     println!("Both flags set: {} (should be false with SeqCst)", both);
 }
 
-//================================================
-// Pattern 4: AcqRel - Combine Acquire and Release
-//================================================
+```
+
+### Example: AcqRel - Combine Acquire and Release
+This example shows how to use AcqRel to combine acquire and release without over-synchronizing.
+
+```rust
+
 // Use for: Read-modify-write operations
 fn acq_rel_ordering() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -221,10 +237,7 @@ fn acq_rel_ordering() {
 
     println!("Counter (AcqRel): {}", counter.load(Ordering::Acquire));
 }
-
-//==========================================
 // Real-world: Spinlock with proper ordering
-//==========================================
 struct Spinlock {
     locked: AtomicBool,
 }
@@ -259,10 +272,7 @@ impl Spinlock {
         self.locked.store(false, Ordering::Release);
     }
 }
-
-//===========================================================
 // Real-world: Double-checked locking for lazy initialization
-//===========================================================
 struct LazyInit<T> {
     data: AtomicUsize, // Actually *mut T
     initialized: AtomicBool,
@@ -370,9 +380,13 @@ use std::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-//=====================================
-// Pattern 1: Fence for non-atomic data
-//=====================================
+```
+
+### Example: Fence for non-atomic data
+This example shows how to fence for non-atomic data in practice, emphasizing why it works.
+
+```rust
+
 fn fence_with_non_atomic() {
     let mut data = 0u64;
     let ready = Arc::new(AtomicBool::new(false));
@@ -408,9 +422,13 @@ fn fence_with_non_atomic() {
     producer.join().unwrap();
 }
 
-//==============================================================
-// Pattern 2: Compiler fence (prevents compiler reordering only)
-//==============================================================
+```
+
+### Example: Compiler fence (prevents compiler reordering only)
+This example shows how to compiler fence (prevents compiler reordering only) in practice, emphasizing why it works.
+
+```rust
+
 fn compiler_fence_example() {
     let x = AtomicUsize::new(0);
     let y = AtomicUsize::new(0);
@@ -424,10 +442,7 @@ fn compiler_fence_example() {
 
     // Ensures compiler sees x=1 before y=2
 }
-
-//========================================
 // Real-world: Memory barrier for DMA/MMIO
-//========================================
 #[repr(C)]
 struct DmaBuffer {
     data: [u8; 4096],
@@ -472,11 +487,11 @@ fn main() {
 
 ## Pattern 2: Compare-and-Swap Patterns
 
-**Problem**: Implementing lock-free operations requires atomic read-modify-write. Naive approaches have race conditions when multiple threads update simultaneously. Need to detect when value changed between read and write. ABA problem: value changes A→B→A, CAS succeeds but intermediate state was different. Conditional updates require careful retry logic.
+**Problem**: Implementing lock-free operations requires atomic read-modify-write. Naive approaches have race conditions when multiple threads update simultaneously.
 
-**Solution**: Use compare-and-swap (CAS) as fundamental building block. Load current value, compute new value, CAS to update only if unchanged. Use `compare_exchange_weak` in loops (allows spurious failure). Use `compare_exchange` outside loops (stronger guarantee). Handle ABA with version counters or hazard pointers. Implement exponential backoff for contention.
+**Solution**: Use compare-and-swap (CAS) as fundamental building block. Load current value, compute new value, CAS to update only if unchanged.
 
-**Why It Matters**: CAS is foundation of all lock-free algorithms. Without proper CAS loops, concurrent updates are lost. ABA problem causes silent data corruption—tests pass, production fails mysteriously. Lock-free max tracker: naive store loses updates, CAS ensures correctness. Conditional counter with CAS prevents overflow bugs. Performance: proper backoff reduces CPU waste during contention.
+**Why It Matters**: CAS is foundation of all lock-free algorithms. Without proper CAS loops, concurrent updates are lost.
 
 **Use Cases**: Lock-free stacks and queues, atomic max/min tracking, conditional increments (rate limiting), version tracking, optimistic updates, retry logic.
 
@@ -489,9 +504,13 @@ use std::sync::Arc;
 use std::thread;
 use std::ptr;
 
-//==========================
-// Pattern 1: Basic CAS loop
-//==========================
+```
+
+### Example: Basic CAS loop
+This example walks through the basics of cas loop, highlighting each step so you can reuse the pattern.
+
+```rust
+
 fn cas_increment(counter: &AtomicUsize) {
     loop {
         let current = counter.load(Ordering::Relaxed);
@@ -514,9 +533,13 @@ fn cas_increment(counter: &AtomicUsize) {
     }
 }
 
-//=====================================================
-// Pattern 2: compare_exchange vs compare_exchange_weak
-//=====================================================
+```
+
+### Example: compare_exchange vs compare_exchange_weak
+This example shows how to compare_exchange vs compare_exchange_weak in practice, emphasizing why it works.
+
+```rust
+
 fn compare_exchange_variants() {
     let value = AtomicUsize::new(0);
 
@@ -542,9 +565,13 @@ fn compare_exchange_variants() {
     println!("Final value: {}", value.load(Ordering::SeqCst));
 }
 
-//========================================
-// Pattern 3: CAS with data transformation
-//========================================
+```
+
+### Example: CAS with data transformation
+This example shows how to cAS with data transformation in practice, emphasizing why it works.
+
+```rust
+
 fn cas_update<F>(counter: &AtomicUsize, f: F)
 where
     F: Fn(usize) -> usize,
@@ -565,10 +592,7 @@ where
         }
     }
 }
-
-//===================================
 // Real-world: Lock-free max tracking
-//===================================
 struct MaxTracker {
     max: AtomicUsize,
 }
@@ -605,10 +629,7 @@ impl MaxTracker {
         self.max.load(Ordering::Relaxed)
     }
 }
-
-//==================================
 // Real-world: Lock-free accumulator
-//==================================
 struct Accumulator {
     sum: AtomicUsize,
     count: AtomicUsize,
@@ -644,10 +665,7 @@ impl Accumulator {
         (sum, count)
     }
 }
-
-//===============================
 // Real-world: Conditional update
-//===============================
 struct ConditionalCounter {
     value: AtomicUsize,
 }
@@ -768,10 +786,7 @@ use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-
-//================================
 // Problem: ABA without protection
-//================================
 struct NaiveStack<T> {
     head: AtomicUsize, // *mut Node<T>
     _phantom: std::marker::PhantomData<T>,
@@ -781,10 +796,7 @@ struct Node<T> {
     data: T,
     next: *mut Node<T>,
 }
-
-//=============================================
 // This is unsafe and suffers from ABA problem!
-//=============================================
 impl<T> NaiveStack<T> {
     unsafe fn pop_unsafe(&self) -> Option<T> {
         loop {
@@ -820,10 +832,7 @@ impl<T> NaiveStack<T> {
         }
     }
 }
-
-//==============================================
 // Solution 1: Tagged pointers (version counter)
-//==============================================
 struct TaggedPtr {
     value: AtomicU64, // Upper 16 bits: tag, Lower 48 bits: pointer
 }
@@ -865,10 +874,7 @@ impl TaggedPtr {
             .map_err(|_| ())
     }
 }
-
-//=====================================
 // Solution 2: Version counter approach
-//=====================================
 struct VersionedStack<T> {
     head: AtomicU64, // Upper 32 bits: version, Lower 32 bits: index
     nodes: Vec<Option<VersionedNode<T>>>,
@@ -891,10 +897,7 @@ impl<T> VersionedStack<T> {
         (index, version)
     }
 }
-
-//=================================================
 // Solution 3: Epoch-based reclamation (simplified)
-//=================================================
 struct EpochGC {
     global_epoch: AtomicUsize,
 }
@@ -919,10 +922,7 @@ impl EpochGC {
         current > allocation_epoch + 2 // Conservative: 2 epochs old
     }
 }
-
-//=============================
 // Real-world: ABA-safe counter
-//=============================
 struct ABACounter {
     value: AtomicU64, // Upper 32 bits: version, Lower 32 bits: count
 }
@@ -1012,11 +1012,11 @@ fn main() {
 
 ## Pattern 3: Lock-Free Queues and Stacks
 
-**Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting. Priority inversion: low-priority thread holds lock, blocking high-priority thread. Deadlocks from lock ordering mistakes. Panics while holding lock poison the mutex. Real-time systems can't tolerate lock-induced latency spikes.
+**Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting.
 
-**Solution**: Use Treiber stack (lock-free stack with CAS-based push/pop). Implement MPSC queue (multi-producer single-consumer) with atomic operations. Use SPSC ring buffer for bounded single-producer single-consumer. Leverage `crossbeam::queue` for production-ready implementations. Handle memory reclamation with hazard pointers or epoch-based GC. Use atomic operations with proper ordering for correctness.
+**Solution**: Use Treiber stack (lock-free stack with CAS-based push/pop). Implement MPSC queue (multi-producer single-consumer) with atomic operations.
 
-**Why It Matters**: Lock-free structures enable true parallelism. Multi-threaded counter with Mutex: serialized updates = 1 core performance. Lock-free stack: linear scaling = 8 cores → 8x throughput. MPMC queue with crossbeam: 100-1000x better than Mutex<VecDeque> under contention. Real-time audio processing requires lock-free queues to prevent dropouts. Database systems use lock-free structures for transaction processing at millions/second. Work-stealing schedulers power async runtimes.
+**Why It Matters**: Lock-free structures enable true parallelism. Multi-threaded counter with Mutex: serialized updates = 1 core performance.
 
 **Use Cases**: Work-stealing task queues (tokio, rayon), MPMC message passing, real-time audio/video processing, high-frequency trading, concurrent data structure building blocks, actor system mailboxes.
 
@@ -1102,10 +1102,7 @@ impl<T> TreiberStack<T> {
 
 unsafe impl<T: Send> Send for TreiberStack<T> {}
 unsafe impl<T: Send> Sync for TreiberStack<T> {}
-
-//=============================================
 // Real-world: Work-stealing deque (simplified)
-//=============================================
 pub struct WorkStealingDeque<T> {
     bottom: AtomicPtr<Node<T>>,
     top: AtomicPtr<Node<T>>,
@@ -1377,10 +1374,7 @@ impl<T> MpscQueue<T> {
 
 unsafe impl<T: Send> Send for MpscQueue<T> {}
 unsafe impl<T: Send> Sync for MpscQueue<T> {}
-
-//=================================================================
 // Real-world: Bounded SPSC queue (Single Producer Single Consumer)
-//=================================================================
 pub struct BoundedSpscQueue<T> {
     buffer: Vec<Option<T>>,
     head: AtomicUsize,
@@ -1530,11 +1524,11 @@ fn main() {
 
 ## Pattern 4: Hazard Pointers
 
-**Problem**: Lock-free structures need memory reclamation—can't immediately free nodes because other threads might access them. Naive deletion causes use-after-free. Reference counting (Arc) adds overhead and doesn't solve the problem (threads can hold pointer after refcount=0). Garbage collection would solve it but Rust doesn't have GC. Memory leaks accumulate if nodes are never freed. ABA problem makes safe reclamation even harder.
+**Problem**: Lock-free structures need memory reclamation—can't immediately free nodes because other threads might access them. Naive deletion causes use-after-free.
 
-**Solution**: Use hazard pointers to mark nodes as "in-use". Each thread announces pointers it's accessing. Before freeing a node, check if any thread has it in their hazard list. If protected, defer deletion to retired list. Periodically scan and reclaim nodes not in any hazard list. Alternative: epoch-based reclamation (like `crossbeam-epoch`) for better performance. Provides memory safety for lock-free structures.
+**Solution**: Use hazard pointers to mark nodes as "in-use". Each thread announces pointers it's accessing.
 
-**Why It Matters**: Prevents crashes in production lock-free code. Without proper reclamation, lock-free queue either leaks memory or crashes with use-after-free. Hazard pointers add ~10-20% overhead but enable correct lock-free algorithms. Crossbeam's epoch-based approach is faster (5-10% overhead). Real systems (databases, async runtimes) rely on this for correctness. Solves ABA problem completely—node can't be reused while protected.
+**Why It Matters**: Prevents crashes in production lock-free code. Without proper reclamation, lock-free queue either leaks memory or crashes with use-after-free.
 
 **Use Cases**: Production lock-free stacks and queues, concurrent hash maps, lock-free linked lists, RCU-style updates, safe memory management without GC, building blocks for complex concurrent data structures.
 
@@ -1711,10 +1705,7 @@ impl HazardPointerDomain {
         }
     }
 }
-
-//====================================
 // Example: Stack with hazard pointers
-//====================================
 struct SafeNode<T> {
     data: T,
     next: *mut SafeNode<T>,
@@ -1846,11 +1837,11 @@ fn main() {
 
 ## Pattern 5: Seqlock Pattern
 
-**Problem**: Frequent reads of small data with occasional writes. Mutex too expensive (blocks readers). Reader-writer lock still has overhead and priority issues. Atomics insufficient for multi-field updates (coordinates, stats). Need consistency: read all fields from same write. CAS-based approaches complex for multiple fields. Want zero-cost reads in common case (no writes).
+**Problem**: Frequent reads of small data with occasional writes. Mutex too expensive (blocks readers).
 
-**Solution**: Use sequence counter incremented on writes. Writers: increment (odd), write data, increment (even). Readers: read sequence, read data, verify sequence unchanged. Retry if sequence odd (write in progress) or changed. Works only for `Copy` types (small data). Single writer model—multiple concurrent writers break it. Optimistic reads with validation. No locks, no CAS, just memory barriers.
+**Solution**: Use sequence counter incremented on writes. Writers: increment (odd), write data, increment (even).
 
-**Why It Matters**: 10-100x faster than locks for read-heavy workloads. Game coordinates updated 60fps, read 10,000x/sec: seqlock enables this. Statistics dashboard: writes 1/sec, reads 1000/sec—perfect for seqlock. No blocking ever: predictable latency for real-time systems. Readers never wait: always make progress even during writes. Cache-friendly: sequential reads, minimal memory traffic. Powers Linux kernel read-mostly data structures.
+**Why It Matters**: 10-100x faster than locks for read-heavy workloads. Game coordinates updated 60fps, read 10,000x/sec: seqlock enables this.
 
 **Use Cases**: Game entity positions/state, real-time sensor data, network statistics and metrics, configuration that changes rarely, performance counters, dashboard data, time-series snapshots, read-heavy caches.
 
@@ -1936,10 +1927,7 @@ impl<T: Copy> SeqLock<T> {
 
 unsafe impl<T: Copy + Send> Send for SeqLock<T> {}
 unsafe impl<T: Copy + Send> Sync for SeqLock<T> {}
-
-//=====================================
 // Real-world: Coordinates with seqlock
-//=====================================
 #[derive(Copy, Clone, Debug)]
 struct Coordinates {
     x: f64,
@@ -1991,10 +1979,7 @@ fn seqlock_coordinates_example() {
         reader.join().unwrap();
     }
 }
-
-//================================
 // Real-world: Statistics snapshot
-//================================
 #[derive(Copy, Clone, Debug)]
 struct Stats {
     count: u64,
@@ -2072,9 +2057,13 @@ fn seqlock_stats_example() {
     }
 }
 
-//==========================================
-// Pattern: Versioned seqlock (track writes)
-//==========================================
+```
+
+### Example: Versioned seqlock (track writes)
+This example shows versioned seqlock (track writes) to illustrate where the pattern fits best.
+
+```rust
+
 pub struct VersionedSeqLock<T> {
     seqlock: SeqLock<T>,
 }
@@ -2141,9 +2130,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-//===============================================
-// Pattern 1: Striped counter (reduce contention)
-//===============================================
+```
+
+### Example: Striped counter (reduce contention)
+This example shows how to striped counter (reduce contention) while calling out the practical trade-offs.
+
+```rust
+
 struct StripedCounter {
     stripes: Vec<AtomicUsize>,
 }
@@ -2172,9 +2165,13 @@ impl StripedCounter {
     }
 }
 
-//===============================
-// Pattern 2: Exponential backoff
-//===============================
+```
+
+### Example: Exponential backoff
+This example shows how to exponential backoff in practice, emphasizing why it works.
+
+```rust
+
 struct Backoff {
     current: Duration,
     max: Duration,
@@ -2224,9 +2221,13 @@ fn cas_with_backoff(counter: &AtomicUsize) {
     }
 }
 
-//==========================
-// Pattern 3: Atomic min/max
-//==========================
+```
+
+### Example: Atomic min/max
+This example shows how to atomic min/max while calling out the practical trade-offs.
+
+```rust
+
 struct AtomicMinMax {
     min: AtomicU64,
     max: AtomicU64,
@@ -2278,9 +2279,13 @@ impl AtomicMinMax {
     }
 }
 
-//========================================
-// Pattern 4: Once flag for initialization
-//========================================
+```
+
+### Example: Once flag for initialization
+This example shows how to once flag for initialization in practice, emphasizing why it works.
+
+```rust
+
 struct OnceFlag {
     state: AtomicUsize,
 }
@@ -2333,9 +2338,13 @@ impl OnceFlag {
     }
 }
 
-//=============================
-// Pattern 5: Atomic swap chain
-//=============================
+```
+
+### Example: Atomic swap chain
+This example shows how to atomic swap chain while calling out the practical trade-offs.
+
+```rust
+
 struct SwapChain<T> {
     value: AtomicUsize, // Actually *mut T
     _phantom: std::marker::PhantomData<T>,

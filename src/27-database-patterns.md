@@ -4,13 +4,13 @@ This chapter explores database patterns in Rust: connection pooling for resource
 
 ## Pattern 1: Connection Pooling
 
-**Problem**: Creating database connections per-request is expensive—each connection requires TCP 3-way handshake, TLS negotiation, authentication, and session initialization (50-200ms overhead). Without pooling, burst of 1000 requests = 1000 connection creations, overwhelming database with connection overhead. Database has max_connections limit (typically 100-200), and exceeding it causes errors. Connection teardown wastes time closing sockets. Per-request pattern can't reuse prepared statements.
+**Problem**: Opening a fresh database connection per request costs handshakes, auth, and session setup, quickly exhausting `max_connections` and adding 100ms+ latency to every query.
 
-**Solution**: Maintain a pool of pre-established, reusable connections. Use r2d2 for synchronous code (blocking `pool.get()`) or deadpool for async code (awaiting `pool.get().await`). Configure pool size based on workload: max_size controls maximum connections, min_idle keeps connections warm. Connections borrowed via smart pointers that automatically return to pool on drop. Pool validates connections, recreates dead ones, and enforces timeouts. Configure connection_timeout for how long to wait when pool exhausted.
+**Solution**: Keep a pool of ready connections (r2d2, deadpool). Borrow them with `pool.get()`, configure sensible `max_size`, `min_idle`, and timeouts, and let the smart pointer return them on drop.
 
-**Why It Matters**: Connection setup overhead: 50-200ms per connection vs <1ms to borrow from pool = 50-200x faster. A web server handling 100 req/s without pooling creates/destroys 100 connections/second = massive overhead. With pooling, 10-20 connections handle 100+ req/s efficiently. Prevents database from being overwhelmed: database with max_connections=100 can't handle 200 simultaneous connection attempts, but can handle 200 requests with 20 pooled connections (multiplexing). Memory efficiency: pooled connections reuse buffers and prepared statements. Automatic retry/validation handles transient network issues.
+**Why It Matters**: Reusing 10–20 pooled connections serves hundreds of requests with <1 ms checkout time, protects the database from connection storms, and preserves prepared statements/buffers.
 
-**Use Cases**: Web servers (Actix, Axum, Rocket), microservices (per-service pool), GraphQL APIs (connection per query), background job processors (workers share pool), serverless functions (global pool across invocations), data pipelines (parallel processing with shared pool), CLI tools with multiple queries, testing frameworks (test isolation with connection pooling).
+**Use Cases**: Web servers, background workers, GraphQL resolvers, CLI tools hitting DBs repeatedly, serverless globals, and integration test harnesses needing many short-lived queries.
 
 ### Example: r2d2: The Classic Connection Pool
 
@@ -256,13 +256,13 @@ Monitoring helps you tune pool size and detect issues before they impact users.
 
 ## Pattern 2: Query Builders
 
-**Problem**: Raw SQL as string literals has no compile-time checking—typos in table/column names only discovered at runtime when that code path executes. Type mismatches between SQL types and Rust types cause runtime panics. Wrong parameter count (`$1, $2` but passing 3 values) panics. String concatenation for dynamic queries enables SQL injection. No refactoring safety—renaming columns requires grep'ing all SQL strings. IDE has no autocomplete for columns/tables.
+**Problem**: Raw SQL strings hide typos, wrong parameter counts, and type mismatches until runtime—and string concatenation invites SQL injection.
 
-**Solution**: Use SQLx for compile-time SQL verification—`query!()` macro connects to database during compilation, validates SQL syntax, checks tables/columns exist, verifies parameter types match, and infers return types. For fully type-safe DSL, use Diesel ORM with generated schema.rs providing compile-time column/table verification. For dynamic queries, use QueryBuilder (SQLx) with bound parameters preventing injection. SQLx supports offline mode via `cargo sqlx prepare` for CI/CD without database. Diesel provides automatic joins, database abstraction, and refactoring safety.
+**Solution**: Use compile-time checked builders: SQLx `query!` verifies syntax/columns/types, Diesel’s schema DSL provides type-safe composable queries, and SQLx’s `QueryBuilder` binds parameters for dynamic clauses.
 
-**Why It Matters**: Compile-time verification eliminates entire class of runtime SQL errors. Typo "usrname" becomes compile error, not production panic. Type safety: attempting `let id: String = row.get(0)` for INT column won't compile. SQL injection impossible with bound parameters—malicious input like `'; DROP TABLE users--` safely escaped. Refactoring safety: renaming column updates Diesel queries automatically. Performance: prepared statements reused, query planning cached. Development speed: IDE autocomplete for columns/tables, catch errors before running code.
+**Why It Matters**: Mistakes surface as compiler errors instead of production crashes, refactors update in one place, and bound parameters shut the door on injection.
 
-**Use Cases**: CRUD operations (Diesel's type-safe DSL shines), web APIs (compile-time verification critical), admin dashboards (dynamic filtering with QueryBuilder), reporting (complex SQLx queries), microservices (type safety across team), database migrations (schema changes detected at compile-time), multi-tenant apps (parameter binding prevents injection), GraphQL resolvers (type-safe field resolution).
+**Use Cases**: Everyday CRUD endpoints, GraphQL resolvers, dashboards with dynamic filters, reporting queries, and any service that needs confidence its SQL matches the schema.
 
 ### Example: SQLx: The Compile-Time Checked Query Builder
 
@@ -515,13 +515,13 @@ This pattern is common in Diesel applications—the ORM handles queries, while t
 
 ## Pattern 3: Transaction Patterns
 
-**Problem**: Multi-step operations need atomicity—money transfer must debit and credit, or neither. Without transactions, failure between steps leaves inconsistent state (money debited but not credited). Concurrent updates cause lost writes—two users updating same row, last write wins, first write lost. Partial failures corrupt data—insert parent succeeds, child insert fails, orphaned data. Reading inconsistent state during updates (dirty reads, phantom reads). Forgetting to commit/rollback leaks resources and locks.
+**Problem**: Multi-step operations without transactions leave money half-transferred, rows orphaned, and concurrent edits overwriting each other.
 
-**Solution**: Use transaction types that enforce commit/rollback via type system. SQLx: `pool.begin()` returns `Transaction<'_, Postgres>` that auto-rolls back on drop unless explicitly committed. Diesel: `conn.transaction(|conn| { ... })` closure-based API commits on Ok, rolls back on Err. For partial rollbacks, use savepoints (nested transactions). For concurrent conflicts, implement optimistic locking with version column—update only if version unchanged, retry on conflict. Set isolation levels (READ COMMITTED, REPEATABLE READ, SERIALIZABLE) based on consistency needs.
+**Solution**: Wrap sequences in transactional APIs (`pool.begin()`, Diesel’s `transaction` closure) so they commit only on success, use savepoints for partial rollbacks, and add optimistic locking/version checks for concurrent writers.
 
-**Why It Matters**: ACID guarantees prevent data corruption—money transfer either completes fully or not at all. Type system prevents forgotten commits: Transaction type must be explicitly committed or automatically rolls back. Prevents lost updates: two users editing same document, version-based locking detects conflict, losing user must retry. Isolation prevents anomalies: REPEATABLE READ ensures consistent reads within transaction. Performance trade-off: higher isolation = more locks = lower concurrency, but stronger guarantees. Savepoints allow partial rollback: outer transaction continues if inner savepoint rolls back.
+**Why It Matters**: ACID semantics prevent corruption, the type system forces explicit commits or automatic rollbacks, and conflict detection avoids silent lost updates.
 
-**Use Cases**: Financial transactions (transfers, payments, invoicing), inventory management (reserve stock, confirm order atomically), user registration (create user + profile + permissions), order processing (validate, deduct inventory, create shipment), audit logging (operation + log entry atomic), distributed systems (saga pattern with compensating transactions), multi-table updates (referential integrity), concurrent editing (optimistic locking for conflict resolution).
+**Use Cases**: Payments, inventory reservations, multi-table writes, user onboarding flows, audit logging, and collaborative editors that need optimistic concurrency.
 
 ### Example: Basic Transactions with SQLx
 
@@ -743,13 +743,13 @@ This pattern avoids database locks while preventing lost updates. It's ideal for
 
 ## Pattern 4: Migration Strategies
 
-**Problem**: Schema evolution without migrations causes chaos—developers manually run SQL scripts, production schema drifts from dev, no audit trail of changes. New team members can't easily setup local database matching production. Rollbacks are manual and error-prone. Schema changes not version controlled alongside code changes. Multiple developers making conflicting schema changes. No way to test schema changes before production. Deploying schema changes requires downtime and coordination.
+**Problem**: Ad-hoc SQL changes leave environments out of sync, makes onboarding painful, and gives no safe rollback when a deployment goes wrong.
 
-**Solution**: Version-controlled migrations as code—each migration is timestamped SQL file with up (apply) and down (revert). Use SQLx (`sqlx migrate add`) or Diesel CLI (`diesel migration generate`). Run migrations programmatically on startup or via CLI. Keep migrations small and focused (one logical change per file). Never modify applied migrations—create new migration to fix issues. Test both up and down thoroughly. For zero-downtime, use multi-phase migrations: add nullable column, backfill data, make NOT NULL, drop old column (each phase separately deployable).
+**Solution**: Treat schema changes as code: timestamped up/down migrations via SQLx or Diesel, committed to Git, run automatically (or via CLI) in every environment, and split risky changes into multi-phase, zero-downtime steps.
 
-**Why It Matters**: Schema as code = reproducible across environments. Git history shows what changed, when, and why. Automated testing: CI runs migrations against test database, catches issues before production. Rollback capability: down migrations enable safe revert if deployment fails. Team coordination: migrations prevent conflicting schema changes (Git merge conflicts surface schema conflicts). New developers: single command (`migrate run`) sets up database. Zero-downtime possible: multi-phase migrations allow deploying schema changes without stopping application. Audit trail: migration history is documentation of schema evolution.
+**Why It Matters**: Reproducible schemas, automated CI checks, audit trails, straightforward rollbacks, and collaborative workflows all depend on consistent, versioned migrations.
 
-**Use Cases**: All production databases (mandatory for prod), CI/CD pipelines (automated schema testing), team collaboration (preventing conflicts), staging/production parity (identical schemas), database versioning (track changes over time), rollback scenarios (revert failed deployments), onboarding (new devs setup), blue-green deployments (parallel schema versions).
+**Use Cases**: Any production database, CI pipelines, blue/green deploys, multi-developer teams coordinating schema changes, and new hires needing one command to match prod.
 
 ### Example: SQLx Migrations
 
@@ -1024,13 +1024,13 @@ Each step can be deployed independently without downtime.
 
 ## Pattern 5: ORM vs Raw SQL
 
-**Problem**: ORMs provide type safety and abstraction but limit flexibility for complex queries—CTEs, window functions, recursive queries difficult or impossible. Raw SQL offers full power but has no compile-time checking, enables SQL injection via string concatenation, no refactoring safety, and database-specific syntax breaks portability. Simple CRUD with raw SQL is verbose and error-prone. Complex analytics with ORM is awkward or impossible. Neither approach fits all query patterns—forced to choose one sacrifices either safety or flexibility.
+**Problem**: ORMs make CRUD safe but struggle with complex SQL features, while raw SQL gives full power at the expense of compile-time checks and refactor safety.
 
-**Solution**: Use hybrid approach based on query complexity. Diesel ORM for standard CRUD operations—type-safe, compile-time checked, automatic joins, refactoring safety, database abstraction. SQLx for complex queries requiring database-specific features—CTEs, window functions, full-text search, JSON operators, recursive queries. SQLx still provides compile-time verification via macros and SQL injection protection via bound parameters. Use QueryBuilder for dynamic filters. Choose per-query, not per-application—same codebase can use both.
+**Solution**: Mix and match—use Diesel (or similar ORM) for routine operations where type safety shines, and fall back to SQLx/raw SQL for analytics, window functions, CTEs, or database-specific features, still binding parameters to avoid injection.
 
-**Why It Matters**: ORM eliminates runtime SQL errors for simple queries—typos become compile errors. Refactoring safety: rename column in Diesel, all queries update automatically. But complex analytics needs SQL power: `ROW_NUMBER() OVER (PARTITION BY)` doesn't map to ORM DSL naturally. Database-specific features (PostgreSQL JSONB operators, full-text search) require raw SQL. Performance: hand-tuned SQL with query hints outperforms ORM-generated SQL for complex cases. Learning curve: team familiar with SQL doesn't need ORM abstraction overhead. Debugging: reading generated SQL easier than ORM DSL for complex queries. Hybrid approach maximizes both: safety for CRUD, power for analytics.
+**Why It Matters**: You get the best of both worlds: painless CRUD refactors plus full SQL expressiveness when needed, without forcing the entire codebase into one paradigm.
 
-**Use Cases**: CRUD operations (use Diesel: create/read/update/delete users, posts, comments), analytics (use SQLx: aggregations, window functions, complex joins), full-text search (database-specific: PostgreSQL ts_vector, MySQL FULLTEXT), JSON queries (PostgreSQL JSONB operators), reporting dashboards (complex aggregations with CTEs), admin panels (simple CRUD with type safety), data migrations (batch updates with raw SQL), audit logs (simple inserts via ORM).
+**Use Cases**: CRUD-heavy modules, admin panels, and migrations via ORM; reporting, full-text search, JSONB operators, and tuned analytical queries via SQLx or handcrafted SQL.
 
 ### Example: Hybrid Approach
 

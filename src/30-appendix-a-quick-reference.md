@@ -1,9 +1,11 @@
-# Appendix A: Quick Reference
+# Appendix A: Comprehensive Standard Library Reference
 **Sections:**
 
 - [Type Conversion Cheatsheet](#type-conversion-cheatsheet)
 - [Common Trait Implementations](#common-trait-implementations)
 - [Iterator Combinators Reference](#iterator-combinators-reference)
+- [Collections: Vec, HashMap, HashSet, and More](#collections-vec-hashmap-hashset-and-more)
+- [String and Text Processing](#string-and-text-processing)
 - [Cargo Commands Reference](#cargo-commands-reference)
 
 
@@ -1048,6 +1050,1601 @@ let grouped: HashMap<char, Vec<&str>> = words.into_iter()
 | `count`         | Consumer | `count() -> usize`                      | Count elements                       |
 | `max`/`min`     | Consumer | `max() -> Option<T>`                    | Find extreme values                  |
 | `partition`     | Consumer | `partition(f: T -> bool) -> (C, C)`     | Split into two collections           |
+
+---
+
+## Collections: Vec, HashMap, HashSet, and More
+
+Rust's standard library provides a rich set of collection types, each optimized for different access patterns. Understanding when to use each collection is crucial for writing efficient code. The core principle: **choose the collection whose performance characteristics match your usage pattern**.
+
+### Vec: Contiguous Growable Array
+
+`Vec<T>` is the workhorse collection—use it as your default choice unless you have specific requirements for other types. It provides O(1) indexed access and amortized O(1) push/pop at the end.
+
+```rust
+use std::vec::Vec;
+
+//===================
+// Creating vectors
+//===================
+let v1: Vec<i32> = Vec::new();
+let v2 = vec![1, 2, 3];                    // vec! macro
+let v3 = Vec::with_capacity(100);          // Pre-allocate
+let v4 = vec![0; 5];                       // [0, 0, 0, 0, 0]
+
+//====================
+// Adding elements
+//====================
+let mut numbers = Vec::new();
+numbers.push(1);                           // Add to end - O(1) amortized
+numbers.extend([2, 3, 4]);                 // Add multiple
+numbers.append(&mut vec![5, 6]);           // Move elements from another vec
+numbers.insert(0, 0);                      // Insert at index - O(n)
+
+//======================
+// Accessing elements
+//======================
+let first = numbers[0];                    // Panics if out of bounds
+let second = numbers.get(1);               // Returns Option<&T>
+let last = numbers.last();                 // Option<&T>
+let slice = &numbers[1..4];                // Borrow a slice
+
+//======================
+// Removing elements
+//======================
+let last = numbers.pop();                  // Option<T> - O(1)
+let removed = numbers.remove(0);           // T - O(n), shifts elements
+numbers.clear();                           // Empty the vec
+
+//================
+// Iteration
+//================
+for num in &numbers {                      // Immutable borrow
+    println!("{}", num);
+}
+
+for num in &mut numbers {                  // Mutable borrow
+    *num *= 2;
+}
+
+for num in numbers {                       // Consumes the vec
+    println!("{}", num);
+}
+
+//====================
+// Capacity management
+//====================
+let mut v = Vec::with_capacity(10);
+println!("len: {}, capacity: {}", v.len(), v.capacity());
+v.reserve(20);                             // Ensure at least 20 more slots
+v.shrink_to_fit();                         // Release unused memory
+
+//=========================
+// Deduplication and sorting
+//=========================
+let mut data = vec![3, 1, 4, 1, 5, 9, 2, 6, 5];
+data.sort();                               // Sort in place - O(n log n)
+data.dedup();                              // Remove consecutive duplicates
+// [1, 2, 3, 4, 5, 6, 9]
+
+//========================
+// Binary search (requires sorted data)
+//========================
+let sorted = vec![1, 2, 3, 4, 5];
+match sorted.binary_search(&3) {
+    Ok(index) => println!("Found at {}", index),
+    Err(index) => println!("Not found, would insert at {}", index),
+}
+```
+
+### VecDeque: Double-Ended Queue
+
+Use `VecDeque<T>` when you need efficient insertion/removal at both ends. It's implemented as a ring buffer.
+
+```rust
+use std::collections::VecDeque;
+
+//===================
+// Creating VecDeque
+//===================
+let mut deque = VecDeque::new();
+let mut deque2 = VecDeque::from(vec![1, 2, 3]);
+
+//=============================
+// Adding at both ends - O(1)
+//=============================
+deque.push_back(1);                        // Add to back
+deque.push_front(0);                       // Add to front
+// [0, 1]
+
+//================================
+// Removing from both ends - O(1)
+//================================
+let back = deque.pop_back();               // Some(1)
+let front = deque.pop_front();             // Some(0)
+
+//===============
+// Use cases
+//===============
+// Queue (FIFO)
+let mut queue = VecDeque::new();
+queue.push_back(1);
+queue.push_back(2);
+let first = queue.pop_front();             // FIFO order
+
+// Stack (LIFO) - but Vec is better for this
+let mut stack = VecDeque::new();
+stack.push_back(1);
+stack.push_back(2);
+let last = stack.pop_back();               // LIFO order
+```
+
+### HashMap: Hash-Based Key-Value Store
+
+`HashMap<K, V>` provides O(1) average-case insertion and lookup. Use it when you need fast key-based access and don't care about ordering.
+
+```rust
+use std::collections::HashMap;
+
+//====================
+// Creating HashMaps
+//====================
+let mut scores = HashMap::new();
+let mut map: HashMap<String, i32> = HashMap::with_capacity(100);
+
+//===========================
+// Inserting and updating
+//===========================
+scores.insert("Alice".to_string(), 10);
+scores.insert("Bob".to_string(), 20);
+
+// Returns previous value if key existed
+let old = scores.insert("Alice".to_string(), 15);  // Some(10)
+
+//=====================
+// Accessing values
+//=====================
+let alice_score = scores.get("Alice");             // Option<&i32>
+let bob_score = scores["Bob"];                     // Panics if missing
+
+// Safe indexing with unwrap_or
+let charlie_score = scores.get("Charlie").unwrap_or(&0);
+
+//==================
+// Checking existence
+//==================
+if scores.contains_key("Alice") {
+    println!("Alice has a score");
+}
+
+//====================
+// Removing entries
+//====================
+let removed = scores.remove("Bob");                // Option<V>
+
+//==============================
+// Entry API (powerful pattern)
+//==============================
+// Insert if missing
+scores.entry("Charlie".to_string()).or_insert(0);
+
+// Modify existing or insert default
+let alice = scores.entry("Alice".to_string()).or_insert(0);
+*alice += 5;
+
+// Complex logic with entry
+let word_counts = vec!["apple", "banana", "apple"];
+let mut counts = HashMap::new();
+for word in word_counts {
+    let count = counts.entry(word).or_insert(0);
+    *count += 1;
+}
+// {"apple": 2, "banana": 1}
+
+//=============
+// Iteration
+//=============
+for (key, value) in &scores {
+    println!("{}: {}", key, value);
+}
+
+for key in scores.keys() {
+    println!("{}", key);
+}
+
+for value in scores.values() {
+    println!("{}", value);
+}
+
+//===========================
+// Convert from/to other types
+//===========================
+let pairs = vec![("a", 1), ("b", 2)];
+let map: HashMap<_, _> = pairs.into_iter().collect();
+
+let vec_pairs: Vec<_> = map.into_iter().collect();
+```
+
+### HashSet: Hash-Based Set
+
+`HashSet<T>` stores unique values with O(1) average-case insertion and membership testing. Use it for deduplication and set operations.
+
+```rust
+use std::collections::HashSet;
+
+//====================
+// Creating HashSets
+//====================
+let mut set = HashSet::new();
+let set2: HashSet<i32> = [1, 2, 3].iter().cloned().collect();
+
+//===============================
+// Adding and removing - O(1)
+//===============================
+set.insert(1);                             // true if inserted
+set.insert(1);                             // false (already exists)
+set.remove(&1);                            // true if removed
+
+//===================
+// Checking membership
+//===================
+if set.contains(&1) {
+    println!("Set contains 1");
+}
+
+//================
+// Set operations
+//================
+let set1: HashSet<_> = [1, 2, 3].iter().cloned().collect();
+let set2: HashSet<_> = [2, 3, 4].iter().cloned().collect();
+
+// Union: all elements from both sets
+let union: HashSet<_> = set1.union(&set2).cloned().collect();
+// {1, 2, 3, 4}
+
+// Intersection: elements in both sets
+let intersection: HashSet<_> = set1.intersection(&set2).cloned().collect();
+// {2, 3}
+
+// Difference: elements in first but not second
+let diff: HashSet<_> = set1.difference(&set2).cloned().collect();
+// {1}
+
+// Symmetric difference: elements in either but not both
+let sym_diff: HashSet<_> = set1.symmetric_difference(&set2).cloned().collect();
+// {1, 4}
+
+//====================
+// Subset and superset
+//====================
+let small = HashSet::from([1, 2]);
+let large = HashSet::from([1, 2, 3]);
+assert!(small.is_subset(&large));
+assert!(large.is_superset(&small));
+
+//======================
+// Deduplication pattern
+//======================
+let numbers = vec![1, 2, 2, 3, 3, 3];
+let unique: HashSet<_> = numbers.into_iter().collect();
+let deduped: Vec<_> = unique.into_iter().collect();
+```
+
+### BTreeMap and BTreeSet: Ordered Collections
+
+Use `BTreeMap<K, V>` and `BTreeSet<T>` when you need sorted keys. They provide O(log n) operations but maintain sorted order.
+
+```rust
+use std::collections::{BTreeMap, BTreeSet};
+
+//======================
+// BTreeMap: Sorted keys
+//======================
+let mut scores = BTreeMap::new();
+scores.insert("Alice", 10);
+scores.insert("Charlie", 30);
+scores.insert("Bob", 20);
+
+// Iteration is always sorted by key
+for (name, score) in &scores {
+    println!("{}: {}", name, score);
+}
+// Alice: 10
+// Bob: 20
+// Charlie: 30
+
+//====================
+// Range queries
+//====================
+let numbers: BTreeMap<i32, &str> = [
+    (1, "one"),
+    (5, "five"),
+    (10, "ten"),
+].iter().cloned().collect();
+
+// Get all entries in range
+for (key, value) in numbers.range(2..8) {
+    println!("{}: {}", key, value);
+}
+// 5: five
+
+//========================
+// First and last entries
+//========================
+let first = scores.first_key_value();      // Option<(&K, &V)>
+let last = scores.last_key_value();        // Option<(&K, &V)>
+
+//======================
+// BTreeSet: Sorted set
+//======================
+let mut set = BTreeSet::new();
+set.insert(5);
+set.insert(1);
+set.insert(3);
+
+// Always sorted
+for num in &set {
+    println!("{}", num);
+}
+// 1, 3, 5
+
+// Range iteration
+for num in set.range(2..=5) {
+    println!("{}", num);
+}
+// 3, 5
+```
+
+### BinaryHeap: Priority Queue
+
+`BinaryHeap<T>` is a max-heap that provides O(log n) insertion and O(log n) removal of the largest element.
+
+```rust
+use std::collections::BinaryHeap;
+
+//========================
+// Creating a BinaryHeap
+//========================
+let mut heap = BinaryHeap::new();
+
+//=========================
+// Adding elements - O(log n)
+//=========================
+heap.push(3);
+heap.push(1);
+heap.push(5);
+heap.push(2);
+
+//=================================
+// Peeking at largest - O(1)
+//=================================
+let largest = heap.peek();                 // Some(&5)
+
+//====================================
+// Removing largest - O(log n)
+//====================================
+while let Some(max) = heap.pop() {
+    println!("{}", max);
+}
+// 5, 3, 2, 1 (descending order)
+
+//========================
+// Min-heap using Reverse
+//========================
+use std::cmp::Reverse;
+let mut min_heap = BinaryHeap::new();
+min_heap.push(Reverse(3));
+min_heap.push(Reverse(1));
+min_heap.push(Reverse(5));
+
+while let Some(Reverse(min)) = min_heap.pop() {
+    println!("{}", min);
+}
+// 1, 3, 5 (ascending order)
+
+//============================
+// Priority queue use case
+//============================
+#[derive(Eq, PartialEq, Debug)]
+struct Task {
+    priority: u32,
+    description: String,
+}
+
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+let mut tasks = BinaryHeap::new();
+tasks.push(Task { priority: 1, description: "Low".to_string() });
+tasks.push(Task { priority: 5, description: "High".to_string() });
+tasks.push(Task { priority: 3, description: "Medium".to_string() });
+
+// Process tasks by priority
+while let Some(task) = tasks.pop() {
+    println!("Processing: {:?}", task.description);
+}
+// High, Medium, Low
+```
+
+### LinkedList: Doubly-Linked List
+
+`LinkedList<T>` provides O(1) insertion/removal anywhere if you have a cursor, but poor cache locality. **Rarely the best choice**—use `Vec` or `VecDeque` instead in most cases.
+
+```rust
+use std::collections::LinkedList;
+
+//=======================
+// Creating LinkedList
+//=======================
+let mut list = LinkedList::new();
+list.push_back(1);
+list.push_back(2);
+list.push_front(0);
+// [0, 1, 2]
+
+//============================
+// Splitting and merging
+//============================
+let mut list1 = LinkedList::from([1, 2, 3]);
+let mut list2 = LinkedList::from([4, 5, 6]);
+list1.append(&mut list2);                  // Moves all elements from list2
+// list1: [1, 2, 3, 4, 5, 6], list2: []
+
+//=====================================
+// Note: LinkedList is rarely optimal!
+//=====================================
+// Vec is usually better due to:
+// - Better cache locality
+// - Lower memory overhead
+// - Better performance for most operations
+```
+
+### Collection Selection Guide
+
+| Collection    | Order        | Key Access | Lookup  | Insert  | Remove  | Use When                                 |
+|---------------|--------------|------------|---------|---------|---------|------------------------------------------|
+| `Vec`         | Insertion    | Index      | O(1)    | O(1)*   | O(n)    | Default choice, indexed access           |
+| `VecDeque`    | Insertion    | Index      | O(1)    | O(1)**  | O(1)**  | Queue, double-ended operations           |
+| `HashMap`     | Unordered    | Key        | O(1)    | O(1)    | O(1)    | Fast key-value lookup, no order needed   |
+| `HashSet`     | Unordered    | Value      | O(1)    | O(1)    | O(1)    | Deduplication, membership testing        |
+| `BTreeMap`    | Sorted       | Key        | O(log n)| O(log n)| O(log n)| Sorted keys, range queries               |
+| `BTreeSet`    | Sorted       | Value      | O(log n)| O(log n)| O(log n)| Sorted set, range queries                |
+| `BinaryHeap`  | Heap order   | N/A        | N/A     | O(log n)| O(log n)| Priority queue                           |
+| `LinkedList`  | Insertion    | N/A        | O(n)    | O(1)*** | O(1)*** | Rarely useful (prefer Vec/VecDeque)      |
+
+\* Amortized O(1) at end
+\** At ends only
+\*** With cursor, O(n) to find position
+
+---
+
+## String and Text Processing
+
+Rust distinguishes between owned strings (`String`) and borrowed string slices (`&str`). Understanding this distinction and the rich text processing capabilities is essential for working with text data.
+
+### String vs &str
+
+```rust
+//=============================
+// &str: Borrowed string slice
+//=============================
+let literal: &str = "Hello, world!";       // String literals are &str
+let slice: &str = &String::from("hello")[0..2];  // Slice of String
+
+// &str is:
+// - Immutable
+// - Fixed size (known at compile time or stored as fat pointer)
+// - Doesn't own its data
+// - Cheap to pass around
+
+//============================
+// String: Owned, growable
+//============================
+let mut owned = String::from("Hello");
+let mut owned2 = "Hello".to_string();
+let mut owned3 = String::new();
+
+// String is:
+// - Mutable
+// - Heap-allocated
+// - Growable
+// - UTF-8 encoded
+
+//====================
+// Converting between
+//====================
+let s = String::from("hello");
+let slice: &str = &s;                      // String -> &str (cheap)
+let slice: &str = s.as_str();              // Explicit conversion
+
+let owned: String = slice.to_string();     // &str -> String (allocates)
+let owned: String = slice.to_owned();      // Same
+let owned: String = String::from(slice);   // Same
+```
+
+### String Creation and Manipulation
+
+```rust
+//======================
+// Creating strings
+//======================
+let s1 = String::new();
+let s2 = String::from("hello");
+let s3 = "hello".to_string();
+let s4 = String::with_capacity(100);       // Pre-allocate
+
+//=====================
+// Appending text
+//=====================
+let mut s = String::from("Hello");
+s.push_str(", world");                     // Append &str
+s.push('!');                               // Append char
+// "Hello, world!"
+
+//=====================
+// Concatenation
+//=====================
+let s1 = String::from("Hello");
+let s2 = String::from(" world");
+
+// Using + (takes ownership of left operand)
+let s3 = s1 + &s2;                         // s1 moved, s2 borrowed
+// s1 is now invalid!
+
+// Using format! (doesn't take ownership)
+let s1 = String::from("Hello");
+let s2 = String::from(" world");
+let s3 = format!("{}{}", s1, s2);          // Both still valid
+let s4 = format!("{s1}{s2}");              // Shorter syntax
+
+//=========================
+// Inserting and removing
+//=========================
+let mut s = String::from("Hello world");
+s.insert(5, ',');                          // Insert char at byte position
+s.insert_str(6, " beautiful");             // Insert &str
+// "Hello, beautiful world"
+
+s.remove(5);                               // Remove char at byte position
+s.truncate(5);                             // Cut off everything after index
+// "Hello"
+
+s.clear();                                 // Empty the string
+
+//===================
+// Replacing text
+//===================
+let s = "I like cats";
+let s2 = s.replace("cats", "dogs");        // Returns new String
+// "I like dogs"
+
+let s = "aaabbbccc";
+let s2 = s.replacen("a", "x", 2);          // Replace first n occurrences
+// "xxabbbccc"
+```
+
+### String Inspection and Searching
+
+```rust
+let text = "Hello, world!";
+
+//====================
+// Basic properties
+//====================
+text.len();                                // 13 (byte length, not char count!)
+text.is_empty();                           // false
+
+//==============================
+// Checking contents
+//==============================
+text.starts_with("Hello");                 // true
+text.ends_with("!");                       // true
+text.contains("world");                    // true
+
+//===================
+// Finding patterns
+//===================
+let pos = text.find("world");              // Some(7) - byte position
+let pos = text.find('w');                  // Some(7)
+let rpos = text.rfind('o');                // Some(8) - rightmost
+
+//=====================
+// Checking predicates
+//=====================
+let all_alpha = "hello".chars().all(|c| c.is_alphabetic());
+let has_digit = "hello123".chars().any(|c| c.is_numeric());
+
+//================
+// Splitting
+//================
+let parts: Vec<&str> = "a,b,c,d".split(',').collect();
+// ["a", "b", "c", "d"]
+
+let parts: Vec<&str> = "a::b::c".split("::").collect();
+// ["a", "b", "c"]
+
+let parts: Vec<&str> = "  a  b  c  ".split_whitespace().collect();
+// ["a", "b", "c"] - automatically trims
+
+let (left, right) = "key=value".split_once('=').unwrap();
+// ("key", "value")
+
+let lines: Vec<&str> = "line1\nline2\nline3".lines().collect();
+// ["line1", "line2", "line3"]
+
+//==========================
+// Trimming whitespace
+//==========================
+let trimmed = "  hello  ".trim();          // "hello"
+let left = "  hello  ".trim_start();       // "hello  "
+let right = "  hello  ".trim_end();        // "  hello"
+
+let custom = "###hello###".trim_matches('#');  // "hello"
+```
+
+### Character Iteration
+
+**Important**: Strings are UTF-8 encoded. Never index directly into a string! Use iteration instead.
+
+```rust
+let text = "Hello 世界";
+
+//======================
+// Iterate over chars
+//======================
+for c in text.chars() {
+    println!("{}", c);
+}
+// H, e, l, l, o, , 世, 界
+
+//======================
+// Iterate over bytes
+//======================
+for b in text.bytes() {
+    println!("{}", b);
+}
+// 72, 101, 108, 108, 111, 32, 228, 184, 150, 231, 149, 140
+
+//===================================
+// Get char at position (expensive!)
+//===================================
+let third_char = text.chars().nth(2);      // Some('l')
+
+//=============================
+// Count characters (not bytes)
+//=============================
+let char_count = text.chars().count();     // 8 chars
+let byte_count = text.len();               // 13 bytes
+
+//====================
+// Character ranges
+//====================
+let chars: Vec<char> = ('a'..='z').collect();  // ['a', 'b', ..., 'z']
+```
+
+### String Slicing (Use with Caution!)
+
+```rust
+let s = "Hello, 世界";
+
+//=====================================
+// Slicing at valid UTF-8 boundaries
+//=====================================
+let slice = &s[0..5];                      // "Hello"
+
+//======================================
+// DANGER: Slicing at invalid boundaries
+//======================================
+// let bad = &s[0..8];                     // Panics! Not a char boundary
+
+//===========================
+// Safe slicing with get
+//===========================
+let safe = s.get(0..5);                    // Some("Hello")
+let bad = s.get(0..8);                     // None (invalid boundary)
+
+//====================================
+// Finding character boundaries
+//====================================
+if s.is_char_boundary(5) {
+    let slice = &s[..5];
+}
+```
+
+### Parsing and Formatting
+
+```rust
+use std::fmt;
+
+//====================
+// Parsing from strings
+//====================
+let num: i32 = "42".parse().unwrap();
+let num: Result<i32, _> = "not a number".parse();  // Err
+
+let float: f64 = "3.14".parse().unwrap();
+let boolean: bool = "true".parse().unwrap();
+
+//======================
+// Formatting with format!
+//======================
+let name = "Alice";
+let age = 30;
+
+let msg = format!("Name: {}, Age: {}", name, age);
+let msg = format!("Name: {name}, Age: {age}");     // Named arguments
+
+//========================
+// Format specifiers
+//========================
+format!("{:>10}", "right");                // "     right" (right-align, width 10)
+format!("{:<10}", "left");                 // "left      " (left-align)
+format!("{:^10}", "center");               // "  center  " (center)
+format!("{:0>5}", "42");                   // "00042" (pad with zeros)
+
+format!("{:.2}", 3.14159);                 // "3.14" (2 decimal places)
+format!("{:e}", 1000.0);                   // "1e3" (scientific notation)
+format!("{:#x}", 255);                     // "0xff" (hex with prefix)
+format!("{:#b}", 10);                      // "0b1010" (binary with prefix)
+
+//====================================
+// Custom Display implementation
+//====================================
+struct Point { x: i32, y: i32 }
+
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+let p = Point { x: 10, y: 20 };
+let s = format!("{}", p);                  // "(10, 20)"
+```
+
+### Case Conversion
+
+```rust
+let s = "Hello, World!";
+
+//==================
+// Case conversion
+//==================
+let lower = s.to_lowercase();              // "hello, world!"
+let upper = s.to_uppercase();              // "HELLO, WORLD!"
+
+//===================================
+// Unicode-aware (handles special cases)
+//===================================
+let german = "Straße";
+let upper = german.to_uppercase();         // "STRASSE" (ß -> SS)
+
+//=======================
+// Case checking
+//=======================
+let all_lower = s.chars().all(|c| c.is_lowercase() || !c.is_alphabetic());
+```
+
+### Regular Expressions (regex crate)
+
+```rust
+//======================================
+// Requires: regex = "1.0" in Cargo.toml
+//======================================
+use regex::Regex;
+
+//==========================
+// Creating and matching
+//==========================
+let re = Regex::new(r"\d{4}-\d{2}-\d{2}").unwrap();
+let is_match = re.is_match("2024-01-15");  // true
+
+//=====================
+// Capturing groups
+//=====================
+let re = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap();
+let text = "Date: 2024-01-15";
+
+if let Some(caps) = re.captures(text) {
+    let year = &caps[1];                   // "2024"
+    let month = &caps[2];                  // "01"
+    let day = &caps[3];                    // "15"
+}
+
+//==================
+// Finding all matches
+//==================
+let re = Regex::new(r"\d+").unwrap();
+for mat in re.find_iter("Numbers: 42, 100, 7") {
+    println!("{}", mat.as_str());
+}
+// "42", "100", "7"
+
+//===================
+// Replacing text
+//===================
+let re = Regex::new(r"\d+").unwrap();
+let result = re.replace_all("Id: 123, Code: 456", "XXX");
+// "Id: XXX, Code: XXX"
+```
+
+### Common String Patterns
+
+```rust
+//============================
+// Joining strings
+//============================
+let words = vec!["Hello", "world"];
+let sentence = words.join(" ");            // "Hello world"
+
+let numbers = vec![1, 2, 3];
+let csv = numbers.iter()
+    .map(|n| n.to_string())
+    .collect::<Vec<_>>()
+    .join(",");                            // "1,2,3"
+
+//==============================
+// Repeating strings
+//==============================
+let repeated = "abc".repeat(3);            // "abcabcabc"
+
+//=======================
+// Escaping special chars
+//=======================
+let with_newlines = "Line 1\nLine 2\nLine 3";
+let escaped = with_newlines.escape_default().to_string();
+// "Line 1\\nLine 2\\nLine 3"
+
+//==========================
+// Building strings efficiently
+//==========================
+let mut s = String::with_capacity(100);    // Pre-allocate if you know size
+for i in 0..10 {
+    s.push_str(&i.to_string());
+    s.push(' ');
+}
+```
+
+---
+
+## Option and Result: Error Handling
+
+Rust uses `Option<T>` for values that might be absent and `Result<T, E>` for operations that might fail. These types replace null pointers and exceptions, making error handling explicit and composable.
+
+### Option<T>: Handling Optional Values
+
+```rust
+//===========================
+// Creating Option values
+//===========================
+let some_value: Option<i32> = Some(42);
+let no_value: Option<i32> = None;
+
+//================================
+// Pattern matching (most explicit)
+//================================
+match some_value {
+    Some(x) => println!("Value: {}", x),
+    None => println!("No value"),
+}
+
+//==========================
+// if let (single pattern)
+//==========================
+if let Some(x) = some_value {
+    println!("Value: {}", x);
+}
+
+//==============================
+// Unwrapping (use with caution!)
+//==============================
+let value = some_value.unwrap();           // Panics if None
+let value = some_value.expect("No value"); // Panics with custom message
+let value = some_value.unwrap_or(0);       // Provides default
+let value = some_value.unwrap_or_else(|| expensive_default());
+let value = some_value.unwrap_or_default(); // Uses Default::default()
+
+//=====================
+// Checking for presence
+//=====================
+if some_value.is_some() {
+    println!("Has value");
+}
+
+if no_value.is_none() {
+    println!("No value");
+}
+
+//======================
+// Transforming Option
+//======================
+let doubled = some_value.map(|x| x * 2);   // Some(84)
+let none_doubled = no_value.map(|x| x * 2); // None
+
+// and_then for chaining operations that return Option
+fn divide(a: i32, b: i32) -> Option<i32> {
+    if b == 0 { None } else { Some(a / b) }
+}
+
+let result = Some(10)
+    .and_then(|x| divide(x, 2))            // Some(5)
+    .and_then(|x| divide(x, 0));           // None
+
+//==================
+// Filtering
+//==================
+let value = Some(42);
+let filtered = value.filter(|&x| x > 50);  // None (failed predicate)
+let kept = value.filter(|&x| x > 30);      // Some(42)
+
+//================================
+// Converting between types
+//================================
+let opt: Option<i32> = Some(42);
+let result: Result<i32, &str> = opt.ok_or("No value");  // Ok(42)
+
+let result: Result<i32, &str> = Err("Error");
+let opt: Option<i32> = result.ok();        // None (discards error)
+
+//==========================
+// Borrowing inner value
+//==========================
+let value = Some(String::from("hello"));
+let borrowed: Option<&str> = value.as_ref().map(|s| s.as_str());
+let length: Option<usize> = value.as_ref().map(|s| s.len());
+
+//=====================
+// Taking ownership
+//=====================
+let mut value = Some(42);
+let taken = value.take();                  // Some(42), value is now None
+
+//==============================
+// Replacing value
+//==============================
+let mut value = Some(42);
+let old = value.replace(100);              // old is Some(42), value is Some(100)
+```
+
+### Result<T, E>: Handling Errors
+
+```rust
+use std::fs::File;
+use std::io::{self, Read};
+
+//===========================
+// Functions returning Result
+//===========================
+fn divide(a: i32, b: i32) -> Result<i32, String> {
+    if b == 0 {
+        Err("Division by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+//======================
+// Pattern matching
+//======================
+match divide(10, 2) {
+    Ok(result) => println!("Result: {}", result),
+    Err(e) => println!("Error: {}", e),
+}
+
+//=====================
+// The ? operator
+//=====================
+fn read_file(path: &str) -> Result<String, io::Error> {
+    let mut file = File::open(path)?;      // Returns early if Err
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+//==========================
+// Unwrapping (use sparingly!)
+//==========================
+let value = divide(10, 2).unwrap();        // Panics on Err
+let value = divide(10, 2).expect("Math error");
+
+//=======================
+// Providing defaults
+//=======================
+let value = divide(10, 0).unwrap_or(0);
+let value = divide(10, 0).unwrap_or_else(|_| expensive_default());
+let value = divide(10, 0).unwrap_or_default();
+
+//=========================
+// Transforming Results
+//=========================
+let doubled = divide(10, 2).map(|x| x * 2);  // Ok(10)
+let err_mapped = divide(10, 0)
+    .map_err(|e| format!("Fatal: {}", e));   // Map error type
+
+//========================
+// Chaining operations
+//========================
+let result = divide(10, 2)
+    .and_then(|x| divide(x, 2))            // Ok(2)
+    .and_then(|x| divide(x, 0));           // Err
+
+//===================
+// Checking status
+//===================
+if divide(10, 2).is_ok() {
+    println!("Success");
+}
+
+if divide(10, 0).is_err() {
+    println!("Failed");
+}
+
+//====================================
+// Converting between Ok/Err and Option
+//====================================
+let result: Result<i32, String> = Ok(42);
+let opt: Option<i32> = result.ok();        // Some(42), discards error
+let err_opt: Option<String> = result.err(); // None
+
+//=============================================
+// Combining multiple Results (all must succeed)
+//=============================================
+let r1: Result<i32, &str> = Ok(1);
+let r2: Result<i32, &str> = Ok(2);
+let combined: Result<Vec<i32>, &str> =
+    vec![r1, r2].into_iter().collect();    // Ok(vec![1, 2])
+
+//===========================
+// Early return on first error
+//===========================
+fn process() -> Result<(), String> {
+    divide(10, 2)?;                        // Continue if Ok
+    divide(20, 4)?;                        // Continue if Ok
+    divide(5, 0)?;                         // Returns Err immediately
+    Ok(())                                 // Never reached
+}
+```
+
+### Error Propagation Patterns
+
+```rust
+use std::fs::File;
+use std::io::{self, Read};
+
+//====================================
+// Manual error propagation (verbose)
+//====================================
+fn read_username_v1() -> Result<String, io::Error> {
+    let f = File::open("username.txt");
+    let mut f = match f {
+        Ok(file) => file,
+        Err(e) => return Err(e),
+    };
+
+    let mut s = String::new();
+    match f.read_to_string(&mut s) {
+        Ok(_) => Ok(s),
+        Err(e) => Err(e),
+    }
+}
+
+//=============================
+// With ? operator (idiomatic)
+//=============================
+fn read_username_v2() -> Result<String, io::Error> {
+    let mut f = File::open("username.txt")?;
+    let mut s = String::new();
+    f.read_to_string(&mut s)?;
+    Ok(s)
+}
+
+//===============================
+// Chaining with ? (more concise)
+//===============================
+fn read_username_v3() -> Result<String, io::Error> {
+    let mut s = String::new();
+    File::open("username.txt")?.read_to_string(&mut s)?;
+    Ok(s)
+}
+
+//==========================================
+// Converting error types with ? and From
+//==========================================
+use std::num::ParseIntError;
+
+fn parse_and_double(s: &str) -> Result<i32, ParseIntError> {
+    let num: i32 = s.parse()?;             // ? converts ParseIntError
+    Ok(num * 2)
+}
+```
+
+### Custom Error Types
+
+```rust
+use std::fmt;
+use std::error::Error;
+
+//=======================
+// Simple error enum
+//=======================
+#[derive(Debug)]
+enum MathError {
+    DivisionByZero,
+    NegativeSquareRoot,
+}
+
+impl fmt::Display for MathError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MathError::DivisionByZero => write!(f, "Division by zero"),
+            MathError::NegativeSquareRoot => write!(f, "Square root of negative number"),
+        }
+    }
+}
+
+impl Error for MathError {}
+
+fn safe_divide(a: f64, b: f64) -> Result<f64, MathError> {
+    if b == 0.0 {
+        Err(MathError::DivisionByZero)
+    } else {
+        Ok(a / b)
+    }
+}
+
+//=======================================
+// Using thiserror crate (recommended)
+//=======================================
+// Cargo.toml: thiserror = "1.0"
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+enum DataError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Parse error: {0}")]
+    Parse(#[from] std::num::ParseIntError),
+
+    #[error("Invalid data at line {line}: {msg}")]
+    Invalid { line: usize, msg: String },
+}
+```
+
+### Combinators Reference
+
+```rust
+//===========================
+// Option combinators
+//===========================
+let opt = Some(42);
+
+opt.map(|x| x * 2);                        // Some(84)
+opt.and_then(|x| Some(x * 2));             // Some(84)
+opt.or(Some(0));                           // Some(42)
+opt.filter(|&x| x > 50);                   // None
+opt.zip(Some(10));                         // Some((42, 10))
+
+//===========================
+// Result combinators
+//===========================
+let res: Result<i32, &str> = Ok(42);
+
+res.map(|x| x * 2);                        // Ok(84)
+res.and_then(|x| Ok(x * 2));               // Ok(84)
+res.or(Ok(0));                             // Ok(42)
+res.map_err(|e| format!("Error: {}", e));  // Transform error
+
+//=============================
+// Early returns with ?
+//=============================
+fn compute() -> Result<i32, String> {
+    let a = divide(10, 2)?;
+    let b = divide(a, 2)?;
+    Ok(b)
+}
+```
+
+---
+
+## Smart Pointers: Box, Rc, Arc, RefCell
+
+Smart pointers provide ownership and borrowing patterns beyond simple references. They enable recursive data structures, shared ownership, and interior mutability while maintaining Rust's safety guarantees.
+
+### Box<T>: Heap Allocation
+
+`Box<T>` is the simplest smart pointer—it allocates data on the heap and provides unique ownership.
+
+```rust
+//========================
+// Creating boxed values
+//========================
+let boxed_int = Box::new(42);
+let boxed_string = Box::new(String::from("hello"));
+
+//==========================
+// Use cases for Box
+//==========================
+
+// 1. Recursive data structures (size must be known)
+#[derive(Debug)]
+enum List {
+    Cons(i32, Box<List>),
+    Nil,
+}
+
+use List::{Cons, Nil};
+
+let list = Cons(1, Box::new(Cons(2, Box::new(Cons(3, Box::new(Nil))))));
+
+// 2. Large values you want to avoid copying
+struct LargeStruct {
+    data: [u8; 1000000],
+}
+
+let large = Box::new(LargeStruct { data: [0; 1000000] });
+// Only the Box pointer is copied, not the data
+
+// 3. Trait objects (dynamic dispatch)
+trait Animal {
+    fn speak(&self);
+}
+
+struct Dog;
+impl Animal for Dog {
+    fn speak(&self) { println!("Woof!"); }
+}
+
+let animal: Box<dyn Animal> = Box::new(Dog);
+animal.speak();
+
+//=========================
+// Accessing boxed values
+//=========================
+let boxed = Box::new(42);
+let value = *boxed;                        // Dereference to get value
+println!("{}", boxed);                     // Auto-deref for Display
+
+//==============================
+// Box provides unique ownership
+//==============================
+let boxed = Box::new(42);
+let moved = boxed;                         // Ownership transferred
+// boxed is now invalid
+
+//===================
+// Converting to raw pointer
+//===================
+let boxed = Box::new(42);
+let raw = Box::into_raw(boxed);            // *mut i32
+unsafe {
+    println!("{}", *raw);
+    let _ = Box::from_raw(raw);            // Must reconstruct to free
+}
+```
+
+### Rc<T>: Reference Counted Shared Ownership
+
+`Rc<T>` allows multiple owners of the same data through reference counting. **Single-threaded only**.
+
+```rust
+use std::rc::Rc;
+
+//=====================
+// Creating Rc values
+//=====================
+let rc1 = Rc::new(42);
+let rc2 = Rc::clone(&rc1);                 // Increment ref count
+let rc3 = rc1.clone();                     // Same as Rc::clone
+
+//============================
+// All point to same data
+//============================
+println!("{}, {}, {}", rc1, rc2, rc3);     // 42, 42, 42
+
+//=========================
+// Checking reference count
+//=========================
+println!("Count: {}", Rc::strong_count(&rc1));  // 3
+
+//==========================================
+// Drop decrements count, frees when 0
+//==========================================
+drop(rc2);
+println!("Count: {}", Rc::strong_count(&rc1));  // 2
+
+//================================
+// Use case: Shared graph nodes
+//================================
+use std::rc::Rc;
+
+struct Node {
+    value: i32,
+    children: Vec<Rc<Node>>,
+}
+
+let leaf = Rc::new(Node { value: 3, children: vec![] });
+let node = Rc::new(Node {
+    value: 5,
+    children: vec![Rc::clone(&leaf)],
+});
+// leaf is shared between owners
+
+//==============================
+// Weak references (break cycles)
+//==============================
+use std::rc::{Rc, Weak};
+
+struct Parent {
+    children: Vec<Rc<Child>>,
+}
+
+struct Child {
+    parent: Weak<Parent>,                  // Weak doesn't increment count
+}
+
+let parent = Rc::new(Parent { children: vec![] });
+let child = Rc::new(Child {
+    parent: Rc::downgrade(&parent),        // Create Weak from Rc
+});
+
+// Access weak reference
+if let Some(parent_rc) = child.parent.upgrade() {
+    // parent_rc is Rc<Parent>
+}
+```
+
+### Arc<T>: Atomic Reference Counted (Thread-Safe)
+
+`Arc<T>` is the thread-safe version of `Rc<T>`, using atomic operations for reference counting.
+
+```rust
+use std::sync::Arc;
+use std::thread;
+
+//======================
+// Creating Arc values
+//======================
+let arc1 = Arc::new(42);
+let arc2 = Arc::clone(&arc1);
+
+//===============================
+// Sharing across threads
+//===============================
+let data = Arc::new(vec![1, 2, 3, 4, 5]);
+
+let handles: Vec<_> = (0..3)
+    .map(|i| {
+        let data_clone = Arc::clone(&data);
+        thread::spawn(move || {
+            println!("Thread {}: {:?}", i, data_clone);
+        })
+    })
+    .collect();
+
+for handle in handles {
+    handle.join().unwrap();
+}
+
+//=========================
+// Checking reference count
+//=========================
+println!("Count: {}", Arc::strong_count(&arc1));
+
+//=====================================
+// Use case: Shared immutable state
+//=====================================
+use std::sync::Arc;
+use std::thread;
+
+struct Config {
+    max_connections: usize,
+    timeout_ms: u64,
+}
+
+let config = Arc::new(Config {
+    max_connections: 100,
+    timeout_ms: 5000,
+});
+
+let config_clone = Arc::clone(&config);
+thread::spawn(move || {
+    println!("Max connections: {}", config_clone.max_connections);
+});
+
+println!("Timeout: {}", config.timeout_ms);
+```
+
+### RefCell<T>: Interior Mutability
+
+`RefCell<T>` provides interior mutability—allows mutation through shared references. **Checks borrowing rules at runtime instead of compile time**. Single-threaded only.
+
+```rust
+use std::cell::RefCell;
+
+//==========================
+// Creating RefCell values
+//==========================
+let cell = RefCell::new(42);
+
+//====================================
+// Borrowing mutably through shared ref
+//====================================
+{
+    let mut borrow = cell.borrow_mut();    // Runtime borrow check
+    *borrow += 1;
+}
+
+let value = cell.borrow();                 // Immutable borrow
+println!("{}", *value);                    // 43
+
+//========================================
+// DANGER: Runtime panics on borrow violations
+//========================================
+let cell = RefCell::new(42);
+let borrow1 = cell.borrow_mut();
+// let borrow2 = cell.borrow();            // Panics! Already mutably borrowed
+
+//====================================
+// Checking borrow state
+//====================================
+if let Ok(value) = cell.try_borrow() {
+    println!("{}", *value);
+} else {
+    println!("Already borrowed mutably");
+}
+
+//=====================================
+// Use case: Multiple owners with mutation
+//=====================================
+use std::rc::Rc;
+use std::cell::RefCell;
+
+struct SharedData {
+    value: RefCell<i32>,
+}
+
+let data = Rc::new(SharedData {
+    value: RefCell::new(0),
+});
+
+let data_clone = Rc::clone(&data);
+
+*data.value.borrow_mut() += 1;
+*data_clone.value.borrow_mut() += 1;
+
+println!("{}", data.value.borrow());       // 2
+```
+
+### Cell<T>: Simple Interior Mutability
+
+`Cell<T>` provides interior mutability for `Copy` types without runtime borrow checking.
+
+```rust
+use std::cell::Cell;
+
+//======================
+// Creating Cell values
+//======================
+let cell = Cell::new(42);
+
+//=========================
+// Getting and setting
+//=========================
+let value = cell.get();                    // 42 (Copy types only)
+cell.set(100);
+let new_value = cell.get();                // 100
+
+//========================
+// Swapping and updating
+//========================
+let old = cell.replace(200);               // Returns old value
+cell.update(|x| x * 2);                    // 400
+
+//=====================================
+// Use case: Counters and flags
+//=====================================
+struct Counter {
+    count: Cell<u32>,
+}
+
+impl Counter {
+    fn increment(&self) {                  // Takes &self, not &mut self!
+        self.count.set(self.count.get() + 1);
+    }
+
+    fn get(&self) -> u32 {
+        self.count.get()
+    }
+}
+
+let counter = Counter { count: Cell::new(0) };
+counter.increment();
+counter.increment();
+println!("{}", counter.get());             // 2
+```
+
+### Mutex<T> and RwLock<T>: Thread-Safe Interior Mutability
+
+```rust
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+
+//=========================
+// Mutex: Exclusive access
+//=========================
+let counter = Arc::new(Mutex::new(0));
+let mut handles = vec![];
+
+for _ in 0..10 {
+    let counter_clone = Arc::clone(&counter);
+    let handle = thread::spawn(move || {
+        let mut num = counter_clone.lock().unwrap();
+        *num += 1;
+    });
+    handles.push(handle);
+}
+
+for handle in handles {
+    handle.join().unwrap();
+}
+
+println!("Count: {}", *counter.lock().unwrap());  // 10
+
+//=================================
+// RwLock: Multiple readers or one writer
+//=================================
+let data = Arc::new(RwLock::new(vec![1, 2, 3]));
+
+// Multiple readers
+let data_clone1 = Arc::clone(&data);
+let reader1 = thread::spawn(move || {
+    let vec = data_clone1.read().unwrap();
+    println!("{:?}", *vec);
+});
+
+let data_clone2 = Arc::clone(&data);
+let reader2 = thread::spawn(move || {
+    let vec = data_clone2.read().unwrap();
+    println!("{:?}", *vec);
+});
+
+// One writer
+let writer = thread::spawn(move || {
+    let mut vec = data.write().unwrap();
+    vec.push(4);
+});
+
+reader1.join().unwrap();
+reader2.join().unwrap();
+writer.join().unwrap();
+```
+
+### Smart Pointer Selection Guide
+
+| Pointer     | Thread-Safe | Ownership      | Mutability         | Use When                                    |
+|-------------|-------------|----------------|--------------------|--------------------------------------------|
+| `Box<T>`    | Yes         | Single         | Through &mut       | Heap allocation, recursive types           |
+| `Rc<T>`     | No          | Shared         | Immutable          | Multiple owners, single thread             |
+| `Arc<T>`    | Yes         | Shared         | Immutable          | Multiple owners, multiple threads          |
+| `RefCell<T>`| No          | Single         | Interior mutability| Mutation through shared ref, single thread |
+| `Cell<T>`   | No          | Single         | Interior mutability| Copy types, simple updates                 |
+| `Mutex<T>`  | Yes         | Shared         | Interior mutability| Shared mutable state across threads        |
+| `RwLock<T>` | Yes         | Shared         | Interior mutability| Many readers, few writers, across threads  |
+
+**Common Combinations:**
+- `Rc<RefCell<T>>`: Multiple owners with mutation (single-threaded)
+- `Arc<Mutex<T>>`: Multiple owners with mutation (multi-threaded)
+- `Arc<RwLock<T>>`: Multiple readers, occasional writers (multi-threaded)
 
 ---
 

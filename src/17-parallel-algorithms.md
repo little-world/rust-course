@@ -5,11 +5,11 @@ This chapter explores parallel algorithm patterns using Rust's ecosystem, focusi
 
 ## Pattern 1: Rayon Patterns
 
-**Problem**: Sequential code wastes modern multi-core CPUs—a 4-core CPU runs sequential code at 25% utilization. Manual threading with std::thread is complex: need to partition data, spawn threads, collect results, handle errors, avoid data races. Locks introduce contention and deadlocks. Thread pools require careful management. Want parallelism without the pain.
+**Problem**: Sequential code wastes modern multi-core CPUs—a 4-core CPU runs sequential code at 25% utilization. Manual threading with std::thread is complex: need to partition data, spawn threads, collect results, handle errors, avoid data races.
 
-**Solution**: Use Rayon's parallel iterators with `.par_iter()`. Rayon provides work-stealing scheduler that automatically balances load across threads. Replace `.iter()` with `.par_iter()` for instant parallelism. No manual thread management, no locks, no data race concerns (enforced by type system). Supports map, filter, fold, reduce—all the iterator methods you know, now parallel.
+**Solution**: Use Rayon's parallel iterators with `.par_iter()`. Rayon provides work-stealing scheduler that automatically balances load across threads.
 
-**Why It Matters**: Trivial code change yields massive speedups. Image processing 1M pixels: sequential 500ms, parallel 80ms (6x faster on 8-core). Data validation 100K records: sequential 2s, parallel 300ms (6.6x faster). Rayon's work stealing handles irregular workloads automatically—no manual load balancing needed. Type system prevents data races at compile time. Production-ready: powers Firefox's parallel CSS engine.
+**Why It Matters**: Trivial code change yields massive speedups. Image processing 1M pixels: sequential 500ms, parallel 80ms (6x faster on 8-core).
 
 **Use Cases**: Image processing (grayscale, filters, resizing), data validation (emails, phone numbers, formats), log parsing and analysis, batch data transformations, scientific computing, map-reduce operations, any embarrassingly parallel workload.
 
@@ -19,17 +19,19 @@ This chapter explores parallel algorithm patterns using Rust's ecosystem, focusi
 Convert sequential operations to parallel execution with minimal code changes.
 
 ```rust
-//=========================
 // Note: Add to Cargo.toml:
-//=========================
 // rayon = "1.8"
 
 use rayon::prelude::*;
 use std::time::Instant;
 
-//==========================
-// Pattern 1: Basic par_iter
-//==========================
+```
+
+### Example: Basic par_iter
+This example walks through the basics of par_iter, highlighting each step so you can reuse the pattern.
+
+```rust
+
 fn parallel_map_example() {
     let numbers: Vec<i32> = (0..1_000_000).collect();
 
@@ -50,9 +52,13 @@ fn parallel_map_example() {
     assert_eq!(sequential, parallel);
 }
 
-//=====================================================
-// Pattern 2: par_iter vs par_iter_mut vs into_par_iter
-//=====================================================
+```
+
+### Example: par_iter vs par_iter_mut vs into_par_iter
+This example shows how to par_iter vs par_iter_mut vs into_par_iter in practice, emphasizing why it works.
+
+```rust
+
 fn iterator_variants() {
     let mut data = vec![1, 2, 3, 4, 5];
 
@@ -70,9 +76,13 @@ fn iterator_variants() {
     println!("Squares: {:?}", squares);
 }
 
-//===================================
-// Pattern 3: Parallel filter and map
-//===================================
+```
+
+### Example: Parallel filter and map
+This example shows how to parallel filter and map while calling out the practical trade-offs.
+
+```rust
+
 fn parallel_filter_map() {
     let numbers: Vec<i32> = (0..10_000).collect();
 
@@ -85,9 +95,13 @@ fn parallel_filter_map() {
     println!("Filtered and squared {} numbers", result.len());
 }
 
-//=============================
-// Pattern 4: Parallel flat_map
-//=============================
+```
+
+### Example: Parallel flat_map
+This example shows how to parallel flat_map while calling out the practical trade-offs.
+
+```rust
+
 fn parallel_flat_map() {
     let ranges: Vec<std::ops::Range<i32>> = vec![0..10, 10..20, 20..30];
 
@@ -98,10 +112,7 @@ fn parallel_flat_map() {
 
     println!("Flattened {} items", flattened.len());
 }
-
-//=============================
 // Real-world: Image processing
-//=============================
 struct Image {
     pixels: Vec<u8>,
     width: usize,
@@ -140,10 +151,7 @@ impl Image {
         });
     }
 }
-
-//============================
 // Real-world: Data validation
-//============================
 fn validate_emails_parallel(emails: Vec<String>) -> Vec<(String, bool)> {
     emails
         .into_par_iter()
@@ -153,10 +161,7 @@ fn validate_emails_parallel(emails: Vec<String>) -> Vec<(String, bool)> {
         })
         .collect()
 }
-
-//========================
 // Real-world: Log parsing
-//========================
 #[derive(Debug)]
 struct LogEntry {
     timestamp: u64,
@@ -235,9 +240,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-//===========================================
-// Pattern 1: Bridge from sequential iterator
-//===========================================
+```
+
+### Example: Bridge from sequential iterator
+This example shows how to bridge from sequential iterator in practice, emphasizing why it works.
+
+```rust
+
 fn par_bridge_basic() {
     let iter = (0..1000).filter(|x| x % 2 == 0);
 
@@ -246,9 +255,13 @@ fn par_bridge_basic() {
     println!("Sum: {}", sum);
 }
 
-//========================================
-// Pattern 2: Bridge from channel receiver
-//========================================
+```
+
+### Example: Bridge from channel receiver
+This example shows how to bridge from channel receiver in practice, emphasizing why it works.
+
+```rust
+
 fn par_bridge_from_channel() {
     let (tx, rx) = mpsc::channel();
 
@@ -273,10 +286,7 @@ fn par_bridge_from_channel() {
 
     println!("Channel sum: {}", sum);
 }
-
-//==================================
 // Real-world: File system traversal
-//==================================
 use std::fs;
 use std::path::PathBuf;
 
@@ -312,10 +322,7 @@ fn find_large_files_parallel(root: &str, min_size: u64) -> Vec<(PathBuf, u64)> {
         })
         .collect()
 }
-
-//===================================
 // Real-world: Database query results
-//===================================
 struct DatabaseIterator {
     current: usize,
     total: usize,
@@ -351,10 +358,7 @@ fn process_database_results() {
 
     println!("Database result sum: {}", sum);
 }
-
-//======================================
 // Real-world: Network stream processing
-//======================================
 fn process_network_stream() {
     let (tx, rx) = mpsc::channel();
 
@@ -406,11 +410,11 @@ fn main() {
 
 ## Pattern 2: Work Partitioning Strategies
 
-**Problem**: Bad work partitioning kills parallel performance. Too-small chunks (100 items) cause overhead—thread spawn/join costs dominate. Too-large chunks (100K items) cause load imbalance—one thread still working while others idle. Static partitioning fails with irregular workloads. Cache misses destroy performance when data access isn't local.
+**Problem**: Bad work partitioning kills parallel performance. Too-small chunks (100 items) cause overhead—thread spawn/join costs dominate.
 
-**Solution**: Choose grain size based on work: 1K-10K items for simple operations, larger for cache-heavy work. Use Rayon's adaptive chunking (default) for uniform work, explicit chunking for cache optimization. Employ recursive parallelism (rayon::join) for divide-and-conquer algorithms. Use cache blocking for matrix operations. Let work stealing handle irregular workloads automatically.
+**Solution**: Choose grain size based on work: 1K-10K items for simple operations, larger for cache-heavy work. Use Rayon's adaptive chunking (default) for uniform work, explicit chunking for cache optimization.
 
-**Why It Matters**: Grain size tuning: 2-3x performance difference. Matrix multiply with blocking: 5x faster due to cache hits. Quicksort with proper sequential cutoff: 3x faster than naive parallel. Dynamic load balancing handles 90/10 workload distribution with near-linear speedup, while static partitioning stalls. Real example: video encoding with variable frame complexity—work stealing achieves 95% CPU utilization vs 60% with static.
+**Why It Matters**: Grain size tuning: 2-3x performance difference. Matrix multiply with blocking: 5x faster due to cache hits.
 
 **Use Cases**: Matrix operations (multiply, transpose, factorization), sorting algorithms (quicksort, mergesort), divide-and-conquer (tree traversal, expression evaluation), irregular workloads (graph algorithms), cache-sensitive operations (blocked algorithms).
 
@@ -423,9 +427,13 @@ Partition work efficiently across threads to minimize overhead and maximize CPU 
 use rayon::prelude::*;
 use std::time::Instant;
 
-//=======================
-// Pattern 1: Chunk sizes
-//=======================
+```
+
+### Example: Chunk sizes
+This example shows how to chunk sizes in practice, emphasizing why it works.
+
+```rust
+
 fn chunk_size_comparison() {
     let data: Vec<i32> = (0..1_000_000).collect();
 
@@ -452,9 +460,13 @@ fn chunk_size_comparison() {
     assert_eq!(sum2, sum3);
 }
 
-//=====================================
-// Pattern 2: Work splitting strategies
-//=====================================
+```
+
+### Example: Work splitting strategies
+This example shows how to work splitting strategies in practice, emphasizing why it works.
+
+```rust
+
 fn work_splitting_strategies() {
     let data: Vec<i32> = (0..100_000).collect();
 
@@ -470,10 +482,7 @@ fn work_splitting_strategies() {
 
     assert_eq!(result1.len(), result2.len());
 }
-
-//================================================
 // Real-world: Matrix multiplication with blocking
-//================================================
 struct Matrix {
     data: Vec<f64>,
     rows: usize,
@@ -531,10 +540,7 @@ impl Matrix {
         result
     }
 }
-
-//========================================================
 // Real-world: Parallel merge sort with optimal grain size
-//========================================================
 fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
     if arr.len() <= grain_size {
         arr.sort();
@@ -579,9 +585,13 @@ fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
     }
 }
 
-//==================================
-// Pattern 3: Dynamic load balancing
-//==================================
+```
+
+### Example: Dynamic load balancing
+This example shows how to dynamic load balancing in practice, emphasizing why it works.
+
+```rust
+
 fn dynamic_load_balancing() {
     // Simulate irregular workload
     let work_items: Vec<usize> = (0..1000).map(|i| i % 100).collect();
@@ -605,9 +615,13 @@ fn dynamic_load_balancing() {
     println!("Total work: {}", results.iter().sum::<usize>());
 }
 
-//=============================
-// Pattern 4: Grain size tuning
-//=============================
+```
+
+### Example: Grain size tuning
+This example shows how to grain size tuning in practice, emphasizing why it works.
+
+```rust
+
 fn grain_size_tuning() {
     let data: Vec<i32> = (0..1_000_000).collect();
 
@@ -657,9 +671,13 @@ fn main() {
 ```rust
 use rayon::prelude::*;
 
-//==============================
-// Pattern 1: Parallel quicksort
-//==============================
+```
+
+### Example: Parallel quicksort
+This example shows how to parallel quicksort while calling out the practical trade-offs.
+
+```rust
+
 fn parallel_quicksort<T: Ord + Send>(arr: &mut [T]) {
     if arr.len() <= 1 {
         return;
@@ -693,9 +711,13 @@ fn partition<T: Ord>(arr: &mut [T]) -> usize {
     i
 }
 
-//===================================
-// Pattern 2: Parallel tree traversal
-//===================================
+```
+
+### Example: Parallel tree traversal
+This example shows how to parallel tree traversal while calling out the practical trade-offs.
+
+```rust
+
 #[derive(Debug)]
 struct TreeNode<T> {
     value: T,
@@ -735,9 +757,13 @@ impl<T: Send> TreeNode<T> {
     }
 }
 
-//=============================================================
-// Pattern 3: Parallel Fibonacci (demonstrative, not efficient)
-//=============================================================
+```
+
+### Example: Parallel Fibonacci (demonstrative, not efficient)
+This example shows how to parallel Fibonacci (demonstrative, not efficient) while calling out the practical trade-offs.
+
+```rust
+
 fn parallel_fib(n: u32) -> u64 {
     if n <= 1 {
         return n as u64;
@@ -769,10 +795,7 @@ fn fib_sequential(n: u32) -> u64 {
     }
     b
 }
-
-//================================================
 // Real-world: Parallel directory size calculation
-//================================================
 use std::fs;
 use std::path::Path;
 
@@ -797,10 +820,7 @@ fn parallel_dir_size<P: AsRef<Path>>(path: P) -> u64 {
         .map(|entry| parallel_dir_size(entry.path()))
         .sum()
 }
-
-//===========================================
 // Real-world: Parallel expression evaluation
-//===========================================
 #[derive(Debug, Clone)]
 enum Expr {
     Num(i32),
@@ -878,11 +898,11 @@ fn main() {
 
 ## Pattern 3: Parallel Reduce and Fold
 
-**Problem**: Aggregating results from parallel operations is non-trivial. Simple sum/min/max work, but custom aggregations (histograms, statistics, merging maps) require careful design. Must use associative operations for correctness. Non-associative ops give wrong results. Need to combine per-thread accumulators efficiently. Performance suffers with poor reduce strategy.
+**Problem**: Aggregating results from parallel operations is non-trivial. Simple sum/min/max work, but custom aggregations (histograms, statistics, merging maps) require careful design.
 
-**Solution**: Use `reduce` for simple aggregations (sum, min, max, product). Use `fold + reduce` pattern for custom accumulators: fold builds per-thread state, reduce combines them. Ensure operations are associative: (a op b) op c = a op (b op c). Commutative helps performance but isn't required. For histograms: fold builds per-thread HashMap, reduce merges them.
+**Solution**: Use `reduce` for simple aggregations (sum, min, max, product). Use `fold + reduce` pattern for custom accumulators: fold builds per-thread state, reduce combines them.
 
-**Why It Matters**: Statistics in one parallel pass instead of multiple sequential passes. Histogram generation: parallel fold+reduce 10x faster than sequential. Word frequency counting: 8x speedup on 8 cores. Variance calculation: single parallel pass vs two sequential passes. Real example: analyzing 1GB log file—parallel histogram 500ms vs 5s sequential.
+**Why It Matters**: Statistics in one parallel pass instead of multiple sequential passes. Histogram generation: parallel fold+reduce 10x faster than sequential.
 
 **Use Cases**: Statistics computation (mean, variance, stddev), histograms and frequency counting, word counting in text processing, aggregating results from parallel operations, merging sorted chunks, custom accumulators (sets, maps).
 
@@ -894,9 +914,13 @@ Efficiently combine results from parallel operations.
 use rayon::prelude::*;
 use std::collections::HashMap;
 
-//=========================================
-// Pattern 1: Simple reduce (sum, min, max)
-//=========================================
+```
+
+### Example: Simple reduce (sum, min, max)
+This example keeps things simple while focusing on reduce (sum, min, max) to make the mechanics obvious.
+
+```rust
+
 fn simple_reductions() {
     let numbers: Vec<i32> = (1..=1_000_000).collect();
 
@@ -915,9 +939,13 @@ fn simple_reductions() {
     println!("Product: {}", product);
 }
 
-//========================================
-// Pattern 2: Reduce with custom operation
-//========================================
+```
+
+### Example: Reduce with custom operation
+This example shows how to reduce with custom operation in practice, emphasizing why it works.
+
+```rust
+
 fn custom_reduce() {
     let numbers: Vec<i32> = (1..=100).collect();
 
@@ -947,9 +975,13 @@ fn custom_reduce() {
     println!("Closest to {}: {}", target, closest);
 }
 
-//==========================
-// Pattern 3: fold vs reduce
-//==========================
+```
+
+### Example: fold vs reduce
+This example shows how to fold vs reduce in practice, emphasizing why it works.
+
+```rust
+
 fn fold_vs_reduce() {
     let numbers: Vec<i32> = (1..=1000).collect();
 
@@ -966,9 +998,13 @@ fn fold_vs_reduce() {
     println!("Sum: {}", sum_fold);
 }
 
-//=============================================
-// Pattern 4: fold_with for custom accumulators
-//=============================================
+```
+
+### Example: fold_with for custom accumulators
+This example shows how to fold_with for custom accumulators in practice, emphasizing why it works.
+
+```rust
+
 fn fold_with_accumulator() {
     let numbers: Vec<i32> = (1..=100).collect();
 
@@ -1012,10 +1048,7 @@ fn fold_with_accumulator() {
     println!("Average: {:.2}", stats.sum as f64 / stats.count as f64);
     println!("Min: {}, Max: {}", stats.min, stats.max);
 }
-
-//===============================
 // Real-world: Parallel histogram
-//===============================
 fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
     data.par_iter()
         .fold(
@@ -1035,10 +1068,7 @@ fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
             },
         )
 }
-
-//=================================
 // Real-world: Word frequency count
-//=================================
 fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
     text.par_split_whitespace()
         .fold(
@@ -1058,10 +1088,7 @@ fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
             },
         )
 }
-
-//==========================================
 // Real-world: Parallel variance calculation
-//==========================================
 fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
     // Two-pass algorithm (more numerically stable)
     let mean = numbers.par_iter().sum::<f64>() / numbers.len() as f64;
@@ -1074,10 +1101,7 @@ fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
 
     (mean, variance)
 }
-
-//================================
 // Real-world: Merge sorted chunks
-//================================
 fn parallel_merge_reduce(mut chunks: Vec<Vec<i32>>) -> Vec<i32> {
     while chunks.len() > 1 {
         chunks = chunks
@@ -1155,11 +1179,11 @@ fn main() {
 
 ## Pattern 4: Pipeline Parallelism
 
-**Problem**: Multi-stage data processing often bottlenecks on slowest stage. Sequential pipeline wastes CPU—decode thread idle while enhance runs. Poor stage balance causes bubbles. Backpressure issues with unbounded buffers causing OOM. Different stages have different computational costs (decode: 10ms, enhance: 50ms, compress: 20ms)—need different parallelism levels.
+**Problem**: Multi-stage data processing often bottlenecks on slowest stage. Sequential pipeline wastes CPU—decode thread idle while enhance runs.
 
-**Solution**: Use channel-based pipelines with separate threads per stage. Rayon's par_iter at each stage for intra-stage parallelism. Bounded channels (mpsc::sync_channel) for backpressure. Balance parallelism per stage based on cost. For iterator-based pipelines, chain parallel operations. Combine data parallelism (Rayon) with task parallelism (stages).
+**Solution**: Use channel-based pipelines with separate threads per stage. Rayon's par_iter at each stage for intra-stage parallelism.
 
-**Why It Matters**: Image processing pipeline: sequential 300ms, staged parallel 100ms (3x faster). ETL pipeline processing 1M records: sequential 10min, parallel pipeline 2min (5x speedup). Log analysis: parse→enrich→filter runs stages concurrently, 4x throughput. Real example: video transcoding pipeline with decode→filter→encode stages, each utilizing multiple cores.
+**Why It Matters**: Image processing pipeline: sequential 300ms, staged parallel 100ms (3x faster). ETL pipeline processing 1M records: sequential 10min, parallel pipeline 2min (5x speedup).
 
 **Use Cases**: ETL (Extract-Transform-Load) data pipelines, image/video processing (decode→enhance→compress), log analysis (parse→enrich→filter→aggregate), data transformation chains, streaming data processing, multi-stage batch jobs.
 
@@ -1174,9 +1198,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-//=========================================
-// Pattern 1: Simple pipeline with channels
-//=========================================
+```
+
+### Example: Simple pipeline with channels
+This example keeps things simple while focusing on pipeline with channels to make the mechanics obvious.
+
+```rust
+
 fn simple_pipeline() {
     let (stage1_tx, stage1_rx) = mpsc::sync_channel(100);
     let (stage2_tx, stage2_rx) = mpsc::sync_channel(100);
@@ -1224,10 +1252,7 @@ fn simple_pipeline() {
 
     println!("Pipeline result: {}", result);
 }
-
-//======================================
 // Real-world: Image processing pipeline
-//======================================
 struct ImagePipeline;
 
 impl ImagePipeline {
@@ -1260,10 +1285,7 @@ impl ImagePipeline {
         data
     }
 }
-
-//====================================
 // Real-world: Log processing pipeline
-//====================================
 #[derive(Debug, Clone)]
 struct RawLog(String);
 
@@ -1312,9 +1334,13 @@ impl LogPipeline {
     }
 }
 
-//======================================================
-// Pattern 2: Parallel stages with different parallelism
-//======================================================
+```
+
+### Example: Parallel stages with different parallelism
+This example shows how to parallel stages with different parallelism while calling out the practical trade-offs.
+
+```rust
+
 fn multi_stage_parallel() {
     let data: Vec<i32> = (0..10000).collect();
 
@@ -1344,10 +1370,7 @@ fn multi_stage_parallel() {
 
     println!("Multi-stage result: {}", sum);
 }
-
-//====================================================
 // Real-world: ETL pipeline (Extract, Transform, Load)
-//====================================================
 struct EtlPipeline;
 
 impl EtlPipeline {
@@ -1416,11 +1439,11 @@ fn main() {
 
 ## Pattern 5: SIMD Parallelism
 
-**Problem**: CPU vector units (AVX2: 8 floats, AVX-512: 16 floats) sit idle with scalar code. Data-level parallelism untapped—process 1 element when hardware can do 8. Memory bandwidth wasted without vectorization. Auto-vectorization fails with complex code (branches, scattered access). Combining threading and SIMD requires careful data layout.
+**Problem**: CPU vector units (AVX2: 8 floats, AVX-512: 16 floats) sit idle with scalar code. Data-level parallelism untapped—process 1 element when hardware can do 8.
 
-**Solution**: Write SIMD-friendly code: contiguous arrays, simple operations, no branches in hot loops. Use Struct-of-Arrays (SoA) instead of Array-of-Structs (AoS) for better vectorization. Combine Rayon threading with SIMD-friendly inner loops. Let compiler auto-vectorize when possible. Use explicit chunking aligned to SIMD width. Profile with `cargo rustc -- --emit asm` to verify vectorization.
+**Solution**: Write SIMD-friendly code: contiguous arrays, simple operations, no branches in hot loops. Use Struct-of-Arrays (SoA) instead of Array-of-Structs (AoS) for better vectorization.
 
-**Why It Matters**: Matrix multiply: 10x speedup with SIMD+threading vs scalar sequential. Dot product: 4-8x faster with vectorization. Image convolution: SIMD on inner loops doubles performance. Real example: signal processing 1M samples—scalar 100ms, SIMD 15ms (6.6x), SIMD+8 threads 2ms (50x total). Memory bandwidth becomes bottleneck, not compute.
+**Why It Matters**: Matrix multiply: 10x speedup with SIMD+threading vs scalar sequential. Dot product: 4-8x faster with vectorization.
 
 **Use Cases**: Matrix operations (multiply, transpose, dot product), image processing (convolution, filters), signal processing (FFT, filters), scientific computing (numerical methods), vector arithmetic, statistical computations.
 
@@ -1436,9 +1459,13 @@ Vectorize operations across array elements for maximum throughput.
 // packed_simd = "0.3"
 // For stable Rust, we'll use a portable SIMD approach
 
-//=====================================
-// Pattern 1: Manual SIMD-friendly code
-//=====================================
+```
+
+### Example: Manual SIMD-friendly code
+This example shows how to manual SIMD-friendly code while calling out the practical trade-offs.
+
+```rust
+
 fn simd_friendly_sum(data: &[f32]) -> f32 {
     // Process 4 elements at a time (compiler can auto-vectorize)
     let chunks = data.chunks_exact(4);
@@ -1459,9 +1486,13 @@ fn simd_friendly_sum(data: &[f32]) -> f32 {
     chunk_sum + remainder_sum
 }
 
-//============================================
-// Pattern 2: Array operations (SIMD-friendly)
-//============================================
+```
+
+### Example: Array operations (SIMD-friendly)
+This example shows how to array operations (SIMD-friendly) in practice, emphasizing why it works.
+
+```rust
+
 fn vector_add(a: &[f32], b: &[f32], result: &mut [f32]) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a.len(), result.len());
@@ -1482,9 +1513,13 @@ fn vector_add_parallel(a: &[f32], b: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-//=======================================
-// Pattern 3: Dot product (SIMD-friendly)
-//=======================================
+```
+
+### Example: Dot product (SIMD-friendly)
+This example shows how to dot product (SIMD-friendly) in practice, emphasizing why it works.
+
+```rust
+
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len());
 
@@ -1504,10 +1539,7 @@ fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
         .map(|(&x, &y)| x * y)
         .sum()
 }
-
-//==================================================
 // Real-world: Matrix multiplication with SIMD hints
-//==================================================
 fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
     // Matrix dimensions: n x n
     assert_eq!(a.len(), n * n);
@@ -1527,10 +1559,7 @@ fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
         }
     }
 }
-
-//======================================
 // Parallel + SIMD matrix multiplication
-//======================================
 fn matrix_multiply_parallel_simd(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
     use rayon::prelude::*;
 
@@ -1552,9 +1581,13 @@ fn matrix_multiply_parallel_simd(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
     result
 }
 
-//=============================================================
-// Pattern 4: Blocked matrix operations (cache + SIMD friendly)
-//=============================================================
+```
+
+### Example: Blocked matrix operations (cache + SIMD friendly)
+This example shows blocked matrix operations (cache + SIMD friendly) to illustrate where the pattern fits best.
+
+```rust
+
 fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, block_size: usize) {
     use rayon::prelude::*;
 
@@ -1582,10 +1615,7 @@ fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, b
         }
     }
 }
-
-//==============================
 // Real-world: Image convolution
-//==============================
 fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kernel_size: usize) -> Vec<f32> {
     use rayon::prelude::*;
 
@@ -1615,9 +1645,13 @@ fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kerne
     result
 }
 
-//===============================
-// Pattern 5: Reduction with SIMD
-//===============================
+```
+
+### Example: Reduction with SIMD
+This example shows how to reduction with SIMD in practice, emphasizing why it works.
+
+```rust
+
 fn parallel_sum_simd(data: &[f32]) -> f32 {
     use rayon::prelude::*;
 
@@ -1687,9 +1721,14 @@ fn main() {
 Help the compiler generate SIMD code effectively.
 
 ```rust
-//=================================================
-// Pattern 1: Iterator patterns that auto-vectorize
-//=================================================
+
+```
+
+### Example: Iterator patterns that auto-vectorize
+This example shows how to iterator patterns that auto-vectorize in practice, emphasizing why it works.
+
+```rust
+
 fn auto_vectorize_examples() {
     let data: Vec<f32> = (0..10000).map(|x| x as f32).collect();
 
@@ -1710,9 +1749,13 @@ fn auto_vectorize_examples() {
         .collect();
 }
 
-//======================================================
-// Pattern 2: Explicit chunking for better vectorization
-//======================================================
+```
+
+### Example: Explicit chunking for better vectorization
+This example shows how to explicit chunking for better vectorization in practice, emphasizing why it works.
+
+```rust
+
 fn chunked_operations(data: &[f32]) -> Vec<f32> {
     let mut result = Vec::with_capacity(data.len());
 
@@ -1728,9 +1771,13 @@ fn chunked_operations(data: &[f32]) -> Vec<f32> {
     result
 }
 
-//============================================================
-// Pattern 3: Struct of Arrays (SoA) vs Array of Structs (AoS)
-//============================================================
+```
+
+### Example: Struct of Arrays (SoA) vs Array of Structs (AoS)
+This example shows how to struct of Arrays (SoA) vs Array of Structs (AoS) in practice, emphasizing why it works.
+
+```rust
+
 // Bad for SIMD: Array of Structs
 #[derive(Copy, Clone)]
 struct PointAoS {
@@ -1743,10 +1790,7 @@ fn process_aos(points: &[PointAoS]) -> Vec<f32> {
     // Poor vectorization: scattered access
     points.iter().map(|p| p.x + p.y + p.z).collect()
 }
-
-//================================
 // Good for SIMD: Struct of Arrays
-//================================
 struct PointsSoA {
     x: Vec<f32>,
     y: Vec<f32>,
@@ -1764,10 +1808,7 @@ impl PointsSoA {
             .collect()
     }
 }
-
-//========================================
 // Real-world: Parallel + SIMD Monte Carlo
-//========================================
 fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
     use rayon::prelude::*;
     use rand::Rng;
@@ -1796,9 +1837,13 @@ fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
     4.0 * inside as f64 / samples as f64
 }
 
-//===========================================
-// Pattern 4: Benchmarking SIMD effectiveness
-//===========================================
+```
+
+### Example: Benchmarking SIMD effectiveness
+This example shows benchmarking SIMD effectiveness to illustrate where the pattern fits best.
+
+```rust
+
 fn benchmark_vectorization() {
     let data: Vec<f32> = (0..10_000_000).map(|x| x as f32).collect();
 

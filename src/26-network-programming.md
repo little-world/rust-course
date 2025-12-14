@@ -5,11 +5,11 @@ This chapter covers network programming patterns—TCP/UDP for low-level protoco
 
 ## Pattern 1: TCP Server/Client Patterns
 
-**Problem**: Need reliable bidirectional communication between client and server. Simple echo server handles one client at time (blocks). Thread-per-connection model doesn't scale—1K threads hits OS limits, each consumes 2MB stack. Need concurrent handling of 10K+ connections. Graceful shutdown complex. Line-based protocols need buffering. Connection errors must be handled gracefully.
+**Problem**: Need reliable bidirectional communication between client and server. Simple echo server handles one client at time (blocks).
 
-**Solution**: Use tokio's async TcpListener and TcpStream. tokio::spawn() spawns task per connection. BufReader for line-based protocols (efficient buffering). select! for graceful shutdown. Connection pooling on client side. Non-blocking I/O allows single thread to handle many connections. CancellationToken coordinates shutdown. Error handling with Result propagation.
+**Solution**: Use tokio's async TcpListener and TcpStream. tokio::spawn() spawns task per connection.
 
-**Why It Matters**: TCP foundation for HTTP, SSH, FTP, databases—essential protocol. Async I/O solves C10K problem (10K concurrent connections). Thread-per-connection limited to ~1K clients (stack memory exhaustion). Production servers need 10K+ concurrent connections. Incorrect shutdown causes connection leaks. Buffering critical for performance (avoid byte-by-byte reads).
+**Why It Matters**: TCP foundation for HTTP, SSH, FTP, databases—essential protocol. Async I/O solves C10K problem (10K concurrent connections).
 
 **Use Cases**: Chat servers (persistent connections per user), game servers (player connections), database protocols (Postgres, Redis), custom TCP protocols, proxy servers, load balancers, monitoring agents, message brokers, SSH servers.
 
@@ -410,11 +410,11 @@ impl std::ops::DerefMut for PooledConnection {
 
 ## Pattern 2: UDP Patterns
 
-**Problem**: Need low-latency connectionless communication where packet loss acceptable. TCP handshake/ack overhead too high for real-time data. Broadcasting to multiple receivers simultaneously. Multicast group communication. Service discovery. No connection setup needed—just send datagrams. Message boundaries important (TCP is stream, UDP is messages).
+**Problem**: Need low-latency connectionless communication where packet loss acceptable. TCP handshake/ack overhead too high for real-time data.
 
-**Solution**: Use tokio::net::UdpSocket. bind() on server. send_to()/recv_from() for datagrams (includes sender address). set_broadcast(true) for broadcast. join_multicast_v4()/v6() for multicast groups. Handle out-of-order delivery and loss at application layer. Fixed-size buffers for receiving. No connection state to manage.
+**Solution**: Use tokio::net::UdpSocket. bind() on server.
 
-**Why It Matters**: Lower latency than TCP (no handshake, no acks)—critical for gaming, VoIP. Essential for real-time where latest data > old data (position updates). Multicast for efficient group communication (service discovery). DNS uses UDP (query/response). Connectionless simplifies some protocols. Broadcast for local network discovery. When reliability not needed, UDP more efficient.
+**Why It Matters**: Lower latency than TCP (no handshake, no acks)—critical for gaming, VoIP. Essential for real-time where latest data > old data (position updates).
 
 **Use Cases**: Gaming (player position/state updates), VoIP (audio packets), video streaming (RTP), DNS queries, service discovery (mDNS, SSDP), IoT sensor data, time synchronization (NTP), multicast notifications, DHCP, TFTP.
 
@@ -571,11 +571,11 @@ This pattern is the basis for protocols like QUIC and helps bridge the gap betwe
 
 ## Pattern 3: HTTP Client (reqwest)
 
-**Problem**: Need to make HTTP requests with async I/O. Handle cookies, headers, redirects automatically. Connection pooling for performance. Timeout management. JSON/form data serialization. TLS certificate verification. OAuth flows. Rate limiting. Retry logic. Progress tracking for large downloads. Authentication schemes.
+**Problem**: Need to make HTTP requests with async I/O. Handle cookies, headers, redirects automatically.
 
-**Solution**: Use reqwest::Client with built-in connection pool. Async/await API. Automatic JSON (de)serialization with serde (json() method). cookie_store() for session management. timeout() for request deadlines. Client::builder() for configuration. multipart for file uploads. Middleware for auth/retries. Error handling with Result.
+**Solution**: Use reqwest::Client with built-in connection pool. Async/await API.
 
-**Why It Matters**: HTTP ubiquitous for APIs—essential for microservices. reqwest production-ready (connection pooling, retries, cookie management). 10x easier than manual HTTP parsing. Connection pooling critical for performance (reuse connections). Async enables concurrent requests. TLS verification prevents MITM attacks. Industry standard crate.
+**Why It Matters**: HTTP ubiquitous for APIs—essential for microservices. reqwest production-ready (connection pooling, retries, cookie management).
 
 **Use Cases**: REST API clients, web scraping, microservice communication, webhook consumers, OAuth authentication flows, file downloads, GraphQL clients, API testing/monitoring, service health checks, data synchronization.
 
@@ -846,11 +846,11 @@ async fn download_file(
 
 ## Pattern 4: HTTP Server (axum, actix-web)
 
-**Problem**: Need HTTP server with routing, middleware, shared state. Handle concurrent requests safely. Parse JSON/query/path parameters. Serve static files. WebSocket upgrade. CORS, authentication, logging middleware. Graceful shutdown. Form data handling. Error responses. Type-safe extractors to prevent runtime bugs.
+**Problem**: Need HTTP server with routing, middleware, shared state. Handle concurrent requests safely.
 
-**Solution**: Use axum Router for routing. State extractor for shared data (Arc for thread-safety). Extractors (Json<T>, Query<T>, Path<T>) with serde. Middleware tower layers (CORS, compression, logging). axum::serve() for async server. Typed errors with IntoResponse. Extension for request-scoped data. tower-http for common middleware.
+**Solution**: Use axum Router for routing. State extractor for shared data (Arc for thread-safety).
 
-**Why It Matters**: Web servers are core infrastructure—REST APIs, microservices, dashboards. axum built on tokio/hyper (100K+ req/s). Type-safe extractors catch errors at compile-time (wrong JSON schema = compile error). Middleware composable. Production-ready (graceful shutdown, backpressure). Ecosystem mature. Essential for modern web services.
+**Why It Matters**: Web servers are core infrastructure—REST APIs, microservices, dashboards. axum built on tokio/hyper (100K+ req/s).
 
 **Use Cases**: REST APIs, web applications, microservices, GraphQL servers (with async-graphql), webhook receivers, admin dashboards, file upload services, proxy/API gateway, authentication services, monitoring endpoints.
 
@@ -1175,11 +1175,11 @@ actix-web is slightly more imperative in style compared to axum's declarative ap
 
 ## Pattern 5: WebSocket Patterns
 
-**Problem**: Need full-duplex real-time bidirectional communication. HTTP request-response inadequate for live updates. Long-polling wasteful (poll every 100ms). Server needs to push to clients without request. Chat, notifications, live dashboards require bidirectional push. Low-latency streaming. Persistent connection more efficient than repeated HTTP requests.
+**Problem**: Need full-duplex real-time bidirectional communication. HTTP request-response inadequate for live updates.
 
-**Solution**: Use tokio-tungstenite for WebSocket (or axum/actix WebSocket support). HTTP upgrade to WebSocket. Split into read/write halves for concurrent send/receive. async message handling. Ping/pong for keepalive (detect dead connections). Graceful close with close frame. Broadcast pattern with tokio::sync::broadcast channel. Per-client state management.
+**Solution**: Use tokio-tungstenite for WebSocket (or axum/actix WebSocket support). HTTP upgrade to WebSocket.
 
-**Why It Matters**: Real-time applications require bidirectional push—can't rely on polling. WebSocket single persistent connection vs HTTP polling overhead (100 req/s vs 1 connection). Essential for chat, live dashboards, collaborative editing. Lower latency than HTTP polling. Server-initiated push critical for notifications. Efficient for streaming data (stock prices, game state).
+**Why It Matters**: Real-time applications require bidirectional push—can't rely on polling. WebSocket single persistent connection vs HTTP polling overhead (100 req/s vs 1 connection).
 
 **Use Cases**: Chat applications (real-time messages), live notifications (alerts, updates), collaborative editing (Google Docs-style), stock tickers (price updates), gaming (multiplayer state sync), dashboard updates (metrics, logs), IoT device control, video streaming signaling.
 

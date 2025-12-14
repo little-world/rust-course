@@ -6,24 +6,11 @@ This chapter explores concurrent programming patterns in Rust using threads. We'
 
 This pattern is the foundation of multi-threaded programming in Rust. It covers how to create threads, transfer data to them, and get results back safely.
 
--   **Problem**:
-    -   **Underutilized CPU Cores**: A single-threaded program can't take advantage of multi-core processors, leaving expensive hardware idle.
-    -   **Data Ownership**: Moving data into a thread is tricky due to Rust's ownership rules. Closures often borrow data by reference, but threads require owned data to prevent it from being dropped prematurely.
-    -   **Result Handling**: Getting results back from a finished thread requires manually waiting for it (joining) and handling potential panics.
-    -   **Dangling References**: If a thread outlives the function that spawned it, it could be left with a "dangling reference" to data that no longer exists, leading to memory safety bugs.
-    -   **Creation Overhead**: Spawning a new OS thread for every tiny task is inefficient, as thread creation itself takes time.
+-   **Problem**: - **Underutilized CPU Cores**: A single-threaded program can't take advantage of multi-core processors, leaving expensive hardware idle. - **Data Ownership**: Moving data into a thread is tricky due to Rust's ownership rules.
 
--   **Solution**:
-    -   **`thread::spawn` with `move` Closures**: Use `thread::spawn` to create a new thread. The `move` keyword before the closure forces it to take ownership of the variables it captures, safely transferring them to the new thread.
-    -   **`JoinHandle`**: The `spawn` function returns a `JoinHandle`. Calling `.join()` on this handle blocks the current thread until the spawned thread finishes, allowing you to retrieve its result or any panic that occurred.
-    -   **Scoped Threads**: For situations where you need to borrow data from the parent thread's stack, `thread::scope` provides a compiler-verified way to ensure the threads cannot outlive the data they are borrowing.
-    -   **Thread Pools**: For many small tasks, use a thread pool to reuse a fixed number of threads, avoiding the overhead of creating and destroying them repeatedly.
+-   **Solution**: - **`thread::spawn` with `move` Closures**: Use `thread::spawn` to create a new thread. The `move` keyword before the closure forces it to take ownership of the variables it captures, safely transferring them to the new thread.
 
--   **Why It Matters**:
-    -   **True Parallelism**: Threads allow your program to execute multiple operations at the same time on different CPU cores, dramatically improving performance for CPU-bound tasks.
-    -   **Compile-Time Safety**: Rust's ownership model prevents data races at compile time, one of the most common and difficult types of concurrency bugs.
-    -   **Explicit Error Handling**: The `JoinHandle` forces you to deal with the possibility of a thread panicking, preventing silent failures.
-    -   **Safe Borrowing**: Scoped threads make it safe and ergonomic to perform parallel computations on data living on the stack, without complex lifetime annotations.
+-   **Why It Matters**: - **True Parallelism**: Threads allow your program to execute multiple operations at the same time on different CPU cores, dramatically improving performance for CPU-bound tasks. - **Compile-Time Safety**: Rust's ownership model prevents data races at compile time, one of the most common and difficult types of concurrency bugs.
 
 -   **Use Cases**:
     -   **Parallel Computation**: Performing expensive calculations like image processing, simulations, or scientific computing.
@@ -233,21 +220,11 @@ fn scoped_threads_for_borrowing() {
 
 Spawning a new thread for every small task is inefficient. Thread pools and work-stealing are advanced patterns for managing a fixed set of worker threads to execute many tasks efficiently.
 
--   **Problem**:
-    -   **High Overhead**: Spawning thousands of OS threads for thousands of small tasks is slow and wastes memory.
-    -   **Resource Exhaustion**: An unbounded number of threads can exhaust system resources, leading to thrashing as the OS constantly switches between them.
-    -   **Load Imbalance**: If work is distributed statically among threads, some threads may finish early and sit idle while others are overloaded with work.
+-   **Problem**: - **High Overhead**: Spawning thousands of OS threads for thousands of small tasks is slow and wastes memory. - **Resource Exhaustion**: An unbounded number of threads can exhaust system resources, leading to thrashing as the OS constantly switches between them.
 
--   **Solution**:
-    -   **Thread Pools**: Create a fixed number of worker threads (often equal to the number of CPU cores) and reuse them for multiple tasks. Tasks are submitted to a shared queue, and idle workers pull tasks from it.
-    -   **Work-Stealing**: A more advanced model where each worker has its own queue of tasks. When a worker's queue is empty, it "steals" a task from the back of another worker's queue. This provides excellent load balancing for recursive or irregular workloads.
-    -   **Use Libraries**: High-quality libraries like `rayon` provide sophisticated work-stealing thread pools with a simple, high-level API.
+-   **Solution**: - **Thread Pools**: Create a fixed number of worker threads (often equal to the number of CPU cores) and reuse them for multiple tasks. Tasks are submitted to a shared queue, and idle workers pull tasks from it.
 
--   **Why It Matters**:
-    -   **Efficiency**: Thread pools eliminate the overhead of thread creation, making it feasible to parallelize even small tasks.
-    -   **Automatic Load Balancing**: Work-stealing schedulers automatically distribute work, ensuring that all CPU cores are kept busy, leading to near-linear performance scaling for many parallel algorithms.
-    -   **Controlled Resource Usage**: A thread pool limits the number of active threads, preventing your application from overwhelming the system.
-    -   **Simplicity**: Libraries like `rayon` make data parallelism incredibly easy, often requiring just a single method call (`.par_iter()`) to turn a sequential operation into a parallel one.
+-   **Why It Matters**: - **Efficiency**: Thread pools eliminate the overhead of thread creation, making it feasible to parallelize even small tasks. - **Automatic Load Balancing**: Work-stealing schedulers automatically distribute work, ensuring that all CPU cores are kept busy, leading to near-linear performance scaling for many parallel algorithms.
 
 -   **Use Cases**:
     -   **Data Parallelism**: Processing large collections of data (e.g., arrays, vectors) in parallel.
@@ -336,22 +313,11 @@ impl Image {
 
 This pattern focuses on communication between threads by sending messages through channels, avoiding the complexities of shared memory and locks.
 
--   **Problem**:
-    -   **Complexity of Locks**: Using `Arc<Mutex<T>>` for every piece of shared data is verbose, and it's easy to make mistakes like holding a lock for too long (hurting performance) or causing deadlocks.
-    -   **Race Conditions**: Manually coordinating access to shared data is a major source of bugs that are hard to reproduce and debug.
-    -   **Lack of Backpressure**: A fast producer thread can overwhelm a slow consumer thread, leading to unbounded memory growth if there's no mechanism to signal the producer to slow down.
+-   **Problem**: - **Complexity of Locks**: Using `Arc<Mutex<T>>` for every piece of shared data is verbose, and it's easy to make mistakes like holding a lock for too long (hurting performance) or causing deadlocks. - **Race Conditions**: Manually coordinating access to shared data is a major source of bugs that are hard to reproduce and debug.
 
--   **Solution**:
-    -   **Channels**: A channel provides a safe way to send data from one or more "producer" threads to one or more "consumer" threads. The channel handles all the necessary synchronization.
-    -   **Ownership Transfer**: When you send a value through a channel, you transfer ownership of it to the receiver. This is Rust's core principle of "sharing by communicating," and it statically prevents data races.
-    -   **Bounded Channels**: Channels can be "bounded" with a fixed capacity. If a producer tries to send a message to a full channel, it will block until a consumer makes space. This provides automatic backpressure.
-    -   **`select!` Macro**: For more complex scenarios, the `select!` macro (from the `crossbeam-channel` crate) allows a thread to wait on multiple channels at once and act on the first one that receives a message.
+-   **Solution**: - **Channels**: A channel provides a safe way to send data from one or more "producer" threads to one or more "consumer" threads. The channel handles all the necessary synchronization.
 
--   **Why It Matters**:
-    -   **Simplicity and Safety**: Channels transform a complex synchronization problem into a simple producer/consumer pattern. The type system ensures that you can't have data races.
-    -   **Decoupling**: Threads are decoupled; they only need to know about the channel, not about each other. This makes the code easier to reason about and refactor.
-    -   **Performance**: Well-designed channel-based systems can be very performant. For example, building a pipeline of processing stages, where each stage runs on a different thread, is a classic and efficient concurrency pattern.
-    -   **No Deadlocks**: Because there are no locks, there's no risk of deadlocks, a common problem in lock-based concurrency.
+-   **Why It Matters**: - **Simplicity and Safety**: Channels transform a complex synchronization problem into a simple producer/consumer pattern. The type system ensures that you can't have data races.
 
 -   **Use Cases**:
     -   **Producer-Consumer Pipelines**: A series of threads organized into stages, where each stage processes data and passes it to the next via a channel.
@@ -523,21 +489,11 @@ fn actor_pattern_example() {
 
 While message passing is preferred, sometimes you need multiple threads to access the same piece of data. This pattern uses `Arc`, `Mutex`, and `RwLock` to share memory safely.
 
--   **Problem**:
-    -   **Ownership Conflicts**: Rust's ownership rules prevent you from having multiple mutable references to the same data, which is exactly what you need when threads share state.
-    -   **Data Races**: Unsynchronized access to shared data can lead to data races, where the final state depends on the non-deterministic order of thread execution, causing subtle and difficult-to-reproduce bugs.
-    -   **Read/Write Contention**: If you have many threads that only need to read data, forcing them all to wait on a single lock (like a `Mutex`) is inefficient.
+-   **Problem**: - **Ownership Conflicts**: Rust's ownership rules prevent you from having multiple mutable references to the same data, which is exactly what you need when threads share state. - **Data Races**: Unsynchronized access to shared data can lead to data races, where the final state depends on the non-deterministic order of thread execution, causing subtle and difficult-to-reproduce bugs.
 
--   **Solution**:
-    -   **`Arc<T>` (Atomically Reference-Counted Pointer)**: `Arc` is a smart pointer that lets multiple threads have shared ownership of the same data. It keeps a count of active references, and when the last reference is dropped, the data is cleaned up.
-    -   **`Mutex<T>` (Mutual Exclusion)**: A `Mutex` provides exclusive access to the data it holds. Before a thread can access the data, it must `lock()` the mutex. The lock is automatically released when the lock guard (the return value of `lock()`) goes out of scope.
-    -   **`Arc<Mutex<T>>`**: This is the classic combination for sharing mutable state in Rust. The `Arc` allows multiple threads to have a reference to the `Mutex`, and the `Mutex` ensures that only one thread can access the data inside at a time.
-    -   **`RwLock<T>` (Read-Write Lock)**: An `RwLock` is a more performant alternative to a `Mutex` for read-heavy workloads. It allows any number of threads to read the data simultaneously, but only one thread can have write access.
+-   **Solution**: - **`Arc<T>` (Atomically Reference-Counted Pointer)**: `Arc` is a smart pointer that lets multiple threads have shared ownership of the same data. It keeps a count of active references, and when the last reference is dropped, the data is cleaned up.
 
--   **Why It Matters**:
-    -   **Compile-Time Safety**: Rust's type system ensures you use locks correctly. You cannot access the data without first acquiring the lock, and you cannot forget to release it, preventing entire classes of concurrency bugs.
-    -   **Flexibility**: This pattern is essential for scenarios where message passing is not a good fit, such as a shared cache, a connection pool, or a global configuration that all threads need to read.
-    -   **Performance Optimization**: `RwLock` allows you to build highly concurrent systems where many threads can read shared data in parallel without blocking each other.
+-   **Why It Matters**: - **Compile-Time Safety**: Rust's type system ensures you use locks correctly. You cannot access the data without first acquiring the lock, and you cannot forget to release it, preventing entire classes of concurrency bugs.
 
 -   **Use Cases**:
     -   **Shared Caches**: An in-memory cache that is accessed by multiple worker threads.
@@ -626,19 +582,11 @@ fn rwlock_for_read_heavy_data() {
 
 Barriers and Condvars are lower-level primitives used to coordinate the timing of thread execution.
 
--   **Problem**:
-    -   **Phased Execution**: Some parallel algorithms require all threads to complete a certain phase of work before any thread can move on to the next phase.
-    -   **Inefficient Waiting**: A thread might need to wait for a specific condition to become true (e.g., for a queue to become non-empty). Naively checking the condition in a loop ("busy-waiting") wastes CPU cycles.
-    -   **Complex Coordination**: Coordinating multiple threads to start a task at the exact same time.
+-   **Problem**: - **Phased Execution**: Some parallel algorithms require all threads to complete a certain phase of work before any thread can move on to the next phase. - **Inefficient Waiting**: A thread might need to wait for a specific condition to become true (e.g., for a queue to become non-empty).
 
--   **Solution**:
-    -   **`Barrier`**: A `Barrier` is created with a count. Threads that reach the barrier will call `.wait()` and block. Once the specified number of threads are waiting at the barrier, all of them are unblocked simultaneously.
-    -   **`Condvar` (Condition Variable)**: A `Condvar` allows a thread to wait efficiently (without using CPU) for some condition to be met. It is always used with a `Mutex`. A thread locks the mutex, checks a condition, and if it's not met, it calls `.wait()` on the condvar. This atomically unlocks the mutex and puts the thread to sleep. Another thread can later call `.notify_one()` or `.notify_all()` on the condvar to wake up waiting threads.
+-   **Solution**: - **`Barrier`**: A `Barrier` is created with a count. Threads that reach the barrier will call `.wait()` and block.
 
--   **Why It Matters**:
-    -   **Efficiency**: `Condvar` avoids busy-waiting, leading to much better CPU utilization. Threads that are waiting for a condition consume no CPU resources.
-    -   **Correctness**: These primitives provide a correct and standardized way to implement complex synchronization patterns, like phased computation or bounded buffers.
-    -   **Enabling Complex Algorithms**: Many parallel algorithms, such as those used in scientific computing or simulations, are only possible with synchronization primitives like barriers.
+-   **Why It Matters**: - **Efficiency**: `Condvar` avoids busy-waiting, leading to much better CPU utilization. Threads that are waiting for a condition consume no CPU resources.
 
 -   **Use Cases**:
     -   **Parallel Simulations**: Using a `Barrier` to ensure all threads have completed a time step before starting the next one.

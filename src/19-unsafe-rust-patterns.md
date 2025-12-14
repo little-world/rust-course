@@ -29,11 +29,11 @@ The patterns we'll explore show how to:
 
 ## Pattern 1: Raw Pointer Manipulation
 
-**Problem**: Need manual memory management for custom data structures. Borrow checker can't express bidirectional relationships (tree with parent pointers). FFI requires raw pointers for C interop. Performance-critical code needs to bypass bounds checks. Intrusive collections embed pointers in nodes. Hardware access needs fixed memory addresses.
+**Problem**: Need manual memory management for custom data structures. Borrow checker can't express bidirectional relationships (tree with parent pointers).
 
-**Solution**: Use raw pointers (`*const T`, `*mut T`) with explicit safety. Creating pointers is safe, dereferencing requires `unsafe`. Use `ptr::add()` for arithmetic, `ptr::write()` for uninitialized memory. `NonNull<T>` for non-null guarantees with null pointer optimization. Document invariants clearly. Separate allocation from initialization.
+**Solution**: Use raw pointers (`*const T`, `*mut T`) with explicit safety. Creating pointers is safe, dereferencing requires `unsafe`.
 
-**Why It Matters**: Enables implementing Vec, LinkedList, HashMap from scratch. Custom allocators power memory pools. Zero-copy I/O needs pointer arithmetic. Tree parent pointers impossible with references alone. Real example: `std::vec::Vec` uses raw pointers for uninitialized capacity, enabling push() without reallocation. Proper pointer arithmetic prevents buffer overruns (common C bug source).
+**Why It Matters**: Enables implementing Vec, LinkedList, HashMap from scratch. Custom allocators power memory pools.
 
 **Use Cases**: Custom collections (linked lists, trees, graphs), custom allocators and memory pools, memory-mapped I/O, FFI with C code, intrusive data structures, zero-copy parsing, hardware drivers.
 
@@ -273,11 +273,11 @@ impl<T> Drop for LinkedList<T> {
 
 ## Pattern 2: FFI and C Interop
 
-**Problem**: Need to call C libraries (operating system, drivers, databases, graphics). C has no concept of ownership, borrowing, or lifetimes. String encoding mismatch: C uses null-terminated bytes, Rust uses UTF-8 length-prefixed. Memory management unclear: who allocates? who frees? Callback lifetimes unchecked. Struct layout differs between Rust and C.
+**Problem**: Need to call C libraries (operating system, drivers, databases, graphics). C has no concept of ownership, borrowing, or lifetimes.
 
-**Solution**: Use `extern "C"` to declare/export functions with C ABI. `#[repr(C)]` for compatible struct layout. `CString`/`CStr` for string conversions with null termination. Create safe wrappers around unsafe FFI—encapsulate preconditions, use RAII for cleanup. Document ownership transfer explicitly. Use `catch_unwind` for panic safety in callbacks.
+**Solution**: Use `extern "C"` to declare/export functions with C ABI. `#[repr(C)]` for compatible struct layout.
 
-**Why It Matters**: Unlocks entire C ecosystem (millions of libraries). System programming requires OS APIs (all C). Zero-cost abstraction: no runtime overhead. Real examples: database drivers (libpq, libsqlite), windowing (SDL2, GLFW), compression (zlib, lz4). Safe wrappers make FFI ergonomic and prevent memory leaks/crashes.
+**Why It Matters**: Unlocks entire C ecosystem (millions of libraries). System programming requires OS APIs (all C).
 
 **Use Cases**: OS APIs (filesystem, networking, processes), database bindings (PostgreSQL, MySQL, SQLite), graphics libraries (OpenGL, Vulkan), compression (zlib, lz4), cryptography (OpenSSL), embedded drivers, legacy C code integration.
 
@@ -593,11 +593,11 @@ fn callback_with_state_example() {
 
 ## Pattern 3: Uninitialized Memory Handling
 
-**Problem**: Large arrays (1MB) on stack cause overflow. Reading from I/O into buffers wastes initialization. Performance-critical code initializes piecemeal. Rust assumes all values initialized—reading uninitialized = UB. FFI out-parameters pass uninitialized pointers. Default initialization expensive for large buffers.
+**Problem**: Large arrays (1MB) on stack cause overflow. Reading from I/O into buffers wastes initialization.
 
-**Solution**: Use `MaybeUninit<T>` to work with possibly-uninitialized memory safely. `MaybeUninit::uninit()` creates uninitialized, `write()` initializes, `assume_init()` asserts initialization. Use `MaybeUninit::uninit_array()` for arrays. `addr_of_mut!` for field pointers without creating references. For FFI: pass `as_mut_ptr()`, check success, then `assume_init()`.
+**Solution**: Use `MaybeUninit<T>` to work with possibly-uninitialized memory safely. `MaybeUninit::uninit()` creates uninitialized, `write()` initializes, `assume_init()` asserts initialization.
 
-**Why It Matters**: Prevents stack overflow: `[i32; 1_000_000]` crashes, `MaybeUninit` array succeeds. 2-3x faster for bulk initialization—no double-init. Safe FFI out-parameters prevent UB from unchecked C writes. Real example: reading 1MB from socket—sequential init 2ms, MaybeUninit + bulk read 0.1ms (20x faster). Miri catches uninitialized reads immediately.
+**Why It Matters**: Prevents stack overflow: `[i32; 1_000_000]` crashes, `MaybeUninit` array succeeds. 2-3x faster for bulk initialization—no double-init.
 
 **Use Cases**: Large stack arrays (>4KB), reading from files/sockets/FFI into buffers, performance-critical initialization, FFI out-parameters, deserializing from binary, reusing buffers without clearing.
 
@@ -787,11 +787,11 @@ fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
 
 ## Pattern 4: Transmute and Type Punning
 
-**Problem**: Need bit-level reinterpretation for binary protocols. Numerical code needs bit manipulation (float bits). Zero-copy serialization requires type reinterpretation. Endianness conversion for network protocols. Enum discrimination for low-level code. Want to avoid copying data.
+**Problem**: Need bit-level reinterpretation for binary protocols. Numerical code needs bit manipulation (float bits).
 
-**Solution**: Use `transmute` sparingly—most dangerous function in Rust. Prefer safe alternatives: `to_bits()`/`from_bits()` for floats, `as` casts for integers, pointer casts for references. Document why transmute is correct and can't be avoided. Check sizes match (compile-time). Use unions for type punning when bit-compatible. `bytemuck` crate for safe verified transmutes.
+**Solution**: Use `transmute` sparingly—most dangerous function in Rust. Prefer safe alternatives: `to_bits()`/`from_bits()` for floats, `as` casts for integers, pointer casts for references.
 
-**Why It Matters**: Wrong transmute = instant UB (lifetime extension, size mismatch, invalid values). Proper use enables zero-copy parsing (10x faster). Binary protocol parsing requires reinterpreting bytes. Real examples: `f32::to_bits()` uses transmute internally (safe). Extending lifetimes with transmute corrupts memory silently. Size mismatch caught at compile-time. Bytemuck prevents 90% of transmute bugs via traits.
+**Why It Matters**: Wrong transmute = instant UB (lifetime extension, size mismatch, invalid values). Proper use enables zero-copy parsing (10x faster).
 
 **Use Cases**: Binary protocol parsing (network, file formats), bit manipulation in numerical code, zero-copy serialization/deserialization, converting between types with identical layout, enum discrimination, hardware register access.
 
@@ -1026,11 +1026,11 @@ fn type_confusion_bad() {
 
 ## Pattern 5: Safe Abstractions Over Unsafe
 
-**Problem**: Unsafe code scattered everywhere is error-prone. Hard to audit and maintain invariants. Users exposed to raw pointers and manual management. Bugs in unsafe code cause UB throughout program. Testing unsafe code difficult. No encapsulation of preconditions.
+**Problem**: Unsafe code scattered everywhere is error-prone. Hard to audit and maintain invariants.
 
-**Solution**: Build safe types that encapsulate unsafe internals. Public API has no `unsafe`. Maintain invariants via type system (private fields). Use RAII (Drop) for automatic cleanup. PhantomData for variance/drop check. Document safety invariants clearly. Implement Send/Sync when provably safe. Type-state pattern prevents invalid states at compile-time.
+**Solution**: Build safe types that encapsulate unsafe internals. Public API has no `unsafe`.
 
-**Why It Matters**: Vec/String/Arc/Mutex prove pattern works—millions use them safely. Single audit point instead of scattered unsafe. Type system prevents misuse. Real example: custom Vec with unsafe internals—users can't break invariants (len>cap impossible). SpinLock exposes safe API via RAII guard. Wrong: public `unsafe fn`—callers must uphold contract. Right: private unsafe, safe public API.
+**Why It Matters**: Vec/String/Arc/Mutex prove pattern works—millions use them safely. Single audit point instead of scattered unsafe.
 
 **Use Cases**: Custom collections (Vec, HashMap, LinkedList), synchronization primitives (Mutex, RwLock, atomics), custom allocators, FFI wrappers for C libraries, type-state APIs (builder patterns), intrusive data structures.
 

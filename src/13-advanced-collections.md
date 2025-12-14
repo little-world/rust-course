@@ -5,11 +5,11 @@ This chapter explores advanced collection types and data structures beyond the s
 
 ## Pattern 1: VecDeque and Ring Buffers
 
-**Problem**: Vec only supports O(1) operations at one end—`push_front()` requires shifting all elements making it O(N). Implementing queues (FIFO) with Vec is inefficient: either `pop(0)` is O(N) or reversing is needed. Ring buffers with Vec require manual index wrapping. Sliding window algorithms with Vec allocate for every window position.
+**Problem**: Vec only supports O(1) operations at one end—`push_front()` requires shifting all elements making it O(N). Implementing queues (FIFO) with Vec is inefficient: either `pop(0)` is O(N) or reversing is needed.
 
-**Solution**: Use `VecDeque<T>` which maintains a ring buffer internally with head/tail pointers. Operations `push_front()`, `push_back()`, `pop_front()`, `pop_back()` are all O(1). Access elements by index in O(1). Use as circular buffer by limiting capacity. Leverage for sliding windows, task queues, LRU caches, and breadth-first search.
+**Solution**: Use `VecDeque<T>` which maintains a ring buffer internally with head/tail pointers. Operations `push_front()`, `push_back()`, `pop_front()`, `pop_back()` are all O(1).
 
-**Why It Matters**: VecDeque enables efficient double-ended operations impossible with Vec. A task queue processing 1M items: Vec with `remove(0)` is O(N) per operation = O(N²) total. VecDeque is O(1) per operation = O(N) total—1000x faster. Sliding windows, undo/redo stacks, and BFS all benefit. Ring buffer implementations are built-in instead of error-prone manual wrapping.
+**Why It Matters**: VecDeque enables efficient double-ended operations impossible with Vec. A task queue processing 1M items: Vec with `remove(0)` is O(N) per operation = O(N²) total.
 
 **Use Cases**: FIFO queues (task processing, message queues), deques (double-ended queues), ring buffers (audio/video streaming, fixed-size logs), sliding windows (moving averages, pattern matching), BFS traversal, undo/redo stacks.
 
@@ -568,11 +568,11 @@ fn main() {
 
 ## Pattern 2: BinaryHeap and Priority Queues
 
-**Problem**: Maintaining a sorted collection with frequent insertions is expensive—sorting after each insert is O(N log N). Finding the min/max element in unsorted Vec is O(N). Priority-based task scheduling requires efficiently extracting highest-priority item. Top-K problems need partial sorting but full sort wastes work. Event scheduling requires ordered timestamp processing.
+**Problem**: Maintaining a sorted collection with frequent insertions is expensive—sorting after each insert is O(N log N). Finding the min/max element in unsorted Vec is O(N).
 
-**Solution**: Use `BinaryHeap<T>` which implements a max-heap: O(log N) insertion, O(log N) pop of maximum, O(1) peek at maximum. Wrap values in `Reverse<T>` for min-heap behavior. Use `peek()` to check top without removal. Leverage for priority queues, event scheduling, top-K algorithms (with fixed-size heap), and Dijkstra's shortest path.
+**Solution**: Use `BinaryHeap<T>` which implements a max-heap: O(log N) insertion, O(log N) pop of maximum, O(1) peek at maximum. Wrap values in `Reverse<T>` for min-heap behavior.
 
-**Why It Matters**: BinaryHeap provides optimal performance for priority operations. Task scheduler with 10K tasks: sorting after each insert = O(N log N) per insert. BinaryHeap = O(log N) per insert—1000x faster. Dijkstra's algorithm with BinaryHeap is O((V+E) log V), sorting-based is O(V²). Top-K with size-K heap uses O(K) memory vs O(N) for full sort. Event simulation with millions of events becomes tractable.
+**Why It Matters**: BinaryHeap provides optimal performance for priority operations. Task scheduler with 10K tasks: sorting after each insert = O(N log N) per insert.
 
 **Use Cases**: Priority task scheduling, event simulation (process by timestamp), Dijkstra/A* pathfinding, top-K element finding (median, percentiles), merge K sorted lists, deadline scheduling, rate limiting.
 
@@ -1220,11 +1220,11 @@ fn main() {
 
 ## Pattern 3: Graph Representations
 
-**Problem**: Naive graph implementations with recursive structures hit Rust's ownership rules—nodes can't mutually reference each other without causing cycles. Using `Rc<RefCell<Node>>` everywhere is verbose and has runtime overhead. Dense graphs with adjacency matrices waste O(V²) memory when edges are sparse. Edge-list representations make neighbor queries O(E). Choosing wrong representation kills algorithm performance.
+**Problem**: Naive graph implementations with recursive structures hit Rust's ownership rules—nodes can't mutually reference each other without causing cycles. Using `Rc<RefCell<Node>>` everywhere is verbose and has runtime overhead.
 
-**Solution**: Use adjacency list with `Vec<Vec<usize>>` (node IDs as indices) for most graphs. Use adjacency matrix `Vec<Vec<bool>>` for dense graphs or when edge checks must be O(1). Use `HashMap<NodeId, Vec<NodeId>>` for dynamic graphs. Represent edges as separate array with node indices. Choose based on: graph density (sparse vs dense), operation patterns (neighbor queries vs edge checks), and mutability needs.
+**Solution**: Use adjacency list with `Vec<Vec<usize>>` (node IDs as indices) for most graphs. Use adjacency matrix `Vec<Vec<bool>>` for dense graphs or when edge checks must be O(1).
 
-**Why It Matters**: Graph representation determines algorithm performance. Dijkstra's with adjacency list: O((V+E) log V). With adjacency matrix: O(V²). For sparse graphs (E << V²), this is 1000x difference. Social network with 1M users, 50M friendships: adjacency list uses 400MB, matrix uses 1TB. Ownership-based designs avoid runtime RefCell checks. Wrong choice makes simple algorithms intractable.
+**Why It Matters**: Graph representation determines algorithm performance. Dijkstra's with adjacency list: O((V+E) log V).
 
 **Use Cases**: Adjacency list for social networks, dependency graphs, road networks (sparse). Adjacency matrix for complete graphs, grid-based pathfinding, dense weighted graphs. HashMap-based for dynamic graphs (adding/removing nodes), unknown node sets.
 
@@ -1711,11 +1711,11 @@ fn main() {
 
 ## Pattern 4: Trie and Radix Tree Structures
 
-**Problem**: Finding all strings with a given prefix in HashMap requires checking every key—O(N) with N strings. Autocomplete for 1M words checks all 1M. Longest common prefix requires pairwise comparisons. IP routing tables need longest prefix matching. HashSet can't efficiently answer "words starting with 'pre'". Storing dictionary with shared prefixes wastes memory ("pre", "prefix", "preview" store "pre" three times).
+**Problem**: Finding all strings with a given prefix in HashMap requires checking every key—O(N) with N strings. Autocomplete for 1M words checks all 1M.
 
-**Solution**: Use Trie (prefix tree) where each node represents a character, paths from root spell strings. Prefix search is O(M) where M is prefix length, not number of strings. Radix tree (compressed trie) merges single-child chains to reduce nodes. Use for autocomplete, spell checking, IP routing, dictionary compression. Query all strings with prefix by traversing to prefix node then collecting subtree.
+**Solution**: Use Trie (prefix tree) where each node represents a character, paths from root spell strings. Prefix search is O(M) where M is prefix length, not number of strings.
 
-**Why It Matters**: Tries enable efficient prefix operations impossible with hash tables. Autocomplete in 1M-word dictionary: HashMap O(N) scan per query. Trie O(M) where M is typed prefix—10,000x faster for 10-character prefix. IP routing with 500K routes: linear scan is O(N), trie longest-prefix-match is O(32) for IPv4. Memory: compressed trie shares common prefixes—"antiestablishmentarianism" variations stored once. Dictionary apps, autocomplete, routers all rely on tries.
+**Why It Matters**: Tries enable efficient prefix operations impossible with hash tables. Autocomplete in 1M-word dictionary: HashMap O(N) scan per query.
 
 **Use Cases**: Autocomplete (search engines, IDEs, command completion), spell checkers (dictionary lookup, suggestions), IP routing (longest prefix match), phonebook search by prefix, DNA sequence matching, text compression (shared prefix storage).
 
@@ -2280,11 +2280,11 @@ fn main() {
 
 ## Pattern 5: Lock-Free Data Structures
 
-**Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting. Priority inversion: low-priority thread holds lock, blocking high-priority thread. Deadlocks from lock ordering mistakes. Panics while holding lock poison the mutex. Real-time systems can't tolerate lock-induced latency spikes.
+**Problem**: Mutex-based data structures serialize all access—threads wait even when operating on different elements. Lock contention causes 80% of multi-threaded time spent waiting.
 
-**Solution**: Use atomic operations (`AtomicUsize`, `AtomicBool`, etc.) for lock-free primitives. Implement lock-free algorithms with compare-and-swap (CAS) loops. Use `crossbeam::queue::ArrayQueue` for bounded SPSC/MPMC. Use `Arc` with atomic refcounts for shared ownership. Leverage memory orderings (`Acquire`, `Release`, `SeqCst`) for correct synchronization. ABA problem requires generation counters or garbage collection.
+**Solution**: Use atomic operations (`AtomicUsize`, `AtomicBool`, etc.) for lock-free primitives. Implement lock-free algorithms with compare-and-swap (CAS) loops.
 
-**Why It Matters**: Lock-free structures enable true parallelism. Multi-threaded counter with Mutex: serialized updates = 1 core performance. Atomic counter: linear scaling = 8 cores → 8x throughput. MPMC queue with DashMap or crossbeam: 100-1000x better than Mutex<VecDeque> under contention. Real-time audio processing requires lock-free queues to prevent dropouts. Database systems use lock-free structures for transaction processing at millions/second.
+**Why It Matters**: Lock-free structures enable true parallelism. Multi-threaded counter with Mutex: serialized updates = 1 core performance.
 
 **Use Cases**: MPMC queues (work-stealing schedulers, actor systems), atomic counters (metrics, rate limiting), lock-free stacks (memory allocators), concurrent hash maps (caches, indexes), real-time systems (audio, trading), high-throughput servers.
 

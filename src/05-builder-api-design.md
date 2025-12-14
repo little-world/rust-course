@@ -13,11 +13,11 @@ This chapter explores several powerful API design patterns in Rust:
 
 The Builder pattern provides a flexible and readable way to construct complex objects, especially those with multiple optional fields or a lengthy configuration process.
 
--   **Problem**: Constructors with numerous parameters are confusing and error-prone. It's hard to remember the order of arguments, and handling optional fields with `Option<T>` is verbose. This often leads to a "constructor explosion" where many `new` functions are needed for different combinations of parameters.
+-   **Problem**: Constructors with numerous parameters are confusing and error-prone. It's hard to remember the order of arguments, and handling optional fields with `Option<T>` is verbose.
 
--   **Solution**: Instead of creating an object in a single step, a builder object is used to configure the final object piece by piece through a series of method calls. A final `.build()` method then constructs the object. Variations include consuming builders (for single-use), non-consuming builders (for reuse), and builders that validate required fields.
+-   **Solution**: Instead of creating an object in a single step, a builder object is used to configure the final object piece by piece through a series of method calls. A final `.build()` method then constructs the object.
 
--   **Why it matters**: This pattern leads to self-documenting code (e.g., `.timeout(30)` is clearer than a positional argument). It improves ergonomics with a fluent, chainable API. By returning a `Result` from `build()`, it can enforce that required fields are set. Adding new optional fields is backward-compatible and doesn't break existing code.
+-   **Why it matters**: This pattern leads to self-documenting code (e.g., `.timeout(30)` is clearer than a positional argument). It improves ergonomics with a fluent, chainable API.
 
 -   **Use cases**:
     -   Building HTTP requests (`reqwest::Client::get()`).
@@ -255,9 +255,9 @@ The Typestate pattern encodes the state of an object into the type system itself
 
 -   **Problem**: State machines are often implemented with enums and checked at runtime (e.g., `if self.state == State::Connected`). This is error-prone, as it's easy to forget a state, handle a transition incorrectly, or call a method in the wrong state, leading to panics.
 
--   **Solution**: Represent each state with a distinct type. State transitions are functions that consume an object in one state and return a new object in another state. Methods are only implemented on the types representing the states where those methods are valid. Zero-sized "marker types" are often used with `PhantomData` to track state without any runtime cost.
+-   **Solution**: Represent each state with a distinct type. State transitions are functions that consume an object in one state and return a new object in another state.
 
--   **Why it matters**: This pattern makes invalid states and transitions impossible to represent in code. It moves state machine validation from runtime to compile time, leveraging Rust's type system to create safer, self-documenting APIs. A wrong method call on a state becomes a clear compile error.
+-   **Why it matters**: This pattern makes invalid states and transitions impossible to represent in code. It moves state machine validation from runtime to compile time, leveraging Rust's type system to create safer, self-documenting APIs.
 
 -   **Use cases**:
     -   Database connections (`Unauthenticated` -> `Authenticated`).
@@ -414,7 +414,7 @@ This attribute signals that a function's return value is important and should no
 
 -   **Solution**: Apply the `#[must_use]` attribute to functions or types. This instructs the compiler to generate a warning if a returned value of that type is not "used" in some way (e.g., assigned to a variable, passed to another function, or having a method called on it).
 
--   **Why it matters**: `#[must_use]` makes APIs safer by default. It prevents entire classes of bugs caused by silently ignoring errors or failing to complete a required workflow. It shifts the burden of remembering to handle critical return values from the developer to the compiler.
+-   **Why it matters**: `#[must_use]` makes APIs safer by default. It prevents entire classes of bugs caused by silently ignoring errors or failing to complete a required workflow.
 
 -   **Use cases**:
     -   `Result` and `Option` types are the canonical examples.

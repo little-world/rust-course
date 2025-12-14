@@ -50,9 +50,9 @@ iter.find(|x| *x == target)     // Find first match
 
 **Problem**: You have a custom data structure (like a tree, graph, or a special-purpose buffer) and you want to allow users to loop over it using a standard `for` loop. Returning a `Vec` of items is inefficient as it requires allocating memory for all items at once.
 
-**Solution**: Implement the `Iterator` trait for a helper struct that holds the iteration state. Then, implement the `IntoIterator` trait for your main data structure, which creates and returns an instance of your iterator struct. This makes your type directly usable in a `for` loop.
+**Solution**: Implement the `Iterator` trait for a helper struct that holds the iteration state. Then, implement the `IntoIterator` trait for your main data structure, which creates and returns an instance of your iterator struct.
 
-**Why It Matters**: This pattern provides a clean, idiomatic, and efficient way to expose the contents of your data structures. Because iterators are lazy, no computation or allocation happens until the caller actually starts consuming items. This allows users to chain other iterator methods (`.map`, `.filter`, etc.) for free, leading to highly composable and performant APIs.
+**Why It Matters**: This pattern provides a clean, idiomatic, and efficient way to expose the contents of your data structures. Because iterators are lazy, no computation or allocation happens until the caller actually starts consuming items.
 
 **Use Cases**:
 -   Custom collections like trees, graphs, or ring buffers.
@@ -156,9 +156,9 @@ assert_eq!(fibs, vec![0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);
 
 **Problem**: When processing large datasets, chaining operations like `map` and `filter` can be inefficient if each step allocates a new, intermediate collection. This can lead to high memory usage and poor cache performance.
 
-**Solution**: Chain iterator adapters together without calling `.collect()` until the very end. Iterators in Rust are "lazy," meaning they don't do any work until a "consuming" method like `collect()`, `sum()`, or `count()` is called. This allows the compiler to fuse the chain of operations into a single, highly optimized loop that processes items one by one without intermediate allocations.
+**Solution**: Chain iterator adapters together without calling `.collect()` until the very end. Iterators in Rust are "lazy," meaning they don't do any work until a "consuming" method like `collect()`, `sum()`, or `count()` is called.
 
-**Why It Matters**: This pattern is fundamental to writing high-performance data processing code in Rust. It allows you to write high-level, declarative code that is just as fast as a hand-written, low-level loop. For large datasets, the performance difference can be orders of magnitude.
+**Why It Matters**: This pattern is fundamental to writing high-performance data processing code in Rust. It allows you to write high-level, declarative code that is just as fast as a hand-written, low-level loop.
 
 **Use Cases**:
 -   Data processing pipelines (e.g., in ETL jobs or data analysis).
@@ -215,7 +215,7 @@ fn count_long_strings(strings: &[&str]) -> usize {
 
 **Problem**: Standard iterator adapters cover many use cases, but sometimes you need more specialized logic, such as stateful transformations, lookahead, or custom grouping, without resorting to manual loops.
 
-**Solution**: Use more advanced adapters like `.scan()`, `.peekable()`, and `.flat_map()` to build complex, declarative data processing pipelines. `.scan()` is perfect for stateful transformations like cumulative sums. `.peekable()` allows you to look at the next item without consuming it, which is essential for parsing. `.flat_map()` is great for transforming one item into many.
+**Solution**: Use more advanced adapters like `.scan()`, `.peekable()`, and `.flat_map()` to build complex, declarative data processing pipelines. `.scan()` is perfect for stateful transformations like cumulative sums.
 
 **Why It Matters**: These advanced tools allow you to express complex logic while staying within the iterator paradigm. This keeps your code declarative, composable, and often more performant than a manual implementation, as the compiler can still optimize the entire iterator chain.
 
@@ -401,11 +401,11 @@ enum Token {
 
 ## Pattern 4: Streaming Algorithms
 
-**Problem**: Loading entire files or datasets into memory causes OOM errors with large data (multi-GB log files, database dumps). Computing statistics requires multiple passes over data, multiplying I/O cost. Finding top-K elements naively requires sorting entire dataset. Algorithms that need to "see all data" seem to require loading everything. Batch processing forces awkward chunking logic.
+**Problem**: Loading entire files or datasets into memory causes OOM errors with large data (multi-GB log files, database dumps). Computing statistics requires multiple passes over data, multiplying I/O cost.
 
-**Solution**: Process data one element at a time using iterators, maintaining only essential state (aggregates, sliding windows, top-K heaps). Use `BufReader::lines()` for line-by-line file processing. Implement single-pass streaming algorithms (moving average, cumulative sum, top-K with min-heap). Merge sorted streams without loading both. Use `fold` for incremental aggregation. Batch process with fixed-size windows while streaming.
+**Solution**: Process data one element at a time using iterators, maintaining only essential state (aggregates, sliding windows, top-K heaps). Use `BufReader::lines()` for line-by-line file processing.
 
-**Why It Matters**: Streaming algorithms enable processing datasets larger than RAM—a 100GB log file processes with constant 1MB memory. Single-pass algorithms are dramatically faster: computing average + variance in one pass vs two passes halves I/O time. Top-K with a heap of size K uses O(K) memory, not O(N). Real-time systems process infinite streams (network packets, sensor data, user events) that can't be collected first. This is the difference between "works on test data" and "works on production scale".
+**Why It Matters**: Streaming algorithms enable processing datasets larger than RAM—a 100GB log file processes with constant 1MB memory. Single-pass algorithms are dramatically faster: computing average + variance in one pass vs two passes halves I/O time.
 
 **Use Cases**: Log file analysis (grep-like filtering, statistics), database ETL (processing query results), real-time analytics (streaming averages, alerting), sensor data processing, network packet analysis, infinite sequences (event streams, live data feeds), CSV/JSON parsing of large files.
 
@@ -698,9 +698,9 @@ fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
 
 **Problem**: Processing a large collection sequentially can be slow, leaving multiple CPU cores idle. Manually writing multi-threaded code to parallelize such tasks is complex, error-prone, and requires careful synchronization.
 
-**Solution**: Use the **Rayon** library. By simply changing `.iter()` to `.par_iter()`, Rayon can automatically parallelize your iterator chain across all available CPU cores. It uses a work-stealing scheduler to efficiently balance the load between threads.
+**Solution**: Use the **Rayon** library. By simply changing `.iter()` to `.par_iter()`, Rayon can automatically parallelize your iterator chain across all available CPU cores.
 
-**Why It Matters**: Rayon offers a massive performance boost for data-parallel tasks with minimal code changes. For a CPU-bound task, you can often achieve a near-linear speedup with the number of cores. It makes parallel programming in Rust incredibly accessible and safe.
+**Why It Matters**: Rayon offers a massive performance boost for data-parallel tasks with minimal code changes. For a CPU-bound task, you can often achieve a near-linear speedup with the number of cores.
 
 **Use Cases**:
 -   Data-intensive computations like image processing or scientific simulations.

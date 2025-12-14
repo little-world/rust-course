@@ -3,10 +3,9 @@ This chapter explores advanced trait patterns: inheritance and bounds for capabi
 
 ## Pattern 1: Trait Inheritance and Bounds
 
-*   **Problem**: Expressing complex capability requirements is unclear—a trait needs `Display` but can't require it directly. Combining multiple capabilities is verbose (`T: Clone + Debug + Display`). Conditional implementations are confusing, and complex generic constraints become unreadable.
-*   **Solution**: Use supertrait relationships (`trait Loggable: Debug`) to express requirements. Use trait bounds in generics (`fn process<T: Clone>`), and `where` clauses for readability. Implement traits conditionally (`impl<T: Clone> MyTrait for Wrapper<T>`).
-*   **Why It Matters**: Supertraits create clear capability requirements. Trait bounds allow for powerful composition of abstractions from simple components. Conditional implementations prevent code bloat. The type system enforces all requirements at compile-time with zero runtime cost.
-*   **Use Cases**: API design, generic function constraints, blanket implementations, builder patterns, capability requirements (e.g., a `Serializable` trait requiring `Debug` for error details), and ensuring trait object safety.
+*   **Problem**: Expressing complex capability requirements is unclear—a trait needs `Display` but can't require it directly. Combining multiple capabilities is verbose (`T: Clone + Debug + Display`).
+*   **Solution**: Use supertrait relationships (`trait Loggable: Debug`) to express requirements. Use trait bounds in generics (`fn process<T: Clone>`), and `where` clauses for readability.
+*   **Why It Matters**: Supertraits create clear capability requirements. Trait bounds allow for powerful composition of abstractions from simple components.
 
 ### Example: Super Traits
 
@@ -202,10 +201,7 @@ The builder pattern becomes particularly powerful with conditional trait impleme
 
 *   **Problem**: A generic trait like `Parser<Output>` allows a single type to have multiple implementations (e.g., for different `Output` types), which can be confusing. Call sites become verbose (`parser.parse::<serde_json::Value>()`), and it's unclear if a type parameter is an "input" or an "output".
 *   **Solution**: Use **associated types** when an implementing type determines a single, specific "output" type (`trait Parser { type Output; }`). Use **generics** when the caller chooses an "input" type and multiple implementations are desirable (`trait From<T>`).
-*   **Why It Matters**: Associated types lead to more ergonomic APIs, as the compiler can infer the output type (`parser.parse()` is clean). This prevents ambiguity and simplifies trait bounds. Generics provide flexibility for cases like conversions, where a type can be created from multiple different sources.
-*   **Use Cases**:
-    *   **Associated Types**: `Iterator::Item`, `Deref::Target`, parsers, graph node/edge types.
-    *   **Generics**: `From<T>`, `AsRef<T>`, `Add<Rhs>`.
+*   **Why It Matters**: Associated types lead to more ergonomic APIs, as the compiler can infer the output type (`parser.parse()` is clean). This prevents ambiguity and simplifies trait bounds.
 
 ### Example: Generics
 ```rust
@@ -426,9 +422,8 @@ Why associated type instead of generic?
 ## Pattern 3: Trait Objects and Dynamic Dispatch
 
 *   **Problem**: Static dispatch via generics (`fn foo<T: Trait>`) creates a copy of the function for each concrete type, leading to code bloat. It's also impossible to create a collection of different types that share a behavior, like `Vec<[Circle, Rectangle]>`.
-*   **Solution**: Use trait objects (`&dyn Trait`) for dynamic dispatch. This creates a single version of the function that accepts any type implementing the trait, looking up the correct method at runtime via a vtable. This allows for heterogeneous collections like `Vec<Box<dyn Drawable>>`.
+*   **Solution**: Use trait objects (`&dyn Trait`) for dynamic dispatch. This creates a single version of the function that accepts any type implementing the trait, looking up the correct method at runtime via a vtable.
 *   **Why It Matters**: Dynamic dispatch results in smaller binary sizes and allows for runtime polymorphism (e.g., plugin systems). This flexibility comes at the small cost of a vtable pointer lookup for each method call, which prevents inlining.
-*   **Use Cases**: Plugin systems, GUI frameworks (`Vec<Box<dyn Widget>>`), game engines, event handlers for different event types, middleware chains, and any scenario requiring a collection of different types that share a common interface.
 
 ### Example: static dispatch
 
@@ -673,9 +668,8 @@ The difference is tiny for I/O-bound operations but can matter for tight inner l
 ## Pattern 4: Extension Traits
 
 *   **Problem**: You can't add methods to types from other crates (the "orphan rule"). You want to extend standard types like `Vec` or `String` with domain-specific helpers, but can't modify their source code.
-*   **Solution**: Define a new trait (an "extension trait") with the desired methods. Then, implement that trait for the external type. Users of your crate can then `use` your trait to make the new methods available.
-*   **Why It Matters**: This pattern allows you to extend any type you don't own in a modular, opt-in way. It solves the orphan rule problem cleanly. Multiple crates can extend the same type without conflicting. It also allows for powerful "blanket implementations" like adding a method to *all* types that implement `Iterator`.
-*   **Use Cases**: Adding domain-specific methods to `String`, extending `Result`/`Option` with logging helpers, creating custom `Iterator` adapters, providing helper methods for collections like `HashMap`.
+*   **Solution**: Define a new trait (an "extension trait") with the desired methods. Then, implement that trait for the external type.
+*   **Why It Matters**: This pattern allows you to extend any type you don't own in a modular, opt-in way. It solves the orphan rule problem cleanly.
 
 
 ### Example: Basic Extension Trait
@@ -807,9 +801,8 @@ This pattern is incredibly powerful—one implementation provides functionality 
 ## Pattern 5: Sealed Traits
 
 *   **Problem**: As a library author, you want to publish a trait that users can depend on, but you want to prevent them from implementing it themselves. This allows you to add new methods to the trait later without it being a breaking change.
-*   **Solution**: Create a private `sealed` module with a public but un-implementable `Sealed` trait. Make your public trait a supertrait of `sealed::Sealed`. Because the `Sealed` trait is inside a private module, only code within your crate can implement it, effectively "sealing" the public trait from outside implementation.
+*   **Solution**: Create a private `sealed` module with a public but un-implementable `Sealed` trait. Make your public trait a supertrait of `sealed::Sealed`.
 *   **Why It Matters**: This pattern gives you the freedom to evolve your API (e.g., add methods with default implementations to the trait) without breaking downstream users. It's a crucial tool for library authors who need to maintain long-term stability.
-*   **Use Cases**: Future-proofing public APIs, creating internal abstractions that shouldn't be implemented externally, and defining `unsafe` traits where you must control all implementations to guarantee safety invariants.
 
 ### Example: Basic Sealed Trait
 

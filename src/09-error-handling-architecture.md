@@ -8,11 +8,11 @@ The key insight is that error handling in Rust is not just about reporting failu
 
 ## Pattern 1: Custom Error Enums for Libraries
 
-**Problem**: Returning simple strings or a generic `Box<dyn Error>` from a library is not ideal. A `String` error loses all type information, making it impossible for a caller to programmatically handle different kinds of failures. A generic error type hides the specific errors that can occur, forcing users to guess or read the source code.
+**Problem**: Returning simple strings or a generic `Box<dyn Error>` from a library is not ideal. A `String` error loses all type information, making it impossible for a caller to programmatically handle different kinds of failures.
 
-**Solution**: Define a custom `enum` for your library's errors. Each variant of the enum represents a distinct failure mode. Use the `thiserror` crate to easily derive the standard `Error` and `Display` traits, reducing boilerplate.
+**Solution**: Define a custom `enum` for your library's errors. Each variant of the enum represents a distinct failure mode.
 
-**Why It Matters**: A custom error enum makes your library's API transparent and robust. It allows users to `match` on specific error variants and handle them appropriately—for example, retrying a `Timeout` error but aborting on a `PermissionDenied` error. This makes the consuming code more reliable and user-friendly.
+**Why It Matters**: A custom error enum makes your library's API transparent and robust. It allows users to `match` on specific error variants and handle them appropriately—for example, retrying a `Timeout` error but aborting on a `PermissionDenied` error.
 
 **Use Cases**:
 -   Public libraries where callers need to distinguish between different failure modes.
@@ -79,9 +79,9 @@ pub enum ApiError {
 
 ## Pattern 2: `anyhow` for Application-Level Errors
 
-**Problem**: In application code (as opposed to library code), you often don't need to handle each specific error type. Your main goal is to understand *why* an operation failed and report it to the user or a logging service. Chaining many different error types (`io::Error`, `serde_json::Error`, etc.) can be cumbersome.
+**Problem**: In application code (as opposed to library code), you often don't need to handle each specific error type. Your main goal is to understand *why* an operation failed and report it to the user or a logging service.
 
-**Solution**: Use the `anyhow` crate. `anyhow::Result` is a type alias for `Result<T, anyhow::Error>`, where `anyhow::Error` is a dynamic error type that can hold any error that implements `std::error::Error`. The `.context()` method lets you add human-readable context to errors as they propagate up the call stack.
+**Solution**: Use the `anyhow` crate. `anyhow::Result` is a type alias for `Result<T, anyhow::Error>`, where `anyhow::Error` is a dynamic error type that can hold any error that implements `std::error::Error`.
 
 **Why It Matters**: `anyhow` provides the convenience of a single, easy-to-use error type for your application while preserving the full chain of underlying causes. It strikes a balance between ease of use and detailed diagnostics, which is perfect for the top levels of an application.
 
@@ -171,11 +171,11 @@ impl HttpErrorBuilder {
 
 ## Pattern 2: Error Propagation Strategies
 
-**Problem**: Explicit error handling with `match` and `if let` at every fallible call creates deeply nested code and obscures business logic. Transforming errors manually (wrapping `io::Error` in your `AppError`) is repetitive. Different error handling strategies (fail-fast, collect-all-errors, retry-on-failure) require different propagation patterns but share boilerplate.
+**Problem**: Explicit error handling with `match` and `if let` at every fallible call creates deeply nested code and obscures business logic. Transforming errors manually (wrapping `io::Error` in your `AppError`) is repetitive.
 
-**Solution**: Use the `?` operator for concise error propagation—it early-returns `Err` and unwraps `Ok`. Implement `From` trait to enable automatic error conversion with `?`. Use `map_err` for manual transformation when adding context. For collecting multiple errors, use iterators with `collect::<Result<Vec<_>, _>>()` or custom aggregation. For retries, wrap operations in retry combinators.
+**Solution**: Use the `?` operator for concise error propagation—it early-returns `Err` and unwraps `Ok`. Implement `From` trait to enable automatic error conversion with `?`.
 
-**Why It Matters**: The `?` operator reduces error handling from 5+ lines per call to a single character, making error paths as readable as success paths. Automatic error conversion via `From` eliminates boilerplate while preserving type safety. Choosing the right propagation strategy determines whether your batch processor stops at the first error or reports all 1000 validation failures at once—critical for user experience.
+**Why It Matters**: The `?` operator reduces error handling from 5+ lines per call to a single character, making error paths as readable as success paths. Automatic error conversion via `From` eliminates boilerplate while preserving type safety.
 
 **Use Cases**: Application code with mixed error types (I/O, parsing, validation), batch processing that needs to collect all errors, network code requiring retries, operations that can fall back to alternatives, data pipelines with lenient error handling.
 
@@ -351,11 +351,11 @@ use itertools::Itertools;
 
 ## Pattern 3: Custom Error Types with Context
 
-**Problem**: Generic errors like "parse error" or "database query failed" provide no actionable information. Was it line 47 or line 1832? Which query? What input? Developers waste hours reproducing bugs because errors lack context. Stack traces show *where* the error occurred but not *why* (what data triggered it) or *how* to fix it.
+**Problem**: Generic errors like "parse error" or "database query failed" provide no actionable information. Was it line 47 or line 1832?
 
-**Solution**: Enrich errors with context at the point of failure using `anyhow::Context` for applications or structured fields in custom error types for libraries. Include: what operation failed, what input caused it, where in the input (line/column for parsers, row for databases), timing information, suggestions for fixing. Use backtraces to capture call stacks. Aggregate multiple failures for batch operations.
+**Solution**: Enrich errors with context at the point of failure using `anyhow::Context` for applications or structured fields in custom error types for libraries. Include: what operation failed, what input caused it, where in the input (line/column for parsers, row for databases), timing information, suggestions for fixing.
 
-**Why It Matters**: "Parse error at line 847, column 23: expected '}', got EOF. Suggestion: check for unclosed braces" points directly to the bug. "Parse error" could be anywhere in a 10,000-line file. Rich context reduces debugging time from hours to minutes. For production systems, detailed errors enable diagnosing issues from logs without reproducing them. Context is the difference between "it's broken" and "user uploaded CSV with BOM byte order mark, parser doesn't handle it".
+**Why It Matters**: "Parse error at line 847, column 23: expected '}', got EOF. Suggestion: check for unclosed braces" points directly to the bug.
 
 **Use Cases**: Parsers and compilers (provide line/column and code snippet), configuration validation (suggest valid values), database operations (include query and parameters), file I/O (include paths and operations attempted), network requests (include URL, method, status).
 
@@ -598,11 +598,11 @@ fn validate_item(_item: &Item) -> Result<(), ItemValidationError> {
 
 ## Pattern 4: Recoverable vs Unrecoverable Errors
 
-**Problem**: Using `Result` for everything forces callers to handle programmer errors (bugs) that should never occur, cluttering code with defensive checks. Using `panic!` for recoverable errors (file not found, network timeout) makes software brittle—crashes instead of graceful degradation. The boundary between "should recover" and "should crash" is often unclear, leading to inconsistent error handling across codebases.
+**Problem**: Using `Result` for everything forces callers to handle programmer errors (bugs) that should never occur, cluttering code with defensive checks. Using `panic!` for recoverable errors (file not found, network timeout) makes software brittle—crashes instead of graceful degradation.
 
-**Solution**: Use `Result` for expected failures that callers should handle (file not found, parse errors, network failures). Use `panic!` for programmer errors and invariant violations (out-of-bounds indexing, assertion failures, contract violations). Use `Option` when absence is a valid state without error context. At startup, fail fast with `?` or `expect()` for required resources. In long-running servers, gracefully degrade or use fallbacks for transient failures.
+**Solution**: Use `Result` for expected failures that callers should handle (file not found, parse errors, network failures). Use `panic!` for programmer errors and invariant violations (out-of-bounds indexing, assertion failures, contract violations).
 
-**Why It Matters**: Using `panic!` for programmer errors catches bugs immediately in development—if an array index is out of bounds, the program crashes with a clear error rather than returning a `Result` that might be ignored. Using `Result` for external failures enables graceful degradation—a web server can return 503 for database timeout instead of crashing. Confusing these leads to either brittle software (crashes on expected failures) or impossible-to-debug issues (continuing execution after invariant violated).
+**Why It Matters**: Using `panic!` for programmer errors catches bugs immediately in development—if an array index is out of bounds, the program crashes with a clear error rather than returning a `Result` that might be ignored. Using `Result` for external failures enables graceful degradation—a web server can return 503 for database timeout instead of crashing.
 
 **Use Cases**: Libraries use `Result` (let caller decide), applications can `panic!` at startup for missing config, long-running services use `Result` with fallbacks, embedded systems may `panic!` on OOM, test code uses `unwrap()` liberally, FFI boundaries must catch panics with `catch_unwind`.
 
@@ -795,9 +795,9 @@ Use `Option` when:
 
 **Problem**: Async operations introduce failure modes absent in synchronous code: timeouts (operation took too long), cancellation (task dropped before completion), concurrent failures (10 out of 100 requests failed), and cascading failures (one service down brings down dependent services). Naive async error handling leads to unbounded waits, resource leaks from cancelled operations, and unclear error reporting when multiple concurrent operations fail.
 
-**Solution**: Wrap all I/O operations in timeouts using `tokio::time::timeout`. Use `try_join!` or `try_join_all` to propagate first error from concurrent operations. Use `select!` for racing operations with fallbacks. Implement retry logic with exponential backoff for transient failures. Use circuit breakers to fail fast when downstream services are unavailable. Make operations cancellation-safe (atomic commits, temp files). Aggregate errors from concurrent operations for batch processing.
+**Solution**: Wrap all I/O operations in timeouts using `tokio::time::timeout`. Use `try_join!` or `try_join_all` to propagate first error from concurrent operations.
 
-**Why It Matters**: Without timeouts, a single slow dependency can hang your entire service—one database query taking 30 seconds blocks all concurrent requests. Without proper cancellation handling, dropped tasks can leave files partially written or transactions uncommitted. Without error aggregation, batch processors report "1 error occurred" when actually 50 items failed—frustrating for users. Async error handling is the difference between a resilient distributed system and one that cascades into total failure.
+**Why It Matters**: Without timeouts, a single slow dependency can hang your entire service—one database query taking 30 seconds blocks all concurrent requests. Without proper cancellation handling, dropped tasks can leave files partially written or transactions uncommitted.
 
 **Use Cases**: Web servers handling concurrent requests, microservices with service-to-service calls, batch processing with concurrent workers, real-time systems with latency requirements, streaming data pipelines, distributed systems requiring fault tolerance.
 

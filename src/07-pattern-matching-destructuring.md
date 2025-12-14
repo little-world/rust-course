@@ -54,11 +54,11 @@ match ch {
 
 ## Pattern 1: Advanced Match Patterns
 
-**Problem**: Simple if-else chains for numeric ranges become unwieldy (checking temperature ranges requires 8+ nested conditions). Extracting and testing values simultaneously requires separate steps (check status code, then extract it). Multiple similar conditions duplicate code. Complex boolean logic in guards becomes unreadable.
+**Problem**: Simple if-else chains for numeric ranges become unwieldy (checking temperature ranges requires 8+ nested conditions). Extracting and testing values simultaneously requires separate steps (check status code, then extract it).
 
-**Solution**: Use range patterns (`1..=10`) for concise numeric matching. Combine `@` bindings with guards to capture values while testing conditions (`x @ 100..=200 if expensive(x)`). Use or-patterns (`'a' | 'e' | 'i'`) to avoid duplication. Nest destructuring deeply to extract data directly in match arms.
+**Solution**: Use range patterns (`1..=10`) for concise numeric matching. Combine `@` bindings with guards to capture values while testing conditions (`x @ 100..=200 if expensive(x)`).
 
-**Why It Matters**: Range patterns reduce 20 lines of if-else to a single clear match expression. The `@` binding eliminates temporary variables—capture and test in one step. Guards let you incorporate arbitrary logic without sacrificing pattern matching's exhaustiveness checking. This makes complex classification logic (temperature ranges, HTTP status codes, user categories) both readable and provably complete.
+**Why It Matters**: Range patterns reduce 20 lines of if-else to a single clear match expression. The `@` binding eliminates temporary variables—capture and test in one step.
 
 **Use Cases**: Numeric classification (temperature ranges, HTTP status codes, port numbers), token parsing (keywords, operators, literals), request routing (method + path combinations), user categorization (age/premium/activity), validation with capture (valid ranges that you need to use).
 
@@ -147,9 +147,9 @@ fn contains_origin(shape: &Shape) -> bool {
 
 **Problem**: In many languages, if you forget to handle a new enum variant in a `switch` statement, the program may compile but crash at runtime. Wildcard branches (`_` or `default`) can silently swallow new variants, leading to logical bugs.
 
-**Solution**: Rust's `match` expressions are **exhaustive**, meaning the compiler guarantees that every possible case is handled. If you add a new variant to an enum, your code will not compile until you update all `match` expressions that use it. This turns potential runtime errors into compile-time errors.
+**Solution**: Rust's `match` expressions are **exhaustive**, meaning the compiler guarantees that every possible case is handled. If you add a new variant to an enum, your code will not compile until you update all `match` expressions that use it.
 
-**Why It Matters**: Exhaustiveness checking is one of Rust's most powerful safety features. It makes refactoring and evolving codebases dramatically safer. When you add a new feature represented by an enum variant, the compiler acts as your assistant, pointing out every single place in the code that needs to be updated.
+**Why It Matters**: Exhaustiveness checking is one of Rust's most powerful safety features. It makes refactoring and evolving codebases dramatically safer.
 
 **Use Cases**:
 -   State machines where new states must be handled correctly everywhere.
@@ -227,13 +227,9 @@ fn handle_version(version: HttpVersion) {
 
 **Problem**: A full `match` expression can be verbose if you only care about one or two cases. Nested `if-let` statements for a sequence of validations can lead to a "pyramid of doom" that is hard to read.
 
-**Solution**:
--   Use `if let` to handle a single match case without the boilerplate of a full `match`.
--   Use `if let` chains (Rust 1.65+) to combine multiple patterns and conditions without nesting.
--   Use `let-else` (Rust 1.65+) for early returns when a pattern doesn't match.
--   Use `while let` to loop as long as a pattern matches, which is great for draining queues or processing iterators.
+**Solution**: - Use `if let` to handle a single match case without the boilerplate of a full `match`. - Use `if let` chains (Rust 1.65+) to combine multiple patterns and conditions without nesting.
 
-**Why It Matters**: These constructs make control flow more ergonomic and readable. `if let` chains flatten complex validation logic. `let-else` makes guard clauses clean and explicit. `while let` is the idiomatic way to process stateful iterators and queues.
+**Why It Matters**: These constructs make control flow more ergonomic and readable. `if let` chains flatten complex validation logic.
 
 **Use Cases**:
 -   Authentication flows (checking a header, parsing a token, validating claims).
@@ -317,11 +313,11 @@ fn drain_queue(queue: &mut VecDeque<String>) {
 ## Pattern 4: Enum-Driven Architecture
 ## Pattern 4: State Machines with Type-State Pattern
 
-**Problem**: In many architectures, business logic is scattered across different services or classes. Adding a new operation can require hunting through the codebase to make updates. String-based events or messages lose type safety and can lead to deserialization errors or incorrect handling at runtime.
+**Problem**: In many architectures, business logic is scattered across different services or classes. Adding a new operation can require hunting through the codebase to make updates.
 
-**Solution**: Model the core operations, events, and states of your application as **enums with associated data**. Use `match` expressions to implement behavior in a centralized and exhaustive way. Commands can be an `enum Command`, events an `enum Event`, and API responses an `enum ApiResponse`.
+**Solution**: Model the core operations, events, and states of your application as **enums with associated data**. Use `match` expressions to implement behavior in a centralized and exhaustive way.
 
-**Why It Matters**: This architecture centralizes your business logic and leverages Rust's exhaustiveness checking for maintainability. When you add a new command, the compiler forces you to handle it in your `execute` function. When you add a new event, the compiler ensures your state aggregates can apply it. This makes large-scale refactoring safe and predictable.
+**Why It Matters**: This architecture centralizes your business logic and leverages Rust's exhaustiveness checking for maintainability. When you add a new command, the compiler forces you to handle it in your `execute` function.
 
 **Use Cases**:
 -   CQRS (Command Query Responsibility Segregation) systems.

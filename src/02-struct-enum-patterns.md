@@ -3,13 +3,9 @@ This chapter explores struct and enum patterns for type-safe data modeling: choo
 
 ## Pattern 1: Struct Design Patterns
 
-*   **Problem**: It's often unclear when to use a named-field struct, a tuple struct, or a unit struct. Named fields can be verbose for simple types (`Point { x: f64, y: f64 }`), while tuple structs can be ambiguous (`Point(1.0, 2.0)`). Furthermore, primitive types lack domain-specific meaning, leading to potential mix-ups (e.g., `UserId(1)` vs. `OrderId(1)`).
-*   **Solution**: Use named-field structs for complex data models where clarity is key. Use tuple structs for simple wrappers and the newtype pattern to create distinct types from primitives. Use unit structs as zero-sized markers for compile-time state tracking (the typestate pattern).
-*   **Why It Matters**: This choice enhances type safety and code clarity. Named fields are self-documenting. Tuple structs create new, distinct types at zero runtime cost, preventing logical errors like mixing up different kinds of IDs. Unit structs enable powerful compile-time guarantees, making invalid states unrepresentable in your program.
-*   **Use Cases**:
-    *   **Named-Field Structs**: Data models, configuration objects, domain entities.
-    *   **Tuple Structs**: The newtype pattern (`struct UserId(u64)`), coordinates (`struct Point(i32, i32)`), color values.
-    *   **Unit Structs**: State markers for the typestate pattern (`Authenticated`, `Disconnected`), generic markers.
+*   **Problem**: It's often unclear when to use a named-field struct, a tuple struct, or a unit struct. Named fields can be verbose for simple types (`Point { x: f64, y: f64 }`), while tuple structs can be ambiguous (`Point(1.0, 2.0)`).
+*   **Solution**: Use named-field structs for complex data models where clarity is key. Use tuple structs for simple wrappers and the newtype pattern to create distinct types from primitives.
+*   **Why It Matters**: This choice enhances type safety and code clarity. Named fields are self-documenting.
 
 ### Example: Named Field Structs
 
@@ -131,10 +127,9 @@ let results = db.query("SELECT * FROM users"); // Now this works
 
 ## Pattern 2: Newtype and Wrapper Patterns
 
-*   **Problem**: Using raw primitive types like `u64` for different kinds of IDs (`UserId`, `OrderId`) can lead to bugs where they are accidentally mixed up. Primitives can't enforce invariants (e.g., a `String` that must be non-empty) and lack domain-specific meaning. Furthermore, the "orphan rule" prevents implementing external traits on external types.
-*   **Solution**: Wrap primitive types in a tuple struct (e.g., `struct UserId(u64)`). This creates a new, distinct type that cannot be mixed with other types, even if they wrap the same primitive. This "newtype" can have its own methods and can enforce invariants through a private field and a "smart constructor."
-*   **Why It Matters**: This pattern provides compile-time type safety at zero runtime cost. It prevents logical errors like passing an `OrderId` to a function expecting a `UserId`. It makes code self-documenting and allows you to attach domain-specific logic to a type. It is also the standard way to work around the orphan rule.
-*   **Use Cases**: Creating domain-specific IDs, enforcing units of measure, creating validated types (`NonEmptyString`, `PositiveI32`), and working around the orphan rule by wrapping an external type to implement an external trait.
+*   **Problem**: Using raw primitive types like `u64` for different kinds of IDs (`UserId`, `OrderId`) can lead to bugs where they are accidentally mixed up. Primitives can't enforce invariants (e.g., a `String` that must be non-empty) and lack domain-specific meaning.
+*   **Solution**: Wrap primitive types in a tuple struct (e.g., `struct UserId(u64)`). This creates a new, distinct type that cannot be mixed with other types, even if they wrap the same primitive.
+*   **Why It Matters**: This pattern provides compile-time type safety at zero runtime cost. It prevents logical errors like passing an `OrderId` to a function expecting a `UserId`.
 
 ### Example: Newtype
 ```rust
@@ -230,9 +225,8 @@ println!("Age: {:?}", validated_string.age());  // Validated method
 ## Pattern 3: Struct Memory and Update Patterns
 
 *   **Problem**: Understanding struct update syntax (`..other`) can lead to confusion about ownership and partial moves. Creating variations of a struct immutably can feel clumsy, and the interaction between `Copy` and non-`Copy` fields during updates is not always intuitive.
-*   **Solution**: Use the struct update syntax `..other` to create a new struct instance from an old one. Be aware that this will *move* any non-`Copy` fields, making the original struct partially unusable. To preserve the original, `clone()` it before the update. For more complex transformations, builder-style methods that consume and return `self` are a good pattern.
-*   **Why It Matters**: This syntax enables ergonomic, immutable updates. A clear understanding of the move semantics involved prevents surprising compile-time ownership errors. This pattern is a fundamental building block for creating fluent APIs and builder patterns.
-*   **Use Cases**: Updating configuration objects, creating slightly modified copies of a struct, functional-style data transformation, and as the foundation for builder patterns.
+*   **Solution**: Use the struct update syntax `..other` to create a new struct instance from an old one. Be aware that this will *move* any non-`Copy` fields, making the original struct partially unusable.
+*   **Why It Matters**: This syntax enables ergonomic, immutable updates. A clear understanding of the move semantics involved prevents surprising compile-time ownership errors.
 
 > **Note**: For compile-time state checking with phantom types and typestate patterns, see **Chapter 4: Pattern 6 (Phantom Types)** and **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
@@ -304,10 +298,9 @@ println!("Copyable field: {}", data.copyable);
 
 ## Pattern 4: Enum Design Patterns
 
-*   **Problem**: Representing a value that can be one of several related kinds is difficult with structs alone. Using `Option` for optional fields can create invalid states (e.g., a "shipped" order with no shipping address). Representing state machines or structured errors with simple types is not type-safe.
-*   **Solution**: Use an `enum` to define a type that can be one of several variants. Each variant can have its own associated data. Use `match` expressions to handle each variant exhaustively, guaranteeing that all cases are considered at compile time.
-*   **Why It Matters**: Enums make impossible states unrepresentable. The compiler's exhaustive checking for `match` statements prevents bugs from forgotten cases. This is a zero-cost abstraction: an enum's size is only as large as its largest variant plus a small tag. This allows for creating clear, type-safe state machines and rich error types with context.
-*   **Use Cases**: State machines (`ConnectionState`), custom error types, message passing (e.g., for actor systems or UI events), representing abstract syntax trees (ASTs) in compilers, and modeling any data that can be one of a fixed set of variants.
+*   **Problem**: Representing a value that can be one of several related kinds is difficult with structs alone. Using `Option` for optional fields can create invalid states (e.g., a "shipped" order with no shipping address).
+*   **Solution**: Use an `enum` to define a type that can be one of several variants. Each variant can have its own associated data.
+*   **Why It Matters**: Enums make impossible states unrepresentable. The compiler's exhaustive checking for `match` statements prevents bugs from forgotten cases.
 
 ### Example: Basic Enum with Pattern Matching
 
@@ -398,10 +391,9 @@ impl OrderStatus {
 
 ## Pattern 5: Advanced Enum Techniques
 
-*   **Problem**: Enums can have issues with memory usage if one variant is much larger than the others. Recursive enums (like a tree where a node contains other nodes) are impossible to define directly. Adding behavior or performing conversions can also be verbose.
-*   **Solution**: Use `Box<T>` to heap-allocate the data for large or recursive variants. This makes the size of the variant a pointer size, not the size of the data itself. Implement methods directly on the enum using an `impl` block to encapsulate logic. Use the `From` and `TryFrom` traits for ergonomic conversions.
+*   **Problem**: Enums can have issues with memory usage if one variant is much larger than the others. Recursive enums (like a tree where a node contains other nodes) are impossible to define directly.
+*   **Solution**: Use `Box<T>` to heap-allocate the data for large or recursive variants. This makes the size of the variant a pointer size, not the size of the data itself.
 *   **Why It Matters**: Boxing variants is crucial for two reasons: it makes recursive enum definitions possible, and it makes enums with large variants memory-efficient, improving cache performance. Implementing methods and conversion traits on enums leads to cleaner, more idiomatic, and more reusable code.
-*   **Use Cases**: Defining abstract syntax trees (ASTs), implementing linked lists, optimizing memory for state machines or message types with large "payload" variants, and creating ergonomic error type conversions.
 
 
 ### Example: Recursive Enums with Box
@@ -470,9 +462,8 @@ fn check_sizes() {
 ## Pattern 6: Visitor Pattern with Enums
 
 *   **Problem**: You have a complex, tree-like data structure, such as an Abstract Syntax Tree (AST). You want to perform various operations on this structure (e.g., pretty-printing, evaluation, type-checking) without cluttering the data structure's definition with all of this logic.
-*   **Solution**: Define a `Visitor` trait with a `visit` method for each variant of your enum-based data structure. Each operation is then implemented as a separate struct that implements the `Visitor` trait. The original data structure's methods simply accept a visitor and dispatch to the correct `visit` method.
-*   **Why It Matters**: This pattern decouples the logic of an operation from the data structure it operates on. This makes it easy to add new operations (just add a new visitor struct) without modifying the (potentially complex) data structure code. It's a clean, maintainable way to handle complex, multi-pass operations.
-*   **Use Cases**: Compilers and interpreters (pretty-printing, code generation, optimization passes), traversing file systems, processing complex configuration (e.g., validating and transforming a config tree), and any scenario involving operations on a tree-like data structure.
+*   **Solution**: Define a `Visitor` trait with a `visit` method for each variant of your enum-based data structure. Each operation is then implemented as a separate struct that implements the `Visitor` trait.
+*   **Why It Matters**: This pattern decouples the logic of an operation from the data structure it operates on. This makes it easy to add new operations (just add a new visitor struct) without modifying the (potentially complex) data structure code.
 
 The visitor pattern in Rust leverages enums for traversing complex structures. It involves three parts: the data structure, the visitor trait, and one or more visitor implementations.
 

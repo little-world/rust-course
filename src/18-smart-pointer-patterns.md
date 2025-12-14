@@ -5,11 +5,11 @@ This chapter explores smart pointer patterns in Rust, covering heap allocation w
 
 ## Pattern 1: Box, Rc, Arc Usage Patterns
 
-**Problem**: Rust's default stack allocation breaks with recursive types (infinite size), large structs (stack overflow risk), and trait objects (size unknown at compile time). Need heap allocation with single ownership. Need shared ownership for graphs where nodes appear in multiple edges. Need thread-safe sharing for concurrent programs. Can't move values that need multiple owners.
+**Problem**: Rust's default stack allocation breaks with recursive types (infinite size), large structs (stack overflow risk), and trait objects (size unknown at compile time). Need heap allocation with single ownership.
 
-**Solution**: Use `Box<T>` for single-ownership heap allocation—recursive types wrapped in Box, large structs on heap instead of stack. Use `Rc<T>` for single-threaded shared ownership—multiple Rc pointers to same data, automatic cleanup when last owner drops. Use `Arc<T>` for thread-safe shared ownership—atomic reference counting, works across threads. Combine with Mutex/RwLock for mutation.
+**Solution**: Use `Box<T>` for single-ownership heap allocation—recursive types wrapped in Box, large structs on heap instead of stack. Use `Rc<T>` for single-threaded shared ownership—multiple Rc pointers to same data, automatic cleanup when last owner drops.
 
-**Why It Matters**: Box enables recursive types (compiler error without it). Box prevents stack overflow: 1MB struct on stack crashes, Box reduces it to 8 bytes. Trait objects require indirection for dynamic dispatch. Rc enables graphs and shared config without copying. Arc powers concurrent systems—thread pools, caches, shared state. Real example: parse tree with Box saves memory, shared config with Rc avoids duplication, thread pool with Arc enables parallelism.
+**Why It Matters**: Box enables recursive types (compiler error without it). Box prevents stack overflow: 1MB struct on stack crashes, Box reduces it to 8 bytes.
 
 **Use Cases**: Box for binary trees, linked lists, large structs, trait object collections, AST nodes. Rc for graphs, DAGs, shared configuration, document versions, immutable shared data. Arc for thread pools, shared caches, concurrent config, work queues, parallel processing.
 
@@ -21,9 +21,13 @@ This chapter explores smart pointer patterns in Rust, covering heap allocation w
 ```rust
 use std::mem;
 
-//=======================================
-// Pattern 1: Recursive types require Box
-//=======================================
+```
+
+### Example: Recursive types require Box
+This example shows how to recursive types require Box in practice, emphasizing why it works.
+
+```rust
+
 #[derive(Debug)]
 enum List<T> {
     Cons(T, Box<List<T>>),
@@ -69,9 +73,13 @@ impl<'a, T> Iterator for ListIter<'a, T> {
     }
 }
 
-//=================================
-// Pattern 2: Large structs on heap
-//=================================
+```
+
+### Example: Large structs on heap
+This example shows how to large structs on heap in practice, emphasizing why it works.
+
+```rust
+
 struct LargeData {
     buffer: [u8; 1024 * 1024], // 1MB
 }
@@ -90,9 +98,13 @@ fn heap_allocation() -> Box<LargeData> {
     })
 }
 
-//=====================================
-// Pattern 3: Trait objects require Box
-//=====================================
+```
+
+### Example: Trait objects require Box
+This example shows how to trait objects require Box in practice, emphasizing why it works.
+
+```rust
+
 trait Drawable {
     fn draw(&self);
 }
@@ -131,10 +143,7 @@ fn trait_objects() {
         shape.draw();
     }
 }
-
-//========================
 // Real-world: Binary tree
-//========================
 #[derive(Debug)]
 struct TreeNode<T> {
     value: T,
@@ -192,9 +201,13 @@ impl<T: Ord> TreeNode<T> {
     }
 }
 
-//======================================
-// Pattern 4: Box for ownership transfer
-//======================================
+```
+
+### Example: Box for ownership transfer
+This example shows how to box for ownership transfer in practice, emphasizing why it works.
+
+```rust
+
 fn process_large_data(data: Box<LargeData>) {
     // Takes ownership without copying
     println!("Processing {} bytes", data.buffer.len());
@@ -250,9 +263,13 @@ Multiple owners need read-only access to the same data.
 ```rust
 use std::rc::Rc;
 
-//================================
-// Pattern 1: Shared configuration
-//================================
+```
+
+### Example: Shared configuration
+This example shows shared configuration to illustrate where the pattern fits best.
+
+```rust
+
 struct Config {
     database_url: String,
     max_connections: usize,
@@ -314,9 +331,13 @@ fn shared_config() {
     // Reference count goes to 0, memory freed
 }
 
-//================================
-// Pattern 2: Shared data in graph
-//================================
+```
+
+### Example: Shared data in graph
+This example shows shared data in graph to illustrate where the pattern fits best.
+
+```rust
+
 #[derive(Debug)]
 struct Node {
     id: usize,
@@ -352,10 +373,7 @@ impl Graph {
         }
     }
 }
-
-//===================================
 // Real-world: Immutable data sharing
-//===================================
 #[derive(Debug, Clone)]
 struct Document {
     content: String,
@@ -407,9 +425,13 @@ impl VersionControl {
     }
 }
 
-//=======================================
-// Pattern 3: Rc with interior mutability
-//=======================================
+```
+
+### Example: Rc with interior mutability
+This example shows how to rc with interior mutability while calling out the practical trade-offs.
+
+```rust
+
 use std::cell::RefCell;
 
 struct Sensor {
@@ -509,9 +531,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-//================================================
-// Pattern 1: Shared read-only data across threads
-//================================================
+```
+
+### Example: Shared read-only data across threads
+This example shows shared read-only data across threads to illustrate where the pattern fits best.
+
+```rust
+
 fn arc_readonly() {
     let data = Arc::new(vec![1, 2, 3, 4, 5]);
 
@@ -529,9 +555,13 @@ fn arc_readonly() {
     }
 }
 
-//===================================================
-// Pattern 2: Arc with Mutex for shared mutable state
-//===================================================
+```
+
+### Example: Arc with Mutex for shared mutable state
+This example shows how to arc with Mutex for shared mutable state while calling out the practical trade-offs.
+
+```rust
+
 struct SharedCounter {
     count: Arc<Mutex<usize>>,
 }
@@ -579,9 +609,13 @@ fn arc_mutex_example() {
     println!("Final count: {}", counter.get());
 }
 
-//====================================================
-// Pattern 3: Arc with RwLock for read-heavy workloads
-//====================================================
+```
+
+### Example: Arc with RwLock for read-heavy workloads
+This example shows how to arc with RwLock for read-heavy workloads while calling out the practical trade-offs.
+
+```rust
+
 struct Cache {
     data: Arc<RwLock<std::collections::HashMap<String, String>>>,
 }
@@ -641,10 +675,7 @@ fn arc_rwlock_example() {
         reader.join().unwrap();
     }
 }
-
-//===============================================
 // Real-world: Thread pool with shared work queue
-//===============================================
 use std::sync::mpsc;
 
 struct ThreadPool {
@@ -748,11 +779,11 @@ fn main() {
 
 ## Pattern 2: Weak References and Cycles
 
-**Problem**: Reference cycles cause memory leaks—parent and child both hold strong Rc pointers, reference count never reaches 0. Doubly-linked list with strong prev/next pointers leaks. Tree with strong parent pointers leaks. Observer pattern with strong references prevents cleanup. Cycles persist even after all external references dropped.
+**Problem**: Reference cycles cause memory leaks—parent and child both hold strong Rc pointers, reference count never reaches 0. Doubly-linked list with strong prev/next pointers leaks.
 
-**Solution**: Use `Weak<T>` for back-references—doesn't increment strong count, breaks cycles. Child holds Weak to parent, parent holds strong (Rc) to child. Doubly-linked list: next is Rc, prev is Weak. Observer pattern: Subject holds Weak to observers. Use `upgrade()` to access Weak—returns Option<Rc<T>>, None if value dropped.
+**Solution**: Use `Weak<T>` for back-references—doesn't increment strong count, breaks cycles. Child holds Weak to parent, parent holds strong (Rc) to child.
 
-**Why It Matters**: Prevents production memory leaks. Tree with strong parent pointers: 100MB tree never freed. Weak parent pointers: proper cleanup. Observer pattern with strong refs: observers accumulate forever. Weak refs: automatic cleanup when observers drop. Real example: GUI framework with strong event handlers leaked 500MB/hour, Weak fixed it.
+**Why It Matters**: Prevents production memory leaks. Tree with strong parent pointers: 100MB tree never freed.
 
 **Use Cases**: Tree parent pointers, doubly-linked lists (prev pointer), observer pattern, caches (entries can expire), breaking any reference cycle, temporary references.
 
@@ -764,20 +795,14 @@ fn main() {
 ```rust
 use std::rc::{Rc, Weak};
 use std::cell::RefCell;
-
-//=========================================================
 // Problem: This creates a reference cycle and leaks memory
-//=========================================================
 #[derive(Debug)]
 struct NodeWithCycle {
     value: i32,
     next: Option<Rc<RefCell<NodeWithCycle>>>,
     prev: Option<Rc<RefCell<NodeWithCycle>>>, // Strong reference - BAD!
 }
-
-//=======================================
 // Solution: Use Weak for back-references
-//=======================================
 #[derive(Debug)]
 struct Node {
     value: i32,
@@ -795,9 +820,13 @@ impl Node {
     }
 }
 
-//========================================
-// Pattern 1: Doubly-linked list with Weak
-//========================================
+```
+
+### Example: Doubly-linked list with Weak
+This example shows doubly-linked list with Weak to illustrate where the pattern fits best.
+
+```rust
+
 struct DoublyLinkedList {
     head: Option<Rc<RefCell<Node>>>,
     tail: Option<Rc<RefCell<Node>>>,
@@ -852,9 +881,13 @@ impl DoublyLinkedList {
     }
 }
 
-//=====================================
-// Pattern 2: Tree with parent pointers
-//=====================================
+```
+
+### Example: Tree with parent pointers
+This example shows how to tree with parent pointers in practice, emphasizing why it works.
+
+```rust
+
 #[derive(Debug)]
 struct TreeNode {
     value: i32,
@@ -894,10 +927,7 @@ impl TreeNode {
         println!("Path to root: {:?}", path);
     }
 }
-
-//=======================================
 // Real-world: Observer pattern with Weak
-//=======================================
 trait Observer {
     fn notify(&self, message: &str);
 }
@@ -939,10 +969,7 @@ impl Observer for ConcreteObserver {
         println!("Observer {} received: {}", self.id, message);
     }
 }
-
-//=======================================
 // Real-world: Cache with weak references
-//=======================================
 struct WeakCache<K, V> {
     cache: std::collections::HashMap<K, Weak<V>>,
 }
@@ -1049,11 +1076,11 @@ fn main() {
 
 ## Pattern 3: Custom Smart Pointers
 
-**Problem**: Need specialized pointer behavior beyond Box/Rc/Arc. Want to track access patterns (reads/writes) for debugging. Need lazy initialization to defer expensive computation. Want custom drop behavior. Domain-specific ownership semantics not covered by standard pointers. Need to instrument memory access.
+**Problem**: Need specialized pointer behavior beyond Box/Rc/Arc. Want to track access patterns (reads/writes) for debugging.
 
-**Solution**: Implement `Deref` trait for `*` operator and method calls. Implement `Drop` for cleanup logic. Use `UnsafeCell` for interior mutability without runtime checks. Custom reference counting for specialized semantics. Wrap standard pointers with additional behavior. Logging pointer tracks reads/writes in Cell counters.
+**Solution**: Implement `Deref` trait for `*` operator and method calls. Implement `Drop` for cleanup logic.
 
-**Why It Matters**: Logging pointer reveals hot paths: 1000 reads, 10 writes → optimize for reads. Lazy initialization saves 500MB when feature unused. Custom drop enables resource tracking and leak detection. Copy-on-write reduces memory when data mostly read. Real example: instrumented pointers found 80% of accesses hit same 5% of data, enabling caching optimization.
+**Why It Matters**: Logging pointer reveals hot paths: 1000 reads, 10 writes → optimize for reads. Lazy initialization saves 500MB when feature unused.
 
 **Use Cases**: Logging pointers for debugging, lazy initialization for expensive resources, copy-on-write for shared-immutable patterns, custom allocation tracking, instrumentation and profiling, domain-specific ownership.
 
@@ -1066,9 +1093,13 @@ Create custom pointer types with specialized behavior.
 use std::ops::{Deref, DerefMut};
 use std::fmt;
 
-//=============================
-// Pattern 1: Simple custom Box
-//=============================
+```
+
+### Example: Simple custom Box
+This example keeps things simple while focusing on custom box to make the mechanics obvious.
+
+```rust
+
 struct MyBox<T> {
     data: *mut T,
 }
@@ -1102,9 +1133,13 @@ impl<T> Drop for MyBox<T> {
     }
 }
 
-//===========================================
-// Pattern 2: Logging pointer (tracks access)
-//===========================================
+```
+
+### Example: Logging pointer (tracks access)
+This example shows logging pointer (tracks access) to illustrate where the pattern fits best.
+
+```rust
+
 struct LoggingPtr<T> {
     data: Box<T>,
     reads: std::cell::Cell<usize>,
@@ -1141,9 +1176,13 @@ impl<T> DerefMut for LoggingPtr<T> {
     }
 }
 
-//=======================================
-// Pattern 3: Lazy initialization pointer
-//=======================================
+```
+
+### Example: Lazy initialization pointer
+This example shows how to lazy initialization pointer in practice, emphasizing why it works.
+
+```rust
+
 struct Lazy<T, F>
 where
     F: FnOnce() -> T,
@@ -1174,10 +1213,7 @@ where
         }
     }
 }
-
-//================================================================
 // Real-world: Reference-counted string (like Arc<str> but custom)
-//================================================================
 struct RcStr {
     data: *mut RcStrInner,
 }
@@ -1264,9 +1300,13 @@ impl fmt::Display for RcStr {
     }
 }
 
-//=====================================
-// Pattern 4: Owned-or-borrowed pointer
-//=====================================
+```
+
+### Example: Owned-or-borrowed pointer
+This example shows owned-or-borrowed pointer to illustrate where the pattern fits best.
+
+```rust
+
 enum Cow<'a, T: 'a + ToOwned + ?Sized> {
     Borrowed(&'a T),
     Owned(<T as ToOwned>::Owned),
@@ -1346,11 +1386,11 @@ fn main() {
 
 ## Pattern 4: Intrusive Data Structures
 
-**Problem**: Standard data structures waste memory with separate node allocations. Poor cache locality from scattered allocations. Need kernel-style efficiency. Want constant-time node removal without search. Embedded systems have tight memory constraints. High-performance caches need minimal overhead.
+**Problem**: Standard data structures waste memory with separate node allocations. Poor cache locality from scattered allocations.
 
-**Solution**: Embed pointers directly in data nodes. Use raw pointers (*mut T) for manual management. Implement custom allocation and deallocation with unsafe. Intrusive linked list: pointers in nodes, no separate list node. LRU cache: doubly-linked list with HashMap for O(1) operations.
+**Solution**: Embed pointers directly in data nodes. Use raw pointers (*mut T) for manual management.
 
-**Why It Matters**: Intrusive LRU cache: 50% memory savings vs standard implementation. Better cache locality: 2x faster on sequential access. Constant-time removal: O(1) vs O(n) search. Kernel uses intrusive lists everywhere (proven performance). Real example: high-frequency trading system reduced latency from 500μs to 200μs with intrusive lists.
+**Why It Matters**: Intrusive LRU cache: 50% memory savings vs standard implementation. Better cache locality: 2x faster on sequential access.
 
 **Use Cases**: LRU caches (web servers, databases), kernel data structures (Linux intrusive lists), high-performance queues, embedded systems, memory pools, any cache-critical structure.
 
@@ -1363,9 +1403,13 @@ Efficient linked lists where the nodes are embedded in objects.
 use std::ptr;
 use std::marker::PhantomData;
 
-//========================================
-// Pattern 1: Intrusive singly-linked list
-//========================================
+```
+
+### Example: Intrusive singly-linked list
+This example shows how to intrusive singly-linked list while calling out the practical trade-offs.
+
+```rust
+
 struct IntrusiveList<T> {
     head: *mut ListNode<T>,
     _phantom: PhantomData<T>,
@@ -1439,10 +1483,7 @@ impl<'a, T> Iterator for IntrusiveListIter<'a, T> {
         }
     }
 }
-
-//=======================================================
 // Real-world: Intrusive doubly-linked list for LRU cache
-//=======================================================
 struct LruCache<K, V> {
     map: std::collections::HashMap<K, *mut LruNode<K, V>>,
     head: *mut LruNode<K, V>,
@@ -1613,11 +1654,11 @@ fn main() {
 
 ## Pattern 5: Reference Counting Optimization
 
-**Problem**: Reference counting adds overhead—every Rc::clone increments counter, every drop decrements. Excessive cloning wastes CPU cycles. Unnecessary strong references prevent cleanup. Small string duplicates waste memory. Hot loops with Rc clones kill performance.
+**Problem**: Reference counting adds overhead—every Rc::clone increments counter, every drop decrements. Excessive cloning wastes CPU cycles.
 
-**Solution**: Borrow (&Rc<T>) instead of clone when possible. Use try_unwrap to get owned data if sole owner. Implement string interning for duplicate strings. Use Weak for temporary references. Apply copy-on-write (Cow) for conditional mutation. Profile before optimizing—measure actual overhead.
+**Solution**: Borrow (&Rc<T>) instead of clone when possible. Use try_unwrap to get owned data if sole owner.
 
-**Why It Matters**: Rc::clone costs ~10ns, borrow costs ~0ns. Hot loop with 1M iterations: Rc clone wastes 10ms, borrow is free. String interning: 10K duplicate "error" strings = 400KB wasted, interned = 5 bytes + overhead. try_unwrap avoids clone when sole owner. Real example: refactoring excessive Rc clones improved server throughput from 50K to 75K req/s.
+**Why It Matters**: Rc::clone costs ~10ns, borrow costs ~0ns. Hot loop with 1M iterations: Rc clone wastes 10ms, borrow is free.
 
 **Use Cases**: Hot loops (avoid clones), string interning (deduplication), temporary access (use borrows), sole ownership extraction (try_unwrap), conditional mutation (Cow), profiling-guided optimization.
 
@@ -1630,9 +1671,13 @@ fn main() {
 use std::rc::Rc;
 use std::sync::Arc;
 
-//====================================
-// Pattern 1: Avoid unnecessary clones
-//====================================
+```
+
+### Example: Avoid unnecessary clones
+This example shows how to avoid unnecessary clones in practice, emphasizing why it works.
+
+```rust
+
 fn inefficient_clones(data: &Rc<Vec<i32>>) {
     // Bad: Clone for every operation
     let clone1 = Rc::clone(data);
@@ -1648,17 +1693,25 @@ fn efficient_borrows(data: &Rc<Vec<i32>>) {
     println!("First: {}", data[0]);
 }
 
-//=========================================
-// Pattern 2: Make owned data when possible
-//=========================================
+```
+
+### Example: Make owned data when possible
+This example shows how to make owned data when possible in practice, emphasizing why it works.
+
+```rust
+
 fn make_owned(data: Rc<Vec<i32>>) -> Vec<i32> {
     // Try to unwrap if we're the only owner
     Rc::try_unwrap(data).unwrap_or_else(|rc| (*rc).clone())
 }
 
-//============================================
-// Pattern 3: Batch reference counting updates
-//============================================
+```
+
+### Example: Batch reference counting updates
+This example shows how to batch reference counting updates in practice, emphasizing why it works.
+
+```rust
+
 fn batch_updates() {
     let data = Rc::new(vec![1, 2, 3, 4, 5]);
 
@@ -1681,9 +1734,13 @@ fn process_data(data: &Rc<Vec<i32>>) {
     println!("Processing {} items", data.len());
 }
 
-//======================================
-// Pattern 4: Use Cow for clone-on-write
-//======================================
+```
+
+### Example: Use Cow for clone-on-write
+This example shows how to use Cow for clone-on-write in practice, emphasizing why it works.
+
+```rust
+
 use std::borrow::Cow;
 
 fn process_string(s: Cow<str>) -> Cow<str> {
@@ -1695,10 +1752,7 @@ fn process_string(s: Cow<str>) -> Cow<str> {
         s
     }
 }
-
-//=====================================
 // Real-world: String interning with Rc
-//=====================================
 use std::collections::HashMap;
 
 struct StringInterner {
@@ -1736,9 +1790,13 @@ impl StringInterner {
     }
 }
 
-//=========================================
-// Pattern 5: Weak upgrades to avoid clones
-//=========================================
+```
+
+### Example: Weak upgrades to avoid clones
+This example shows how to weak upgrades to avoid clones in practice, emphasizing why it works.
+
+```rust
+
 use std::rc::Weak;
 
 struct Observer {
@@ -1754,9 +1812,13 @@ impl Observer {
     }
 }
 
-//======================================
-// Pattern 6: Arc performance comparison
-//======================================
+```
+
+### Example: Arc performance comparison
+This example shows how to arc performance comparison while calling out the practical trade-offs.
+
+```rust
+
 fn arc_performance_test() {
     use std::time::Instant;
 
@@ -1784,9 +1846,13 @@ fn arc_performance_test() {
     println!("Speedup: {:.2}x", clone_time.as_nanos() as f64 / borrow_time.as_nanos() as f64);
 }
 
-//====================================
-// Pattern 7: Rc vs owned in hot loops
-//====================================
+```
+
+### Example: Rc vs owned in hot loops
+This example shows how to rc vs owned in hot loops while calling out the practical trade-offs.
+
+```rust
+
 fn rc_vs_owned_benchmark() {
     use std::time::Instant;
 

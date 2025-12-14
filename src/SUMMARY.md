@@ -35,6 +35,7 @@
 - [database-patterns](27-database-patterns.md)
 - [testing-benchmarking](28-testing-benchmarking.md)
 - [performance-optimization](29-performance-optimization.md)
+- [embedded-realtime-patterns](33-embedded-realtime-patterns.md)
 # Appendices
 - [appendix-a-quick-reference](30-appendix-a-quick-reference.md)
 - [appendix-b-design-patterns](31-appendix-b-design-patterns.md)

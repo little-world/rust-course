@@ -4,11 +4,11 @@ This chapter explores async I/O patterns using Tokio—handling thousands of con
 
 ## Pattern 1: Tokio File and Network I/O
 
-**Problem**: Synchronous I/O blocks threads waiting for data. One thread per connection doesn't scale—10K connections need 20GB RAM (2MB stack each). Context switching between thousands of threads destroys performance. Blocking file operations stall network tasks. CPU-bound tasks mixed with I/O starve either. Need to handle thousands of concurrent connections efficiently.
+**Problem**: Synchronous I/O blocks threads waiting for data. One thread per connection doesn't scale—10K connections need 20GB RAM (2MB stack each).
 
-**Solution**: Use Tokio async I/O where operations return futures you `.await`. TcpListener/TcpStream for network accept/read/write. tokio::fs for file operations (uses thread pool). Work-stealing scheduler distributes tasks across cores. Spawn tasks with tokio::spawn for concurrency. Use tokio::task::spawn_blocking for CPU-bound work. Single runtime handles thousands of connections.
+**Solution**: Use Tokio async I/O where operations return futures you `.await`. TcpListener/TcpStream for network accept/read/write.
 
-**Why It Matters**: Single thread handles 10K connections in 10MB memory (vs 20GB threaded). Solves C10K problem—web servers serve 10K+ concurrent users. Async file I/O won't block network handlers. Work-stealing keeps all cores busy. Context switch overhead eliminated. Enables web servers, chat servers, API gateways at scale. Without async I/O, 1 thread/connection model fails at high concurrency.
+**Why It Matters**: Single thread handles 10K connections in 10MB memory (vs 20GB threaded). Solves C10K problem—web servers serve 10K+ concurrent users.
 
 **Use Cases**: Web servers (HTTP, HTTPS), API gateways, chat servers, WebSocket servers, game servers, HTTP clients (concurrent requests), file servers (mixing file and network I/O), concurrent file processing, real-time data pipelines.
 
@@ -24,36 +24,48 @@ Read/write files without blocking async runtime. Concurrent file operations shou
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
-//===============================
-// Read entire file into a String
-//===============================
+```
+
+### Example: Read entire file into a String
+This example walks through how to read entire file into a string.
+
+```rust
 async fn read_file(path: &str) -> io::Result<String> {
     tokio::fs::read_to_string(path).await
     // Convenience method: allocates a String, reads entire file
     // Returns Err if file missing, unreadable, or contains invalid UTF-8
 }
 
-//==============================
-// Read entire file into Vec<u8>
-//==============================
+```
+
+### Example: Read entire file into Vec<u8>
+This example walks through how to read entire file into vec<u8>.
+
+```rust
 async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
     tokio::fs::read(path).await
     // Reads entire file into memory
     // More efficient than read_to_string for binary data
 }
 
-//===================================================
-// Write string to file (overwrites existing content)
-//===================================================
+```
+
+### Example: Write string to file (overwrites existing content)
+This example walks through how to write string to file (overwrites existing content).
+
+```rust
 async fn write_file(path: &str, content: &str) -> io::Result<()> {
     tokio::fs::write(path, content).await
     // Convenience method: creates file, writes content, closes file
     // Overwrites existing file! Use append_to_file if you want to append
 }
 
-//================================
-// Manual read with buffer control
-//================================
+```
+
+### Example: Manual read with buffer control
+This example walks through manual read with buffer control.
+
+```rust
 async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
     let mut file = File::open(path).await?;
     let mut buffer = Vec::new();
@@ -63,9 +75,12 @@ async fn read_with_buffer(path: &str) -> io::Result<Vec<u8>> {
     Ok(buffer)
 }
 
-//==================================
-// Manual write with explicit handle
-//==================================
+```
+
+### Example: Manual write with explicit handle
+This example walks through manual write with explicit handle.
+
+```rust
 async fn write_with_handle(path: &str, data: &[u8]) -> io::Result<()> {
     let mut file = File::create(path).await?;
 
@@ -78,9 +93,12 @@ async fn write_with_handle(path: &str, data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-//===============================================
-// Append to existing file (or create if missing)
-//===============================================
+```
+
+### Example: Append to existing file (or create if missing)
+This example walks through how to append to existing file (or create if missing).
+
+```rust
 async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .append(true)   // Append mode: writes go to end of file
@@ -93,17 +111,23 @@ async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     Ok(())
 }
 
-//=========================
-// Copy file asynchronously
-//=========================
+```
+
+### Example: Copy file asynchronously
+This example walks through copy file asynchronously.
+
+```rust
 async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     tokio::fs::copy(src, dst).await
     // Efficiently copies src to dst using OS-level optimizations when possible
 }
 
-//==============
-// Example usage
-//==============
+```
+
+### Example: Example usage
+This example walks through example usage.
+
+```rust
 #[tokio::main]
 async fn main() -> io::Result<()> {
     // Read file asynchronously
@@ -117,6 +141,7 @@ async fn main() -> io::Result<()> {
 }
 ```
 
+
 ### Example: Async Line Reading
 
 Reading line-by-line is essential for processing log files, CSV data, and other line-oriented formats. The async version uses `BufReader` to buffer reads efficiently, minimizing system calls.
@@ -127,9 +152,12 @@ Reading line-by-line is essential for processing log files, CSV data, and other 
 use tokio::fs::File;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 
-//===========================
-// Read all lines into memory
-//===========================
+```
+
+### Example: Read all lines into memory
+This example walks through how to read all lines into memory.
+
+```rust
 async fn read_lines(path: &str) -> io::Result<Vec<String>> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -146,9 +174,12 @@ async fn read_lines(path: &str) -> io::Result<Vec<String>> {
     Ok(lines)
 }
 
-//============================================================
-// Process large file line by line without loading into memory
-//============================================================
+```
+
+### Example: Process large file line by line without loading into memory
+This example walks through process large file line by line without loading into memory.
+
+```rust
 async fn process_large_file(path: &str) -> io::Result<()> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -167,9 +198,12 @@ async fn process_large_file(path: &str) -> io::Result<()> {
     Ok(())
 }
 
-//====================================================
-// Read first N lines (useful for previews or headers)
-//====================================================
+```
+
+### Example: Read first N lines (useful for previews or headers)
+This example walks through how to read first n lines (useful for previews or headers).
+
+```rust
 async fn read_first_n_lines(path: &str, n: usize) -> io::Result<Vec<String>> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -187,6 +221,7 @@ async fn read_first_n_lines(path: &str, n: usize) -> io::Result<Vec<String>> {
     Ok(result)
 }
 ```
+
 
 ### Example: TCP Network I/O
 
@@ -207,9 +242,12 @@ This pattern allows one thread to handle thousands of concurrent connections. Th
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
-//================
-// TCP Echo Server
-//================
+```
+
+### Example: TCP Echo Server
+This example walks through tcp echo server.
+
+```rust
 async fn run_tcp_server(addr: &str) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     println!("Server listening on {}", addr);
@@ -231,9 +269,12 @@ async fn run_tcp_server(addr: &str) -> io::Result<()> {
     // Note: This loop never exits. In production, you'd add graceful shutdown.
 }
 
-//==================================================
-// Handle a single client connection (echo protocol)
-//==================================================
+```
+
+### Example: Handle a single client connection (echo protocol)
+This example walks through how to handle a single client connection (echo protocol).
+
+```rust
 async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
     let mut buffer = [0; 1024];
 
@@ -253,9 +294,12 @@ async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
     }
 }
 
-//===========
-// TCP Client
-//===========
+```
+
+### Example: TCP Client
+This example walks through tcp client.
+
+```rust
 async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
     // connect() performs DNS resolution (if needed) and TCP handshake
     let mut stream = TcpStream::connect(addr).await?;
@@ -272,9 +316,12 @@ async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
-//========================================
-// HTTP-like request handling (simplified)
-//========================================
+```
+
+### Example: HTTP-like request handling (simplified)
+This example walks through http-like request handling (simplified).
+
+```rust
 async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
     let mut buffer = [0; 4096];
 
@@ -297,6 +344,7 @@ async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
 }
 ```
 
+
 ### Example: UDP Network I/O
 
 UDP (User Datagram Protocol) is connectionless and unreliable—packets may arrive out of order, be duplicated, or be lost entirely. But UDP has advantages: lower latency (no connection setup), simpler protocol, and support for broadcast/multicast.
@@ -316,9 +364,12 @@ UDP (User Datagram Protocol) is connectionless and unreliable—packets may arri
 use tokio::net::UdpSocket;
 use tokio::io;
 
-//================
-// UDP Echo Server
-//================
+```
+
+### Example: UDP Echo Server
+This example walks through udp echo server.
+
+```rust
 async fn udp_server(addr: &str) -> io::Result<()> {
     let socket = UdpSocket::bind(addr).await?;
     println!("UDP server listening on {}", addr);
@@ -338,9 +389,12 @@ async fn udp_server(addr: &str) -> io::Result<()> {
     }
 }
 
-//===========
-// UDP Client
-//===========
+```
+
+### Example: UDP Client
+This example walks through udp client.
+
+```rust
 async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
     // Bind to a random local port (0.0.0.0:0 means "any port")
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
@@ -355,6 +409,7 @@ async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&buffer[..len]).to_string())
 }
 ```
+
 
 ### Example: Unix Domain Sockets
 
@@ -408,15 +463,16 @@ mod unix_sockets {
 }
 ```
 
+
 ---
 
 ## Pattern 2: Buffered Async Streams
 
-**Problem**: Byte-by-byte async reads/writes trigger many syscalls—catastrophically inefficient. Need to batch I/O operations. Parsing line-by-line from network streams requires buffering. No async equivalent of std::io::BufReader. Protocol implementations need framing (where messages start/end). Need to read "lines" from TCP streams efficiently.
+**Problem**: Byte-by-byte async reads/writes trigger many syscalls—catastrophically inefficient. Need to batch I/O operations.
 
-**Solution**: Use AsyncBufReadExt trait with read_line(), lines() for text. BufReader wraps async readers (File, TcpStream) with 8KB default buffer. BufWriter batches writes. Use tokio_util::codec for custom framing (length-prefixed, delimited). AsyncWriteExt provides write_all() for full writes. Adjust buffer size with with_capacity() based on workload.
+**Solution**: Use AsyncBufReadExt trait with read_line(), lines() for text. BufReader wraps async readers (File, TcpStream) with 8KB default buffer.
 
-**Why It Matters**: Buffering reduces syscalls by 100x (byte-by-byte → chunked). Reading 1MB file: unbuffered = 1M syscalls, buffered = ~128 syscalls. lines() provides async iterator over lines—essential for protocols. Codecs abstract framing complexity. Without buffering, async I/O slower than sync. Critical for all network protocols (HTTP, WebSocket, custom).
+**Why It Matters**: Buffering reduces syscalls by 100x (byte-by-byte → chunked). Reading 1MB file: unbuffered = 1M syscalls, buffered = ~128 syscalls.
 
 **Use Cases**: Line-based protocols (HTTP headers, SMTP, Redis protocol), chat protocols (newline-delimited), log streaming, CSV/JSON over network, codec-based protocols (protobuf, MessagePack), WebSocket framing, custom protocol parsers.
 
@@ -427,9 +483,12 @@ Minimize syscalls for async read/write operations with batching.
 use tokio::fs::File;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 
-//=========================================
-// Buffered reading with custom buffer size
-//=========================================
+```
+
+### Example: Buffered reading with custom buffer size
+This example walks through buffered reading with custom buffer size.
+
+```rust
 async fn buffered_read(path: &str) -> io::Result<()> {
     let file = File::open(path).await?;
 
@@ -445,9 +504,12 @@ async fn buffered_read(path: &str) -> io::Result<()> {
     Ok(())
 }
 
-//=========================================
-// Buffered writing with custom buffer size
-//=========================================
+```
+
+### Example: Buffered writing with custom buffer size
+This example walks through buffered writing with custom buffer size.
+
+```rust
 async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     let file = File::create(path).await?;
 
@@ -466,9 +528,12 @@ async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     Ok(())
 }
 
-//====================
-// Copy with buffering
-//====================
+```
+
+### Example: Copy with buffering
+This example walks through copy with buffering.
+
+```rust
 async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     let src_file = File::open(src).await?;
     let dst_file = File::create(dst).await?;
@@ -480,6 +545,7 @@ async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     tokio::io::copy(&mut reader, &mut writer).await
 }
 ```
+
 
 ### Example: Stream Processing with AsyncRead/AsyncWrite
 
@@ -496,9 +562,12 @@ use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-//=========================================
-// Custom async reader that uppercases data
-//=========================================
+```
+
+### Example: Custom async reader that uppercases data
+This example walks through custom async reader that uppercases data.
+
+```rust
 struct UppercaseReader<R> {
     inner: R,
 }
@@ -529,9 +598,12 @@ impl<R: AsyncRead + Unpin> AsyncRead for UppercaseReader<R> {
     }
 }
 
-//==============
-// Usage example
-//==============
+```
+
+### Example: Usage example
+This example walks through usage example.
+
+```rust
 async fn use_uppercase_reader() -> io::Result<()> {
     use tokio::fs::File;
 
@@ -546,6 +618,7 @@ async fn use_uppercase_reader() -> io::Result<()> {
 }
 ```
 
+
 ### Example: Stream Splitting and Framing
 
 Many protocols benefit from splitting a stream into independent read and write halves. This allows one task to read while another writes, or enables implementing full-duplex protocols where requests and responses flow concurrently.
@@ -554,9 +627,12 @@ Many protocols benefit from splitting a stream into independent read and write h
 use tokio::net::TcpStream;
 use tokio::io::{self, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-//========================================
-// Split stream into read and write halves
-//========================================
+```
+
+### Example: Split stream into read and write halves
+This example walks through split stream into read and write halves.
+
+```rust
 async fn split_stream_example() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
@@ -595,6 +671,7 @@ async fn split_stream_example() -> io::Result<()> {
 }
 ```
 
+
 ### Example: Using tokio_util::codec for Framing
 
 Framing solves a fundamental problem in network protocols: how do you know where one message ends and the next begins? Raw TCP gives you a byte stream with no message boundaries. Codecs provide message framing—they handle splitting the stream into discrete messages and vice versa.
@@ -613,9 +690,12 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LinesCodec};
 use futures::{SinkExt, StreamExt};
 
-//=====================
-// Line-delimited codec
-//=====================
+```
+
+### Example: Line-delimited codec
+This example walks through line-delimited codec.
+
+```rust
 async fn framed_lines() -> io::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
 
@@ -638,9 +718,12 @@ async fn framed_lines() -> io::Result<()> {
     Ok(())
 }
 
-//==========================================
-// Custom codec for length-prefixed messages
-//==========================================
+```
+
+### Example: Custom codec for length-prefixed messages
+This example walks through custom codec for length-prefixed messages.
+
+```rust
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -704,15 +787,16 @@ async fn length_prefixed_example() -> io::Result<()> {
 }
 ```
 
+
 ---
 
 ## Pattern 3: Backpressure Handling
 
-**Problem**: Fast producer overwhelms slow consumer causing unbounded memory growth. Web scraper fetches faster than parser processes—queue grows until OOM. Network reader floods file writer with data. No flow control between tasks. Unbounded channels cause memory exhaustion. Need to slow upstream when downstream can't keep up. Graceful degradation under load requires limiting concurrency.
+**Problem**: Fast producer overwhelms slow consumer causing unbounded memory growth. Web scraper fetches faster than parser processes—queue grows until OOM.
 
-**Solution**: Use bounded mpsc channels with capacity limit—send() blocks when full. Semaphore limits concurrent operations (e.g., max 10 concurrent requests). Stream's buffer_unordered(n) controls concurrency. Rate limiting with governor crate or tokio::time::interval(). Feedback loops where consumer signals capacity. Drop excess load rather than queue indefinitely (shed load).
+**Solution**: Use bounded mpsc channels with capacity limit—send() blocks when full. Semaphore limits concurrent operations (e.g., max 10 concurrent requests).
 
-**Why It Matters**: Prevents OOM from unbounded queues—production systems must bound memory. Fast network source won't overwhelm slow disk sink. Enables graceful degradation: under load, slow down rather than crash. Critical for production: without backpressure, spike in traffic causes OOM. Database connection pools need backpressure to prevent overload. Streaming systems fail without flow control.
+**Why It Matters**: Prevents OOM from unbounded queues—production systems must bound memory. Fast network source won't overwhelm slow disk sink.
 
 **Use Cases**: Producer-consumer pipelines (network → processing → disk), streaming aggregation (sensor data, logs), rate-limited HTTP clients (respect API limits), connection pools (bound concurrent connections), download managers (limit concurrent downloads), WebSocket servers (per-client backpressure), data pipelines (ETL systems).
 
@@ -724,9 +808,12 @@ Control flow between producer and consumer to prevent memory exhaustion.
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
-//===========================
-// Producer with backpressure
-//===========================
+```
+
+### Example: Producer with backpressure
+This example walks through producer with backpressure.
+
+```rust
 async fn producer_with_backpressure(tx: mpsc::Sender<i32>) {
     for i in 0..100 {
         // send() provides backpressure—blocks when channel is full
@@ -739,9 +826,12 @@ async fn producer_with_backpressure(tx: mpsc::Sender<i32>) {
     }
 }
 
-//==========================================================
-// Consumer (intentionally slow to demonstrate backpressure)
-//==========================================================
+```
+
+### Example: Consumer (intentionally slow to demonstrate backpressure)
+This example walks through consumer (intentionally slow to demonstrate backpressure).
+
+```rust
 async fn consumer(mut rx: mpsc::Receiver<i32>) {
     while let Some(value) = rx.recv().await {
         println!("Processing: {}", value);
@@ -750,9 +840,12 @@ async fn consumer(mut rx: mpsc::Receiver<i32>) {
     }
 }
 
-//===========================
-// Usage with bounded channel
-//===========================
+```
+
+### Example: Usage with bounded channel
+This example walks through usage with bounded channel.
+
+```rust
 async fn backpressure_example() {
     // Bounded channel with capacity 10
     // Producer can get ahead by 10 items, then must wait
@@ -764,6 +857,7 @@ async fn backpressure_example() {
     let _ = tokio::join!(producer, consumer);
 }
 ```
+
 
 ### Example: Stream Backpressure with Buffering
 
@@ -790,6 +884,7 @@ async fn stream_backpressure() {
 }
 ```
 
+
 ### Example: Rate Limiting
 
 Rate limiting controls the rate of operations to avoid overwhelming downstream systems or respecting API rate limits.
@@ -803,9 +898,12 @@ Rate limiting controls the rate of operations to avoid overwhelming downstream s
 ```rust
 use tokio::time::{sleep, Duration, Instant};
 
-//=============================================
-// Simple rate limiter (token bucket algorithm)
-//=============================================
+```
+
+### Example: Simple rate limiter (token bucket algorithm)
+This example walks through simple rate limiter (token bucket algorithm).
+
+```rust
 struct RateLimiter {
     max_per_second: u32,
     last_reset: Instant,
@@ -855,6 +953,7 @@ async fn rate_limited_requests() {
 }
 ```
 
+
 ### Example: Semaphore for Concurrency Control
 
 A semaphore limits the number of concurrent operations. This is essential for controlling resource usage (database connections, file handles, HTTP requests).
@@ -895,6 +994,7 @@ async fn concurrent_with_limit() {
 }
 ```
 
+
 ### Example: Flow Control in Network Servers
 
 Limiting concurrent connections prevents resource exhaustion and ensures fair service under load.
@@ -904,9 +1004,12 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use std::sync::Arc;
 
-//=================================
-// TCP server with connection limit
-//=================================
+```
+
+### Example: TCP server with connection limit
+This example walks through tcp server with connection limit.
+
+```rust
 async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let semaphore = Arc::new(Semaphore::new(max_connections));
@@ -933,15 +1036,16 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
 }
 ```
 
+
 ---
 
 ## Pattern 4: Connection Pooling
 
-**Problem**: Creating TCP/database connections expensive—100ms+ for TCP handshake + TLS + auth. Can't scale to 1 new connection per request (too slow). Need connection reuse across requests. Databases/APIs limit concurrent connections (Postgres default: 100). Creating 1000 connections for 1000 requests overwhelms server. Connection lifecycle management (idle timeout, health checks) complex.
+**Problem**: Creating TCP/database connections expensive—100ms+ for TCP handshake + TLS + auth. Can't scale to 1 new connection per request (too slow).
 
-**Solution**: Use bb8 or deadpool crates for production-ready pools. Configure min/max pool size (e.g., 10-50 connections). Set timeouts for connection acquisition. Implement health checks to detect stale connections. Recycle connections between requests. Pool manages lifecycle: creates on-demand, reuses idle, removes unhealthy. Set idle timeout to prevent keeping stale connections.
+**Solution**: Use bb8 or deadpool crates for production-ready pools. Configure min/max pool size (e.g., 10-50 connections).
 
-**Why It Matters**: Reduces latency 100x—reuse (1ms) vs new connection (100ms). Prevents connection exhaustion: pool limits concurrent connections. Handles transient failures: auto-reconnect, health checks. Essential for databases: Postgres/MySQL have connection limits. HTTP clients benefit similarly. Without pooling, high-load services fail (connection limit exceeded). Connection setup dominates latency for small queries.
+**Why It Matters**: Reduces latency 100x—reuse (1ms) vs new connection (100ms). Prevents connection exhaustion: pool limits concurrent connections.
 
 **Use Cases**: Database connection pools (Postgres, MySQL, Redis), HTTP client connection pools (reqwest with pool), gRPC connection pools, connection-limited APIs (respect limits), microservices (service-to-service), connection-expensive protocols (TLS, SSH).
 
@@ -1010,9 +1114,12 @@ impl SimplePool {
     }
 }
 
-//=================================================
-// RAII wrapper: returns connection to pool on drop
-//=================================================
+```
+
+### Example: RAII wrapper: returns connection to pool on drop
+This example walks through raii wrapper: returns connection to pool on drop.
+
+```rust
 struct PooledConnection {
     conn: Option<Connection>,
     pool: Arc<Mutex<Vec<Connection>>>,
@@ -1036,9 +1143,12 @@ impl Drop for PooledConnection {
     }
 }
 
-//======
-// Usage
-//======
+```
+
+### Example: Usage
+This example walks through usage.
+
+```rust
 async fn use_pool() -> io::Result<()> {
     let pool = SimplePool::new(5).await?;
 
@@ -1064,6 +1174,7 @@ async fn use_pool() -> io::Result<()> {
     Ok(())
 }
 ```
+
 
 ### Example: Advanced Pool with deadpool
 
@@ -1139,6 +1250,7 @@ async fn use_deadpool() -> io::Result<()> {
 }
 ```
 
+
 ### Example: HTTP Client Connection Pool
 
 The `reqwest` HTTP client has built-in connection pooling, which is essential for making many HTTP requests efficiently.
@@ -1187,13 +1299,14 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 
+
 ## Pattern 5: Timeout and Cancellation
 
-**Problem**: Async operations can hang forever without time bounds—network request to unresponsive server blocks indefinitely. Need to cancel slow operations to prevent resource leaks. Stuck tasks accumulate connections until exhaustion. Graceful shutdown requires canceling all tasks. User cancellation (close browser tab) must stop server-side work. Circuit breakers need timeout detection. No timeout means single slow client hangs entire server.
+**Problem**: Async operations can hang forever without time bounds—network request to unresponsive server blocks indefinitely. Need to cancel slow operations to prevent resource leaks.
 
-**Solution**: Use tokio::time::timeout() to wrap futures with duration limit—returns Err on timeout. select! races multiple futures, enabling cancellation when another completes. CancellationToken for coordinated shutdown across tasks. Dropping a future cancels it automatically (structured concurrency). Timeout pattern: primary with fallback. Per-request timeouts prevent slow requests blocking others.
+**Solution**: Use tokio::time::timeout() to wrap futures with duration limit—returns Err on timeout. select!
 
-**Why It Matters**: Prevents resource leaks from hung operations—without timeout, stuck connections never close. HTTP requests must timeout (client disappeared, network partition). Database queries need timeout (prevent long-running queries). Graceful shutdown impossible without cancellation—tasks must stop on SIGTERM. Circuit breakers rely on timeouts to detect failing services. Production systems fail without timeouts—one slow dependency hangs entire service.
+**Why It Matters**: Prevents resource leaks from hung operations—without timeout, stuck connections never close. HTTP requests must timeout (client disappeared, network partition).
 
 **Use Cases**: HTTP request timeouts (prevent hung requests), database query timeouts (prevent slow queries), graceful shutdown (SIGTERM handling), user cancellation (browser closed, request canceled), health checks (must timeout), circuit breakers (timeout = failure signal), deadline propagation (gRPC deadlines), connection idle timeouts.
 
@@ -1224,6 +1337,7 @@ async fn async_operation() -> io::Result<String> {
     Ok("Done".to_string())
 }
 ```
+
 
 ### Example: Timeout with Fallback
 
@@ -1258,6 +1372,7 @@ async fn fetch_data_from_fallback() -> io::Result<String> {
     Ok("Fallback data".to_string())
 }
 ```
+
 
 ### Example: Cancellation with CancellationToken
 
@@ -1310,6 +1425,7 @@ async fn cancellation_example() {
 }
 ```
 
+
 ### Example: Select for Racing Operations
 
 `tokio::select!` runs multiple futures concurrently and returns as soon as one completes. This is useful for implementing timeouts, racing multiple data sources, or handling multiple events.
@@ -1317,9 +1433,12 @@ async fn cancellation_example() {
 ```rust
 use tokio::time::{sleep, Duration};
 
-//=====================================================
-// Race three operations—return the first to complete
-//=====================================================
+```
+
+### Example: Race three operations—return the first to complete
+This example walks through race three operations—return the first to complete.
+
+```rust
 async fn race_operations() -> String {
     tokio::select! {
         result = operation_a() => result,
@@ -1344,9 +1463,12 @@ async fn operation_c() -> String {
     "C completed".to_string()
 }
 
-//=========================================
-// Biased select (checks branches in order)
-//=========================================
+```
+
+### Example: Biased select (checks branches in order)
+This example walks through biased select (checks branches in order).
+
+```rust
 async fn biased_select() {
     let mut count = 0;
 
@@ -1365,6 +1487,7 @@ async fn biased_select() {
     }
 }
 ```
+
 
 ### Example: Graceful Shutdown
 
@@ -1445,6 +1568,7 @@ async fn handle_connection_with_shutdown(
 }
 ```
 
+
 ### Example: Timeout for Multiple Operations
 
 When running multiple operations concurrently, you can apply a timeout to all of them collectively or to each individually.
@@ -1453,9 +1577,12 @@ When running multiple operations concurrently, you can apply a timeout to all of
 use tokio::time::{timeout, Duration};
 use futures::future::join_all;
 
-//========================================================================
-// Collective timeout: all operations must complete within 5 seconds total
-//========================================================================
+```
+
+### Example: Collective timeout: all operations must complete within 5 seconds total
+This example walks through collective timeout: all operations must complete within 5 seconds total.
+
+```rust
 async fn timeout_multiple() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let operations = vec![
         async_task(1),
@@ -1477,9 +1604,12 @@ async fn async_task(id: usize) -> io::Result<String> {
     Ok(format!("Task {} completed", id))
 }
 
-//========================================================
-// Individual timeouts: each operation has its own timeout
-//========================================================
+```
+
+### Example: Individual timeouts: each operation has its own timeout
+This example walks through individual timeouts: each operation has its own timeout.
+
+```rust
 async fn individual_timeouts() -> Vec<Result<String, tokio::time::error::Elapsed>> {
     let operations = vec![
         timeout(Duration::from_secs(1), async_task(1)),
@@ -1494,6 +1624,7 @@ async fn individual_timeouts() -> Vec<Result<String, tokio::time::error::Elapsed
 }
 ```
 
+
 ### Example: Retry with Timeout
 
 Combining retries with timeouts creates resilient operations that handle transient failures but don't hang forever.
@@ -1501,9 +1632,12 @@ Combining retries with timeouts creates resilient operations that handle transie
 ```rust
 use tokio::time::{sleep, timeout, Duration};
 
-//=========================================================
-// Generic retry logic with timeout and exponential backoff
-//=========================================================
+```
+
+### Example: Generic retry logic with timeout and exponential backoff
+This example walks through generic retry logic with timeout and exponential backoff.
+
+```rust
 async fn retry_with_timeout<F, Fut, T>(
     mut operation: F,
     max_retries: usize,
@@ -1534,9 +1668,12 @@ where
     Err("All retry attempts failed".into())
 }
 
-//======
-// Usage
-//======
+```
+
+### Example: Usage
+This example walks through usage.
+
+```rust
 async fn use_retry() -> Result<(), Box<dyn std::error::Error>> {
     let result = retry_with_timeout(
         || async {
@@ -1555,6 +1692,7 @@ async fn use_retry() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
 
 ### Example: Deadline-based Cancellation
 
@@ -1595,6 +1733,7 @@ async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Deadline exceeded"))?
 }
 ```
+
 
 ### Summary
 

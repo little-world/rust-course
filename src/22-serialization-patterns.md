@@ -5,11 +5,11 @@ This chapter covers serialization patterns using serde—converting Rust types t
 
 ## Pattern 1: Serde Patterns
 
-**Problem**: Writing manual serialization code for every type and format is tedious. Converting Person to JSON requires writing to_json(). Adding TOML support duplicates effort. When you change struct fields, manual serialization code breaks. Supporting multiple formats (JSON, MessagePack, bincode) means 3x code duplication. Error-prone: forget to serialize a field, silent bugs.
+**Problem**: Writing manual serialization code for every type and format is tedious. Converting Person to JSON requires writing to_json().
 
-**Solution**: Derive Serialize and Deserialize traits using #[derive] macros. Serde generates format-agnostic serialization code. Use field attributes: #[serde(rename)] changes field names in output, #[serde(skip)] omits fields, #[serde(default)] provides defaults for missing fields. Custom serializers via #[serde(serialize_with)] for special types. Serde data model separates type structure from format encoding.
+**Solution**: Derive Serialize and Deserialize traits using #[derive] macros. Serde generates format-agnostic serialization code.
 
-**Why It Matters**: Zero-cost abstraction—compiled code as fast as hand-written. Switch formats by changing serde_json to serde_cbor—one line change. Type safety: deserialization validates types at runtime, catches mismatches. Adding fields doesn't break existing serialization code. Works with 50+ formats (JSON, TOML, YAML, bincode, MessagePack, etc.) with same derive. Reduces bugs: compiler ensures all fields handled.
+**Why It Matters**: Zero-cost abstraction—compiled code as fast as hand-written. Switch formats by changing serde_json to serde_cbor—one line change.
 
 **Use Cases**: REST APIs (JSON request/response), config files (TOML, YAML), RPC between Rust services (bincode—fastest), cross-language messaging (MessagePack, CBOR), database storage (serialize structs to JSONB), caching (bincode for speed), logging (structured logs to JSON).
 
@@ -25,9 +25,12 @@ Add serialization to custom types with minimal code.
 
 use serde::{Serialize, Deserialize};
 
-//==============================================================================
-// Deriving Serialize + Deserialize makes this struct work with any serde format
-//==============================================================================
+```
+
+### Example: Deriving Serialize + Deserialize makes this struct work with any serde format
+This example walks through deriving serialize + deserialize makes this struct work with any serde format.
+
+```rust
 #[derive(Serialize, Deserialize, Debug)]
 struct Person {
     name: String,
@@ -59,6 +62,7 @@ fn basic_serialization() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
 
 ### Example: Field Attributes
 
@@ -134,14 +138,18 @@ fn field_attributes_example() -> Result<(), Box<dyn std::error::Error>> {
     //   "age": 25,
     //   "email": "bob@example.com",
     //   "created_at": "2024-01-01"
-    //==
-    // }
-    //==
+```
+
+### Example: }
+This example walks through }.
+
+```rust
     // Note: middle_name, password_hash, updated_at are omitted
 
     Ok(())
 }
 ```
+
 
 ### Example: Container Attributes
 
@@ -155,9 +163,12 @@ Container attributes apply to the entire struct or enum, affecting how all field
 ```rust
 use serde::{Serialize, Deserialize};
 
-//=============================================
-// Rename all fields to camelCase automatically
-//=============================================
+```
+
+### Example: Rename all fields to camelCase automatically
+This example walks through rename all fields to camelcase automatically.
+
+```rust
 // Rust: status_code → JSON: statusCode
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,9 +180,7 @@ struct ApiResponse {
 
 //===========================================
 // Deny unknown fields during deserialization
-//===========================================
 // Fails if JSON contains fields not defined in the struct
-//================================================
 // Use this to detect API version mismatches early
 //================================================
 #[derive(Serialize, Deserialize)]
@@ -183,8 +192,8 @@ struct StrictConfig {
 
 //=========================================================
 // Tagged enum: adds a "type" field to identify the variant
-//=========================================================
 // Useful for discriminated unions in JSON
+//=========================================================
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 enum Message {
@@ -192,14 +201,12 @@ enum Message {
     Image { url: String, width: u32, height: u32 },
     Video { url: String, duration: u32 },
 }
-//==============================================================================
 // Serializes as: {"type": "Image", "url": "...", "width": 1920, "height": 1080}
-//==============================================================================
 
 //==============================================================
 // Untagged enum: no type field, variant determined by structure
-//==============================================================
 // Serde tries to deserialize as each variant until one succeeds
+//==============================================================
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum Value {
@@ -208,9 +215,7 @@ enum Value {
     String(String),
     Bool(bool),
 }
-//========================================================
 // Serializes as: 42, 3.14, "hello", or true (no type tag)
-//========================================================
 
 fn enum_serialization() -> Result<(), Box<dyn std::error::Error>> {
     let message = Message::Image {
@@ -227,9 +232,12 @@ fn enum_serialization() -> Result<(), Box<dyn std::error::Error>> {
     //   "url": "https://example.com/image.jpg",
     //   "width": 1920,
     //   "height": 1080
-    //==
-    // }
-    //==
+```
+
+### Example: }
+This example walks through }.
+
+```rust
 
     let value = Value::String("hello".to_string());
     let json = serde_json::to_string(&value)?;
@@ -239,6 +247,7 @@ fn enum_serialization() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
 
 ### Example: Custom Serialization Functions
 
@@ -267,9 +276,12 @@ struct Config {
     created_at: chrono::NaiveDate,
 }
 
-//==============================================
-// Convert Duration to seconds for serialization
-//==============================================
+```
+
+### Example: Convert Duration to seconds for serialization
+This example walks through how to convert duration to seconds for serialization.
+
+```rust
 fn serialize_duration<S>(duration: &std::time::Duration, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -278,9 +290,12 @@ where
     serializer.serialize_u64(duration.as_secs())
 }
 
-//========================================================
-// Convert seconds back to Duration during deserialization
-//========================================================
+```
+
+### Example: Convert seconds back to Duration during deserialization
+This example walks through how to convert seconds back to duration during deserialization.
+
+```rust
 fn deserialize_duration<'de, D>(deserializer: D) -> Result<std::time::Duration, D::Error>
 where
     D: Deserializer<'de>,
@@ -289,14 +304,15 @@ where
     Ok(std::time::Duration::from_secs(secs))
 }
 
-//===============================
 // Using chrono for date handling
-//===============================
 use chrono::NaiveDate;
 
-//======================================
-// Serialize date as "YYYY-MM-DD" string
-//======================================
+```
+
+### Example: Serialize date as "YYYY-MM-DD" string
+This example walks through how to serialize date as "yyyy-mm-dd" string.
+
+```rust
 fn serialize_date<S>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -304,9 +320,12 @@ where
     serializer.serialize_str(&date.format("%Y-%m-%d").to_string())
 }
 
-//==========================================
-// Deserialize date from "YYYY-MM-DD" string
-//==========================================
+```
+
+### Example: Deserialize date from "YYYY-MM-DD" string
+This example walks through how to deserialize date from "yyyy-mm-dd" string.
+
+```rust
 fn deserialize_date<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
 where
     D: Deserializer<'de>,
@@ -335,6 +354,7 @@ where
 }
 ```
 
+
 ### Example: Custom Serialize/Deserialize Implementation
 
 For complete control, implement `Serialize` and `Deserialize` manually. This is necessary for types with complex invariants or non-standard representations.
@@ -357,9 +377,12 @@ struct Point {
     y: f64,
 }
 
-//================================
-// Manual Serialize implementation
-//================================
+```
+
+### Example: Manual Serialize implementation
+This example walks through manual serialize implementation.
+
+```rust
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -373,9 +396,12 @@ impl Serialize for Point {
     }
 }
 
-//==================================
-// Manual Deserialize implementation
-//==================================
+```
+
+### Example: Manual Deserialize implementation
+This example walks through manual deserialize implementation.
+
+```rust
 impl<'de> Deserialize<'de> for Point {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -464,6 +490,7 @@ impl<'de> Deserialize<'de> for Point {
 }
 ```
 
+
 ### Example: Serializing with State
 
 Sometimes you need to include computed data or context during serialization. Custom `Serialize` implementations make this possible.
@@ -476,9 +503,12 @@ struct Database {
     users: HashMap<u64, String>,
 }
 
-//=================================================
-// Custom serialization that includes computed data
-//=================================================
+```
+
+### Example: Custom serialization that includes computed data
+This example walks through custom serialization that includes computed data.
+
+```rust
 // Adds a "user_count" field that isn't stored in the struct
 impl Serialize for Database {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -495,9 +525,12 @@ impl Serialize for Database {
     }
 }
 
-//=========================================
-// Wrapper for custom serialization context
-//=========================================
+```
+
+### Example: Wrapper for custom serialization context
+This example walks through wrapper for custom serialization context.
+
+```rust
 // Allows passing configuration to serialization logic
 struct SerializeWithContext<'a, T> {
     value: &'a T,
@@ -524,15 +557,16 @@ impl<'a, T: Serialize> Serialize for SerializeWithContext<'a, T> {
 }
 ```
 
+
 ---
 
 ## Pattern 2: Zero-Copy Deserialization
 
-**Problem**: Deserializing allocates—parsing JSON with "name":"Alice" allocates String for "Alice". Processing 100K log lines allocates 100K strings wastefully. Input buffer (file, network) lives long enough to borrow from. Allocation overhead dominates parsing time for small records. Heap allocation in hot path hurts performance. Embedded systems have limited RAM.
+**Problem**: Deserializing allocates—parsing JSON with "name":"Alice" allocates String for "Alice". Processing 100K log lines allocates 100K strings wastefully.
 
-**Solution**: Use &str and &[u8] in structs instead of String and Vec. Add #[serde(borrow)] attribute to enable borrowing. Use serde_json::from_slice (not from_str) with byte slices. Lifetime-aware types borrow from input buffer. For nested borrows, use #[serde(borrow)] on container fields. Works when input buffer outlives deserialized data.
+**Solution**: Use &str and &[u8] in structs instead of String and Vec. Add #[serde(borrow)] attribute to enable borrowing.
 
-**Why It Matters**: 10x faster for large inputs—no heap allocation. Constant memory: O(1) vs O(N) for allocating. Critical for high-throughput: parsing 1M logs with zero-copy uses 10MB, allocating uses 100MB. CPU cache friendly: borrowed data in same memory region. Essential for embedded (limited RAM). Enables zero-allocation parsers for protocols.
+**Why It Matters**: 10x faster for large inputs—no heap allocation. Constant memory: O(1) vs O(N) for allocating.
 
 **Use Cases**: Log parsing (borrow from mmap'd file), HTTP request parsing (borrow from socket buffer), streaming data (process without allocating), embedded systems (RAM-constrained), high-throughput parsers (network protocols), zero-allocation servers.
 
@@ -543,9 +577,12 @@ impl<'a, T: Serialize> Serialize for SerializeWithContext<'a, T> {
 ```rust
 use serde::{Deserialize, Serialize};
 
-//=========================================
-// Zero-copy: borrows from the input string
-//=========================================
+```
+
+### Example: Zero-copy: borrows from the input string
+This example walks through zero-copy: borrows from the input string.
+
+```rust
 // Lifetimes ensure the struct can't outlive the input
 #[derive(Deserialize, Debug)]
 struct BorrowedData<'a> {
@@ -576,9 +613,12 @@ fn zero_copy_example() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-//============================================
-// Cow (Clone on Write) for flexible ownership
-//============================================
+```
+
+### Example: Cow (Clone on Write) for flexible ownership
+This example walks through cow (clone on write) for flexible ownership.
+
+```rust
 // Borrows when possible, owns when necessary
 #[derive(Deserialize, Serialize, Debug)]
 struct FlexibleData<'a> {
@@ -603,6 +643,7 @@ fn cow_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Using Bytes and ByteBuf
 
 Binary data benefits even more from zero-copy deserialization. `serde_bytes` provides specialized handling for byte slices.
@@ -622,13 +663,19 @@ struct BinaryData<'a> {
     borrowed_data: &'a [u8],
 }
 
-//===============================
-// More efficient for binary data
-//===============================
+```
+
+### Example: More efficient for binary data
+This example walks through more efficient for binary data.
+
+```rust
 // Without serde_bytes: [1, 2, 3, 4, 5] in JSON (13 bytes)
-//============================================================================
-// With serde_bytes: "\u0001\u0002\u0003\u0004\u0005" (compact representation)
-//============================================================================
+```
+
+### Example: With serde_bytes: "\u0001\u0002\u0003\u0004\u0005" (compact representation)
+This example walks through with serde_bytes: "\u0001\u0002\u0003\u0004\u0005" (compact representation).
+
+```rust
 #[derive(Serialize, Deserialize, Debug)]
 struct OptimizedBinaryData {
     #[serde(with = "serde_bytes")]
@@ -648,14 +695,15 @@ fn binary_data_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Zero-Copy with bincode
 
 Bincode is particularly well-suited for zero-copy deserialization because it's a binary format that doesn't need escape sequences or UTF-8 validation.
 
+### Example: Add to Cargo.toml:
+This example walks through add to cargo.toml:.
+
 ```rust
-//===================
-// Add to Cargo.toml:
-//===================
 // bincode = "1.3"
 
 use serde::{Deserialize, Serialize};
@@ -688,6 +736,7 @@ fn bincode_zero_copy() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Custom Zero-Copy Deserializer
 
 For advanced cases, implement custom deserializers that borrow from the input.
@@ -696,9 +745,12 @@ For advanced cases, implement custom deserializers that borrow from the input.
 use serde::de::{self, Deserializer, Visitor};
 use std::fmt;
 
-//========================================
-// Custom deserializer for borrowed slices
-//========================================
+```
+
+### Example: Custom deserializer for borrowed slices
+This example walks through custom deserializer for borrowed slices.
+
+```rust
 fn deserialize_borrowed_slice<'de, D>(deserializer: D) -> Result<&'de [u8], D::Error>
 where
     D: Deserializer<'de>,
@@ -731,15 +783,16 @@ struct CustomBorrowed<'a> {
 }
 ```
 
+
 ---
 
 ## Pattern 3: Schema Evolution
 
-**Problem**: API changes break clients—adding "phone" field to User fails deserialization. Renaming "username" to "user_name" breaks all existing JSON. Old clients can't parse new responses. Database schema migrations require downtime. Version v2 incompatible with v1 clients. Refactoring field names breaks wire format. Gradual rollout impossible: update breaks old clients immediately.
+**Problem**: API changes break clients—adding "phone" field to User fails deserialization. Renaming "username" to "user_name" breaks all existing JSON.
 
-**Solution**: Use #[serde(default)] for new optional fields—deserializes missing as default(). Use #[serde(rename = "old_name")] to keep wire format when refactoring. Use #[serde(alias = "old")] to accept both old and new names during transition. Option<T> for truly optional fields. Versioning with tagged enums for breaking changes. Flatten attributes merge nested structs.
+**Solution**: Use #[serde(default)] for new optional fields—deserializes missing as default(). Use #[serde(rename = "old_name")] to keep wire format when refactoring.
 
-**Why It Matters**: Enables gradual rollout—old clients work with new servers during migration. Adding fields backward compatible: v1 clients ignore new fields, v2 clients get defaults. Renaming internally doesn't break API: rename="..." preserves wire format. Allows versioned APIs (v1/v2 coexist). Database migrations non-breaking. Essential for production: can't coordinate simultaneous updates of all clients.
+**Why It Matters**: Enables gradual rollout—old clients work with new servers during migration. Adding fields backward compatible: v1 clients ignore new fields, v2 clients get defaults.
 
 **Use Cases**: Versioned REST APIs (v1→v2 migration), database schema migrations (add columns without breaking old code), config file evolution (new options without breaking existing configs), backward-compatible protocols, gradual service updates (rolling deployment), refactoring without API breaks.
 
@@ -750,18 +803,24 @@ struct CustomBorrowed<'a> {
 ```rust
 use serde::{Deserialize, Serialize};
 
-//===========================
-// Version 1: Original schema
-//===========================
+```
+
+### Example: Version 1: Original schema
+This example walks through version 1: original schema.
+
+```rust
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigV1 {
     host: String,
     port: u16,
 }
 
-//===========================================
-// Version 2: Add optional field with default
-//===========================================
+```
+
+### Example: Version 2: Add optional field with default
+This example walks through version 2: add optional field with default.
+
+```rust
 // Can deserialize V1 data without errors
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigV2 {
@@ -774,9 +833,12 @@ struct ConfigV2 {
     timeout: Option<u32>,
 }
 
-//=======================================
-// Version 3: Required field with default
-//=======================================
+```
+
+### Example: Version 3: Required field with default
+This example walks through version 3: required field with default.
+
+```rust
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigV3 {
     host: String,
@@ -808,14 +870,18 @@ fn schema_evolution_example() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Versioned Enums
 
 ```rust
 use serde::{Deserialize, Serialize};
 
-//=======================================================
-// Tag-based versioning: each variant is a schema version
-//=======================================================
+```
+
+### Example: Tag-based versioning: each variant is a schema version
+This example walks through tag-based versioning: each variant is a schema version.
+
+```rust
 // The "version" field discriminates between versions
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "version")]
@@ -868,6 +934,7 @@ struct MessageV3 {
 }
 ```
 
+
 ### Example: Handling Renamed Fields
 
 ```rust
@@ -898,13 +965,17 @@ fn renamed_fields_example() -> Result<(), Box<dyn std::error::Error>> {
     // {
     //   "name": "Alice",
     //   "emailAddress": "alice@example.com"
-    //==
-    // }
-    //==
+```
+
+### Example: }
+This example walks through }.
+
+```rust
 
     Ok(())
 }
 ```
+
 
 ### Example: Custom Migration Logic
 
@@ -986,15 +1057,16 @@ impl<'de> Deserialize<'de> for MigratableConfig {
 }
 ```
 
+
 ---
 
 ## Pattern 4: Binary vs Text Formats
 
-**Problem**: JSON human-readable but large and slow—100KB JSON → 40KB binary. Need cross-language format (bincode Rust-only). Size matters for bandwidth/storage costs. Parse speed critical for high-throughput. Want debuggability (text) but need performance (binary). Tradeoff between human-readable vs compact. Self-describing (MessagePack) vs minimal (bincode).
+**Problem**: JSON human-readable but large and slow—100KB JSON → 40KB binary. Need cross-language format (bincode Rust-only).
 
-**Solution**: Use JSON for APIs and debugging (human-readable, universal). Use bincode for Rust-to-Rust IPC (smallest, fastest—10x faster than JSON). Use MessagePack/CBOR for cross-language binary (60% of JSON size, many language bindings). Use TOML for simple configs (readable, minimal). Use YAML for complex nested configs. Choose based on: readability needs, size constraints, parse speed, interop requirements.
+**Solution**: Use JSON for APIs and debugging (human-readable, universal). Use bincode for Rust-to-Rust IPC (smallest, fastest—10x faster than JSON).
 
-**Why It Matters**: JSON 2-5x larger than binary (100KB → 40KB MessagePack). Bincode 10x faster parse than JSON for Rust types. Bandwidth costs: binary saves 60% network transfer. Storage: binary DB fields smaller. Latency: faster parse means lower tail latency. Debugging: text formats inspectable. Cross-language: MessagePack/CBOR work everywhere, bincode Rust-only. Format choice directly impacts performance.
+**Why It Matters**: JSON 2-5x larger than binary (100KB → 40KB MessagePack). Bincode 10x faster parse than JSON for Rust types.
 
 **Use Cases**: JSON (REST APIs, web configs, debugging), bincode (Rust microservice IPC, caching, session storage), MessagePack (cross-language RPC, binary APIs), CBOR (IoT protocols, embedded systems), TOML (application configs), YAML (complex configs like Kubernetes), Protocol Buffers (Google services, strict schemas).
 
@@ -1049,9 +1121,12 @@ fn json_format() -> Result<(), Box<dyn std::error::Error>> {
     //   "name": "Widget",
     //   "price": 29.99,
     //   "in_stock": true
-    //==
-    // }
-    //==
+```
+
+### Example: }
+This example walks through }.
+
+```rust
 
     // Deserialize back to Rust struct
     let deserialized: Product = serde_json::from_str(&json)?;
@@ -1060,6 +1135,7 @@ fn json_format() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
 
 ### Example: Bincode (Binary Format)
 
@@ -1103,6 +1179,7 @@ fn bincode_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: MessagePack (Binary Format)
 
 MessagePack is a binary format with broad language support. Good balance between size, speed, and interoperability.
@@ -1112,10 +1189,10 @@ MessagePack is a binary format with broad language support. Good balance between
 - Need compact format with better interop than Bincode
 - Real-time systems (gaming, IoT)
 
+### Example: Add to Cargo.toml:
+This example walks through add to cargo.toml:.
+
 ```rust
-//===================
-// Add to Cargo.toml:
-//===================
 // rmp-serde = "1.1"
 
 use serde::{Deserialize, Serialize};
@@ -1149,14 +1226,15 @@ fn messagepack_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: CBOR (Binary Format)
 
 CBOR (Concise Binary Object Representation) is similar to MessagePack but with more features (tags, indefinite-length encoding). Used in IoT and embedded systems.
 
+### Example: Add to Cargo.toml:
+This example walks through add to cargo.toml:.
+
 ```rust
-//===================
-// Add to Cargo.toml:
-//===================
 // serde_cbor = "0.11"
 
 use serde::{Deserialize, Serialize};
@@ -1189,14 +1267,15 @@ fn cbor_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: YAML (Text Format)
 
 YAML is very human-readable with minimal syntax. Great for config files, but the complex spec makes parsing slow and error-prone.
 
+### Example: Add to Cargo.toml:
+This example walks through add to cargo.toml:.
+
 ```rust
-//===================
-// Add to Cargo.toml:
-//===================
 // serde_yaml = "0.9"
 
 use serde::{Deserialize, Serialize};
@@ -1234,14 +1313,15 @@ fn yaml_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: TOML (Text Format)
 
 TOML is designed for config files. Minimal, unambiguous syntax. Limited nesting makes it unsuitable for complex data structures.
 
+### Example: Add to Cargo.toml:
+This example walks through add to cargo.toml:.
+
 ```rust
-//===================
-// Add to Cargo.toml:
-//===================
 // toml = "0.8"
 
 use serde::{Deserialize, Serialize};
@@ -1302,6 +1382,7 @@ fn toml_format() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Format Comparison
 
 Benchmark different formats to see the size difference:
@@ -1354,15 +1435,16 @@ fn format_comparison() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ---
 
 ## Pattern 5: Streaming Serialization
 
-**Problem**: Serializing GB dataset exhausts memory—loading 10GB JSON into RAM fails. Can't process files larger than RAM. Parsing large JSON array allocates all elements at once. Need to start processing before all data arrives. Latency: waiting for entire response before parsing first item. Backpressure: fast producer overwhelms slow consumer. All-at-once deserialization doesn't fit memory constraints.
+**Problem**: Serializing GB dataset exhausts memory—loading 10GB JSON into RAM fails. Can't process files larger than RAM.
 
-**Solution**: Use streaming APIs—serialize/deserialize incrementally. serde_json::Deserializer::from_reader with streaming_iterator pulls one item at time. Write iterators serialize as you iterate, not buffer-then-write. For JSON arrays, use StreamDeserializer to yield elements lazily. CSV processing with serde streaming reads row-by-row. Combine with channels for backpressure.
+**Solution**: Use streaming APIs—serialize/deserialize incrementally. serde_json::Deserializer::from_reader with streaming_iterator pulls one item at time.
 
-**Why It Matters**: O(1) memory vs O(N) for full load—process 10GB file in 10MB RAM. Enables processing files larger than RAM (logs, DB exports). Lower latency: start processing first item immediately, don't wait for full download. Backpressure: slow consumer doesn't cause producer to OOM. Essential for logs/analytics. Streaming servers (SSE, WebSocket) can't buffer all messages.
+**Why It Matters**: O(1) memory vs O(N) for full load—process 10GB file in 10MB RAM. Enables processing files larger than RAM (logs, DB exports).
 
 **Use Cases**: Large file processing (GB log files, database dumps), streaming APIs (server-sent events, WebSocket messages), incremental parsing (start processing before download completes), log aggregation (process logs as they arrive), ETL pipelines (transform data in stream), real-time analytics (process events as they occur).
 
@@ -1380,9 +1462,12 @@ struct Record {
     value: f64,
 }
 
-//===========================================================================
-// Stream records as a JSON array without building the entire array in memory
-//===========================================================================
+```
+
+### Example: Stream records as a JSON array without building the entire array in memory
+This example walks through stream records as a json array without building the entire array in memory.
+
+```rust
 fn stream_json_array<W: Write>(mut writer: W, records: &[Record]) -> io::Result<()> {
     writer.write_all(b"[")?;
 
@@ -1420,6 +1505,7 @@ fn streaming_array_example() -> io::Result<()> {
 }
 ```
 
+
 ### Example: Streaming to File
 
 JSON Lines (newline-delimited JSON) is perfect for streaming: one JSON object per line.
@@ -1436,9 +1522,12 @@ struct LogEntry {
     message: String,
 }
 
-//===============================================
-// Stream log entries to file (JSON Lines format)
-//===============================================
+```
+
+### Example: Stream log entries to file (JSON Lines format)
+This example walks through stream log entries to file (json lines format).
+
+```rust
 fn stream_to_file(path: &str) -> io::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
@@ -1463,6 +1552,7 @@ fn stream_to_file(path: &str) -> io::Result<()> {
 }
 ```
 
+
 ### Example: Streaming Deserialization
 
 ```rust
@@ -1477,9 +1567,12 @@ struct LogEntry {
     message: String,
 }
 
-//===============================
-// Stream-process JSON Lines file
-//===============================
+```
+
+### Example: Stream-process JSON Lines file
+This example walks through stream-process json lines file.
+
+```rust
 fn stream_from_file(path: &str) -> io::Result<()> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -1502,6 +1595,7 @@ fn stream_from_file(path: &str) -> io::Result<()> {
     Ok(())
 }
 ```
+
 
 ### Example: Streaming with serde_json::Deserializer
 
@@ -1540,6 +1634,7 @@ fn streaming_deserializer() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
 ### Example: Async Streaming with Tokio
 
 Combine streaming serialization with async I/O for maximum efficiency.
@@ -1555,9 +1650,12 @@ struct Record {
     data: String,
 }
 
-//======================
-// Async streaming write
-//======================
+```
+
+### Example: Async streaming write
+This example walks through async streaming write.
+
+```rust
 async fn async_stream_write(path: &str) -> tokio::io::Result<()> {
     let mut file = File::create(path).await?;
 
@@ -1578,9 +1676,12 @@ async fn async_stream_write(path: &str) -> tokio::io::Result<()> {
     Ok(())
 }
 
-//=====================
-// Async streaming read
-//=====================
+```
+
+### Example: Async streaming read
+This example walks through async streaming read.
+
+```rust
 async fn async_stream_read(path: &str) -> tokio::io::Result<()> {
     let file = File::open(path).await?;
     let reader = BufReader::new(file);
@@ -1597,6 +1698,7 @@ async fn async_stream_read(path: &str) -> tokio::io::Result<()> {
 }
 ```
 
+
 ### Example: Large Dataset Streaming
 
 For very large datasets, implement custom streaming writers with buffering and periodic flushing.
@@ -1612,9 +1714,12 @@ struct DataPoint {
     timestamp: u64,
 }
 
-//================================================
-// Custom streaming writer with automatic flushing
-//================================================
+```
+
+### Example: Custom streaming writer with automatic flushing
+This example walks through custom streaming writer with automatic flushing.
+
+```rust
 struct DataStreamWriter<W: Write> {
     writer: W,
     count: usize,
@@ -1673,6 +1778,7 @@ fn stream_large_dataset() -> io::Result<()> {
 }
 ```
 
+
 ### Example: Custom Streaming Format
 
 For maximum efficiency, implement length-prefixed binary streaming.
@@ -1681,9 +1787,12 @@ For maximum efficiency, implement length-prefixed binary streaming.
 use serde::Serialize;
 use std::io::{self, Write};
 
-//============================================
-// Length-prefixed binary format for streaming
-//============================================
+```
+
+### Example: Length-prefixed binary format for streaming
+This example walks through length-prefixed binary format for streaming.
+
+```rust
 struct BinaryStreamWriter<W: Write> {
     writer: W,
 }
@@ -1735,6 +1844,7 @@ fn binary_streaming_example() -> io::Result<()> {
     Ok(())
 }
 ```
+
 
 ---
 

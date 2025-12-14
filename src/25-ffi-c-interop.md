@@ -5,11 +5,11 @@ This chapter covers FFI (Foreign Function Interface)—calling C from Rust and v
 
 ## Pattern 1: C ABI Compatibility
 
-**Problem**: Rust and C have incompatible ABIs—Rust optimizes struct layouts (reorders fields), uses different calling conventions, doesn't guarantee ABI stability between versions. Passing Rust struct to C corrupts data (wrong offsets). C expects specific memory layout. Function calls fail (wrong calling convention). Can't link against C libraries without ABI compatibility. Rust's Vec/String layout incompatible with C arrays/pointers.
+**Problem**: Rust and C have incompatible ABIs—Rust optimizes struct layouts (reorders fields), uses different calling conventions, doesn't guarantee ABI stability between versions. Passing Rust struct to C corrupts data (wrong offsets).
 
-**Solution**: Use extern "C" to declare C functions and mark Rust functions for C. Use #[repr(C)] to force C-compatible struct layout—fields in declaration order, C alignment rules. Use raw pointers (*const T, *mut T) for C pointers. Use c_int, c_char, c_void from std::ffi. All FFI calls in unsafe blocks. Link with #[link(name = "library")].
+**Solution**: Use extern "C" to declare C functions and mark Rust functions for C. Use #[repr(C)] to force C-compatible struct layout—fields in declaration order, C alignment rules.
 
-**Why It Matters**: Enables using decades of C libraries—SQLite, OpenSSL, zlib, libcurl. OS APIs (POSIX, Win32) are C. Can't rewrite everything: FFI is boundary between Rust and C. Incremental migration possible (gradual rewrite). Wrong ABI means silent corruption or crashes. Essential for systems programming, embedded, game engines, crypto.
+**Why It Matters**: Enables using decades of C libraries—SQLite, OpenSSL, zlib, libcurl. OS APIs (POSIX, Win32) are C.
 
 **Use Cases**: System calls (open, read, write), database drivers (SQLite, Postgres FFI), graphics APIs (OpenGL, Vulkan, DirectX), audio/video codecs (ffmpeg), crypto libraries (OpenSSL, libsodium), compression (zlib, lz4), embedded HALs, legacy C code integration.
 
@@ -212,11 +212,11 @@ The `packed` attribute removes padding, which can save space but may cause perfo
 
 ## Pattern 2: String Conversions
 
-**Problem**: Rust &str (UTF-8, length-prefixed, can contain NUL) incompatible with C *char (null-terminated, no encoding, stops at \0). Ownership unclear: who frees the string? Lifetime mismatches cause use-after-free. Rust String contains internal NUL—crashes C. C string has invalid UTF-8—Rust validation fails. Double-free or memory leak if ownership unclear.
+**Problem**: Rust &str (UTF-8, length-prefixed, can contain NUL) incompatible with C *char (null-terminated, no encoding, stops at \0). Ownership unclear: who frees the string?
 
-**Solution**: Use CString to create owned null-terminated C strings. Use CStr to borrow C strings. CString::new() validates no internal NULs, adds terminator. as_ptr() for passing to C (borrow). into_raw() transfers ownership to C. CStr::from_ptr() for receiving from C (unsafe). to_string_lossy() handles invalid UTF-8. Validate encoding carefully.
+**Solution**: Use CString to create owned null-terminated C strings. Use CStr to borrow C strings.
 
-**Why It Matters**: Strings are most error-prone FFI aspect—wrong conversion causes use-after-free, buffer overrun, null pointer deref, memory leaks. FFI boundaries in production: file paths, error messages, configuration. C's null-termination + Rust's UTF-8 = impedance mismatch. Essential for any C library accepting strings. Security: improper handling exploitable.
+**Why It Matters**: Strings are most error-prone FFI aspect—wrong conversion causes use-after-free, buffer overrun, null pointer deref, memory leaks. FFI boundaries in production: file paths, error messages, configuration.
 
 **Use Cases**: Passing filenames to C (fopen, stat), error messages from C (strerror), configuration strings, logging to C libraries, command-line arguments, environment variables, C string parsing, text processing across FFI.
 
@@ -458,11 +458,11 @@ This pattern—wrapping unsafe C calls in safe Rust functions—is the key to go
 
 ## Pattern 3: Callback Patterns
 
-**Problem**: C callbacks expect function pointers (extern "C" fn), but Rust closures capture environment (not C-compatible). Need stateful callbacks—closure with captured state called from C. Lifetime management: callback outlives state. Panics in callbacks unwind into C—undefined behavior. C has no concept of closures/borrowing. Thread safety issues.
+**Problem**: C callbacks expect function pointers (extern "C" fn), but Rust closures capture environment (not C-compatible). Need stateful callbacks—closure with captured state called from C.
 
-**Solution**: Use extern "C" fn for stateless callbacks. For stateful: Box::into_raw() passes closure as void*, trampoline function extracts state. Store state in static/thread_local for global access. catch_unwind() prevents panics crossing FFI boundary. Use ManuallyDrop or forget for lifetime extension. Context pointer pattern (userdata).
+**Solution**: Use extern "C" fn for stateless callbacks. For stateful: Box::into_raw() passes closure as void*, trampoline function extracts state.
 
-**Why It Matters**: Async APIs need callbacks—C libraries can't block Rust futures. Signal handlers require callbacks. GUI frameworks event-driven. Thread APIs pass callbacks. Plugin systems. Panics crossing FFI are UB (crashes, corruption). Essential for event-driven C libraries. Must handle carefully or undefined behavior.
+**Why It Matters**: Async APIs need callbacks—C libraries can't block Rust futures. Signal handlers require callbacks.
 
 **Use Cases**: Event loops (GUI toolkits—GTK, Qt), async I/O libraries, signal handlers (SIGINT, SIGTERM), qsort comparators, thread spawn callbacks (pthread_create), plugin systems, C library hooks, timer callbacks.
 
@@ -696,11 +696,11 @@ But capturing closures don't work directly—they have state, and C function poi
 
 ## Pattern 4: Error Handling Across FFI
 
-**Problem**: Rust Result<T, E> and panic incompatible with C's errno/return codes/NULL. Panics unwinding into C are undefined behavior (crashes, memory corruption). Can't use ? operator across FFI boundary. C has no Result type—must translate. Error context lost crossing boundary. Errno is thread-local but C API unclear. No way to propagate detailed Rust errors to C.
+**Problem**: Rust Result<T, E> and panic incompatible with C's errno/return codes/NULL. Panics unwinding into C are undefined behavior (crashes, memory corruption).
 
-**Solution**: Convert Result to i32 return codes (0 = success, <0 = error). Set errno for POSIX compatibility. Use catch_unwind() to prevent panics crossing FFI. Out-parameters for detailed error info (*mut c_int for errno). Error enum maps to C codes. thread_local! for per-thread error state. Document error contracts clearly.
+**Solution**: Convert Result to i32 return codes (0 = success, <0 = error). Set errno for POSIX compatibility.
 
-**Why It Matters**: Panicking into C is undefined behavior—absolutely must prevent. Production FFI must never panic. C libraries expect specific error conventions—violating them breaks clients. Essential for reliability and safety. Without proper error handling, silent corruption or crashes. C API users need clear error semantics. Critical for all FFI.
+**Why It Matters**: Panicking into C is undefined behavior—absolutely must prevent. Production FFI must never panic.
 
 **Use Cases**: All FFI functions (must handle errors properly), library wrappers (translate Result to errno), system calls, C callbacks (cannot panic), plugin interfaces, language bindings (Python, Ruby calling Rust), error propagation.
 
@@ -916,11 +916,11 @@ This provides detailed error messages while maintaining a C-compatible API.
 
 ## Pattern 5: bindgen Patterns
 
-**Problem**: Manually writing FFI bindings tedious—100+ functions, 50+ structs, error-prone. Struct layouts wrong (misaligned fields). C headers change—bindings out of sync. #define constants inaccessible from Rust. Complex C types (bitfields, unions, packed structs) hard to translate. Function pointer types verbose. Keeping bindings synchronized with C headers painful.
+**Problem**: Manually writing FFI bindings tedious—100+ functions, 50+ structs, error-prone. Struct layouts wrong (misaligned fields).
 
-**Solution**: bindgen auto-generates Rust bindings from C headers. Parses with libclang (actual compiler). Generates extern "C" blocks, #[repr(C)] structs, constants. cargo build.rs integration—rebuilds when headers change. Allowlist/blocklist specific APIs. Override types for better Rust ergonomics. Handles complex C (unions, bitfields, macros).
+**Solution**: bindgen auto-generates Rust bindings from C headers. Parses with libclang (actual compiler).
 
-**Why It Matters**: Eliminates 90% manual FFI work—hundreds of lines auto-generated. Keeps bindings in sync with C headers automatically. Handles complex C types correctly (unions, bitfields, packed). Catches type mismatches at build time. Essential for large C libraries. Industry standard (used by Firefox, Servo, many crates). Without bindgen, wrapping large C APIs impractical.
+**Why It Matters**: Eliminates 90% manual FFI work—hundreds of lines auto-generated. Keeps bindings in sync with C headers automatically.
 
 **Use Cases**: Wrapping C libraries (SQLite, libcurl, OpenSSL, SDL), system API bindings (libc, Win32), graphics APIs (OpenGL, Vulkan), audio/video libraries (ffmpeg), embedded HALs, automatic binding generation, maintaining C library wrappers.
 

@@ -1,15 +1,15 @@
 # Testing & Benchmarking
-This chapter explores Rust's testing ecosystem: built-in unit tests, property-based testing with proptest, mocking with traits, integration testing patterns, and Criterion benchmarks for performance measurement and regression detection.
+This chapter explores Rust's testing ecosystem end-to-end: built-in unit tests, property-based testing with proptest/quickcheck, coverage-guided fuzzing via cargo-fuzz, mutation testing tools that stress-check your suite, formal verification with Kani/Prusti, trait-based mocking, integration testing patterns, and Criterion benchmarks for performance measurement and regression detection.
 
 ## Pattern 1: Unit Test Patterns
 
-**Problem**: Rust's type system catches memory safety bugs and many logic errors, but can't verify business logic correctness, mathematical correctness, or handle edge cases like division by zero, overflow conditions, or invalid state transitions. Manual testing is slow, incomplete, and doesn't catch regressions when refactoring. Error paths (Result::Err, panic conditions) rarely get manual testing but often have bugs. No automated verification that changes don't break existing functionality.
+**Problem**: Rust ensures memory safety but not domain correctness; manual spot-checking misses edge cases, error paths, and regressions.
 
-**Solution**: Use Rust's built-in test framework with `#[test]` attribute to mark test functions. Use assertion macros: `assert_eq!` for equality with good error messages, `assert_ne!` for inequality, `assert!` for boolean conditions. Test error cases with `Result::is_err()` and match statements. Use `#[should_panic]` attribute to verify panics occur when expected. Organize tests in nested `#[cfg(test)]` modules keeping tests near code. Use RAII pattern (Drop trait) for automatic test cleanup. Use `#[ignore]` for slow tests, filter with `cargo test <pattern>`.
+**Solution**: Lean on `#[test]`, assertion macros, and `#[should_panic]` to encode expectations. Keep tests near code via `#[cfg(test)]`, use RAII for setup/teardown, and tag slow suites with `#[ignore]`.
 
-**Why It Matters**: Type system guarantees memory safety but not correctness—function can compile yet return wrong answer. Manual testing catches only 10-20% of edge cases; automated tests cover 80%+. Error paths are production bug sources: they rarely execute in development but get hit in production. Regression prevention: refactoring without tests = fear-driven development. Documentation: tests show how API is intended to be used. Fast feedback: `cargo test` runs in seconds, finds bugs before commit. Rust's test isolation: each test runs in separate thread, failures don't cascade.
+**Why It Matters**: Automated tests document intent, catch bugs before review, and provide fearless refactoring—especially on rarely exercised Err/panic branches.
 
-**Use Cases**: Function correctness verification (math functions, string processing, data transformations), error handling validation (Result errors, input validation, boundary conditions), panic verification (invalid inputs should panic, out-of-bounds access), regression prevention (test bugs found in production), API contract enforcement (public interface behavior), edge case coverage (empty inputs, max values, negative numbers), refactoring confidence (tests ensure behavior unchanged).
+**Use Cases**: Math/string helpers, API contracts, validation logic, panic semantics, regression reproducers, and any code that changes frequently.
 
 ### Example: The Basics of Rust Testing
 
@@ -292,13 +292,13 @@ This is a deliberate design decision. Tests in the same module are part of the i
 
 ## Pattern 2: Property-Based Testing
 
-**Problem**: Example-based tests check specific inputs (2+2=4, [3,1,2] sorted is [1,2,3]) but miss edge cases you didn't think to test. Manually enumerating all edge cases is tedious and incomplete—what about empty lists? Single elements? Duplicates? MAX/MIN values? Pathological inputs like reverse-sorted arrays? You discover edge case bugs in production, not development. Coverage is limited by imagination: you test cases you think of, miss ones you don't. Writing exhaustive tests for every possible input is impossible.
+**Problem**: Example-based tests cover only inputs you imagine, leaving unseen edge cases, MIN/MAX values, and weird permutations unchecked.
 
-**Solution**: Use property-based testing (proptest or quickcheck) to generate random inputs and verify properties hold universally. Define properties instead of examples: "sorted output length equals input length", "sorted output is ascending", "sorted contains same elements". proptest generates 100+ random inputs, runs tests, and if failure found, "shrinks" to minimal failing case. Write custom generators for domain-specific inputs (emails, valid dates, constrained ranges). Verify invariants: data structure properties that must always hold regardless of inputs. Test round-trip properties: `deserialize(serialize(x)) == x`.
+**Solution**: Property-based testing (proptest/quickcheck) generates hundreds of random inputs and shrinks failures, letting you describe invariants instead of enumerating cases.
 
-**Why It Matters**: Finds bugs you didn't think to test—proptest explores input space systematically, discovering edge cases. Shrinking is killer feature: finds `i32::MIN` as minimal failing case for overflow, not random large negative number. Higher confidence: 100 random inputs provide better coverage than 5 manual examples. Invariant verification: properties like "BST left < node < right" tested across all possible trees. Regression prevention: new code path triggered by random input reveals bugs. Mathematical correctness: commutativity (a+b = b+a), associativity, identity properties verified universally. Saves time: write one property test instead of 50 example tests.
+**Why It Matters**: Automatic exploration surfaces bugs humans miss, shrinking provides minimal reproducers, and one property can replace dozens of example tests.
 
-**Use Cases**: Pure function testing (math, string operations, no side effects), data structure invariants (BST ordering, heap properties, graph validity), serialization round-trips (JSON, bincode, protobuf), parser correctness (parse then unparse), algorithm properties (sorting, searching, hashing), cryptographic properties (encryption then decryption), compression round-trips (compress then decompress), state machine transitions (all transitions maintain invariants).
+**Use Cases**: Pure functions, data-structure invariants, serialization round-trips, parsers, crypto/compression transforms, and deterministic state machines.
 
 ## Example: Can do better
 ```rust
@@ -515,15 +515,204 @@ It's less useful for:
 - **Testing I/O**: Hard to generate meaningful random database queries or file operations
 - **Complex stateful systems**: Can work but requires sophisticated generators
 
-## Pattern 3: Mock and Stub Patterns
+## Pattern 3: Coverage-Guided Fuzzing
 
-**Problem**: Testing with real external dependencies (databases, HTTP APIs, SMTP servers, file systems, payment gateways) is slow (network latency, I/O overhead), unreliable (network failures, service downtime), expensive (API rate limits, paid services), requires setup (database installation, service credentials), hard to test error conditions (how to make database fail on command?), prevents parallel test execution (shared state conflicts), couples tests to external systems (tests break when external service changes).
+**Problem**: Static test sets rarely include adversarial byte sequences, so parsers and `unsafe` code still panic or blow up on malformed inputs.
 
-**Solution**: Use trait-based dependency injection—define trait for dependency (EmailService, Database, PaymentGateway), implement real version for production, implement mock version for tests. Mock records calls for verification, stub returns predetermined values. Use mockall crate for advanced mocking with expectations (times called, parameter matching, return values). Create fakes for complex dependencies (in-memory database, fake file system using HashMap). Inject dependencies via generic parameters or trait objects. Use builder pattern for complex setup.
+**Solution**: `cargo-fuzz` (libFuzzer/AFL) mutates inputs guided by coverage, hammering targets that accept `&[u8]` or `Arbitrary` structs while sanitizers catch UB.
 
-**Why It Matters**: Fast tests: mock returns instantly vs HTTP round-trip (1000x faster). Deterministic: no flaky tests from network issues. Error testing easy: mock can simulate any error condition on demand. Parallel execution safe: each test has own mock, no shared state. No external setup: tests run anywhere, CI doesn't need database/API credentials. Isolated testing: test one component without entire system. Verification: mocks ensure correct interaction (called with right params, right number of times). Cost savings: no API calls during testing.
+**Why It Matters**: Fuzzers discover crashers humans never craft, shrink them to minimal reproducers, and can run unattended to guard against future regressions.
 
-**Use Cases**: Database operations testing (SQL queries, transactions without PostgreSQL/MySQL), HTTP client testing (API calls, retry logic, error handling without real servers), email service testing (verify emails sent without SMTP), file system operations (read/write without disk I/O), payment gateway testing (charge logic without Stripe/PayPal), authentication testing (login without auth server), cache testing (Redis operations without real Redis), message queue testing (Kafka/RabbitMQ logic without brokers).
+**Use Cases**: Binary/text parsers, protocol stacks, CLI argument handling, unsafe abstractions, codecs, deserializers, and any surface open to untrusted data.
+
+### Example: Setting Up cargo-fuzz
+
+```bash
+cargo install cargo-fuzz
+cargo fuzz init
+```
+
+This creates a `fuzz/` workspace. Add a target:
+
+```rust
+// fuzz_targets/parse_expr.rs
+#![no_main]
+use libfuzzer_sys::fuzz_target;
+
+fuzz_target!(|data: &[u8]| {
+    if let Ok(expr) = my_crate::Expr::parse_from_bytes(data) {
+        // Round trip: serialize then parse again
+        let encoded = expr.to_bytes();
+        let decoded = my_crate::Expr::parse_from_bytes(&encoded).unwrap();
+        assert_eq!(expr, decoded);
+    }
+});
+```
+
+Run it with `cargo fuzz run parse_expr`. Crashes are saved in `fuzz/artifacts/parse_expr/`.
+
+### Example: Fuzzing Structured Inputs with `arbitrary`
+
+```rust
+// fuzz_targets/http_request.rs
+#![no_main]
+use arbitrary::Arbitrary;
+use libfuzzer_sys::fuzz_target;
+
+#[derive(Arbitrary, Debug)]
+struct Request<'a> {
+    method: &'a str,
+    path: &'a str,
+    body: &'a [u8],
+}
+
+fuzz_target!(|req: Request| {
+    let _ = my_http::handle_request(req.method, req.path, req.body);
+});
+```
+
+The `arbitrary` derive creates structured random data (methods, paths, payloads), enabling deeper protocol coverage. Persist interesting seeds by copying them into `fuzz/corpus/http_request/`.
+
+### Example: Sanitizers and CI
+
+Enable sanitizers to catch undefined behavior:
+
+```bash
+RUSTFLAGS="-Zsanitizer=address" \
+    RUSTC_BOOTSTRAP=1 \
+    cargo fuzz run parse_expr
+```
+
+In CI, run fuzzers for a bounded time:
+
+```bash
+cargo fuzz run parse_expr -- -max_total_time=60
+```
+
+Store the corpus to reuse progress between runs.
+
+## Pattern 4: Mutation Testing
+
+**Problem**: Coverage numbers say code executed, not that tests would fail if behavior changes; weak assertions let bugs slip through untouched.
+
+**Solution**: Mutation tools (`cargo-mutants`, `mutagen`) systematically tweak operators, constants, and control flow, then re-run tests to see which mutations survive.
+
+**Why It Matters**: Surviving mutants highlight missing or shallow assertions, giving a concrete to-do list for hardening critical logic.
+
+**Use Cases**: Pricing/auth pipelines, parsers, financial formulas, protocol state machines—any code where regressions are costly.
+
+### Example: cargo-mutants Workflow
+
+```bash
+cargo install cargo-mutants
+cargo mutants
+```
+
+Sample output:
+
+```
+Mutant 12: src/calculator.rs:42 replaced `>` with `>=`
+Result: survived (tests passed)
+```
+
+Add or strengthen tests until important mutants die, then re-run with `cargo mutants --mutants 12` to confirm.
+
+### Example: Targeted Mutants
+
+Focus on hot modules:
+
+```bash
+cargo mutants --mutate src/pricing.rs --mutate src/tax.rs
+```
+
+Pair with `--list` to inspect generated mutants before running them.
+
+### Example: Mutagen Annotations
+
+`mutagen` instruments code at compile time:
+
+```rust
+// Cargo.toml
+[dev-dependencies]
+mutagen = "0.1"
+
+// src/lib.rs
+#[cfg_attr(test, mutagen::mutate)]
+pub fn is_eligible(age: u8) -> bool {
+    age >= 18
+}
+```
+
+Running `cargo test` under `RUSTFLAGS="--cfg mutate"` generates mutants on the fly, surfacing weak tests without separate tooling.
+
+## Pattern 5: Formal Verification with Kani
+
+**Problem**: Even deep tests only sample behaviors; safety-critical code sometimes needs proofs that no input can violate invariants.
+
+**Solution**: Model checkers like Kani or provers like Prusti explore all executions within bounds using `#[kani::proof]` functions and nondeterministic inputs.
+
+**Why It Matters**: Proofs guarantee absence of panics/overflow in small kernels, validating `unsafe` code or financial logic beyond what fuzzing can cover.
+
+**Use Cases**: Unsafe abstractions, lock-free primitives, crypto/math kernels, serialization code, and embedded control algorithms.
+
+### Example: Verifying a Safe Add
+
+```rust
+// src/lib.rs
+pub fn checked_add(a: u32, b: u32) -> Option<u32> {
+    a.checked_add(b)
+}
+
+// proofs/add.rs
+#[kani::proof]
+fn checked_add_never_wraps() {
+    let a = kani::any::<u32>();
+    let b = kani::any::<u32>();
+    if let Some(sum) = checked_add(a, b) {
+        assert!(sum >= a && sum >= b);
+    }
+}
+```
+
+Run `cargo kani proofs/add.rs`. Kani symbolically explores all `u32` combinations and proves the postcondition.
+
+### Example: Proving State Machines
+
+```rust
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DoorState { Locked, Unlocked }
+
+fn next(state: DoorState, code_entered: bool) -> DoorState {
+    match (state, code_entered) {
+        (DoorState::Locked, true) => DoorState::Unlocked,
+        (DoorState::Unlocked, false) => DoorState::Locked,
+        _ => state,
+    }
+}
+
+#[kani::proof]
+fn door_never_skips_locked_state() {
+    let code1 = kani::any::<bool>();
+    let code2 = kani::any::<bool>();
+
+    let s1 = next(DoorState::Locked, code1);
+    let s2 = next(s1, code2);
+
+    assert!(matches!(s2, DoorState::Locked | DoorState::Unlocked));
+}
+```
+
+For more complex models, consider Prusti or Creusot for contract-based verification.
+
+## Pattern 6: Mock and Stub Patterns
+
+**Problem**: Tests that talk to real databases, HTTP APIs, or queues are slow, flaky, and hard to coerce into failure modes.
+
+**Solution**: Depend on traits, supply real implementations in production and mocks/fakes/stubs in tests (handwritten or via `mockall`), and inject them via generics or builders.
+
+**Why It Matters**: Mocked tests run instantly, can simulate any error, and remain deterministic/parallelizable without external setup.
+
+**Use Cases**: Database adapters, HTTP clients, payment/email integrations, file/queue abstractions, cache layers, or any boundary crossing process.
 
 ### Example: Trait-Based Mocking
 
@@ -839,15 +1028,15 @@ fn test_file_operations() {
 
 This fake is fast, deterministic, and doesn't touch the actual file system.
 
-## Pattern 4: Integration Testing
+## Pattern 7: Integration Testing
 
-**Problem**: Unit tests verify components in isolation but don't catch bugs in component interactions—components work individually but fail together. Public API untested: unit tests can access private functions, but users can't. Binary crates (src/main.rs) have no natural place for tests. Component integration bugs: database + business logic + HTTP work separately but fail combined. End-to-end workflows untested: multi-step operations like "register user, verify email, login" not covered. Test setup duplication: each unit test rebuilds mocks/fixtures. External user perspective missing: tests don't reflect how library actually used.
+**Problem**: Unit tests hit internals but miss failures in public APIs, cross-component wiring, and real workflows.
 
-**Solution**: Create tests/ directory for integration tests—each file compiles as separate crate, only accesses public API. Shared utilities in tests/common/mod.rs prevent treating common as test file. Move binary logic to lib.rs, keep main.rs thin wrapper—makes binary testable. Use test transactions for database tests (begin transaction, run test, rollback—database unchanged). Start test servers for HTTP integration tests. Create test fixtures and builders for complex setup. Use #[tokio::test] for async integration tests.
+**Solution**: Place integration tests under `tests/` so each file is its own crate using only the public surface, share setup via `tests/common`, and spin up real dependencies (DB transactions, HTTP servers, binaries).
 
-**Why It Matters**: Integration bugs appear only when components combined—unit tests miss these. Public API testing ensures library usable as intended by external users. Real-world workflows tested: user registration flow, payment processing, data pipelines. Database integration tests catch SQL errors, schema mismatches, transaction issues. HTTP tests verify routing, middleware, serialization work together. Test isolation: each test file = separate crate = clean slate. CI/CD confidence: integration tests prove deployable code. Refactoring safety: can change internals if public API tests still pass.
+**Why It Matters**: Validates that components cooperate as deployed, catches schema/serialization/API mismatches, and documents usage exactly as consumers experience it.
 
-**Use Cases**: Multi-component systems (web server + database + cache), public library API verification (ensure usability), database workflow testing (CRUD operations, transactions, migrations), HTTP server testing (routes, middleware, auth), binary application testing (CLI tools, services), end-to-end scenarios (user flows, data pipelines), cross-crate interaction testing (workspace members), deployment smoke tests (can system start and respond).
+**Use Cases**: Web stacks (HTTP + DB + cache), CLI binaries, public libraries, migrations, multi-step business flows, and workspace crates that must interoperate.
 
 ### Example: Integration Tests Structure
 ```
@@ -1120,15 +1309,15 @@ async fn test_full_server() {
 }
 ```
 
-## Pattern 5: Criterion Benchmarking
+## Pattern 8: Criterion Benchmarking
 
-**Problem**: Guessing at optimizations wastes time—spent hours optimizing wrong function. No data on performance impact: did change make code faster or slower? No quantitative comparison between implementations (loop vs iterator vs fold). Performance regressions undetected until production: new feature slows entire system. Microbenchmarks unreliable: single run affected by system noise, CPU throttling, cache state. Don't know how performance scales: algorithm fast for small inputs, unacceptable for large. No baseline for comparison: is 10ms good or bad?
+**Problem**: Optimizing without measurements wastes time and hides regressions; single-run microbenchmarks are noisy and opaque about scaling.
 
-**Solution**: Use Criterion for statistical benchmarking—runs code multiple times, detects outliers, reports confidence intervals. Compare implementations: benchmark loop vs iterator, measure actual difference. Parameterized benchmarks: test with sizes 10, 100, 1000, 10000—reveal scaling behavior. Throughput measurement: report bytes/sec or operations/sec. Historical tracking: save baselines with `--save-baseline`, compare with `--baseline`. Use black_box to prevent compiler optimizing away code. Profile integration: generate flamegraphs showing where time spent. Regression detection: automatically flag slowdowns.
+**Solution**: Criterion automates statistical benchmarking, comparing implementations, varying input sizes, measuring throughput, and storing baselines while `black_box` thwarts dead-code elimination.
 
-**Why It Matters**: Measure don't guess: optimization based on data, not intuition. Statistical rigor: Criterion detects real changes from noise (95% confidence intervals). Regression prevention: catch slowdowns before production—"20% slower" alert fails CI. Algorithm selection: choose fastest implementation based on benchmarks, not assumptions. Scaling analysis: understand O(N) vs O(N²) empirically. Optimization ROI: quantify improvement—"optimized from 100ms to 10ms" justifies time spent. Historical tracking: detect performance trends over time. Profiling integration: benchmark identifies slow function, profiler explains why.
+**Why It Matters**: Data-driven performance work avoids guesswork, flags slowdowns before release, and quantifies improvement with confidence intervals.
 
-**Use Cases**: Algorithm comparison (sort implementations, hash functions, compression algorithms), optimization validation (did refactor improve speed?), regression detection (CI fails if >10% slower), throughput analysis (parser MB/s, serialization throughput), scaling validation (performance vs input size), data structure benchmarks (Vec vs HashMap lookup), cache effectiveness (measure cache hit impact), optimization prioritization (profile then benchmark hot spots).
+**Use Cases**: Algorithm comparisons, hot-path validation, throughput analysis, regression detection in CI, and picking between alternative data structures or implementations.
 
 ### Example: Basic Criterion Benchmarks
 
@@ -1347,30 +1536,37 @@ This chapter covered comprehensive testing and benchmarking patterns for Rust:
 
 1. **Unit Test Patterns**: Built-in #[test] framework, assertion macros, error/panic testing, RAII cleanup
 2. **Property-Based Testing**: proptest/quickcheck random input generation, shrinking, invariant verification
-3. **Mock and Stub Patterns**: Trait-based dependency injection, mockall expectations, fake implementations
-4. **Integration Testing**: tests/ directory, public API testing, database transactions, HTTP servers
-5. **Criterion Benchmarking**: Statistical analysis, implementation comparison, regression detection, throughput measurement
+3. **Coverage-Guided Fuzzing**: cargo-fuzz/libFuzzer targets, sanitizers, corpus management
+4. **Mutation Testing**: cargo-mutants/mutagen workflows to measure assertion strength
+5. **Formal Verification**: Kani/Prusti proofs for critical invariants and `unsafe` code
+6. **Mock and Stub Patterns**: Trait-based dependency injection, mockall expectations, fake implementations
+7. **Integration Testing**: tests/ directory, public API testing, database transactions, HTTP servers
+8. **Criterion Benchmarking**: Statistical analysis, implementation comparison, regression detection, throughput measurement
 
 **Key Takeaways**:
-- Type system catches memory bugs, tests catch logic bugs—both essential
-- Property-based testing finds edge cases through randomness + shrinking—better than manual enumeration
-- Mock external dependencies for fast, deterministic tests—1000x faster than real services
-- Integration tests verify components work together—unit tests miss interaction bugs
-- Benchmark before optimizing—measure don't guess, statistical rigor detects real improvements
+- Type system catches memory bugs; layered test techniques catch logic bugs—use both
+- Property tests and fuzzers explore input space automatically, surfacing edge-case crashers humans miss
+- Mutation testing proves your suite fails when behavior changes, preventing false confidence from raw coverage numbers
+- Formal verification tools offer mathematical guarantees for small, critical components
+- Mocking and integration tests provide fast feedback on both isolated components and end-to-end flows
+- Benchmark before optimizing—Criterion’s statistics prevent chasing noise
 
 **Testing Strategy**:
-- Unit tests: 80% coverage focusing on business logic, error paths, edge cases
-- Property tests: Pure functions, data structures, serialization—verify invariants hold
-- Mocks: External dependencies (DB, HTTP, file I/O)—fast isolated tests
-- Integration tests: Public API, multi-component workflows, end-to-end scenarios
-- Benchmarks: Hot paths, algorithm comparisons, regression detection in CI
+- Unit tests: Cover business logic, panics, and regression scenarios; run on every commit
+- Property tests: Apply to pure functions/data structures; run in CI with reasonable case limits
+- Fuzzers: Run locally for long sessions and in CI with `-max_total_time` budgets; persist corpora
+- Mutation tests: Schedule periodically (e.g., nightly) on core modules to detect assertion gaps
+- Formal proofs: Target `unsafe`, financial, or safety-critical code paths with `cargo kani` or Prusti
+- Mocks & integration tests: Exercise external interactions quickly, then confirm workflows end-to-end
+- Benchmarks: Track hot paths and compare implementations before shipping optimizations
 
 **Performance Guidelines**:
-- Unit tests: Run in milliseconds, parallel execution, isolated state
-- Property tests: 100-256 cases per test (configurable), automatic shrinking
-- Mock tests: Instant execution, no I/O overhead, fully deterministic
-- Integration tests: Seconds per test, may require setup (database, server)
-- Benchmarks: Minutes for full suite, statistical significance requires iterations
+- Unit/property/mocked tests run in milliseconds; keep them parallelizable
+- Fuzzing sessions often run minutes to hours—use timeouts for CI and longer runs locally
+- Mutation test suites can take minutes per module; narrow scope with `--mutate` filters
+- Formal proofs may take seconds-minutes depending on bounds; break proofs into small focused functions
+- Integration tests may need dedicated resources (DB, HTTP servers) and run in seconds
+- Benchmarks require multiple iterations for significance—expect minutes for complete suites
 
 **Common Patterns**:
 ```rust
@@ -1381,7 +1577,7 @@ fn test_divide() {
     assert!(divide(10, 0).is_err());
 }
 
-// Property test
+// Property + fuzz target
 proptest! {
     #[test]
     fn test_sort_property(mut vec: Vec<i32>) {
@@ -1391,16 +1587,25 @@ proptest! {
     }
 }
 
-// Trait-based mock
+use libfuzzer_sys::fuzz_target;
+fuzz_target!(|data: &[u8]| {
+    my_parser::parse(data).ok();
+});
+
+// Kani proof
+#[kani::proof]
+fn checked_add_never_wraps() {
+    let (a, b) = (kani::any::<u16>(), kani::any::<u16>());
+    if let Some(sum) = checked_add(a, b) {
+        assert!(sum >= a && sum >= b);
+    }
+}
+
+// Trait-based mock + integration + benchmark stubs
 trait Database {
     fn get_user(&self, id: i32) -> Option<User>;
 }
 
-struct MockDatabase {
-    users: HashMap<i32, User>,
-}
-
-// Integration test
 #[tokio::test]
 async fn test_api_endpoint() {
     let app = create_test_app().await;
@@ -1408,30 +1613,24 @@ async fn test_api_endpoint() {
     assert_eq!(response.status(), 200);
 }
 
-// Criterion benchmark
 fn bench_implementations(c: &mut Criterion) {
-    c.bench_function("algorithm", |b| {
-        b.iter(|| expensive_function(black_box(input)))
-    });
+    c.bench_function("algorithm", |b| b.iter(|| expensive_function(black_box(input))));
 }
 ```
 
 **Best Practices**:
-- Test error paths: Error handling is bug-prone, test Err variants and panics
-- Use RAII for cleanup: Drop trait ensures teardown even if test panics
-- Organize with modules: Nested test modules group related tests
-- Filter tests: `cargo test pattern` runs subset, `#[ignore]` for slow tests
-- Mock external deps: Fast deterministic tests, no network/disk I/O
-- Shrinking for debugging: proptest finds minimal failing case automatically
-- Parameterized benchmarks: Test multiple input sizes to reveal scaling
-- Baseline tracking: Compare against saved baseline to detect regressions
-- Black box inputs: Prevent compiler optimizing away benchmarked code
-- Statistical rigor: Criterion's outlier detection and confidence intervals prevent false conclusions
+- Test error paths; use RAII for cleanup; group related tests with nested modules
+- Filter tests via `cargo test pattern`; tag slow ones with `#[ignore]`
+- Store fuzz corpora and crash reproducers; run fuzzers under sanitizers for maximum signal
+- Review surviving mutants immediately; they highlight missing assertions
+- Keep proofs small and composable; verify helper functions before large ones
+- Track benchmark baselines and compare across commits; use `black_box` to prevent dead-code elimination
 
 **CI/CD Integration**:
-- `cargo test`: Run all tests (unit + integration), fail build on any failure
-- `cargo test --ignored`: Run expensive tests in nightly CI
-- `cargo bench -- --save-baseline main`: Save baseline on main branch
-- `cargo bench -- --baseline main`: Compare PR against baseline, fail if >10% slower
-- Test coverage tools: tarpaulin, llvm-cov for coverage reports
-- Parallel execution: Tests run concurrently by default (use `--test-threads=1` to serialize)
+- `cargo test`: Run all tests (unit + integration); fail build on any failure
+- `cargo test --ignored`: Schedule expensive/slow suites nightly
+- `cargo fuzz run target -- -max_total_time=60`: Run fuzzers with capped time in CI; archive updated corpora
+- `cargo mutants --mutate src/core.rs --report`: Periodic mutation runs with HTML reports
+- `cargo kani proofs/add.rs`: Prove critical invariants before merging changes to safety-critical modules
+- `cargo bench -- --save-baseline main` / `--baseline main`: Track performance regressions
+- Coverage + lint tooling (tarpaulin, llvm-cov, clippy) + parallel test threads keep feedback fast (use `--test-threads=1` when shared fixtures demand serialization)

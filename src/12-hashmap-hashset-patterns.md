@@ -6,21 +6,11 @@
 
 The Entry API is the most idiomatic and efficient way to handle complex conditional logic in `HashMap`, such as "insert if absent, update if present."
 
--   **Problem**:
-    -   **Inefficiency**: A common but inefficient pattern is to first check if a key exists (`contains_key`), and then perform a separate operation to insert or update the value. This results in at least two separate hash lookups.
-    -   **Verbosity**: Writing `if map.contains_key(key) { ... } else { ... }` is verbose, clutters the code, and can be difficult to read.
-    -   **Complexity**: Implementing common patterns like incrementing a counter or appending to a vector stored as a map value requires careful and often awkward handling of `Option`.
+-   **Problem**: - **Inefficiency**: A common but inefficient pattern is to first check if a key exists (`contains_key`), and then perform a separate operation to insert or update the value. This results in at least two separate hash lookups.
 
--   **Solution**:
-    -   **The Entry API**: Use `map.entry(key)`, which performs a single lookup and returns an `Entry` enum. This enum represents the state of the key's slot in the map.
-    -   **`Entry::Occupied`**: If the key exists, you get an `OccupiedEntry`, which allows you to view or modify the existing value in place.
-    -   **`Entry::Vacant`**: If the key does not exist, you get a `VacantEntry`, which allows you to insert a new value.
-    -   **Convenience Methods**: The API provides powerful, chainable methods like `.or_insert(default_value)`, `.or_insert_with(|| default_fn())`, and `.and_modify(|value| { ... })` to handle common cases in a single, fluent line of code.
+-   **Solution**: - **The Entry API**: Use `map.entry(key)`, which performs a single lookup and returns an `Entry` enum. This enum represents the state of the key's slot in the map.
 
--   **Why It Matters**:
-    -   **Performance**: The Entry API reduces hash lookups from two or more down to just one, which can double the performance of lookup-heavy operations like word counting or building aggregations.
-    -   **Readability**: It produces much cleaner, more idiomatic Rust code that clearly expresses the intended logic.
-    -   **Atomicity**: While `HashMap` itself is not thread-safe, the Entry API provides an atomic-like interface for single-threaded operations, preventing certain logical bugs that can arise from separate check-then-insert logic.
+-   **Why It Matters**: - **Performance**: The Entry API reduces hash lookups from two or more down to just one, which can double the performance of lookup-heavy operations like word counting or building aggregations. - **Readability**: It produces much cleaner, more idiomatic Rust code that clearly expresses the intended logic.
 
 -   **Use Cases**:
     -   **Frequency Counting**: Counting occurrences of words, characters, or any other item.
@@ -138,20 +128,11 @@ impl<K: Eq + Hash + Clone> LruCache<K, V> {
 
 By default, `HashMap` uses a secure but slower hashing algorithm (SipHash) and relies on the standard `Eq` and `Hash` traits. For many use cases, providing a custom implementation is necessary for correctness or performance.
 
--   **Problem**:
-    -   **Semantic Equality**: The default `Hash` and `PartialEq` derived for a type may not match the desired semantic equality. For example, you might want string keys to be case-insensitive, or floating-point keys to have a tolerance.
-    -   **Performance**: The default SipHash algorithm is designed to be resistant to denial-of-service attacks, but it's slow. For keys that are trusted (e.g., internal integer IDs), this is unnecessary overhead.
-    -   **Unsupported Types**: Some types, like `f64`, don't implement `Hash` by default because of their properties (e.g., `NaN != NaN`), making them unusable as keys without a wrapper.
+-   **Problem**: - **Semantic Equality**: The default `Hash` and `PartialEq` derived for a type may not match the desired semantic equality. For example, you might want string keys to be case-insensitive, or floating-point keys to have a tolerance.
 
--   **Solution**:
-    -   **Implement `Hash` and `PartialEq`**: Manually implement the `Hash` and `PartialEq` traits for your key type. It is a critical invariant that if `a == b`, then `hash(a) == hash(b)`.
-    -   **Newtype Wrappers**: Create a newtype wrapper (e.g., `struct CaseInsensitiveString(String)`) around an existing type and implement the custom hashing and equality logic on the wrapper. This is a clean way to add custom behavior without modifying the original type.
-    -   **Alternative Hashers**: For performance-critical scenarios with trusted keys, swap out the default hasher for a faster, non-cryptographic one like `FxHasher` (from `rustc-hash`) or `AHasher` (from `ahash`).
+-   **Solution**: - **Implement `Hash` and `PartialEq`**: Manually implement the `Hash` and `PartialEq` traits for your key type. It is a critical invariant that if `a == b`, then `hash(a) == hash(b)`.
 
--   **Why It Matters**:
-    -   **Correctness**: Custom equality and hashing are essential for creating maps that behave correctly according to your application's domain logic. An incorrect `Hash` implementation can lead to keys being lost or not found in the map.
-    -   **Major Performance Gains**: Switching to a faster hasher like `FxHasher` for integer keys can result in a 2-10x speedup for `HashMap`-heavy operations, which is critical in hot loops, compilers, or game engines.
-    -   **Enabling New Key Types**: By implementing `Hash`, you can use complex custom types, composite keys, or even floating-point numbers as `HashMap` keys.
+-   **Why It Matters**: - **Correctness**: Custom equality and hashing are essential for creating maps that behave correctly according to your application's domain logic. An incorrect `Hash` implementation can lead to keys being lost or not found in the map.
 
 -   **Use Cases**:
     -   **Case-Insensitive Keys**: For usernames, HTTP headers, or configuration keys.
@@ -233,21 +214,11 @@ fn benchmark_fxhashmap() {
 
 Failing to manage `HashMap` capacity can lead to poor performance due to repeated resizing, or wasted memory from over-allocation.
 
--   **Problem**:
-    -   **Latency Spikes**: When a `HashMap` reaches its capacity, it must resize, which involves allocating a new, larger backing array and re-hashing and moving every single element. This can cause significant latency spikes in performance-sensitive applications.
-    -   **Wasted Memory**: A `HashMap` that grows and then shrinks may hold on to a large, mostly empty allocation. For long-lived maps, this is a form of memory leak.
-    -   **Inefficient Construction**: Building a large `HashMap` from scratch without setting an initial capacity is very inefficient, as it will trigger many resize operations.
+-   **Problem**: - **Latency Spikes**: When a `HashMap` reaches its capacity, it must resize, which involves allocating a new, larger backing array and re-hashing and moving every single element. This can cause significant latency spikes in performance-sensitive applications.
 
--   **Solution**:
-    -   **Pre-allocation**: If you know the final size of the map, use `HashMap::with_capacity(n)` to pre-allocate the required memory upfront, avoiding all intermediate resizes.
-    -   **`reserve`**: Before inserting a batch of items, use `map.reserve(additional_items)` to ensure there is enough capacity, preventing a resize during the insertion loop.
-    -   **`shrink_to_fit`**: After a map has been built or has had many items removed, call `map.shrink_to_fit()` to release any unused memory back to the system. This is useful for long-lived, read-mostly maps.
-    -   **String Interning**: For maps with many duplicate string values, use a string interner to store each unique string only once and use a cheap, lightweight ID in the map.
+-   **Solution**: - **Pre-allocation**: If you know the final size of the map, use `HashMap::with_capacity(n)` to pre-allocate the required memory upfront, avoiding all intermediate resizes. - **`reserve`**: Before inserting a batch of items, use `map.reserve(additional_items)` to ensure there is enough capacity, preventing a resize during the insertion loop.
 
--   **Why It Matters**:
-    -   **Performance**: Pre-allocating capacity can make the construction of large `HashMap`s 3-10x faster. A map of 1 million entries could trigger ~20 resize operations if not pre-allocated.
-    -   **Memory Efficiency**: `shrink_to_fit` and string interning can dramatically reduce the memory footprint of your application, which is critical in memory-constrained environments like embedded systems or for services running at massive scale.
-    -   **Predictable Performance**: Avoiding resizes in hot paths ensures that your application has more predictable, lower-latency performance.
+-   **Why It Matters**: - **Performance**: Pre-allocating capacity can make the construction of large `HashMap`s 3-10x faster. A map of 1 million entries could trigger ~20 resize operations if not pre-allocated.
 
 -   **Use Cases**:
     -   **Batch Data Loading**: When loading a large dataset from a file or database, pre-allocate the map with the size of the dataset.
@@ -310,20 +281,11 @@ fn shrinking_to_fit() {
 
 `HashMap` is a great default, but the Rust ecosystem offers several other map implementations that are better suited for specific use cases.
 
--   **Problem**:
-    -   **Order**: `HashMap` does not preserve insertion order, and its iteration order is effectively random. This is problematic if you need deterministic output or want to iterate over items in the order they were added.
-    -   **Sorted Keys**: `HashMap` does not keep its keys sorted, making range queries (e.g., "get all items with keys between X and Y") very inefficient (O(N)).
-    -   **Overhead for Small Maps**: For very small maps (e.g., fewer than 10-20 entries), the overhead of `HashMap` can be significant.
+-   **Problem**: - **Order**: `HashMap` does not preserve insertion order, and its iteration order is effectively random. This is problematic if you need deterministic output or want to iterate over items in the order they were added.
 
--   **Solution**:
-    -   **`BTreeMap`**: A map based on a B-Tree. It keeps its keys sorted at all times. Use this when you need sorted iteration or efficient range queries.
-    -   **`IndexMap`**: A map that preserves the original insertion order of keys. It's a drop-in replacement for `HashMap` with slightly higher overhead.
-    -   **Array / `SmallVec`**: For very small, fixed-size maps, a simple array of key-value pairs or a `smallvec` can be faster and more memory-efficient than a full-blown `HashMap`.
+-   **Solution**: - **`BTreeMap`**: A map based on a B-Tree. It keeps its keys sorted at all times.
 
--   **Why It Matters**:
-    -   **Choosing the Right Tool**: Using the right map for the job can lead to simpler code and better performance. Using a `BTreeMap` for range queries can turn an O(N) scan into an efficient O(log N) operation.
-    -   **Deterministic Behavior**: `IndexMap` and `BTreeMap` provide deterministic iteration order, which is essential for reproducible tests, consistent serialization (e.g., JSON), and any logic that depends on order.
-    -   **Performance Trade-offs**: While `HashMap` has O(1) average-case lookups, `BTreeMap` has O(log N) lookups. Understanding this trade-off is key. `BTreeMap` is slower for random lookups but enables features `HashMap` lacks.
+-   **Why It Matters**: - **Choosing the Right Tool**: Using the right map for the job can lead to simpler code and better performance. Using a `BTreeMap` for range queries can turn an O(N) scan into an efficient O(log N) operation.
 
 -   **Use Cases**:
     -   **`BTreeMap`**:
@@ -390,17 +352,11 @@ fn ordered_json() {
 
 A standard `HashMap` cannot be safely shared across multiple threads. While `Arc<Mutex<HashMap>>` is a valid approach, it suffers from heavy lock contention.
 
--   **Problem**:
-    -   **High Contention**: Wrapping a `HashMap` in a `Mutex` or `RwLock` means that only one thread (for `Mutex`) or one writer (for `RwLock`) can access the map at a time, regardless of which key they are trying to access. On a multi-core machine, this becomes a major performance bottleneck.
-    -   **Complex Implementation**: Building a more granular, sharded map by hand (e.g., a `Vec<Mutex<HashMap>>`) is complex and error-prone.
+-   **Problem**: - **High Contention**: Wrapping a `HashMap` in a `Mutex` or `RwLock` means that only one thread (for `Mutex`) or one writer (for `RwLock`) can access the map at a time, regardless of which key they are trying to access. On a multi-core machine, this becomes a major performance bottleneck.
 
--   **Solution**:
-    -   **`DashMap`**: The `dashmap` crate provides a concurrent `HashMap` that is sharded internally. It stripes the map across many small, independent locks. This means that two threads trying to access different keys are very unlikely to block each other, allowing for high-throughput concurrent access.
-    -   **`RwLock<HashMap>`**: For workloads that are overwhelmingly read-heavy (e.g., >90% reads), an `RwLock` can be a good choice. It allows unlimited concurrent readers, but a writer will block all other readers and writers.
+-   **Solution**: - **`DashMap`**: The `dashmap` crate provides a concurrent `HashMap` that is sharded internally. It stripes the map across many small, independent locks.
 
--   **Why It Matters**:
-    -   **Scalability**: A concurrent map like `DashMap` can scale almost linearly with the number of CPU cores for many workloads, whereas a `Mutex`-wrapped `HashMap` does not scale at all. This is critical for building high-performance, multi-threaded applications like web servers, databases, and caches.
-    -   **Simplicity**: `DashMap` provides a simple, `HashMap`-like API, hiding the complexity of the internal sharding and locking.
+-   **Why It Matters**: - **Scalability**: A concurrent map like `DashMap` can scale almost linearly with the number of CPU cores for many workloads, whereas a `Mutex`-wrapped `HashMap` does not scale at all. This is critical for building high-performance, multi-threaded applications like web servers, databases, and caches.
 
 -   **Use Cases**:
     -   **High-Concurrency Caches**: A shared in-memory cache in a web server that is read from and written to by many request-handling threads.

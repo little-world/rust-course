@@ -12,9 +12,8 @@ These rules enable sophisticated zero-cost abstractions while preventing entire 
 ## Pattern 1: Zero-Copy with Clone-on-Write (Cow)
 
 *   **Problem**: Functions that sometimes need to modify their input face a dilemma: always clone the input (which is wasteful if no modification is needed), or require a mutable reference (which makes the API less ergonomic).
-*   **Solution**: Use `Cow<T>` (Clone-on-Write). This is a smart pointer that can enclose either borrowed data (`Cow::Borrowed`) or owned data (`Cow::Owned`). A function can return borrowed data if no changes are needed, and only clone to create owned data when a modification is required.
+*   **Solution**: Use `Cow<T>` (Clone-on-Write). This is a smart pointer that can enclose either borrowed data (`Cow::Borrowed`) or owned data (`Cow::Owned`).
 *   **Why It Matters**: This pattern enables a "fast path" for zero-allocation operations. In high-throughput systems like web servers or parsers, avoiding millions of unnecessary string allocations per second can lead to significant performance gains.
-*   **Use Cases**: String normalization, path canonicalization, configuration objects with defaults, HTML escaping, and extracting tokens from a parser.
 
 ### Examples
 
@@ -127,8 +126,7 @@ impl<'a> Config<'a> {
 
 * **Problem**: Rust's borrowing rules require `&mut self` for mutation, but some designs need mutation through shared references (`&self`). Examples: caching computed values, counters in shared structures, graph nodes that need to update neighbors, observer patterns.
 * **Solution**: Use interior mutability types—`Cell<T>` for `Copy` types (get/set without borrowing), `RefCell<T>` for non-`Copy` types (runtime-checked borrows). These move borrow checking from compile-time to runtime.
-* **Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references. Interior mutability is also essential for caching—you want `fn get(&self, key: K)` to cache results internally without requiring `&mut self`.
-* **Use Cases**: Memoization and caching, incrementing counters behind `&self`, graph structures with bidirectional edges, event systems with subscriber lists, implementing trait methods that require `&self` but need internal mutation.
+* **Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references.
 
 ### The Problem: Experiencing the Borrow Checker
 Let's start by trying to implement a simple counter. We want to pass this counter to multiple functions that can increment it, but we only have a shared reference (`&Counter`). This code will not compile, because `increment` requires a mutable reference `&mut self`, but `process_item` only has an immutable one.
@@ -290,9 +288,9 @@ impl Node {
 
 * **Problem**: `RefCell<T>` provides interior mutability but panics if used incorrectly across threads. Multi-threaded code needs safe shared mutable state—incrementing counters, updating caches, modifying shared collections—without data races.
 
-* **Solution**: Use `Mutex<T>` for exclusive access (like `RefCell` but thread-safe) or `RwLock<T>` for reader-writer patterns (multiple readers OR one writer). Combine with `Arc<T>` to share across threads. These use atomic operations and OS primitives for synchronization.
+* **Solution**: Use `Mutex<T>` for exclusive access (like `RefCell` but thread-safe) or `RwLock<T>` for reader-writer patterns (multiple readers OR one writer). Combine with `Arc<T>` to share across threads.
 
-* **Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation. Understanding these patterns is essential for writing concurrent servers, parallel algorithms, and high-performance applications.
+* **Why It Matters**: Multi-threaded programming without data races is notoriously difficult in C/C++. Rust's type system makes it impossible to compile racy code—you must use `Mutex` or `RwLock` for shared mutation.
 
 * **Use Cases**: Shared counters in multi-threaded servers, concurrent caches, thread pools with shared work queues, parallel data processing with result aggregation, connection pools.
 
@@ -434,10 +432,9 @@ fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
 
 ## Pattern 4: Custom Drop Guards
 
-* **Problem**: Manual resource cleanup is error-prone. Forgetting to close files, release locks, or rollback transactions causes resource leaks, deadlocks, and data corruption. Even with discipline, early returns and panics can skip cleanup code.
-* **Solution**: Implement the `Drop` trait to tie resource cleanup to scope. Create guard types that acquire resources in their constructor and release them in `Drop`. Rust guarantees `Drop` runs when the value goes out of scope, even during panics.
-* **Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically. Temporary files are always deleted. Transactions always rollback on error. This pattern is fundamental to Rust's safety guarantees and enables panic-safe code.
-* **Use Cases**: Temporary file management, database transaction guards, lock guards (mutex, RwLock), metrics timers, state flag restoration, scope-based profiling, connection cleanup in pools.
+* **Problem**: Manual resource cleanup is error-prone. Forgetting to close files, release locks, or rollback transactions causes resource leaks, deadlocks, and data corruption.
+* **Solution**: Implement the `Drop` trait to tie resource cleanup to scope. Create guard types that acquire resources in their constructor and release them in `Drop`.
+* **Why It Matters**: RAII eliminates entire categories of bugs. You cannot forget to unlock a `Mutex`—`MutexGuard`'s `Drop` releases it automatically.
 
 
 ### Examples
@@ -601,11 +598,11 @@ fn transactional_update() {
 
 ## Pattern 5: Memory Layout Optimization
 
-**Problem**: Naive struct definitions waste memory through padding and hurt performance via poor cache utilization. False sharing in multi-threaded code can cause 10-100x slowdowns. Struct of Arrays (SoA) vs Array of Structs (AoS) choice dramatically affects loop performance.
+**Problem**: Naive struct definitions waste memory through padding and hurt performance via poor cache utilization. False sharing in multi-threaded code can cause 10-100x slowdowns.
 
-**Solution**: Use `#[repr(C)]` for predictable layout (FFI), `#[repr(align(N))]` for cache alignment, `#[repr(packed)]` to eliminate padding (with care). Order struct fields from largest to smallest alignment. Pad shared data to cache line boundaries (64 bytes). Consider SoA for performance-critical loops.
+**Solution**: Use `#[repr(C)]` for predictable layout (FFI), `#[repr(align(N))]` for cache alignment, `#[repr(packed)]` to eliminate padding (with care). Order struct fields from largest to smallest alignment.
 
-**Why It Matters**: Modern CPUs are dominated by memory hierarchy—cache misses cost 100-200 cycles while arithmetic costs 1-4 cycles. A cache miss is 50-100x slower than a cache hit. False sharing (two threads modifying different variables on the same cache line) serializes supposedly-parallel code. Understanding memory layout is the difference between 10 MB/s and 1 GB/s in data processing.
+**Why It Matters**: Modern CPUs are dominated by memory hierarchy—cache misses cost 100-200 cycles while arithmetic costs 1-4 cycles. A cache miss is 50-100x slower than a cache hit.
 
 **Use Cases**: High-frequency trading systems, game engines, scientific computing, embedded systems, FFI with C libraries, SIMD optimization, lock-free data structures.
 
@@ -791,10 +788,9 @@ impl ParticlesSoA {
 
 ## Pattern 6: Arena Allocation
 
-*   **Problem**: Allocating many small objects with `Box::new()` or `Vec::push()` is slow. Each call invokes the system's general-purpose allocator (`malloc`), which involves locking and metadata overhead. Freeing each object individually is also slow.
-*   **Solution**: Use an arena allocator (also called a bump allocator). Pre-allocate a large, contiguous chunk of memory. "Allocating" an object is now just a cheap pointer increment ("bumping" the pointer). Deallocation is a single, wholesale operation where the entire arena is freed at once.
+*   **Problem**: Allocating many small objects with `Box::new()` or `Vec::push()` is slow. Each call invokes the system's general-purpose allocator (`malloc`), which involves locking and metadata overhead.
+*   **Solution**: Use an arena allocator (also called a bump allocator). Pre-allocate a large, contiguous chunk of memory.
 *   **Why It Matters**: Arena allocation is 10-100x faster than general-purpose allocators for scenarios involving many small objects. For applications like compilers (which create millions of AST nodes) or web servers (which create objects per-request), this can dramatically improve performance by reducing allocation bottlenecks.
-*   **Use Cases**: Compiler frontends (AST, IR, symbol tables), web server request handlers, game engine frame allocations, graph algorithms with temporary node structures, and parsers/lexers.
 
 ### Examples
 
@@ -939,10 +935,9 @@ impl<'arena> RequestContext<'arena> {
 
 ## Pattern 7: Custom Smart Pointers
 
-*   **Problem**: The standard smart pointers (`Box`, `Rc`, `Arc`) are excellent general-purpose tools, but they have limitations. `Rc`/`Arc` require a separate heap allocation for their reference counts, and simple vector indices can be invalidated by insertions or removals. High-performance systems often need more specialized ownership semantics.
+*   **Problem**: The standard smart pointers (`Box`, `Rc`, `Arc`) are excellent general-purpose tools, but they have limitations. `Rc`/`Arc` require a separate heap allocation for their reference counts, and simple vector indices can be invalidated by insertions or removals.
 *   **Solution**: Build custom smart pointers using `unsafe` Rust primitives like `NonNull<T>`, `PhantomData`, and the `Deref`, `DerefMut`, and `Drop` traits. This allows for patterns like intrusive reference counting (where the count is stored in the object itself) or generational indices (which prevent use-after-free errors with vector-like containers).
-*   **Why It Matters**: Custom smart pointers unlock performance and memory layout patterns that are impossible with standard types. An intrusive `Rc` can save one allocation per object, which is critical when creating millions of them. Generational arenas provide stable, safe handles to objects, which is a foundational pattern in game engines and other complex systems.
-*   **Use Cases**: Game engines (entity-component systems with generational indices), database systems (buffer pool management), OS kernels, embedded systems (intrusive data structures for minimal overhead), and custom memory pools.
+*   **Why It Matters**: Custom smart pointers unlock performance and memory layout patterns that are impossible with standard types. An intrusive `Rc` can save one allocation per object, which is critical when creating millions of them.
 
 ### Examples
 
