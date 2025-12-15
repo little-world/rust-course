@@ -1193,19 +1193,23 @@ mod tests {
 ### Complete Working Example
 
 ```rust
+// Complete Reference-Counted Smart Pointer Implementation
+// Implements custom Rc<T>, Weak<T>, and RefCell<T>
+
 use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-//==============================================================================
-// Part 1: Basic Reference Counting
-//==============================================================================
+// ============================================================================
+// Part 1: Basic Reference Counting (MyRc<T>)
+// ============================================================================
 
 struct RcInner<T> {
     strong_count: usize,
     weak_count: usize,
-    data: T,
+    data: ManuallyDrop<T>,
 }
 
 pub struct MyRc<T> {
@@ -1218,7 +1222,7 @@ impl<T> MyRc<T> {
         let inner = Box::new(RcInner {
             strong_count: 1,
             weak_count: 0,
-            data: value,
+            data: ManuallyDrop::new(value),
         });
 
         MyRc {
@@ -1237,10 +1241,6 @@ impl<T> MyRc<T> {
 
     fn inner(&self) -> &RcInner<T> {
         unsafe { self.ptr.as_ref() }
-    }
-
-    fn inner_mut(&mut self) -> &mut RcInner<T> {
-        unsafe { self.ptr.as_mut() }
     }
 
     pub fn downgrade(this: &Self) -> MyWeak<T> {
@@ -1274,7 +1274,7 @@ impl<T> Deref for MyRc<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner().data
+        &*self.inner().data
     }
 }
 
@@ -1285,11 +1285,21 @@ impl<T> Drop for MyRc<T> {
             (*inner).strong_count -= 1;
 
             if (*inner).strong_count == 0 {
-                // Drop the data
-                std::ptr::drop_in_place(&mut (*inner).data);
+                // Snapshot weak_count before dropping data
+                let had_weak_refs = (*inner).weak_count > 0;
 
-                // If no weak references, free the entire RcInner
-                if (*inner).weak_count == 0 {
+                // Temporarily increment weak_count to prevent deallocation during data drop
+                // This ensures weak refs dropped during data destruction don't free the RcInner
+                (*inner).weak_count += 1;
+
+                // Always drop the data
+                ManuallyDrop::drop(&mut (*inner).data);
+
+                // Decrement the temporary weak_count
+                (*inner).weak_count -= 1;
+
+                // Only deallocate if there were originally no weak refs AND none remain
+                if !had_weak_refs && (*inner).weak_count == 0 {
                     drop(Box::from_raw(inner));
                 }
             }
@@ -1297,9 +1307,9 @@ impl<T> Drop for MyRc<T> {
     }
 }
 
-//==============================================================================
-// Part 2: Weak References
-//==============================================================================
+// ============================================================================
+// Part 2: Weak References (MyWeak<T>)
+// ============================================================================
 
 pub struct MyWeak<T> {
     ptr: NonNull<RcInner<T>>,
@@ -1325,6 +1335,10 @@ impl<T> MyWeak<T> {
 
     pub fn strong_count(&self) -> usize {
         unsafe { (*self.ptr.as_ptr()).strong_count }
+    }
+
+    pub fn weak_count(&self) -> usize {
+        unsafe { (*self.ptr.as_ptr()).weak_count }
     }
 }
 
@@ -1355,9 +1369,9 @@ impl<T> Drop for MyWeak<T> {
     }
 }
 
-//==============================================================================
-// Part 3: Interior Mutability
-//==============================================================================
+// ============================================================================
+// Part 3: Interior Mutability (MyRefCell<T>)
+// ============================================================================
 
 pub struct MyRefCell<T> {
     value: UnsafeCell<T>,
@@ -1382,7 +1396,7 @@ impl<T> MyRefCell<T> {
         }
     }
 
-    pub fn borrow(&self) -> Ref<T> {
+    pub fn borrow(&self) -> Ref<'_, T> {
         let state = self.borrow_state.get();
 
         if state < 0 {
@@ -1397,7 +1411,7 @@ impl<T> MyRefCell<T> {
         }
     }
 
-    pub fn borrow_mut(&self) -> RefMut<T> {
+    pub fn borrow_mut(&self) -> RefMut<'_, T> {
         let state = self.borrow_state.get();
 
         if state != 0 {
@@ -1410,6 +1424,10 @@ impl<T> MyRefCell<T> {
             value: unsafe { &mut *self.value.get() },
             borrow: &self.borrow_state,
         }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.value.into_inner()
     }
 }
 
@@ -1450,29 +1468,30 @@ impl<T> Drop for RefMut<'_, T> {
 
 unsafe impl<T: Send> Send for MyRefCell<T> {}
 
-//==============================================================================
-// Example Usage
-//==============================================================================
+// ============================================================================
+// Main Function - Demonstrates All Components
+// ============================================================================
 
 fn main() {
-    println!("=== Reference Counting Examples ===\n");
+    println!("=== Reference-Counted Smart Pointer ===\n");
 
-    // Example 1: Basic Rc
-    println!("Example 1: Basic Reference Counting");
+    // Part 1: Basic Reference Counting
+    println!("--- Part 1: Basic Reference Counting ---");
     {
         let rc1 = MyRc::new(42);
         println!("rc1: {}, count: {}", *rc1, MyRc::strong_count(&rc1));
 
         let rc2 = rc1.clone();
         println!("After clone, count: {}", MyRc::strong_count(&rc1));
+        println!("rc2: {}, count: {}", *rc2, MyRc::strong_count(&rc2));
 
         drop(rc2);
         println!("After drop rc2, count: {}", MyRc::strong_count(&rc1));
     }
     println!();
 
-    // Example 2: Weak references
-    println!("Example 2: Weak References");
+    // Part 2: Weak References
+    println!("--- Part 2: Weak References ---");
     {
         let strong = MyRc::new(String::from("data"));
         let weak = MyRc::downgrade(&strong);
@@ -1492,8 +1511,8 @@ fn main() {
     }
     println!();
 
-    // Example 3: Breaking reference cycles
-    println!("Example 3: Breaking Cycles with Weak");
+    // Part 3: Breaking Reference Cycles
+    println!("--- Part 3: Breaking Cycles with Weak ---");
     {
         struct Node {
             value: i32,
@@ -1515,18 +1534,21 @@ fn main() {
 
         parent.borrow_mut().children.push(child.clone());
 
-        println!("Parent value: {}", parent.borrow().value);
-        println!("Child value: {}", child.borrow().value);
+        println!("Parent value: {}", (*parent.borrow()).value);
+        println!("Child value: {}", (*child.borrow()).value);
 
         // Access parent through child's weak reference
-        if let Some(parent_rc) = child.borrow().parent.as_ref().unwrap().upgrade() {
-            println!("Child's parent value: {}", parent_rc.borrow().value);
+        let child_borrow = child.borrow();
+        if let Some(weak_ref) = &child_borrow.parent {
+            if let Some(parent_rc) = weak_ref.upgrade() {
+                println!("Child's parent value: {}", (*parent_rc.borrow()).value);
+            }
         }
     }
     println!();
 
-    // Example 4: Rc<RefCell<T>> pattern
-    println!("Example 4: Rc<RefCell<T>> Pattern");
+    // Part 4: Rc<RefCell<T>> Pattern
+    println!("--- Part 4: Rc<RefCell<T>> Pattern ---");
     {
         let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
         let data2 = data.clone();
@@ -1542,8 +1564,8 @@ fn main() {
     }
     println!();
 
-    // Example 5: RefCell borrow checking
-    println!("Example 5: RefCell Borrow Checking");
+    // Part 5: RefCell Borrow Checking
+    println!("--- Part 5: RefCell Borrow Checking ---");
     {
         let cell = MyRefCell::new(100);
 
@@ -1561,12 +1583,20 @@ fn main() {
 
         println!("Final value: {}", *cell.borrow());
     }
+    println!();
+
+    println!("=== All Components Complete! ===");
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Part 1: MyRc Tests
     #[test]
     fn test_rc_basic() {
         let rc = MyRc::new(42);
@@ -1583,21 +1613,95 @@ mod tests {
     }
 
     #[test]
+    fn test_rc_multiple_clones() {
+        let rc1 = MyRc::new(String::from("hello"));
+        let rc2 = rc1.clone();
+        let rc3 = rc1.clone();
+        let rc4 = rc2.clone();
+
+        assert_eq!(MyRc::strong_count(&rc1), 4);
+        assert_eq!(*rc1, "hello");
+        assert_eq!(*rc2, "hello");
+        assert_eq!(*rc3, "hello");
+        assert_eq!(*rc4, "hello");
+    }
+
+    #[test]
+    fn test_rc_drop() {
+        let rc1 = MyRc::new(42);
+        let rc2 = rc1.clone();
+        let rc3 = rc1.clone();
+
+        assert_eq!(MyRc::strong_count(&rc1), 3);
+        drop(rc2);
+        assert_eq!(MyRc::strong_count(&rc1), 2);
+        drop(rc3);
+        assert_eq!(MyRc::strong_count(&rc1), 1);
+    }
+
+    // Part 2: MyWeak Tests
+    #[test]
     fn test_weak_upgrade() {
         let strong = MyRc::new(42);
         let weak = MyRc::downgrade(&strong);
 
         assert!(weak.upgrade().is_some());
+        assert_eq!(*weak.upgrade().unwrap(), 42);
+
         drop(strong);
         assert!(weak.upgrade().is_none());
     }
 
+    #[test]
+    fn test_weak_counts() {
+        let strong = MyRc::new(100);
+        assert_eq!(MyRc::strong_count(&strong), 1);
+        assert_eq!(MyRc::weak_count(&strong), 0);
+
+        let weak1 = MyRc::downgrade(&strong);
+        assert_eq!(MyRc::strong_count(&strong), 1);
+        assert_eq!(MyRc::weak_count(&strong), 1);
+
+        let _weak2 = weak1.clone();
+        assert_eq!(MyRc::weak_count(&strong), 2);
+
+        drop(weak1);
+        assert_eq!(MyRc::weak_count(&strong), 1);
+    }
+
+    #[test]
+    fn test_weak_survives_strong_drop() {
+        let strong = MyRc::new(String::from("data"));
+        let weak = MyRc::downgrade(&strong);
+
+        assert_eq!(weak.strong_count(), 1);
+        drop(strong);
+        assert_eq!(weak.strong_count(), 0);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn test_multiple_weak_refs() {
+        let strong = MyRc::new(42);
+        let weak1 = MyRc::downgrade(&strong);
+        let weak2 = MyRc::downgrade(&strong);
+        let weak3 = weak1.clone();
+
+        assert_eq!(MyRc::weak_count(&strong), 3);
+
+        assert_eq!(*weak1.upgrade().unwrap(), 42);
+        assert_eq!(*weak2.upgrade().unwrap(), 42);
+        assert_eq!(*weak3.upgrade().unwrap(), 42);
+    }
+
+    // Part 3: MyRefCell Tests
     #[test]
     fn test_refcell_borrow() {
         let cell = MyRefCell::new(42);
         let b1 = cell.borrow();
         let b2 = cell.borrow();
         assert_eq!(*b1, *b2);
+        assert_eq!(*b1, 42);
     }
 
     #[test]
@@ -1608,15 +1712,156 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_refcell_panic() {
+    fn test_refcell_sequential_borrows() {
+        let cell = MyRefCell::new(0);
+
+        {
+            let b = cell.borrow();
+            assert_eq!(*b, 0);
+        }
+
+        {
+            let mut b = cell.borrow_mut();
+            *b = 10;
+        }
+
+        {
+            let b = cell.borrow();
+            assert_eq!(*b, 10);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "already mutably borrowed")]
+    fn test_refcell_panic_immut_while_mut() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow_mut();
+        let _b2 = cell.borrow(); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_mut_while_immut() {
         let cell = MyRefCell::new(42);
         let _b1 = cell.borrow();
         let _b2 = cell.borrow_mut(); // Should panic
     }
-}
-```
 
+    #[test]
+    #[should_panic(expected = "already borrowed")]
+    fn test_refcell_panic_mut_while_mut() {
+        let cell = MyRefCell::new(42);
+        let _b1 = cell.borrow_mut();
+        let _b2 = cell.borrow_mut(); // Should panic
+    }
+
+    #[test]
+    fn test_refcell_multiple_immutable_borrows() {
+        let cell = MyRefCell::new(vec![1, 2, 3]);
+        let b1 = cell.borrow();
+        let b2 = cell.borrow();
+        let b3 = cell.borrow();
+
+        assert_eq!(*b1, vec![1, 2, 3]);
+        assert_eq!(*b2, vec![1, 2, 3]);
+        assert_eq!(*b3, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_refcell_into_inner() {
+        let cell = MyRefCell::new(42);
+        *cell.borrow_mut() = 100;
+        assert_eq!(cell.into_inner(), 100);
+    }
+
+    // Combined Tests
+    #[test]
+    fn test_rc_refcell_pattern() {
+        let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
+        let data2 = data.clone();
+
+        data.borrow_mut().push(4);
+        assert_eq!(*data2.borrow(), vec![1, 2, 3, 4]);
+
+        data2.borrow_mut().push(5);
+        assert_eq!(*data.borrow(), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_tree_structure() {
+        struct TreeNode {
+            value: i32,
+            parent: Option<MyWeak<MyRefCell<TreeNode>>>,
+            children: Vec<MyRc<MyRefCell<TreeNode>>>,
+        }
+
+        let root = MyRc::new(MyRefCell::new(TreeNode {
+            value: 1,
+            parent: None,
+            children: vec![],
+        }));
+
+        let child1 = MyRc::new(MyRefCell::new(TreeNode {
+            value: 2,
+            parent: Some(MyRc::downgrade(&root)),
+            children: vec![],
+        }));
+
+        let child2 = MyRc::new(MyRefCell::new(TreeNode {
+            value: 3,
+            parent: Some(MyRc::downgrade(&root)),
+            children: vec![],
+        }));
+
+        root.borrow_mut().children.push(child1.clone());
+        root.borrow_mut().children.push(child2.clone());
+
+        assert_eq!((*root.borrow()).value, 1);
+        assert_eq!((*root.borrow()).children.len(), 2);
+
+        // Access parent through child
+        let child1_borrow = child1.borrow();
+        let parent = child1_borrow.parent.as_ref().unwrap().upgrade().unwrap();
+        assert_eq!((*parent.borrow()).value, 1);
+    }
+
+    #[test]
+    fn test_drop_behavior() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        struct DropCounter {
+            count: Arc<AtomicUsize>,
+        }
+
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        {
+            let rc1 = MyRc::new(DropCounter {
+                count: drop_count.clone(),
+            });
+            let rc2 = rc1.clone();
+            let rc3 = rc1.clone();
+
+            assert_eq!(drop_count.load(Ordering::SeqCst), 0);
+            drop(rc1);
+            assert_eq!(drop_count.load(Ordering::SeqCst), 0);
+            drop(rc2);
+            assert_eq!(drop_count.load(Ordering::SeqCst), 0);
+            drop(rc3);
+        }
+
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+    }
+}
+
+```
 This complete example demonstrates:
 - **Part 1**: Custom `Rc<T>` with reference counting
 - **Part 2**: `Weak<T>` references to break cycles

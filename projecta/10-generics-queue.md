@@ -1821,131 +1821,6 @@ fn test_peek_respects_ordering() {
 }
 ```
 
-
-**Solution**
-
-```rust
-use std::marker::PhantomData;
-use std::cmp::Ordering;
-
-// Marker types for ordering
-pub struct MinHeap;
-pub struct MaxHeap;
-
-// Trait defining heap ordering behavior
-pub trait HeapOrder {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool;
-}
-
-impl HeapOrder for MinHeap {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
-        parent > child  // Min heap: parent should be ≤ child
-    }
-}
-
-impl HeapOrder for MaxHeap {
-    fn should_swap<T: Ord>(parent: &T, child: &T) -> bool {
-        parent < child  // Max heap: parent should be ≥ child
-    }
-}
-
-// Generic priority queue with default ordering
-pub struct PriorityQueue<T, Order = MinHeap> {
-    heap: Vec<T>,
-    _order: PhantomData<Order>,
-}
-
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    pub fn new() -> Self {
-        PriorityQueue {
-            heap: Vec::new(),
-            _order: PhantomData,
-        }
-    }
-
-    fn parent(i: usize) -> usize {
-        (i - 1) / 2
-    }
-
-    fn left_child(i: usize) -> usize {
-        2 * i + 1
-    }
-
-    fn right_child(i: usize) -> usize {
-        2 * i + 2
-    }
-
-    fn sift_up(&mut self, mut i: usize) {
-        while i > 0 {
-            let parent = Self::parent(i);
-            // Use HeapOrder trait instead of hardcoded comparison
-            if !Order::should_swap(&self.heap[parent], &self.heap[i]) {
-                break;
-            }
-            self.heap.swap(i, parent);
-            i = parent;
-        }
-    }
-
-    fn sift_down(&mut self, mut i: usize) {
-        loop {
-            let left = Self::left_child(i);
-            let right = Self::right_child(i);
-            let mut swap_with = i;
-
-            if left < self.heap.len() && Order::should_swap(&self.heap[swap_with], &self.heap[left]) {
-                swap_with = left;
-            }
-            if right < self.heap.len() && Order::should_swap(&self.heap[swap_with], &self.heap[right]) {
-                swap_with = right;
-            }
-
-            if swap_with == i {
-                break;
-            }
-
-            self.heap.swap(i, swap_with);
-            i = swap_with;
-        }
-    }
-
-    pub fn push(&mut self, item: T) {
-        self.heap.push(item);
-        let last_idx = self.heap.len() - 1;
-        self.sift_up(last_idx);
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.heap.is_empty() {
-            return None;
-        }
-
-        let len = self.heap.len();
-        self.heap.swap(0, len - 1);
-        let result = self.heap.pop();
-
-        if !self.heap.is_empty() {
-            self.sift_down(0);
-        }
-
-        result
-    }
-
-    pub fn peek(&self) -> Option<&T> {
-        self.heap.first()
-    }
-
-    pub fn len(&self) -> usize {
-        self.heap.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.heap.is_empty()
-    }
-}
-```
-
-
 **Why this isn't enough:**
 
 Phantom types solve the min/max problem elegantly, but they're limited to scenarios where we can define ordering at the type level. Real-world applications often need:
@@ -2253,86 +2128,6 @@ fn test_chained_wrappers() {
     assert_eq!(pq.pop().unwrap().0.item.priority, 1);
 }
 ```
-
-
-**Solution**
-
-
-```rust
-use std::cmp::Ordering;
-
-// 1. Reverse wrapper - inverts natural ordering
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reverse<T>(pub T);
-
-impl<T: Ord> Ord for Reverse<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.0.cmp(&self.0)  // Swapped order!
-    }
-}
-
-impl<T: PartialOrd> PartialOrd for Reverse<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.0.partial_cmp(&self.0)
-    }
-}
-
-// 2. Priority by field - extract key for comparison
-#[derive(Debug, Clone)]
-pub struct ByField<T, F> {
-    pub item: T,
-    key_fn: F,
-}
-
-impl<T, F> ByField<T, F> {
-    pub fn new(item: T, key_fn: F) -> Self {
-        ByField { item, key_fn }
-    }
-}
-
-impl<T, K: Ord, F: Fn(&T) -> K> Ord for ByField<T, F> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        (self.key_fn)(&self.item).cmp(&(other.key_fn)(&other.item))
-    }
-}
-
-impl<T, K: Ord, F: Fn(&T) -> K> PartialOrd for ByField<T, F> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T, K: Eq, F: Fn(&T) -> K> Eq for ByField<T, F> {}
-
-impl<T, K: Eq, F: Fn(&T) -> K> PartialEq for ByField<T, F> {
-    fn eq(&self, other: &Self) -> bool {
-        (self.key_fn)(&self.item) == (other.key_fn)(&other.item)
-    }
-}
-
-// 3. Example: Task with multiple fields
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Task {
-    pub name: String,
-    pub priority: u8,
-    pub deadline: u64,
-}
-
-// Default Ord: lexicographic by name
-impl Ord for Task {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.name.cmp(&other.name)
-    }
-}
-
-impl PartialOrd for Task {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-```
-
-
 **Why this isn't enough:**
 
 Building a heap from an existing collection currently requires pushing N elements one at a time:
@@ -2515,56 +2310,6 @@ fn test_from_vec_large_dataset() {
     assert_eq!(pq.peek(), Some(&0));
 }
 ```
-
-**solution**
-```rust
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    /// Build heap from existing vector in O(n) time
-   Self {
-        if vec.is_empty() {
-            return Self::new();
-        }
-
-        // Start from last non-leaf node and sift down all parents
-        let last_parent = (vec.len() / 2).saturating_sub(1);
-
-        for i in (0..=last_parent).rev() {
-            Self::sift_down_from(&mut vec, i);
-        }
-
-        PriorityQueue {
-            heap: vec,
-            _order: PhantomData,
-        }
-    }
-
-    /// Sift down element at index i (standalone version for heapify)
-    fn sift_down_from(heap: &mut Vec<T>, mut i: usize) {
-        let len = heap.len();
-
-        loop {
-            let left = 2 * i + 1;
-            let right = 2 * i + 2;
-            let mut swap_with = i;
-
-            if left < len && Order::should_swap(&heap[swap_with], &heap[left]) {
-                swap_with = left;
-            }
-            if right < len && Order::should_swap(&heap[swap_with], &heap[right]) {
-                swap_with = right;
-            }
-
-            if swap_with == i {
-                break;
-            }
-
-            heap.swap(i, swap_with);
-            i = swap_with;
-        }
-    }
-}
-```
-
 
 **Why this isn't enough:**
 
@@ -2856,94 +2601,6 @@ fn test_exact_size_iterator() {
 }
 ```
 
-**Solution**
-
-```rust
-// 1. IntoIterator - consume queue, iterate in sorted order
-impl<T, Order> IntoIterator for PriorityQueue<T, Order>
-where
-    T: Ord,
-    Order: HeapOrder,
-{
-    type Item = T;
-    type IntoIter = IntoIter<T, Order>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter { queue: self }
-    }
-}
-
-pub struct IntoIter<T, Order> {
-    queue: PriorityQueue<T, Order>,
-}
-
-impl<T: Ord, Order: HeapOrder> Iterator for IntoIter<T, Order> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.queue.pop()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.queue.len();
-        (len, Some(len))
-    }
-}
-
-impl<T: Ord, Order: HeapOrder> ExactSizeIterator for IntoIter<T, Order> {}
-
-// 2. FromIterator - build queue from iterator
-impl<T: Ord, Order: HeapOrder> FromIterator<T> for PriorityQueue<T, Order> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let vec: Vec<T> = iter.into_iter().collect();
-        Self::from_vec(vec)  // Uses O(n) heapify!
-    }
-}
-
-// 3. Extend - add elements from iterator
-impl<T: Ord, Order: HeapOrder> Extend<T> for PriorityQueue<T, Order> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        for item in iter {
-            self.push(item);
-        }
-        // Could optimize: collect, heapify, then merge
-    }
-}
-
-// 4. Memory management
-impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
-    /// Create with pre-allocated capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-        PriorityQueue {
-            heap: Vec::with_capacity(capacity),
-            _order: PhantomData,
-        }
-    }
-
-    /// Current capacity (allocated space)
-    pub fn capacity(&self) -> usize {
-        self.heap.capacity()
-    }
-
-    /// Reserve space for at least `additional` more elements
-    pub fn reserve(&mut self, additional: usize) {
-        self.heap.reserve(additional);
-    }
-
-    /// Shrink capacity to fit current length
-    pub fn shrink_to_fit(&mut self) {
-        self.heap.shrink_to_fit();
-    }
-
-    /// Remove all elements
-    pub fn clear(&mut self) {
-        self.heap.clear();
-    }
-}
-```
-
-
-
 **What this achieves:**
 
 Now your priority queue is a first-class Rust collection:
@@ -2954,21 +2611,843 @@ Now your priority queue is a first-class Rust collection:
 ✅ **Idiomatic Rust**: Follows conventions from `Vec`, `BinaryHeap`, `HashMap`
 ✅ **Zero-cost abstractions**: Compiles to same code as hand-written loops
 
-**Extensions to explore:**
 
-- **`Drain` iterator**: Partially consume queue without taking ownership
-- **`peek_mut()`**: Modify top element in-place (requires sift-down on drop!)
-- **Parallel heapify**: Use Rayon for multi-threaded construction
-- **`merge()`**: Combine two heaps efficiently
-- **`append()`**: Move all elements from another queue
 
-**Complete!** You've built a production-quality generic priority queue with:
-- O(log n) push/pop
-- O(n) heapify
-- Phantom types for compile-time ordering
-- Wrapper types for custom comparisons
-- Full iterator support
-- Memory management APIs
+## Complete Working Example
+
+```rust
+use futures::future::join_all;
+use rand::Rng;
+use reqwest::Client;
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+use thiserror::Error;
+use tokio::{
+    sync::{OwnedSemaphorePermit, Semaphore},
+    time::{sleep, timeout},
+};
+
+// =============================================================================
+// Milestone 1: Basic Async HTTP Client with Error Types
+// =============================================================================
+
+#[derive(Error, Debug, Clone)]
+pub enum ScraperError {
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
+    #[error("Request timed out after {0}ms")]
+    TimeoutError(u64),
+
+    #[error("HTTP {status} error for {url}")]
+    HttpError { status: u16, url: String },
+
+    #[error("Failed to parse response: {0}")]
+    ParseError(String),
+
+    #[error("Circuit breaker is open")]
+    CircuitBreakerOpen,
+
+    #[error("Resource limit exceeded: {0}")]
+    ResourceLimitExceeded(String),
+}
+
+impl From<reqwest::Error> for ScraperError {
+    fn from(err: reqwest::Error) -> Self {
+        if err.is_timeout() {
+            return ScraperError::TimeoutError(0);
+        }
+
+        if let Some(status) = err.status() {
+            return ScraperError::HttpError {
+                status: status.as_u16(),
+                url: err.url().map(|u| u.to_string()).unwrap_or_default(),
+            };
+        }
+
+        ScraperError::NetworkError(err.to_string())
+    }
+}
+
+pub async fn fetch_url(url: &str) -> Result<String, ScraperError> {
+    let client = Client::new();
+    let response = client.get(url).send().await.map_err(ScraperError::from)?;
+
+    if !response.status().is_success() {
+        return Err(ScraperError::HttpError {
+            status: response.status().as_u16(),
+            url: url.to_string(),
+        });
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| ScraperError::ParseError(e.to_string()))
+}
+
+// =============================================================================
+// Milestone 2: Enforcing Timeouts on Network Operations
+// =============================================================================
+
+pub async fn fetch_url_with_timeout(url: &str, timeout_ms: u64) -> Result<String, ScraperError> {
+    match timeout(Duration::from_millis(timeout_ms), fetch_url(url)).await {
+        Ok(result) => result,
+        Err(_) => Err(ScraperError::TimeoutError(timeout_ms)),
+    }
+}
+
+pub fn create_client(timeout_ms: u64) -> Client {
+    Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .build()
+        .expect("HTTP client")
+}
+
+// =============================================================================
+// Milestone 3: Retry with Exponential Backoff + Jitter
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_attempts: usize,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub jitter: bool,
+}
+
+impl RetryConfig {
+    pub fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_backoff_ms: 1_000,
+            max_backoff_ms: 30_000,
+            jitter: true,
+        }
+    }
+
+    pub fn backoff_duration(&self, attempt: usize) -> Duration {
+        let multiplier = 1u64
+            .checked_shl(attempt as u32)
+            .unwrap_or(u64::MAX);
+        let base = self.initial_backoff_ms.saturating_mul(multiplier);
+        let capped = base.min(self.max_backoff_ms);
+        let millis = if self.jitter {
+            let mut rng = rand::thread_rng();
+            (capped as f64 * rng.gen_range(0.9..1.1)) as u64
+        } else {
+            capped
+        };
+        Duration::from_millis(millis)
+    }
+}
+
+impl ScraperError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            ScraperError::NetworkError(_)
+                | ScraperError::TimeoutError(_)
+                | ScraperError::HttpError { status: 500..=599, .. }
+        )
+    }
+}
+
+struct RetryOutcome {
+    result: Result<String, ScraperError>,
+    attempt_count: usize,
+}
+
+async fn fetch_with_retry_internal(
+    client: &Client,
+    url: &str,
+    timeout_ms: u64,
+    retry_config: &RetryConfig,
+) -> RetryOutcome {
+    let mut attempt = 0;
+    let max_attempts = retry_config.max_attempts.max(1);
+
+    loop {
+        attempt += 1;
+        let future = async {
+            let response = client.get(url).send().await.map_err(ScraperError::from)?;
+            if !response.status().is_success() {
+                return Err(ScraperError::HttpError {
+                    status: response.status().as_u16(),
+                    url: url.to_string(),
+                });
+            }
+
+            response
+                .text()
+                .await
+                .map_err(|e| ScraperError::ParseError(e.to_string()))
+        };
+        let result = match timeout(Duration::from_millis(timeout_ms), future).await {
+            Ok(output) => output,
+            Err(_) => Err(ScraperError::TimeoutError(timeout_ms)),
+        };
+
+        match result {
+            Ok(body) => {
+                return RetryOutcome {
+                    result: Ok(body),
+                    attempt_count: attempt,
+                }
+            }
+            Err(err) => {
+                if attempt >= max_attempts || !err.is_retryable() {
+                    return RetryOutcome {
+                        result: Err(err),
+                        attempt_count: attempt,
+                    };
+                }
+
+                let delay = retry_config.backoff_duration(attempt - 1);
+                sleep(delay).await;
+            }
+        }
+    }
+}
+
+pub async fn fetch_with_retry(
+    url: &str,
+    timeout_ms: u64,
+    retry_config: &RetryConfig,
+) -> Result<String, ScraperError> {
+    let client = create_client(timeout_ms);
+    fetch_with_retry_internal(&client, url, timeout_ms, retry_config)
+        .await
+        .result
+}
+
+// =============================================================================
+// Milestone 4: Circuit Breaker Pattern
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CircuitState {
+    Closed,
+    Open { opened_at: Instant },
+    HalfOpen,
+}
+
+pub struct CircuitBreaker {
+    state: Arc<Mutex<CircuitState>>,
+    failure_threshold: usize,
+    success_threshold: usize,
+    timeout: Duration,
+    consecutive_failures: Arc<Mutex<usize>>,
+    consecutive_successes: Arc<Mutex<usize>>,
+}
+
+impl CircuitBreaker {
+    pub fn new(failure_threshold: usize, timeout: Duration) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(CircuitState::Closed)),
+            failure_threshold: failure_threshold.max(1),
+            success_threshold: 1,
+            timeout,
+            consecutive_failures: Arc::new(Mutex::new(0)),
+            consecutive_successes: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    pub fn state(&self) -> CircuitState {
+        self.state.lock().unwrap().clone()
+    }
+
+    fn should_attempt(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        match *state {
+            CircuitState::Open { opened_at } => {
+                if opened_at.elapsed() >= self.timeout {
+                    *state = CircuitState::HalfOpen;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
+    }
+
+    pub async fn call<F, T>(&self, f: F) -> Result<T, ScraperError>
+    where
+        F: Future<Output = Result<T, ScraperError>>,
+    {
+        if !self.should_attempt() {
+            return Err(ScraperError::CircuitBreakerOpen);
+        }
+
+        match f.await {
+            Ok(value) => {
+                self.on_success();
+                Ok(value)
+            }
+            Err(err) => {
+                self.on_failure();
+                Err(err)
+            }
+        }
+    }
+
+    fn on_success(&self) {
+        *self.consecutive_failures.lock().unwrap() = 0;
+        let mut successes = self.consecutive_successes.lock().unwrap();
+        *successes += 1;
+
+        let mut state = self.state.lock().unwrap();
+        if matches!(*state, CircuitState::HalfOpen) && *successes >= self.success_threshold {
+            *state = CircuitState::Closed;
+            *successes = 0;
+        }
+    }
+
+    fn on_failure(&self) {
+        *self.consecutive_successes.lock().unwrap() = 0;
+        let mut failures = self.consecutive_failures.lock().unwrap();
+        *failures += 1;
+
+        if *failures >= self.failure_threshold {
+            let mut state = self.state.lock().unwrap();
+            *state = CircuitState::Open {
+                opened_at: Instant::now(),
+            };
+            *failures = 0;
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 5: Concurrent Fetching + Partial Results
+// =============================================================================
+
+#[derive(Debug)]
+pub struct FetchResult {
+    pub url: String,
+    pub result: Result<String, ScraperError>,
+    pub duration_ms: u64,
+    pub attempt_count: usize,
+}
+
+impl FetchResult {
+    pub fn is_success(&self) -> bool {
+        self.result.is_ok()
+    }
+
+    pub fn content(&self) -> Option<&str> {
+        self.result.as_ref().ok().map(|s| s.as_str())
+    }
+}
+
+#[derive(Debug)]
+pub struct FetchSummary {
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    pub total_duration_ms: u64,
+    pub avg_duration_ms: u64,
+}
+
+impl FetchSummary {
+    pub fn from_results(results: &[FetchResult]) -> Self {
+        let total = results.len();
+        let success = results.iter().filter(|r| r.is_success()).count();
+        let failed = total.saturating_sub(success);
+        let total_duration_ms: u64 = results.iter().map(|r| r.duration_ms).sum();
+        let avg_duration_ms = if total > 0 {
+            total_duration_ms / total as u64
+        } else {
+            0
+        };
+
+        Self {
+            total,
+            success,
+            failed,
+            total_duration_ms,
+            avg_duration_ms,
+        }
+    }
+
+    pub fn success_rate(&self) -> f64 {
+        if self.total == 0 {
+            0.0
+        } else {
+            (self.success as f64 / self.total as f64) * 100.0
+        }
+    }
+}
+
+pub async fn fetch_all(
+    urls: Vec<String>,
+    timeout_ms: u64,
+    retry_config: &RetryConfig,
+    circuit_breaker: &Arc<CircuitBreaker>,
+) -> Vec<FetchResult> {
+    let client = create_client(timeout_ms);
+
+    let futures = urls.into_iter().map(|url| {
+        let client = client.clone();
+        let retry = retry_config.clone();
+        let breaker = circuit_breaker.clone();
+
+        async move {
+            let start = Instant::now();
+            let attempts = Arc::new(Mutex::new(0_usize));
+            let attempts_inner = attempts.clone();
+
+            let result = breaker
+                .call(async {
+                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    *attempts_inner.lock().unwrap() = outcome.attempt_count;
+                    outcome.result
+                })
+                .await;
+
+            let attempt_count = {
+                let guard = attempts.lock().unwrap();
+                *guard
+            };
+
+            FetchResult {
+                url,
+                result,
+                duration_ms: start.elapsed().as_millis() as u64,
+                attempt_count,
+            }
+        }
+    });
+
+    join_all(futures).await
+}
+
+pub async fn fetch_all_with_limit(
+    urls: Vec<String>,
+    timeout_ms: u64,
+    retry_config: &RetryConfig,
+    circuit_breaker: &Arc<CircuitBreaker>,
+    max_concurrent: usize,
+) -> Vec<FetchResult> {
+    let semaphore = Arc::new(Semaphore::new(max_concurrent.max(1)));
+    let client = create_client(timeout_ms);
+
+    let futures = urls.into_iter().map(|url| {
+        let semaphore = semaphore.clone();
+        let client = client.clone();
+        let retry = retry_config.clone();
+        let breaker = circuit_breaker.clone();
+
+        async move {
+            let _permit = semaphore.acquire_owned().await.expect("permit");
+            let start = Instant::now();
+            let attempts = Arc::new(Mutex::new(0_usize));
+            let attempts_inner = attempts.clone();
+
+            let result = breaker
+                .call(async {
+                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    *attempts_inner.lock().unwrap() = outcome.attempt_count;
+                    outcome.result
+                })
+                .await;
+
+            let attempt_count = {
+                let guard = attempts.lock().unwrap();
+                *guard
+            };
+
+            FetchResult {
+                url,
+                result,
+                duration_ms: start.elapsed().as_millis() as u64,
+                attempt_count,
+            }
+        }
+    });
+
+    join_all(futures).await
+}
+
+// =============================================================================
+// Milestone 6: Rate Limiting and Resource Management
+// =============================================================================
+
+#[derive(Clone)]
+pub struct RateLimiter {
+    semaphore: Arc<Semaphore>,
+    rate_per_second: f64,
+    last_request: Arc<Mutex<Instant>>,
+}
+
+impl RateLimiter {
+    pub fn new(max_concurrent: usize, rate_per_second: f64) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(max_concurrent.max(1))),
+            rate_per_second: rate_per_second.max(0.1),
+            last_request: Arc::new(Mutex::new(Instant::now() - Duration::from_secs(1))),
+        }
+    }
+
+    pub async fn acquire(&self) -> OwnedSemaphorePermit {
+        let permit = self.semaphore.clone().acquire_owned().await.expect("permit");
+        let interval = Duration::from_secs_f64(1.0 / self.rate_per_second);
+        let mut last = self.last_request.lock().unwrap();
+        let now = Instant::now();
+        let next_allowed = *last + interval;
+        if now < next_allowed {
+            sleep(next_allowed - now).await;
+        }
+        *last = Instant::now();
+        permit
+    }
+}
+
+pub struct ResourceManager {
+    active_requests: Arc<Mutex<usize>>,
+    total_bytes: Arc<Mutex<u64>>,
+    max_memory_bytes: u64,
+}
+
+impl ResourceManager {
+    pub fn new(max_memory_bytes: u64) -> Self {
+        Self {
+            active_requests: Arc::new(Mutex::new(0)),
+            total_bytes: Arc::new(Mutex::new(0)),
+            max_memory_bytes,
+        }
+    }
+
+    pub fn can_proceed(&self) -> bool {
+        *self.total_bytes.lock().unwrap() <= self.max_memory_bytes
+    }
+
+    pub fn start_request(&self) {
+        *self.active_requests.lock().unwrap() += 1;
+    }
+
+    pub fn end_request(&self, bytes: u64) {
+        let mut active = self.active_requests.lock().unwrap();
+        if *active > 0 {
+            *active -= 1;
+        }
+        *self.total_bytes.lock().unwrap() += bytes;
+    }
+}
+
+pub async fn fetch_all_managed(
+    urls: Vec<String>,
+    timeout_ms: u64,
+    retry_config: &RetryConfig,
+    circuit_breaker: &Arc<CircuitBreaker>,
+    rate_limiter: &RateLimiter,
+    resource_manager: &Arc<ResourceManager>,
+) -> Vec<FetchResult> {
+    let client = create_client(timeout_ms);
+
+    let futures = urls.into_iter().map(|url| {
+        let client = client.clone();
+        let retry = retry_config.clone();
+        let breaker = circuit_breaker.clone();
+        let limiter = rate_limiter.clone();
+        let manager = resource_manager.clone();
+
+        async move {
+            let permit = limiter.acquire().await;
+            if !manager.can_proceed() {
+                drop(permit);
+                return FetchResult {
+                    url,
+                    result: Err(ScraperError::ResourceLimitExceeded(
+                        "memory limit reached".to_string(),
+                    )),
+                    duration_ms: 0,
+                    attempt_count: 0,
+                };
+            }
+
+            manager.start_request();
+            let start = Instant::now();
+            let attempts = Arc::new(Mutex::new(0_usize));
+            let attempts_inner = attempts.clone();
+
+            let result = breaker
+                .call(async {
+                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    *attempts_inner.lock().unwrap() = outcome.attempt_count;
+                    outcome.result
+                })
+                .await;
+
+            let attempt_count = {
+                let guard = attempts.lock().unwrap();
+                *guard
+            };
+
+            let bytes = result.as_ref().ok().map(|body| body.len() as u64).unwrap_or(0);
+            manager.end_request(bytes);
+            drop(permit);
+
+            FetchResult {
+                url,
+                result,
+                duration_ms: start.elapsed().as_millis() as u64,
+                attempt_count,
+            }
+        }
+    });
+
+    join_all(futures).await
+}
+
+// =============================================================================
+// Tests for All Milestones
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::time::Duration;
+    use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_fetch_url_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/test"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("Hello"))
+            .mount(&server)
+            .await;
+
+        let url = format!("{}/test", server.uri());
+        let result = fetch_url(&url).await.unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_url_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let err = fetch_url(&server.uri()).await.unwrap_err();
+        match err {
+            ScraperError::HttpError { status, .. } => assert_eq!(status, 404),
+            _ => panic!("expected HTTP error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_url_with_timeout_triggers() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
+            .mount(&server)
+            .await;
+
+        let err = fetch_url_with_timeout(&server.uri(), 50).await.unwrap_err();
+        match err {
+            ScraperError::TimeoutError(ms) => assert_eq!(ms, 50),
+            _ => panic!("expected timeout"),
+        }
+    }
+
+    #[test]
+    fn test_retry_config_backoff() {
+        let cfg = RetryConfig {
+            max_attempts: 5,
+            initial_backoff_ms: 100,
+            max_backoff_ms: 500,
+            jitter: false,
+        };
+        assert_eq!(cfg.backoff_duration(0).as_millis(), 100);
+        assert_eq!(cfg.backoff_duration(1).as_millis(), 200);
+        assert_eq!(cfg.backoff_duration(2).as_millis(), 400);
+        assert_eq!(cfg.backoff_duration(3).as_millis(), 500);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_with_retry_succeeds_after_failures() {
+        let server = MockServer::start().await;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = attempts.clone();
+
+        Mock::given(method("GET"))
+            .respond_with(move |_req: &wiremock::Request| {
+                let count = attempts_clone.fetch_add(1, Ordering::SeqCst);
+                if count < 2 {
+                    ResponseTemplate::new(500)
+                } else {
+                    ResponseTemplate::new(200).set_body_string("ok")
+                }
+            })
+            .mount(&server)
+            .await;
+
+        let cfg = RetryConfig {
+            max_attempts: 3,
+            initial_backoff_ms: 10,
+            max_backoff_ms: 100,
+            jitter: false,
+        };
+
+        let result = fetch_with_retry(&server.uri(), 1000, &cfg).await.unwrap();
+        assert_eq!(result, "ok");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_flow() {
+        let breaker = Arc::new(CircuitBreaker::new(2, Duration::from_millis(100)));
+
+        for _ in 0..2 {
+            let _ = breaker
+                .call(async { Err::<(), _>(ScraperError::NetworkError("fail".into())) })
+                .await;
+        }
+
+        match breaker.state() {
+            CircuitState::Open { .. } => {}
+            _ => panic!("expected open"),
+        }
+
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let res = breaker
+            .call(async { Ok::<_, ScraperError>("ok") })
+            .await
+            .unwrap();
+        assert_eq!(res, "ok");
+        assert_eq!(breaker.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_all_partial_results() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/good"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("good"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/bad"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let urls = vec![
+            format!("{}/good", server.uri()),
+            format!("{}/bad", server.uri()),
+        ];
+        let cfg = RetryConfig {
+            max_attempts: 1,
+            ..RetryConfig::default()
+        };
+        let breaker = Arc::new(CircuitBreaker::new(5, Duration::from_secs(1)));
+
+        let results = fetch_all(urls, 1_000, &cfg, &breaker).await;
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_success());
+        assert!(!results[1].is_success());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_all_with_limit_respects_limit() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200).set_delay(Duration::from_millis(100)),
+            )
+            .mount(&server)
+            .await;
+
+        let urls: Vec<_> = (0..6).map(|i| format!("{}/{}", server.uri(), i)).collect();
+        let cfg = RetryConfig::default();
+        let breaker = Arc::new(CircuitBreaker::new(10, Duration::from_secs(1)));
+
+        let start = Instant::now();
+        let _results = fetch_all_with_limit(urls, 1_000, &cfg, &breaker, 2).await;
+        assert!(start.elapsed().as_millis() >= 300);
+    }
+
+    #[test]
+    fn test_fetch_summary() {
+        let results = vec![
+            FetchResult {
+                url: "a".into(),
+                result: Ok("1".into()),
+                duration_ms: 100,
+                attempt_count: 1,
+            },
+            FetchResult {
+                url: "b".into(),
+                result: Err(ScraperError::NetworkError("fail".into())),
+                duration_ms: 200,
+                attempt_count: 2,
+            },
+        ];
+
+        let summary = FetchSummary::from_results(&results);
+        assert_eq!(summary.total, 2);
+        assert_eq!(summary.success, 1);
+        assert_eq!(summary.failed, 1);
+        assert_eq!(summary.avg_duration_ms, 150);
+        assert!((summary.success_rate() - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_enforces_rate() {
+        let limiter = RateLimiter::new(2, 5.0);
+        let start = Instant::now();
+
+        for _ in 0..5 {
+            let _permit = limiter.acquire().await;
+        }
+
+        assert!(start.elapsed().as_millis() >= 800);
+    }
+
+    #[tokio::test]
+    async fn test_resource_manager_tracks_usage() {
+        let manager = Arc::new(ResourceManager::new(1_000));
+        assert!(manager.can_proceed());
+        manager.start_request();
+        manager.end_request(500);
+        assert!(manager.can_proceed());
+        manager.start_request();
+        manager.end_request(600);
+        assert!(!manager.can_proceed());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_all_managed() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("data"))
+            .mount(&server)
+            .await;
+
+        let urls: Vec<_> = (0..3).map(|i| format!("{}/{}", server.uri(), i)).collect();
+        let cfg = RetryConfig::default();
+        let breaker = Arc::new(CircuitBreaker::new(5, Duration::from_secs(1)));
+        let limiter = RateLimiter::new(2, 10.0);
+        let manager = Arc::new(ResourceManager::new(10_000));
+
+        let results = fetch_all_managed(urls, 1_000, &cfg, &breaker, &limiter, &manager).await;
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.is_success()));
+    }
+}
+```
+
+
+
 
 ---
 
@@ -3022,11 +3501,3 @@ Now your priority queue is a first-class Rust collection:
 | Custom ordering | ✅ (wrapper types) | ✅ (wrapper types) |
 | Iterator support | ✅ | ✅ |
 | API design | Educational | Production |
-
-**Lessons learned**:
-1. **Generics enable code reuse** without runtime cost
-2. **Trait bounds enforce correctness** at compile-time
-3. **Phantom types provide compile-time dispatch** with zero overhead
-4. **Wrapper types enable flexibility** without changing original types
-5. **Algorithmic optimization** (heapify) provides huge gains
-6. **Iterator traits** make collections first-class citizens

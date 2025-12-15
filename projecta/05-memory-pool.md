@@ -1680,7 +1680,7 @@ use std::sync::{Arc, Mutex};
 use std::ptr;
 
 //==============================================================================
-// Part 1: Raw Memory Pool
+// Milestone  1: Raw Memory Pool
 //==============================================================================
 
 /// A memory pool allocator that manages fixed-size blocks
@@ -1747,7 +1747,7 @@ impl MemoryPool {
 }
 
 //==============================================================================
-// Part 2: Type-Safe Pool with RAII
+// Milestone  2: Type-Safe Pool with RAII
 //==============================================================================
 
 /// A typed memory pool for allocating objects of type T
@@ -1834,7 +1834,7 @@ impl<T> Drop for Block<T> {
 unsafe impl<T: Send> Send for Block<T> {}
 
 //==============================================================================
-// Part 3: Thread-Safe Shared Pool
+// Milestone  3: Thread-Safe Shared Pool
 //==============================================================================
 
 /// A thread-safe, reference-counted memory pool

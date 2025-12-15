@@ -1184,14 +1184,577 @@ fn main() {
 }
 ```
 
-## Testing Strategies
+### Complete Working Example
 
-1. **Unit Tests**: Test each cache type independently
-2. **Integration Tests**: Test multi-level interactions
-3. **Performance Tests**: Benchmark map types and strategies
-4. **Concurrency Tests**: Thread-safe access patterns
-5. **Eviction Tests**: Verify correct eviction behavior
+```rust
+use rustc_hash::FxHashMap;
+use std::collections::{hash_map::DefaultHasher, BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
----
+// =============================================================================
+// Milestone 1: LRU Cache with HashMap
+// =============================================================================
 
-This project comprehensively demonstrates map type selection and caching strategies, showing when to use HashMap vs BTreeMap vs FxHashMap, and how to build production-ready multi-tier caches with appropriate performance characteristics.
+pub struct LruCache<K, V> {
+    map: HashMap<K, (V, usize)>,
+    capacity: usize,
+    access_counter: usize,
+}
+
+impl<K, V> LruCache<K, V>
+where
+    K: Eq + Hash + Clone,
+{
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            map: HashMap::new(),
+            capacity,
+            access_counter: 0,
+        }
+    }
+
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        if let Some((value, time)) = self.map.get_mut(key) {
+            self.access_counter += 1;
+            *time = self.access_counter;
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn put(&mut self, key: K, value: V) {
+        self.access_counter += 1;
+        if self.map.contains_key(&key) {
+            if let Some(entry) = self.map.get_mut(&key) {
+                entry.0 = value;
+                entry.1 = self.access_counter;
+            }
+            return;
+        }
+        if self.capacity > 0 && self.map.len() >= self.capacity {
+            self.evict_lru();
+        }
+        self.map.insert(key, (value, self.access_counter));
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn evict_lru(&mut self) {
+        if let Some((key, _)) = self
+            .map
+            .iter()
+            .min_by_key(|(_, (_, time))| *time)
+            .map(|(k, v)| (k.clone(), v.1))
+        {
+            self.map.remove(&key);
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 2: Time-Based Expiration with BTreeMap
+// =============================================================================
+
+pub struct TtlCache<K, V> {
+    data: HashMap<K, V>,
+    expiry: BTreeMap<u64, Vec<K>>,
+    key_expiry: HashMap<K, u64>,
+    default_ttl: u64,
+}
+
+impl<K, V> TtlCache<K, V>
+where
+    K: Eq + Hash + Clone,
+{
+    pub fn new(default_ttl: u64) -> Self {
+        Self {
+            data: HashMap::new(),
+            expiry: BTreeMap::new(),
+            key_expiry: HashMap::new(),
+            default_ttl,
+        }
+    }
+
+    pub fn put(&mut self, key: K, value: V, now: u64) {
+        let expiry_time = now + self.default_ttl;
+        if let Some(old_expiry) = self.key_expiry.insert(key.clone(), expiry_time) {
+            if let Some(keys) = self.expiry.get_mut(&old_expiry) {
+                keys.retain(|k| k != &key);
+                if keys.is_empty() {
+                    self.expiry.remove(&old_expiry);
+                }
+            }
+        }
+        self.data.insert(key.clone(), value);
+        self.expiry
+            .entry(expiry_time)
+            .or_insert_with(Vec::new)
+            .push(key);
+    }
+
+    pub fn get(&mut self, key: &K, now: u64) -> Option<&V> {
+        if let Some(&expiry_time) = self.key_expiry.get(key) {
+            if expiry_time <= now {
+                if let Some(expiry_time) = self.key_expiry.remove(key) {
+                    if let Some(keys) = self.expiry.get_mut(&expiry_time) {
+                        keys.retain(|k| k != key);
+                        if keys.is_empty() {
+                            self.expiry.remove(&expiry_time);
+                        }
+                    }
+                }
+                self.data.remove(key);
+                return None;
+            }
+            return self.data.get(key);
+        }
+        None
+    }
+
+    pub fn cleanup(&mut self, now: u64) {
+        self.cleanup_range(now);
+    }
+
+    pub fn cleanup_range(&mut self, until: u64) {
+        let expired: Vec<u64> = self
+            .expiry
+            .range(..=until)
+            .map(|(&time, _)| time)
+            .collect();
+        for time in expired {
+            if let Some(keys) = self.expiry.remove(&time) {
+                for key in keys {
+                    self.data.remove(&key);
+                    self.key_expiry.remove(&key);
+                }
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+// =============================================================================
+// Milestone 3: FxHash Hot Cache
+// =============================================================================
+
+#[derive(Debug)]
+pub struct CacheStats {
+    pub hits: u64,
+    pub misses: u64,
+    pub size: usize,
+}
+
+pub struct HotCache<V> {
+    cache: FxHashMap<u64, V>,
+    hits: u64,
+    misses: u64,
+}
+
+impl<V> HotCache<V> {
+    pub fn new() -> Self {
+        Self {
+            cache: FxHashMap::default(),
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    pub fn get(&mut self, key: u64) -> Option<&V> {
+        if let Some(value) = self.cache.get(&key) {
+            self.hits += 1;
+            Some(value)
+        } else {
+            self.misses += 1;
+            None
+        }
+    }
+
+    pub fn put(&mut self, key: u64, value: V) {
+        self.cache.insert(key, value);
+    }
+
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.hits + self.misses;
+        if total == 0 {
+            0.0
+        } else {
+            self.hits as f64 / total as f64
+        }
+    }
+
+    pub fn stats(&self) -> CacheStats {
+        CacheStats {
+            hits: self.hits,
+            misses: self.misses,
+            size: self.cache.len(),
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 4: Multi-Level Cache
+// =============================================================================
+
+#[derive(Debug)]
+pub struct MultiLevelStats {
+    pub hot_size: usize,
+    pub hot_hits: u64,
+    pub lru_size: usize,
+    pub ttl_size: usize,
+}
+
+pub struct MultiLevelCache<K, V> {
+    hot: HotCache<V>,
+    lru: LruCache<K, V>,
+    ttl: TtlCache<K, V>,
+    hot_capacity: usize,
+}
+
+impl<K, V> MultiLevelCache<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+{
+    pub fn new(hot_capacity: usize, lru_capacity: usize) -> Self {
+        Self {
+            hot: HotCache::new(),
+            lru: LruCache::new(lru_capacity),
+            ttl: TtlCache::new(60),
+            hot_capacity,
+        }
+    }
+
+    pub fn get(&mut self, key: &K, now: u64) -> Option<&V> {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        let hot_key = hasher.finish();
+        let _hot_hit = self.hot.get(hot_key).is_some();
+        let lru_clone = self.lru.get(key).map(|v| v.clone());
+        if let Some(cloned) = lru_clone {
+            if self.hot.stats().size < self.hot_capacity {
+                self.hot.put(hot_key, cloned);
+            }
+            return self.lru.get(key);
+        }
+        if let Some(cloned) = self.ttl.get(key, now).map(|v| v.clone()) {
+            let hot_copy = cloned.clone();
+            self.lru.put(key.clone(), cloned);
+            if self.hot.stats().size < self.hot_capacity {
+                self.hot.put(hot_key, hot_copy);
+            }
+            return self.lru.get(key);
+        }
+        None
+    }
+
+    pub fn put(&mut self, key: K, value: V, now: u64) {
+        self.ttl.put(key.clone(), value.clone(), now);
+        self.lru.put(key.clone(), value.clone());
+        if self.hot.stats().size < self.hot_capacity {
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            let hot_key = hasher.finish();
+            self.hot.put(hot_key, value);
+        }
+    }
+
+    pub fn stats(&self) -> MultiLevelStats {
+        let hot_stats = self.hot.stats();
+        MultiLevelStats {
+            hot_size: hot_stats.size,
+            hot_hits: hot_stats.hits,
+            lru_size: self.lru.len(),
+            ttl_size: self.ttl.len(),
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 5: Benchmark Suite
+// =============================================================================
+
+pub struct CacheBenchmarks;
+
+impl CacheBenchmarks {
+    pub fn run_all() {
+        Self::bench_map_types();
+        Self::bench_cache_strategies();
+        Self::bench_multi_level();
+    }
+
+    fn bench_map_types() {
+        println!("=== Map Type Comparison ===");
+        const N: usize = 100_000;
+
+        let start = Instant::now();
+        let mut hash_map = HashMap::new();
+        for i in 0..N {
+            hash_map.insert(i, i);
+        }
+        let hash_insert = start.elapsed();
+        let start = Instant::now();
+        for i in 0..N {
+            let _ = hash_map.get(&i);
+        }
+        let hash_lookup = start.elapsed();
+
+        let start = Instant::now();
+        let mut btree = BTreeMap::new();
+        for i in 0..N {
+            btree.insert(i, i);
+        }
+        let bt_insert = start.elapsed();
+        let start = Instant::now();
+        for i in 0..N {
+            let _ = btree.get(&i);
+        }
+        let bt_lookup = start.elapsed();
+
+        let start = Instant::now();
+        let mut fx = FxHashMap::default();
+        for i in 0..N {
+            fx.insert(i, i);
+        }
+        let fx_insert = start.elapsed();
+        let start = Instant::now();
+        for i in 0..N {
+            let _ = fx.get(&i);
+        }
+        let fx_lookup = start.elapsed();
+
+        println!(
+            "HashMap insert {:?}, lookup {:?}\nBTreeMap insert {:?}, lookup {:?}\nFxHashMap insert {:?}, lookup {:?}",
+            hash_insert, hash_lookup, bt_insert, bt_lookup, fx_insert, fx_lookup
+        );
+    }
+
+    fn bench_cache_strategies() {
+        println!("=== Cache Strategy Comparison ===");
+        let mut lru = LruCache::new(1000);
+        let mut ttl = TtlCache::new(60);
+        let mut hot = HotCache::new();
+
+        for i in 0..10_000 {
+            lru.put(i, i);
+            ttl.put(i, i, i as u64);
+            hot.put(i as u64, i);
+        }
+
+        for i in 0..10_000 {
+            let _ = lru.get(&i);
+            let _ = ttl.get(&i, (i + 30) as u64);
+            let _ = hot.get(i as u64);
+        }
+
+        println!(
+            "LRU size {}, TTL size {}, Hot hit rate {:.2}",
+            lru.len(),
+            ttl.len(),
+            hot.hit_rate()
+        );
+    }
+
+    fn bench_multi_level() {
+        println!("=== Multi-Level Cache ===");
+        let mut single = LruCache::new(2000);
+        let mut multi = MultiLevelCache::new(500, 1500);
+
+        for i in 0..10_000 {
+            single.put(i, i);
+            multi.put(i, i, 0);
+        }
+
+        let start = Instant::now();
+        for i in 0..10_000 {
+            let _ = single.get(&i);
+        }
+        let single_time = start.elapsed();
+
+        let start = Instant::now();
+        for i in 0..10_000 {
+            let _ = multi.get(&i, 0);
+        }
+        let multi_time = start.elapsed();
+
+        println!("Single-tier: {:?}, Multi-tier: {:?}", single_time, multi_time);
+    }
+}
+
+// =============================================================================
+// Milestone 6: Read-Through / Write-Through Caches
+// =============================================================================
+
+pub trait BackingStore<K, V> {
+    fn load(&self, key: &K) -> Option<V>;
+    fn save(&mut self, key: K, value: V);
+}
+
+pub struct ReadThroughCache<K, V, S> {
+    cache: LruCache<K, V>,
+    store: S,
+}
+
+impl<K, V, S> ReadThroughCache<K, V, S>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+    S: BackingStore<K, V>,
+{
+    pub fn new(cache: LruCache<K, V>, store: S) -> Self {
+        Self { cache, store }
+    }
+
+    pub fn get(&mut self, key: &K) -> Option<V> {
+        if let Some(value) = self.cache.get(key) {
+            return Some(value.clone());
+        }
+        if let Some(value) = self.store.load(key) {
+            self.cache.put(key.clone(), value.clone());
+            return Some(value);
+        }
+        None
+    }
+}
+
+pub struct WriteThroughCache<K, V, S> {
+    cache: LruCache<K, V>,
+    store: S,
+}
+
+impl<K, V, S> WriteThroughCache<K, V, S>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+    S: BackingStore<K, V>,
+{
+    pub fn new(cache: LruCache<K, V>, store: S) -> Self {
+        Self { cache, store }
+    }
+
+    pub fn put(&mut self, key: K, value: V) {
+        self.store.save(key.clone(), value.clone());
+        self.cache.put(key, value);
+    }
+}
+
+fn main() {
+    CacheBenchmarks::run_all();
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lru_eviction() {
+        let mut cache = LruCache::new(2);
+        cache.put("a", 1);
+        cache.put("b", 2);
+        cache.get(&"a");
+        cache.put("c", 3);
+        assert_eq!(cache.get(&"a"), Some(&1));
+        assert_eq!(cache.get(&"b"), None);
+    }
+
+    #[test]
+    fn ttl_expiration() {
+        let mut cache = TtlCache::new(5);
+        cache.put("key", "value", 100);
+        assert_eq!(cache.get(&"key", 104), Some(&"value"));
+        assert_eq!(cache.get(&"key", 106), None);
+    }
+
+    #[test]
+    fn hot_cache_stats() {
+        let mut cache = HotCache::new();
+        cache.put(1, "a");
+        cache.get(1);
+        cache.get(2);
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(cache.hit_rate(), 0.5);
+    }
+
+    #[test]
+    fn multi_level_operations() {
+        let mut cache = MultiLevelCache::new(2, 5);
+        cache.put("a", 1, 0);
+        cache.put("b", 2, 0);
+        assert_eq!(cache.get(&"a", 1), Some(&1));
+        let stats = cache.stats();
+        assert!(stats.ttl_size >= 2);
+    }
+
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct SharedStore<K, V>
+    where
+        K: Eq + Hash,
+    {
+        data: Arc<Mutex<HashMap<K, V>>>,
+    }
+
+    impl<K, V> SharedStore<K, V>
+    where
+        K: Eq + Hash,
+    {
+        fn new() -> Self {
+            Self {
+                data: Arc::new(Mutex::new(HashMap::new())),
+            }
+        }
+    }
+
+    impl<K, V> BackingStore<K, V> for SharedStore<K, V>
+    where
+        K: Eq + Hash + Clone,
+        V: Clone,
+    {
+        fn load(&self, key: &K) -> Option<V> {
+            self.data.lock().unwrap().get(key).cloned()
+        }
+
+        fn save(&mut self, key: K, value: V) {
+            self.data.lock().unwrap().insert(key, value);
+        }
+    }
+
+    #[test]
+    fn read_through_cache() {
+        let store = SharedStore::new();
+        {
+            let mut locked = store.data.lock().unwrap();
+            locked.insert("k".to_string(), 42);
+        }
+        let cache = LruCache::new(2);
+        let mut rtc = ReadThroughCache::new(cache, store);
+        assert_eq!(rtc.get(&"k".to_string()), Some(42));
+    }
+
+    #[test]
+    fn write_through_cache() {
+        let store = SharedStore::new();
+        let mirror = store.clone();
+        let cache = LruCache::new(2);
+        let mut wtc = WriteThroughCache::new(cache, store);
+        wtc.put("k".to_string(), 5);
+        assert_eq!(
+            mirror.load(&"k".to_string()),
+            Some(5)
+        );
+    }
+}
+```

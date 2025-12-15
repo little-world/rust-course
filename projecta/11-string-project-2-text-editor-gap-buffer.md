@@ -953,11 +953,688 @@ impl OptimizedGapBuffer {
 
 ---
 
-## Testing Strategies
+### Complete Working Example
 
-1. **Unit Tests**: Test each operation independently
-2. **Property Tests**: Verify buffer contents match expected string
-3. **Performance Tests**: Benchmark against alternatives
-4. **Memory Tests**: Measure memory usage and allocations
-5. **Stress Tests**: Test with large documents (1M+ characters)
-6. **Cache Profiling**: Use perf/Instruments to measure cache efficiency
+```rust
+use std::time::Instant;
+
+// =============================================================================
+// Milestone 1: Basic Gap Buffer Structure
+// =============================================================================
+
+pub struct GapBuffer {
+    buffer: Vec<u8>,
+    gap_start: usize,
+    gap_end: usize,
+}
+
+impl GapBuffer {
+    pub fn new(capacity: usize) -> Self {
+        let adjusted = capacity.max(1);
+        GapBuffer {
+            buffer: vec![0; adjusted],
+            gap_start: 0,
+            gap_end: adjusted,
+        }
+    }
+
+    pub fn gap_size(&self) -> usize {
+        self.gap_end - self.gap_start
+    }
+
+    pub fn len(&self) -> usize {
+        self.buffer.len() - self.gap_size()
+    }
+
+    pub fn move_gap_to(&mut self, position: usize) {
+        let position = position.min(self.len());
+        if position < self.gap_start {
+            let distance = self.gap_start - position;
+            self.buffer
+                .copy_within(position..self.gap_start, self.gap_end - distance);
+            self.gap_start -= distance;
+            self.gap_end -= distance;
+        } else if position > self.gap_start {
+            let distance = position - self.gap_start;
+            self.buffer
+                .copy_within(self.gap_end..self.gap_end + distance, self.gap_start);
+            self.gap_start += distance;
+            self.gap_end += distance;
+        }
+    }
+
+    pub fn insert(&mut self, byte: u8) {
+        if self.gap_size() == 0 {
+            self.grow();
+        }
+        self.buffer[self.gap_start] = byte;
+        self.gap_start += 1;
+    }
+
+    pub fn delete(&mut self) -> Option<u8> {
+        if self.gap_start == 0 {
+            return None;
+        }
+        self.gap_start -= 1;
+        Some(self.buffer[self.gap_start])
+    }
+
+    fn grow(&mut self) {
+        let new_capacity = (self.buffer.len().max(1)) * 2;
+        let mut new_buffer = vec![0; new_capacity];
+        let before = self.gap_start;
+        let after_len = self.buffer.len() - self.gap_end;
+        new_buffer[..before].copy_from_slice(&self.buffer[..before]);
+        if after_len > 0 {
+            let start = new_capacity - after_len;
+            new_buffer[start..].copy_from_slice(&self.buffer[self.gap_end..]);
+            self.gap_end = start;
+        } else {
+            self.gap_end = new_capacity;
+        }
+        self.buffer = new_buffer;
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut result = String::with_capacity(self.len());
+        result.push_str(std::str::from_utf8(&self.buffer[..self.gap_start]).unwrap());
+        result.push_str(std::str::from_utf8(&self.buffer[self.gap_end..]).unwrap());
+        result
+    }
+}
+
+// =============================================================================
+// Milestone 2: Cursor Management and Operations
+// =============================================================================
+
+pub struct TextBuffer {
+    gap_buffer: GapBuffer,
+    cursor: usize,
+}
+
+impl TextBuffer {
+    pub fn new() -> Self {
+        TextBuffer {
+            gap_buffer: GapBuffer::new(128),
+            cursor: 0,
+        }
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        self.gap_buffer.move_gap_to(self.cursor);
+        let mut encoded = [0u8; 4];
+        let bytes = ch.encode_utf8(&mut encoded);
+        for byte in bytes.as_bytes() {
+            self.gap_buffer.insert(*byte);
+            self.cursor += 1;
+        }
+    }
+
+    pub fn delete_char(&mut self) -> bool {
+        if self.cursor == 0 {
+            return false;
+        }
+        self.gap_buffer.move_gap_to(self.cursor);
+        let mut removed = false;
+        while let Some(byte) = self.gap_buffer.delete() {
+            removed = true;
+            self.cursor -= 1;
+            if !Self::is_continuation_byte(byte) {
+                break;
+            }
+            if self.cursor == 0 {
+                break;
+            }
+        }
+        removed
+    }
+
+    pub fn move_cursor_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.cursor -= 1;
+        while self.cursor > 0 {
+            if let Some(byte) = self.byte_at(self.cursor) {
+                if Self::is_continuation_byte(byte) {
+                    self.cursor -= 1;
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        if self.cursor >= self.gap_buffer.len() {
+            return;
+        }
+        if let Some(byte) = self.byte_at(self.cursor) {
+            let advance = Self::char_len_from_first_byte(byte);
+            self.cursor = (self.cursor + advance).min(self.gap_buffer.len());
+        } else {
+            self.cursor += 1;
+        }
+    }
+
+    pub fn move_cursor_start(&mut self) {
+        self.cursor = 0;
+    }
+
+    pub fn move_cursor_end(&mut self) {
+        self.cursor = self.gap_buffer.len();
+    }
+
+    pub fn text(&self) -> String {
+        self.gap_buffer.to_string()
+    }
+
+    pub fn cursor_position(&self) -> usize {
+        self.cursor
+    }
+
+    pub fn len(&self) -> usize {
+        self.gap_buffer.len()
+    }
+
+    fn byte_at(&self, logical_index: usize) -> Option<u8> {
+        if logical_index >= self.gap_buffer.len() {
+            return None;
+        }
+        if logical_index < self.gap_buffer.gap_start {
+            Some(self.gap_buffer.buffer[logical_index])
+        } else {
+            let offset = logical_index + self.gap_buffer.gap_size();
+            Some(self.gap_buffer.buffer[offset])
+        }
+    }
+
+    fn is_continuation_byte(byte: u8) -> bool {
+        (byte & 0b1100_0000) == 0b1000_0000
+    }
+
+    fn char_len_from_first_byte(byte: u8) -> usize {
+        if byte & 0b1000_0000 == 0 {
+            1
+        } else if byte & 0b1110_0000 == 0b1100_0000 {
+            2
+        } else if byte & 0b1111_0000 == 0b1110_0000 {
+            3
+        } else {
+            4
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 3: Multi-Line Support with Line Index
+// =============================================================================
+
+pub struct MultiLineBuffer {
+    buffer: TextBuffer,
+    line_starts: Vec<usize>,
+}
+
+impl MultiLineBuffer {
+    pub fn new() -> Self {
+        MultiLineBuffer {
+            buffer: TextBuffer::new(),
+            line_starts: vec![0],
+        }
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        self.buffer.insert_char(ch);
+        self.rebuild_line_starts();
+    }
+
+    pub fn delete_char(&mut self) -> Option<char> {
+        let cursor = self.buffer.cursor_position();
+        if cursor == 0 {
+            return None;
+        }
+        let text = self.buffer.text();
+        let mut slice = text[..cursor].chars();
+        let ch = slice.next_back()?;
+        if self.buffer.delete_char() {
+            self.rebuild_line_starts();
+            Some(ch)
+        } else {
+            None
+        }
+    }
+
+    pub fn cursor_to_line_col(&self, cursor: usize) -> (usize, usize) {
+        let clamped_cursor = cursor.min(self.buffer.len());
+        let line = self
+            .line_starts
+            .partition_point(|&pos| pos <= clamped_cursor);
+        let line_index = line.saturating_sub(1);
+        let line_start = self.line_starts[line_index];
+        let column = clamped_cursor - line_start;
+        (line_index, column)
+    }
+
+    pub fn line_col_to_cursor(&self, line: usize, column: usize) -> Option<usize> {
+        if line >= self.line_starts.len() {
+            return None;
+        }
+        let line_start = self.line_starts[line];
+        let line_end = if line + 1 < self.line_starts.len() {
+            self.line_starts[line + 1]
+        } else {
+            self.buffer.len()
+        };
+        if column > line_end.saturating_sub(line_start) {
+            return None;
+        }
+        Some(line_start + column)
+    }
+
+    pub fn goto_line(&mut self, line: usize) {
+        if self.line_starts.is_empty() {
+            return;
+        }
+        let clamped_line = line.min(self.line_starts.len() - 1);
+        let cursor = self.line_starts[clamped_line];
+        self.buffer.cursor = cursor;
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+
+    pub fn text(&self) -> String {
+        self.buffer.text()
+    }
+
+    pub fn cursor_position(&self) -> usize {
+        self.buffer.cursor_position()
+    }
+
+    fn rebuild_line_starts(&mut self) {
+        let text = self.buffer.text();
+        self.line_starts.clear();
+        self.line_starts.push(0);
+        for (idx, ch) in text.char_indices() {
+            if ch == '\n' {
+                let next_start = idx + ch.len_utf8();
+                self.line_starts.push(next_start.min(text.len()));
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 4: Undo/Redo with Command Pattern
+// =============================================================================
+
+#[derive(Clone, Debug)]
+pub enum EditCommand {
+    InsertChar { position: usize, ch: char },
+    DeleteChar { position: usize, ch: char },
+    InsertText { position: usize, text: String },
+    DeleteText { position: usize, text: String },
+}
+
+impl EditCommand {
+    pub fn inverse(&self) -> EditCommand {
+        match self {
+            EditCommand::InsertChar { position, ch } => EditCommand::DeleteChar {
+                position: *position + ch.len_utf8(),
+                ch: *ch,
+            },
+            EditCommand::DeleteChar { position, ch } => EditCommand::InsertChar {
+                position: position.saturating_sub(ch.len_utf8()),
+                ch: *ch,
+            },
+            EditCommand::InsertText { position, text } => EditCommand::DeleteText {
+                position: *position + text.len(),
+                text: text.clone(),
+            },
+            EditCommand::DeleteText { position, text } => EditCommand::InsertText {
+                position: position.saturating_sub(text.len()),
+                text: text.clone(),
+            },
+        }
+    }
+}
+
+pub struct EditorWithUndo {
+    buffer: MultiLineBuffer,
+    undo_stack: Vec<EditCommand>,
+    redo_stack: Vec<EditCommand>,
+    max_undo: usize,
+}
+
+impl EditorWithUndo {
+    pub fn new() -> Self {
+        EditorWithUndo {
+            buffer: MultiLineBuffer::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            max_undo: 1000,
+        }
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        let position = self.buffer.cursor_position();
+        self.buffer.insert_char(ch);
+        self.add_to_undo(EditCommand::InsertChar { position, ch });
+    }
+
+    pub fn delete_char(&mut self) {
+        let position = self.buffer.cursor_position();
+        if let Some(ch) = self.buffer.delete_char() {
+            let command = EditCommand::DeleteChar {
+                position,
+                ch,
+            };
+            self.add_to_undo(command);
+        }
+    }
+
+    pub fn undo(&mut self) -> bool {
+        if let Some(command) = self.undo_stack.pop() {
+            let inverse = command.inverse();
+            self.execute_command(&inverse);
+            self.redo_stack.push(command);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn redo(&mut self) -> bool {
+        if let Some(command) = self.redo_stack.pop() {
+            self.execute_command(&command);
+            self.undo_stack.push(command);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn text(&self) -> String {
+        self.buffer.text()
+    }
+
+    fn add_to_undo(&mut self, command: EditCommand) {
+        self.undo_stack.push(command);
+        self.redo_stack.clear();
+        if self.undo_stack.len() > self.max_undo {
+            self.undo_stack.remove(0);
+        }
+    }
+
+    fn execute_command(&mut self, command: &EditCommand) {
+        match command {
+            EditCommand::InsertChar { position, ch } => {
+                self.buffer.buffer.cursor = *position;
+                self.buffer.insert_char(*ch);
+            }
+            EditCommand::DeleteChar { position, .. } => {
+                self.buffer.buffer.cursor = *position;
+                let _ = self.buffer.delete_char();
+            }
+            EditCommand::InsertText { position, text } => {
+                self.buffer.buffer.cursor = *position;
+                for ch in text.chars() {
+                    self.buffer.insert_char(ch);
+                }
+            }
+            EditCommand::DeleteText { position, text } => {
+                self.buffer.buffer.cursor = *position;
+                for _ in text.chars() {
+                    let _ = self.buffer.delete_char();
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 5: Performance Comparison with Alternatives
+// =============================================================================
+
+pub struct VecBuffer {
+    chars: Vec<char>,
+    cursor: usize,
+}
+
+impl VecBuffer {
+    pub fn new() -> Self {
+        VecBuffer {
+            chars: Vec::new(),
+            cursor: 0,
+        }
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        self.chars.insert(self.cursor, ch);
+        self.cursor += 1;
+    }
+
+    pub fn delete_char(&mut self) -> bool {
+        if self.cursor > 0 {
+            self.chars.remove(self.cursor - 1);
+            self.cursor -= 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub fn benchmark_editors() {
+    let operations = 5_000;
+
+    let start = Instant::now();
+    let mut gap_buffer = TextBuffer::new();
+    for i in 0..operations {
+        gap_buffer.insert_char('a');
+        if i % 2 == 0 {
+            gap_buffer.move_cursor_left();
+        }
+    }
+    let gap_time = start.elapsed();
+
+    let start = Instant::now();
+    let mut vec_buffer = VecBuffer::new();
+    for i in 0..operations {
+        vec_buffer.insert_char('a');
+        if i % 2 == 0 {
+            let _ = vec_buffer.delete_char();
+        }
+    }
+    let vec_time = start.elapsed();
+
+    let start = Instant::now();
+    let mut string_buffer = String::new();
+    for _ in 0..operations {
+        let mid = string_buffer.len() / 2;
+        string_buffer.insert(mid, 'a');
+    }
+    let string_time = start.elapsed();
+
+    println!(
+        "Gap buffer: {:?}, Vec<char>: {:?}, String insert: {:?}",
+        gap_time, vec_time, string_time
+    );
+}
+
+// =============================================================================
+// Milestone 6: Optimize Memory Layout for Cache
+// =============================================================================
+
+pub struct OptimizedGapBuffer {
+    buffer: Vec<u8>,
+    gap_start: usize,
+    gap_end: usize,
+    growth_strategy: GrowthStrategy,
+}
+
+#[derive(Clone, Copy)]
+pub enum GrowthStrategy {
+    Fixed(usize),
+    Proportional(f32),
+    Adaptive,
+}
+
+impl OptimizedGapBuffer {
+    pub fn new_with_strategy(capacity: usize, strategy: GrowthStrategy) -> Self {
+        let initial_capacity = capacity.max(1);
+        OptimizedGapBuffer {
+            buffer: vec![0; initial_capacity],
+            gap_start: 0,
+            gap_end: initial_capacity,
+            growth_strategy: strategy,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.buffer.len() - (self.gap_end - self.gap_start)
+    }
+
+    pub fn gap_size(&self) -> usize {
+        self.gap_end - self.gap_start
+    }
+
+    pub fn move_gap_optimized(&mut self, position: usize) {
+        let position = position.min(self.len());
+        if position < self.gap_start {
+            let distance = self.gap_start - position;
+            self.buffer
+                .copy_within(position..self.gap_start, self.gap_end - distance);
+            self.gap_start -= distance;
+            self.gap_end -= distance;
+        } else if position > self.gap_start {
+            let distance = position - self.gap_start;
+            self.buffer
+                .copy_within(self.gap_end..self.gap_end + distance, self.gap_start);
+            self.gap_start += distance;
+            self.gap_end += distance;
+        }
+    }
+
+    pub fn push_str(&mut self, text: &str) {
+        self.move_gap_optimized(self.len());
+        for byte in text.as_bytes() {
+            if self.gap_size() == 0 {
+                self.grow_gap();
+            }
+            self.buffer[self.gap_start] = *byte;
+            self.gap_start += 1;
+        }
+    }
+
+    fn grow_gap(&mut self) {
+        let old_capacity = self.buffer.len();
+        let additional = match self.growth_strategy {
+            GrowthStrategy::Fixed(size) => size.max(1),
+            GrowthStrategy::Proportional(ratio) => {
+                ((old_capacity as f32 * ratio).round() as usize).max(1)
+            }
+            GrowthStrategy::Adaptive => (old_capacity / 2).max(1),
+        };
+        let new_capacity = old_capacity + additional;
+        let mut new_buffer = vec![0; new_capacity];
+        let before = self.gap_start;
+        let after_len = old_capacity - self.gap_end;
+        new_buffer[..before].copy_from_slice(&self.buffer[..before]);
+        if after_len > 0 {
+            let new_gap_end = new_capacity - after_len;
+            new_buffer[new_gap_end..].copy_from_slice(&self.buffer[self.gap_end..]);
+            self.gap_end = new_gap_end;
+        } else {
+            self.gap_end = new_capacity;
+        }
+        self.buffer = new_buffer;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gap_buffer_insert_delete_sequence() {
+        let mut buffer = GapBuffer::new(8);
+        for byte in b"hello" {
+            buffer.insert(*byte);
+        }
+        assert_eq!(buffer.to_string(), "hello");
+        buffer.move_gap_to(2);
+        buffer.insert(b'X');
+        assert_eq!(buffer.to_string(), "heXllo");
+        buffer.move_gap_to(buffer.len());
+        assert!(buffer.delete().is_some());
+        assert_eq!(buffer.to_string(), "heXll");
+    }
+
+    #[test]
+    fn text_buffer_handles_utf8_deletion() {
+        let mut buffer = TextBuffer::new();
+        buffer.insert_char('你');
+        buffer.insert_char('好');
+        assert_eq!(buffer.cursor_position(), buffer.len());
+        assert!(buffer.delete_char());
+        assert_eq!(buffer.text(), "你");
+        buffer.move_cursor_start();
+        buffer.insert_char('😊');
+        assert_eq!(buffer.text(), "😊你");
+    }
+
+    #[test]
+    fn multiline_buffer_tracks_lines() {
+        let mut buffer = MultiLineBuffer::new();
+        for ch in "one\ntwo\nthree".chars() {
+            buffer.insert_char(ch);
+        }
+        assert_eq!(buffer.line_count(), 3);
+        let cursor = buffer.cursor_position();
+        let (line, col) = buffer.cursor_to_line_col(cursor);
+        assert_eq!((line, col), (2, 5));
+        buffer.goto_line(1);
+        assert_eq!(buffer.cursor_position(), 4);
+        let pos = buffer.line_col_to_cursor(2, 2).unwrap();
+        assert_eq!(pos, 10);
+    }
+
+    #[test]
+    fn editor_undo_redo_flow() {
+        let mut editor = EditorWithUndo::new();
+        editor.insert_char('a');
+        editor.insert_char('b');
+        editor.insert_char('c');
+        assert_eq!(editor.text(), "abc");
+        assert!(editor.undo());
+        assert_eq!(editor.text(), "ab");
+        assert!(editor.redo());
+        assert_eq!(editor.text(), "abc");
+        editor.delete_char();
+        assert_eq!(editor.text(), "ab");
+        assert!(editor.undo());
+        assert_eq!(editor.text(), "abc");
+    }
+
+    #[test]
+    fn vec_buffer_behaviour_matches_expectations() {
+        let mut buffer = VecBuffer::new();
+        buffer.insert_char('x');
+        buffer.insert_char('y');
+        assert!(buffer.delete_char());
+        assert_eq!(buffer.cursor, 1);
+    }
+
+    #[test]
+    fn optimized_gap_buffer_moves_gap() {
+        let mut buffer = OptimizedGapBuffer::new_with_strategy(32, GrowthStrategy::Fixed(8));
+        buffer.push_str("abcdef");
+        assert_eq!(buffer.len(), 6);
+        buffer.move_gap_optimized(3);
+        assert_eq!(buffer.gap_start, 3);
+    }
+}
+
+```

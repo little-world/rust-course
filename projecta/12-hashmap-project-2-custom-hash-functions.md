@@ -1127,13 +1127,426 @@ fn main() {
 }
 ```
 
-## Testing Strategies
+### Complete Working Code
 
-1. **Correctness Tests**: Verify hash == eq invariant
-2. **Performance Tests**: Benchmark each hasher
-3. **Dedup Tests**: Measure space savings
-4. **Stress Tests**: Large datasets (1M+ entries)
+```rust
+use rustc_hash::FxHashMap;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 
----
+// =============================================================================
+// Milestone 1: Case-Insensitive String Hashing
+// =============================================================================
 
-This project comprehensively demonstrates custom Hash implementations for semantic correctness, from case-insensitive strings through spatial indexing to content-addressable storage, with performance benchmarks validating each optimization.
+#[derive(Debug, Clone)]
+pub struct CaseInsensitiveString {
+    inner: String,
+}
+
+impl CaseInsensitiveString {
+    pub fn new<S: Into<String>>(s: S) -> Self {
+        Self { inner: s.into() }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.inner
+    }
+}
+
+impl From<&str> for CaseInsensitiveString {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<String> for CaseInsensitiveString {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl Hash for CaseInsensitiveString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for byte in self.inner.bytes() {
+            state.write_u8(byte.to_ascii_lowercase());
+        }
+    }
+}
+
+impl PartialEq for CaseInsensitiveString {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq_ignore_ascii_case(&other.inner)
+    }
+}
+
+impl Eq for CaseInsensitiveString {}
+
+// =============================================================================
+// Milestone 2: Quantized Float Coordinates
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuantizedPoint {
+    x: i32,
+    y: i32,
+}
+
+impl QuantizedPoint {
+    pub fn from_coords(lat: f64, lon: f64, precision: f64) -> Self {
+        let factor = 1.0 / precision;
+        let x = (lat * factor).round() as i32;
+        let y = (lon * factor).round() as i32;
+        Self { x, y }
+    }
+
+    pub fn neighbors(&self) -> Vec<QuantizedPoint> {
+        let mut cells = Vec::with_capacity(9);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                cells.push(QuantizedPoint {
+                    x: self.x + dx,
+                    y: self.y + dy,
+                });
+            }
+        }
+        cells
+    }
+}
+
+pub struct SpatialIndex<T> {
+    locations: HashMap<QuantizedPoint, Vec<T>>,
+    precision: f64,
+}
+
+impl<T> SpatialIndex<T> {
+    pub fn new(precision: f64) -> Self {
+        Self {
+            locations: HashMap::new(),
+            precision,
+        }
+    }
+
+    pub fn insert(&mut self, lat: f64, lon: f64, item: T) {
+        let point = QuantizedPoint::from_coords(lat, lon, self.precision);
+        self.locations.entry(point).or_insert_with(Vec::new).push(item);
+    }
+
+    pub fn query_exact(&self, lat: f64, lon: f64) -> Vec<&T> {
+        let point = QuantizedPoint::from_coords(lat, lon, self.precision);
+        self.locations
+            .get(&point)
+            .map(|items| items.iter().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn query_near(&self, lat: f64, lon: f64, tolerance: f64) -> Vec<&T> {
+        let base = QuantizedPoint::from_coords(lat, lon, self.precision);
+        let mut results = Vec::new();
+        let max_offset = (tolerance / self.precision).ceil() as i32;
+        for dx in -max_offset..=max_offset {
+            for dy in -max_offset..=max_offset {
+                let point = QuantizedPoint {
+                    x: base.x + dx,
+                    y: base.y + dy,
+                };
+                if let Some(items) = self.locations.get(&point) {
+                    results.extend(items.iter());
+                }
+            }
+        }
+        results
+    }
+}
+
+// =============================================================================
+// Milestone 3: Composite Keys with Selective Hashing
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub struct LocationKey {
+    pub category: String,
+    pub region: String,
+    pub _metadata: String,
+}
+
+impl Hash for LocationKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.category.hash(state);
+        self.region.hash(state);
+    }
+}
+
+impl PartialEq for LocationKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.category == other.category && self.region == other.region
+    }
+}
+
+impl Eq for LocationKey {}
+
+// =============================================================================
+// Milestone 4: Fast Integer Hasher (FxHash)
+// =============================================================================
+
+pub struct HasherBenchmark;
+
+impl HasherBenchmark {
+    pub fn compare_insertion(n: usize) -> (Duration, Duration) {
+        let start = Instant::now();
+        let mut std_map = HashMap::new();
+        for i in 0..n {
+            std_map.insert(i, i);
+        }
+        let std_duration = start.elapsed();
+
+        let start = Instant::now();
+        let mut fx_map = FxHashMap::default();
+        for i in 0..n {
+            fx_map.insert(i, i);
+        }
+        let fx_duration = start.elapsed();
+
+        (std_duration, fx_duration)
+    }
+
+    pub fn compare_lookup(n: usize, queries: usize) -> (Duration, Duration) {
+        let mut std_map = HashMap::new();
+        let mut fx_map = FxHashMap::default();
+        for i in 0..n {
+            std_map.insert(i, i * 2);
+            fx_map.insert(i, i * 2);
+        }
+
+        let start = Instant::now();
+        let mut sum = 0usize;
+        for i in 0..queries {
+            if let Some(v) = std_map.get(&(i % n)) {
+                sum += *v;
+            }
+        }
+        let std_duration = start.elapsed();
+
+        let start = Instant::now();
+        let mut sum_fx = 0usize;
+        for i in 0..queries {
+            if let Some(v) = fx_map.get(&(i % n)) {
+                sum_fx += *v;
+            }
+        }
+        let fx_duration = start.elapsed();
+        assert_eq!(sum, sum_fx);
+
+        (std_duration, fx_duration)
+    }
+}
+
+// =============================================================================
+// Milestone 5: Content-Addressable Storage
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ContentHash {
+    hash: [u8; 32],
+}
+
+impl ContentHash {
+    pub fn from_data(data: &[u8]) -> Self {
+        let digest = Sha256::digest(data);
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&digest);
+        Self { hash }
+    }
+}
+
+pub struct ContentStore {
+    storage: HashMap<ContentHash, Vec<u8>>,
+    total_stored_bytes: usize,
+    unique_bytes: usize,
+}
+
+impl ContentStore {
+    pub fn new() -> Self {
+        Self {
+            storage: HashMap::new(),
+            total_stored_bytes: 0,
+            unique_bytes: 0,
+        }
+    }
+
+    pub fn store(&mut self, data: &[u8]) -> ContentHash {
+        let hash = ContentHash::from_data(data);
+        self.total_stored_bytes += data.len();
+        self.storage
+            .entry(hash)
+            .or_insert_with(|| {
+                self.unique_bytes += data.len();
+                data.to_vec()
+            });
+        hash
+    }
+
+    pub fn retrieve(&self, hash: &ContentHash) -> Option<&[u8]> {
+        self.storage.get(hash).map(|data| data.as_slice())
+    }
+
+    pub fn unique_contents(&self) -> usize {
+        self.storage.len()
+    }
+
+    pub fn dedup_ratio(&self) -> f64 {
+        if self.unique_bytes == 0 {
+            0.0
+        } else {
+            self.total_stored_bytes as f64 / self.unique_bytes as f64
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 6: Benchmark Dashboard
+// =============================================================================
+
+pub struct HashBenchmarks;
+
+impl HashBenchmarks {
+    pub fn run_all() {
+        Self::bench_case_insensitive();
+        Self::bench_spatial_index();
+        Self::bench_hashers();
+        Self::bench_content_dedup();
+    }
+
+    fn bench_case_insensitive() {
+        println!("=== Case-Insensitive Benchmark ===");
+        let mut map_sensitive = HashMap::new();
+        let mut map_insensitive = HashMap::new();
+        for i in 0..10_000 {
+            let key = format!("Header{}", i);
+            map_sensitive.insert(key.clone(), i);
+            map_insensitive.insert(CaseInsensitiveString::from(key), i);
+        }
+        let lookup_key = "header500";
+        let start = Instant::now();
+        let _ = map_sensitive.get(lookup_key);
+        let sensitive = start.elapsed();
+        let start = Instant::now();
+        let _ = map_insensitive.get(&CaseInsensitiveString::from(lookup_key));
+        let insensitive = start.elapsed();
+        println!("Sensitive: {:?}, Case-insensitive: {:?}", sensitive, insensitive);
+    }
+
+    fn bench_spatial_index() {
+        println!("=== Spatial Index Benchmark ===");
+        let mut index = SpatialIndex::new(0.0001);
+        for i in 0..10_000 {
+            index.insert(37.0 + (i as f64 * 0.00001), -122.0, i);
+        }
+        let start = Instant::now();
+        let results = index.query_near(37.5, -122.0, 0.0002);
+        let duration = start.elapsed();
+        println!("Found {} results in {:?}", results.len(), duration);
+    }
+
+    fn bench_hashers() {
+        println!("=== Hasher Comparison ===");
+        let (std_duration, fx_duration) = HasherBenchmark::compare_insertion(200_000);
+        println!("Insertion - Std: {:?}, Fx: {:?}", std_duration, fx_duration);
+        let (std_lookup, fx_lookup) = HasherBenchmark::compare_lookup(200_000, 400_000);
+        println!("Lookup - Std: {:?}, Fx: {:?}", std_lookup, fx_lookup);
+    }
+
+    fn bench_content_dedup() {
+        println!("=== Content Deduplication ===");
+        let mut store = ContentStore::new();
+        let data = vec![1u8; 1024];
+        for _ in 0..100 {
+            store.store(&data);
+        }
+        println!("Dedup ratio: {:.2}", store.dedup_ratio());
+    }
+}
+
+fn main() {
+    HashBenchmarks::run_all();
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn case_insensitive_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        let s1 = CaseInsensitiveString::from("Content-Type");
+        let s2 = CaseInsensitiveString::from("content-type");
+        assert_eq!(s1, s2);
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        s1.hash(&mut h1);
+        s2.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+    }
+
+    #[test]
+    fn quantized_points_same_cell() {
+        let p1 = QuantizedPoint::from_coords(37.7749, -122.4194, 0.0001);
+        let p2 = QuantizedPoint::from_coords(37.77491, -122.41941, 0.0001);
+        assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn spatial_index_queries() {
+        let mut index = SpatialIndex::new(0.0001);
+        index.insert(37.7749, -122.4194, "A");
+        index.insert(37.7750, -122.4194, "B");
+        assert_eq!(index.query_exact(37.7749, -122.4194).len(), 1);
+        assert!(index.query_near(37.77495, -122.4194, 0.0002).len() >= 1);
+    }
+
+    #[test]
+    fn composite_key_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        let k1 = LocationKey {
+            category: "restaurant".into(),
+            region: "downtown".into(),
+            _metadata: "A".into(),
+        };
+        let k2 = LocationKey {
+            category: "restaurant".into(),
+            region: "downtown".into(),
+            _metadata: "B".into(),
+        };
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        k1.hash(&mut h1);
+        k2.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn content_store_dedup() {
+        let mut store = ContentStore::new();
+        let hash1 = store.store(b"hello");
+        let hash2 = store.store(b"hello");
+        assert_eq!(hash1, hash2);
+        assert_eq!(store.unique_contents(), 1);
+        assert!(store.dedup_ratio() >= 2.0);
+        assert_eq!(store.retrieve(&hash1).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn hasher_benchmarks_compare() {
+        let (std_insert, fx_insert) = HasherBenchmark::compare_insertion(10_000);
+        let (std_lookup, fx_lookup) = HasherBenchmark::compare_lookup(10_000, 20_000);
+        assert!(fx_insert <= std_insert * 2);
+        assert!(fx_lookup <= std_lookup * 2);
+    }
+}
+```

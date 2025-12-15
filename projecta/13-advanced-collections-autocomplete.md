@@ -1030,18 +1030,631 @@ fn main() {
     println!("Search 'approve': {}", trie.search("approve"));
 }
 ```
+### Complete Working Example
 
-### Testing Strategies
+```rust
+use std::collections::HashMap;
+use std::mem::size_of;
+use std::time::{Duration, Instant};
 
-1. **Unit Tests**: Test insert, search, prefix matching independently
-2. **Ranking Tests**: Verify top-K returns correct frequency order
-3. **Fuzzy Search Tests**: Test edit distance calculation and similarity search
-4. **Deletion Tests**: Verify word removal and tree pruning
-5. **Performance Tests**: Benchmark against HashMap at different scales
-6. **Memory Tests**: Compare memory footprint for different word distributions
+const ALPHABET_SIZE: usize = 26;
 
----
+// =============================================================================
+// Milestone 1: Basic Trie with Insert and Search
+// =============================================================================
 
-This project comprehensively demonstrates Trie data structures for autocomplete, from basic insert/search through prefix collection, ranking, fuzzy matching, and deletion, with complete benchmarks validating performance advantages over HashMap.
+#[derive(Debug)]
+struct TrieNode {
+    children: [Option<Box<TrieNode>>; ALPHABET_SIZE],
+    is_end: bool,
+    frequency: usize,
+}
 
----
+impl TrieNode {
+    fn new() -> Self {
+        TrieNode {
+            children: Default::default(),
+            is_end: false,
+            frequency: 0,
+        }
+    }
+}
+
+pub struct Trie {
+    root: TrieNode,
+    size: usize,
+}
+
+impl Trie {
+    pub fn new() -> Self {
+        Trie {
+            root: TrieNode::new(),
+            size: 0,
+        }
+    }
+
+    pub fn insert(&mut self, word: &str, frequency: usize) {
+        let mut node = &mut self.root;
+        let mut inserted = false;
+        for ch in word
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+        {
+            let index = Self::char_to_index(ch);
+            node = node.children[index]
+                .get_or_insert_with(|| Box::new(TrieNode::new()));
+            inserted = true;
+        }
+        if inserted {
+            if !node.is_end {
+                self.size += 1;
+            }
+            node.is_end = true;
+            node.frequency = frequency;
+        }
+    }
+
+    pub fn search(&self, word: &str) -> bool {
+        let mut node = &self.root;
+        let mut iterated = false;
+        for ch in word
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+        {
+            let index = Self::char_to_index(ch);
+            match &node.children[index] {
+                Some(child) => node = child,
+                None => return false,
+            }
+            iterated = true;
+        }
+        iterated && node.is_end
+    }
+
+    pub fn starts_with(&self, prefix: &str) -> bool {
+        let mut node = &self.root;
+        let mut iterated = false;
+        for ch in prefix
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+        {
+            let index = Self::char_to_index(ch);
+            match &node.children[index] {
+                Some(child) => node = child,
+                None => return false,
+            }
+            iterated = true;
+        }
+        iterated || prefix.is_empty()
+    }
+
+    fn char_to_index(c: char) -> usize {
+        (c as usize) - ('a' as usize)
+    }
+
+    fn index_to_char(i: usize) -> char {
+        (b'a' + i as u8) as char
+    }
+}
+
+// =============================================================================
+// Milestone 2: Collect All Words with Prefix
+// =============================================================================
+
+impl Trie {
+    pub fn find_words_with_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut results = Vec::new();
+        let sanitized: String = prefix
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+            .collect();
+        if sanitized.is_empty() && !prefix.is_empty() {
+            return results;
+        }
+        let mut node = &self.root;
+        for ch in sanitized.chars() {
+            let index = Self::char_to_index(ch);
+            match &node.children[index] {
+                Some(child) => node = child,
+                None => return results,
+            }
+        }
+        self.collect_words(node, sanitized, &mut results);
+        results
+    }
+
+    fn collect_words(&self, node: &TrieNode, current: String, results: &mut Vec<String>) {
+        if node.is_end {
+            results.push(current.clone());
+        }
+        for (i, child) in node.children.iter().enumerate() {
+            if let Some(child_node) = child {
+                let mut next = current.clone();
+                next.push(Self::index_to_char(i));
+                self.collect_words(child_node, next, results);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 3: Ranked Suggestions by Frequency
+// =============================================================================
+
+impl Trie {
+    pub fn find_top_k(&self, prefix: &str, k: usize) -> Vec<(String, usize)> {
+        let mut results = Vec::new();
+        let sanitized: String = prefix
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+            .collect();
+        if sanitized.is_empty() && !prefix.is_empty() {
+            return results;
+        }
+        let mut node = &self.root;
+        for ch in sanitized.chars() {
+            let index = Self::char_to_index(ch);
+            match &node.children[index] {
+                Some(child) => node = child,
+                None => return results,
+            }
+        }
+        self.collect_words_with_freq(node, sanitized, &mut results);
+        results.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        results.truncate(k);
+        results
+    }
+
+    fn collect_words_with_freq(
+        &self,
+        node: &TrieNode,
+        current: String,
+        results: &mut Vec<(String, usize)>,
+    ) {
+        if node.is_end {
+            results.push((current.clone(), node.frequency));
+        }
+        for (i, child) in node.children.iter().enumerate() {
+            if let Some(child_node) = child {
+                let mut next = current.clone();
+                next.push(Self::index_to_char(i));
+                self.collect_words_with_freq(child_node, next, results);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 4: Spell Checking with Edit Distance
+// =============================================================================
+
+impl Trie {
+    pub fn find_similar(&self, word: &str, max_distance: usize) -> Vec<(String, usize)> {
+        let mut results = Vec::new();
+        let normalized: String = word
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+            .collect();
+        let target = if word.is_empty() {
+            word
+        } else {
+            &normalized
+        };
+        let initial_distance = Self::edit_distance("", target);
+        self.find_similar_dfs(
+            &self.root,
+            target,
+            String::new(),
+            initial_distance,
+            max_distance,
+            &mut results,
+        );
+        results.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        results
+    }
+
+    pub fn edit_distance(a: &str, b: &str) -> usize {
+        let a_chars: Vec<char> = a.chars().collect();
+        let b_chars: Vec<char> = b.chars().collect();
+        let m = a_chars.len();
+        let n = b_chars.len();
+        let mut dp = vec![vec![0; n + 1]; m + 1];
+        for i in 0..=m {
+            dp[i][0] = i;
+        }
+        for j in 0..=n {
+            dp[0][j] = j;
+        }
+        for i in 1..=m {
+            for j in 1..=n {
+                if a_chars[i - 1] == b_chars[j - 1] {
+                    dp[i][j] = dp[i - 1][j - 1];
+                } else {
+                    dp[i][j] = 1 + dp[i - 1][j - 1]
+                        .min(dp[i - 1][j])
+                        .min(dp[i][j - 1]);
+                }
+            }
+        }
+        dp[m][n]
+    }
+
+    fn find_similar_dfs(
+        &self,
+        node: &TrieNode,
+        target: &str,
+        current: String,
+        current_distance: usize,
+        max_distance: usize,
+        results: &mut Vec<(String, usize)>,
+    ) {
+        if current_distance > max_distance && current.len() >= target.len() {
+            return;
+        }
+        if node.is_end && current_distance <= max_distance {
+            results.push((current.clone(), current_distance));
+        }
+        for (i, child) in node.children.iter().enumerate() {
+            if let Some(child_node) = child {
+                let mut next = current.clone();
+                next.push(Self::index_to_char(i));
+                let next_distance = Self::edit_distance(&next, target);
+                self.find_similar_dfs(
+                    child_node,
+                    target,
+                    next,
+                    next_distance,
+                    max_distance,
+                    results,
+                );
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 5: Word Deletion and Updates
+// =============================================================================
+
+impl Trie {
+    pub fn delete(&mut self, word: &str) -> bool {
+        let sanitized: String = word
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+            .collect();
+        if sanitized.is_empty() || !self.search(&sanitized) {
+            return false;
+        }
+        let chars: Vec<char> = sanitized.chars().collect();
+        Self::delete_recursive(&mut self.root, &sanitized, &chars, 0);
+        self.size = self.size.saturating_sub(1);
+        true
+    }
+
+    pub fn update_frequency(&mut self, word: &str, new_frequency: usize) -> bool {
+        let sanitized: Vec<char> = word
+            .chars()
+            .map(|c| c.to_ascii_lowercase())
+            .filter(|c| c.is_ascii_lowercase())
+            .collect();
+        if sanitized.is_empty() {
+            return false;
+        }
+        let mut node = &mut self.root;
+        for ch in sanitized {
+            let index = Self::char_to_index(ch);
+            match node.children[index].as_mut() {
+                Some(child) => node = child,
+                None => return false,
+            }
+        }
+        if node.is_end {
+            node.frequency = new_frequency;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn delete_recursive(
+        node: &mut TrieNode,
+        _word: &str,
+        chars: &[char],
+        index: usize,
+    ) -> bool {
+        if index == chars.len() {
+            node.is_end = false;
+            return node.children.iter().all(|child| child.is_none());
+        }
+        let char_index = Self::char_to_index(chars[index]);
+        if let Some(child) = node.children[char_index].as_mut() {
+            let should_prune = Self::delete_recursive(child, _word, chars, index + 1);
+            if should_prune {
+                node.children[char_index] = None;
+            }
+        } else {
+            return false;
+        }
+        !node.is_end && node.children.iter().all(|child| child.is_none())
+    }
+}
+
+// =============================================================================
+// Milestone 6: Performance Comparison vs HashMap
+// =============================================================================
+
+pub struct AutocompleteBenchmark;
+
+impl AutocompleteBenchmark {
+    pub fn benchmark_trie(words: &[(&str, usize)], prefix: &str) -> Duration {
+        let mut trie = Trie::new();
+        let start = Instant::now();
+        for (word, freq) in words {
+            trie.insert(word, *freq);
+        }
+        let insert_time = start.elapsed();
+        let start = Instant::now();
+        let results = trie.find_words_with_prefix(prefix);
+        let search_time = start.elapsed();
+        println!(
+            "Trie - Insert: {:?}, Search: {:?}, Results: {}",
+            insert_time,
+            search_time,
+            results.len()
+        );
+        search_time
+    }
+
+    pub fn benchmark_hashmap(words: &[(&str, usize)], prefix: &str) -> Duration {
+        let mut map: HashMap<String, usize> = HashMap::new();
+        let start = Instant::now();
+        for (word, freq) in words {
+            map.insert((*word).to_string(), *freq);
+        }
+        let insert_time = start.elapsed();
+        let start = Instant::now();
+        let results: Vec<_> = map.keys().filter(|entry| entry.starts_with(prefix)).collect();
+        let search_time = start.elapsed();
+        println!(
+            "HashMap - Insert: {:?}, Search: {:?}, Results: {}",
+            insert_time,
+            search_time,
+            results.len()
+        );
+        search_time
+    }
+
+    pub fn run_comparison() {
+        println!("=== Autocomplete Performance Comparison ===");
+        let sizes = [100, 1_000, 10_000];
+        for size in sizes {
+            println!("Dictionary size: {}", size);
+            let words: Vec<_> = (0..size).map(|i| (format!("word{}", i), i)).collect();
+            let references: Vec<_> = words.iter().map(|(w, f)| (w.as_str(), *f)).collect();
+            let trie_time = Self::benchmark_trie(&references, "word");
+            let map_time = Self::benchmark_hashmap(&references, "word");
+            if trie_time.as_nanos() > 0 {
+                println!(
+                    "Speedup: {:.2}x",
+                    map_time.as_secs_f64() / trie_time.as_secs_f64()
+                );
+            }
+        }
+    }
+
+    pub fn benchmark_memory() {
+        let sample_size = 1_000;
+        let words: Vec<_> = (0..sample_size)
+            .map(|i| (format!("word{}", i), i))
+            .collect();
+        let mut trie = Trie::new();
+        for (word, freq) in &words {
+            trie.insert(word, *freq);
+        }
+
+        let mut stack = vec![&trie.root];
+        let mut node_count = 0usize;
+        while let Some(node) = stack.pop() {
+            node_count += 1;
+            for child in node.children.iter().flatten() {
+                stack.push(child);
+            }
+        }
+
+        let trie_memory = node_count * size_of::<TrieNode>();
+        let hashmap_memory = words.len() * (size_of::<String>() + size_of::<usize>());
+
+        println!(
+            "Estimated Trie memory: {} bytes across {} nodes",
+            trie_memory, node_count
+        );
+        println!(
+            "Estimated HashMap memory: {} bytes across {} entries",
+            hashmap_memory,
+            words.len()
+        );
+    }
+}
+
+fn main() {
+    AutocompleteBenchmark::run_comparison();
+    AutocompleteBenchmark::benchmark_memory();
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_insert_and_search() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("app", 50);
+        assert!(trie.search("apple"));
+        assert!(trie.search("app"));
+        assert!(!trie.search("application"));
+    }
+
+    #[test]
+    fn test_prefix_checking() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("apply", 90);
+        assert!(trie.starts_with("app"));
+        assert!(trie.starts_with("appl"));
+        assert!(!trie.starts_with("ban"));
+    }
+
+    #[test]
+    fn test_overlapping_words() {
+        let mut trie = Trie::new();
+        trie.insert("car", 100);
+        trie.insert("card", 80);
+        trie.insert("cards", 60);
+        assert!(trie.search("car"));
+        assert!(trie.search("card"));
+        assert!(trie.search("cards"));
+    }
+
+    #[test]
+    fn test_prefix_collection() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("application", 90);
+        trie.insert("apply", 80);
+        trie.insert("banana", 70);
+        let results = trie.find_words_with_prefix("app");
+        assert_eq!(results.len(), 3);
+        assert!(results.contains(&"apple".to_string()));
+        assert!(results.contains(&"application".to_string()));
+        assert!(results.contains(&"apply".to_string()));
+    }
+
+    #[test]
+    fn test_no_matches() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        assert!(trie.find_words_with_prefix("ban").is_empty());
+    }
+
+    #[test]
+    fn test_ranked_suggestions() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 1000);
+        trie.insert("application", 500);
+        trie.insert("apply", 300);
+        trie.insert("app", 100);
+        let top3 = trie.find_top_k("app", 3);
+        assert_eq!(top3.len(), 3);
+        assert_eq!(top3[0].0, "apple");
+        assert_eq!(top3[0].1, 1000);
+        assert_eq!(top3[1].0, "application");
+        assert_eq!(top3[2].0, "apply");
+    }
+
+    #[test]
+    fn test_k_larger_than_results() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("app", 50);
+        let top10 = trie.find_top_k("app", 10);
+        assert_eq!(top10.len(), 2);
+    }
+
+    #[test]
+    fn test_edit_distance_calculation() {
+        assert_eq!(Trie::edit_distance("cat", "cat"), 0);
+        assert_eq!(Trie::edit_distance("cat", "hat"), 1);
+        assert_eq!(Trie::edit_distance("cat", "cats"), 1);
+        assert_eq!(Trie::edit_distance("cat", "at"), 1);
+        assert_eq!(Trie::edit_distance("kitten", "sitting"), 3);
+    }
+
+    #[test]
+    fn test_fuzzy_search() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("apply", 90);
+        trie.insert("ample", 80);
+        trie.insert("maple", 70);
+        let results = trie.find_similar("appl", 1);
+        let words: Vec<_> = results.into_iter().map(|(w, _)| w).collect();
+        assert!(words.contains(&"apple".to_string()));
+        assert!(words.contains(&"apply".to_string()));
+    }
+
+    #[test]
+    fn test_distance_threshold() {
+        let mut trie = Trie::new();
+        trie.insert("hello", 100);
+        trie.insert("help", 90);
+        let close = trie.find_similar("hello", 1);
+        assert!(!close.iter().any(|(w, _)| w == "help"));
+        let farther = trie.find_similar("hello", 2);
+        assert!(farther.iter().any(|(w, _)| w == "help"));
+    }
+
+    #[test]
+    fn test_word_deletion() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        trie.insert("app", 50);
+        assert!(trie.delete("apple"));
+        assert!(!trie.search("apple"));
+        assert!(trie.search("app"));
+    }
+
+    #[test]
+    fn test_delete_nonexistent() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        assert!(!trie.delete("banana"));
+        assert!(trie.search("apple"));
+    }
+
+    #[test]
+    fn test_frequency_update() {
+        let mut trie = Trie::new();
+        trie.insert("apple", 100);
+        assert!(trie.update_frequency("apple", 500));
+        let results = trie.find_top_k("app", 5);
+        assert_eq!(results[0], ("apple".to_string(), 500));
+    }
+
+    #[test]
+    fn test_pruning_after_deletion() {
+        let mut trie = Trie::new();
+        trie.insert("test", 100);
+        assert!(trie.delete("test"));
+        assert!(!trie.search("test"));
+        assert!(!trie.starts_with("test"));
+    }
+
+    #[test]
+    fn test_trie_scales_with_prefix_length() {
+        let mut trie = Trie::new();
+        for i in 0..10_000 {
+            trie.insert(&format!("word{}", i), i as usize);
+        }
+        let start = Instant::now();
+        let _short = trie.find_words_with_prefix("wo");
+        let short_time = start.elapsed();
+        let start = Instant::now();
+        let _long = trie.find_words_with_prefix("word123");
+        let long_time = start.elapsed();
+        assert!(long_time < short_time * 10);
+    }
+}
+
+```

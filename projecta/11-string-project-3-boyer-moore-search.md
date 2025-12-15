@@ -728,11 +728,306 @@ pub fn benchmark_search_algorithms() {
 
 ---
 
-## Testing Strategies
+### Complete Working Example
 
-1. **Correctness Tests**: Compare results with naive search
-2. **Edge Cases**: Empty pattern, pattern longer than text, no matches
-3. **Performance Tests**: Benchmark with various inputs
-4. **Property Tests**: Verify all matches are found
-5. **Streaming Tests**: Test chunk boundary handling
-6. **Real-World Tests**: Test with code, prose, structured data
+```rust
+use std::cmp::max;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::time::Instant;
+
+// =============================================================================
+// Milestone 1: Naive String Search (Baseline)
+// =============================================================================
+
+pub fn naive_search(text: &str, pattern: &str) -> Vec<usize> {
+    let text_bytes = text.as_bytes();
+    let pattern_bytes = pattern.as_bytes();
+    let mut matches = Vec::new();
+
+    if pattern.is_empty() || pattern.len() > text.len() {
+        return matches;
+    }
+
+    for i in 0..=(text.len() - pattern.len()) {
+        let mut match_found = true;
+
+        for j in 0..pattern.len() {
+            if text_bytes[i + j] != pattern_bytes[j] {
+                match_found = false;
+                break;
+            }
+        }
+
+        if match_found {
+            matches.push(i);
+        }
+    }
+
+    matches
+}
+
+// =============================================================================
+// Milestone 2 & 3: Boyer-Moore with Bad Character and Good Suffix Heuristics
+// =============================================================================
+
+pub struct BoyerMoore {
+    pattern: Vec<u8>,
+    bad_char_table: HashMap<u8, usize>,
+    good_suffix_table: Vec<usize>,
+}
+
+impl BoyerMoore {
+    pub fn new(pattern: &str) -> Self {
+        BoyerMoore::new_with_good_suffix(pattern)
+    }
+
+    fn build_bad_char_table(pattern: &[u8]) -> HashMap<u8, usize> {
+        let mut table = HashMap::new();
+        for (i, &ch) in pattern.iter().enumerate() {
+            table.insert(ch, i);
+        }
+        table
+    }
+
+    pub fn search(&self, text: &str) -> Vec<usize> {
+        let text_bytes = text.as_bytes();
+        let mut matches = Vec::new();
+        let m = self.pattern.len();
+        let n = text_bytes.len();
+
+        if m == 0 || m > n {
+            return matches;
+        }
+
+        let mut i = 0;
+        while i <= n - m {
+            let mut j = m as isize - 1;
+
+            while j >= 0 && self.pattern[j as usize] == text_bytes[i + j as usize] {
+                j -= 1;
+            }
+
+            if j < 0 {
+                matches.push(i);
+                let shift = self.good_suffix_table.get(0).copied().unwrap_or(m).max(1);
+                i += shift;
+            } else {
+                let bad_char = text_bytes[i + j as usize];
+                let bad_char_shift = if let Some(&last_occurrence) =
+                    self.bad_char_table.get(&bad_char)
+                {
+                    let distance = j as isize - last_occurrence as isize;
+                    if distance > 0 {
+                        distance as usize
+                    } else {
+                        1
+                    }
+                } else {
+                    j as usize + 1
+                };
+                let good_suffix_shift =
+                    self.good_suffix_table.get(j as usize + 1).copied().unwrap_or(m);
+                i += max(bad_char_shift, good_suffix_shift.max(1));
+            }
+        }
+
+        matches
+    }
+
+    pub fn new_with_good_suffix(pattern: &str) -> Self {
+        let pattern_bytes = pattern.as_bytes().to_vec();
+        let bad_char_table = Self::build_bad_char_table(&pattern_bytes);
+        let good_suffix_table = Self::build_good_suffix_table(&pattern_bytes);
+
+        BoyerMoore {
+            pattern: pattern_bytes,
+            bad_char_table,
+            good_suffix_table,
+        }
+    }
+
+    fn build_good_suffix_table(pattern: &[u8]) -> Vec<usize> {
+        let m = pattern.len();
+        if m == 0 {
+            return vec![1];
+        }
+
+        let mut shift = vec![0; m + 1];
+        let mut border_pos = vec![0; m + 1];
+        let mut i = m;
+        let mut j = m + 1;
+        border_pos[i] = j;
+
+        while i > 0 {
+            while j <= m && pattern[i - 1] != pattern[j - 1] {
+                if shift[j] == 0 {
+                    shift[j] = j - i;
+                }
+                j = border_pos[j];
+            }
+            i -= 1;
+            j -= 1;
+            border_pos[i] = j;
+        }
+
+        j = border_pos[0];
+        for idx in 0..=m {
+            if shift[idx] == 0 {
+                shift[idx] = j;
+            }
+            if idx == j {
+                j = border_pos[j];
+            }
+        }
+
+        shift
+    }
+
+    pub fn new_case_insensitive(pattern: &str) -> Self {
+        let normalized = pattern.to_lowercase();
+        Self::new(&normalized)
+    }
+
+    pub fn search_case_insensitive(&self, text: &str) -> Vec<usize> {
+        let normalized_text = text.to_lowercase();
+        self.search(&normalized_text)
+    }
+}
+
+// =============================================================================
+// Milestone 5: Streaming Search Across Large Files
+// =============================================================================
+
+pub fn search_file_streaming(
+    path: &str,
+    pattern: &str,
+    chunk_size: usize,
+) -> std::io::Result<Vec<usize>> {
+    if pattern.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+
+    let searcher = BoyerMoore::new(pattern);
+    let mut matches = Vec::new();
+    let mut buffer = vec![0u8; chunk_size + pattern.len()];
+    let mut overlap = 0;
+    let mut processed = 0usize;
+
+    loop {
+        let bytes_read = reader.read(&mut buffer[overlap..])?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        let search_len = overlap + bytes_read;
+        let chunk_start = processed.saturating_sub(overlap);
+        let text = std::str::from_utf8(&buffer[..search_len]).unwrap_or("");
+
+        for match_pos in searcher.search(text) {
+            matches.push(chunk_start + match_pos);
+        }
+
+        processed += bytes_read;
+
+        if search_len >= pattern.len() {
+            overlap = pattern.len().saturating_sub(1);
+            if overlap > 0 {
+                buffer.copy_within(search_len - overlap..search_len, 0);
+            }
+        } else {
+            overlap = search_len;
+            buffer.copy_within(0..overlap, 0);
+        }
+    }
+
+    Ok(matches)
+}
+
+// =============================================================================
+// Milestone 6: Benchmarking
+// =============================================================================
+
+pub fn benchmark_search_algorithms() {
+    let text = "lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(10_000);
+    let pattern = "ipsum";
+
+    let start = Instant::now();
+    let _matches = naive_search(&text, pattern);
+    let naive_time = start.elapsed();
+
+    let searcher = BoyerMoore::new(pattern);
+    let start = Instant::now();
+    let _matches = searcher.search(&text);
+    let bm_time = start.elapsed();
+
+    let start = Instant::now();
+    let _matches: Vec<usize> = text.match_indices(pattern).map(|(i, _)| i).collect();
+    let builtin_time = start.elapsed();
+
+    println!(
+        "Naive: {:?}, Boyer-Moore: {:?}, Built-in: {:?}, Speedup: {:.2}x",
+        naive_time,
+        bm_time,
+        builtin_time,
+        naive_time.as_secs_f64() / bm_time.as_secs_f64()
+    );
+}
+
+fn main() {}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn naive_search_finds_matches() {
+        let text = "abracadabra";
+        let pattern = "abra";
+        let matches = naive_search(text, pattern);
+        assert_eq!(matches, vec![0, 7]);
+    }
+
+    #[test]
+    fn boyer_moore_search_matches_naive() {
+        let text = "the quick brown fox jumps over the lazy dog";
+        let pattern = "the";
+        let bm = BoyerMoore::new(pattern);
+        assert_eq!(bm.search(text), naive_search(text, pattern));
+    }
+
+    #[test]
+    fn good_suffix_provides_matches() {
+        let text = "abcxabcdabxabcdabcdabcy";
+        let pattern = "abcdabcy";
+        let bm = BoyerMoore::new_with_good_suffix(pattern);
+        assert_eq!(bm.search(text), vec![15]);
+    }
+
+    #[test]
+    fn case_insensitive_search() {
+        let text = "Hello HELLO hello";
+        let pattern = "hello";
+        let bm = BoyerMoore::new_case_insensitive(pattern);
+        assert_eq!(bm.search_case_insensitive(text), vec![0, 6, 12]);
+    }
+
+    #[test]
+    fn streaming_search_crosses_boundaries() {
+        let mut file = NamedTempFile::new().unwrap();
+        let content = "abc".repeat(10_000);
+        std::io::Write::write_all(&mut file, content.as_bytes()).unwrap();
+        let matches = search_file_streaming(file.path().to_str().unwrap(), "abcabc", 1024).unwrap();
+        assert!(matches.contains(&0));
+    }
+}
+```

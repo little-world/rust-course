@@ -1,0 +1,279 @@
+error: mismatched closing delimiter: `}`
+   --> src/bin/bpe_tokenizer_ultra.rs:255:49
+    |
+255 | ...   println!("  Merge {}: vocab size = {} / {}, best pair freq = {}",
+    |               ^ unclosed delimiter
+...
+262 | ...   }
+    |       ^ mismatched closing delimiter
+error: this file contains an unclosed delimiter
+   --> src/bin/bpe_tokenizer_ultra.rs:591:66
+    |
+ 27 | ...er {
+    |       - unclosed delimiter
+...
+ 78 | ...ut self, texts: &[String], vocab_size: usize) -> Result<(), Box<dyn std::error::Error>> {
+    |                                                                                            - unclosed delimiter
+...
+113 | ...t in texts {
+    |               - unclosed delimiter
+...
+141 | ...le self.vocab.len() < vocab_size {
+    |                                     - unclosed delimiter
+...
+148 | ... for token_ids in &tokenized_texts {
+    |                                       - unclosed delimiter
+...
+167 | ...     if let Some((&best_pair, &count)) = pair_counts.iter().max_by_key(|&(_, count)| count) {
+    |                                                                                                - another 10 unclosed delimiters begin from here
+...
+254 | ...                     if merge_iteration % 50 == 0 {
+    |                                                      - this delimiter might not be properly closed...
+...
+262 | ...                         }
+    |                             - ...as it matches this but it has different indentation
+...
+591 | ...                                                 }
+    |                                                      ^
+error: could not compile `markdown` (bin "bpe_tokenizer_ultra") due to 2 previous errors
+warning: unused import: `env`
+ --> src/bin/toc_maker.rs:1:11
+  |
+1 | use std::{env, fs};
+  |           ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+warning: unused import: `std::str::FromStr`
+ --> src/bin/complete_07_json_validator.rs:3:5
+  |
+3 | use std::str::FromStr;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+warning: unused import: `Arc`
+   --> src/bin/complete_01_lru.rs:404:21
+    |
+404 |     use std::sync::{Arc, Mutex};
+    |                     ^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+warning: unused import: `std::env`
+ --> src/bin/main.rs:1:5
+  |
+1 | use std::env;
+  |     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+warning: struct `StatsTracker` is never constructed
+ --> src/bin/complete_01_lru.rs:5:12
+  |
+5 |     struct StatsTracker {
+  |            ^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+warning: associated items `new`, `record_hit`, `record_miss`, and `get_stats` are never used
+  --> src/bin/complete_01_lru.rs:11:12
+   |
+10 |     impl StatsTracker {
+   |     ----------------- associated items in this implementation
+11 |         fn new() -> Self {
+   |            ^^^
+...
+18 |         fn record_hit(&self) {
+   |            ^^^^^^^^^^
+...
+22 |         fn record_miss(&self) {
+   |            ^^^^^^^^^^^
+...
+26 |         fn get_stats(&self) -> (usize, usize) {
+   |            ^^^^^^^^^
+warning: struct `SimpleCache` is never constructed
+  --> src/bin/complete_01_lru.rs:68:12
+   |
+68 |     struct SimpleCache<K, V> {
+   |            ^^^^^^^^^^^
+warning: associated items `new`, `get`, `put`, and `len` are never used
+  --> src/bin/complete_01_lru.rs:77:12
+   |
+72 | /     impl<K, V> SimpleCache<K, V>
+73 | |     where
+74 | |         K: Eq + Hash,
+75 | |         V: Clone,
+   | |_________________- associated items in this implementation
+76 |       {
+77 |           fn new() -> Self {
+   |              ^^^
+...
+83 |           fn get(&self, key: &K) -> Option<V> {
+   |              ^^^
+...
+87 |           fn put(&self, key: K, value: V) {
+   |              ^^^
+...
+91 |           fn len(&self) -> usize {
+   |              ^^^
+warning: struct `LRUCache` is never constructed
+   --> src/bin/complete_01_lru.rs:141:12
+    |
+141 |     struct LRUCache<K, V> {
+    |            ^^^^^^^^
+warning: associated items `new`, `get`, `put`, and `len` are never used
+   --> src/bin/complete_01_lru.rs:152:12
+    |
+147 | /     impl<K, V> LRUCache<K, V>
+148 | |     where
+149 | |         K: Eq + Hash + Clone,
+150 | |         V: Clone,
+    | |_________________- associated items in this implementation
+151 |       {
+152 |           fn new(capacity: usize) -> Self {
+    |              ^^^
+...
+161 |           fn get(&self, key: &K) -> Option<V> {
+    |              ^^^
+...
+178 |           fn put(&self, key: K, value: V) {
+    |              ^^^
+...
+198 |           fn len(&self) -> usize {
+    |              ^^^
+warning: struct `StatsTracker` is never constructed
+   --> src/bin/complete_01_lru.rs:277:12
+    |
+277 |     struct StatsTracker {
+    |            ^^^^^^^^^^^^
+warning: associated items `new`, `record_hit`, `record_miss`, and `get_stats` are never used
+   --> src/bin/complete_01_lru.rs:283:12
+    |
+282 |     impl StatsTracker {
+    |     ----------------- associated items in this implementation
+283 |         fn new() -> Self {
+    |            ^^^
+...
+289 |         fn record_hit(&self) { self.hits.set(self.hits.get() + 1); }
+    |            ^^^^^^^^^^
+290 |         fn record_miss(&self) { self.misses.set(self.misses.get() + 1); }
+    |            ^^^^^^^^^^^
+291 |         fn get_stats(&self) -> (usize, usize) { (self.hits.get(), self....
+    |            ^^^^^^^^^
+warning: struct `LRUCache` is never constructed
+   --> src/bin/complete_01_lru.rs:294:12
+    |
+294 |     struct LRUCache<K, V> {
+    |            ^^^^^^^^
+warning: associated items `new`, `get`, `put`, `len`, `stats`, and `clear` are never used
+   --> src/bin/complete_01_lru.rs:306:12
+    |
+301 | /     impl<K, V> LRUCache<K, V>
+302 | |     where
+303 | |         K: Eq + Hash + Clone,
+304 | |         V: Clone,
+    | |_________________- associated items in this implementation
+305 |       {
+306 |           fn new(capacity: usize) -> Self {
+    |              ^^^
+...
+316 |           fn get(&self, key: &K) -> Option<V> {
+    |              ^^^
+...
+335 |           fn put(&self, key: K, value: V) {
+    |              ^^^
+...
+355 |           fn len(&self) -> usize { self.data.borrow().len() }
+    |              ^^^
+356 |           fn stats(&self) -> (usize, usize) { self.stats.get_stats() }
+    |              ^^^^^
+357 |           fn clear(&self) {
+    |              ^^^^^
+warning: struct `StatsTracker` is never constructed
+   --> src/bin/complete_01_lru.rs:407:12
+    |
+407 |     struct StatsTracker {
+    |            ^^^^^^^^^^^^
+warning: associated items `new`, `record_hit`, `record_miss`, and `get_stats` are never used
+   --> src/bin/complete_01_lru.rs:413:12
+    |
+412 |     impl StatsTracker {
+    |     ----------------- associated items in this implementation
+413 |         fn new() -> Self {
+    |            ^^^
+...
+419 |         fn record_hit(&self) { self.hits.fetch_add(1, Ordering::Relaxed...
+    |            ^^^^^^^^^^
+420 |         fn record_miss(&self) { self.misses.fetch_add(1, Ordering::Rela...
+    |            ^^^^^^^^^^^
+421 |         fn get_stats(&self) -> (usize, usize) {
+    |            ^^^^^^^^^
+warning: struct `CacheInner` is never constructed
+   --> src/bin/complete_01_lru.rs:427:12
+    |
+427 |     struct CacheInner<K, V> {
+    |            ^^^^^^^^^^
+warning: struct `ThreadSafeLRUCache` is never constructed
+   --> src/bin/complete_01_lru.rs:432:12
+    |
+432 |     struct ThreadSafeLRUCache<K, V> {
+    |            ^^^^^^^^^^^^^^^^^^
+warning: associated items `new`, `get`, `put`, `len`, and `stats` are never used
+   --> src/bin/complete_01_lru.rs:443:12
+    |
+438 | /     impl<K, V> ThreadSafeLRUCache<K, V>
+439 | |     where
+440 | |         K: Eq + Hash + Clone + Send + Sync + 'static,
+441 | |         V: Clone + Send + Sync + 'static,
+    | |_________________________________________- associated items in this implementation
+442 |       {
+443 |           fn new(capacity: usize) -> Self {
+    |              ^^^
+...
+455 |           fn get(&self, key: &K) -> Option<V> {
+    |              ^^^
+...
+473 |           fn put(&self, key: K, value: V) {
+    |              ^^^
+...
+491 |           fn len(&self) -> usize {
+    |              ^^^
+...
+495 |           fn stats(&self) -> (usize, usize) {
+    |              ^^^^^
+error[E0277]: the trait bound `dyn Validator: Clone` is not satisfied
+   --> src/bin/complete_07_json_validator.rs:796:12
+    |
+770 | #[derive(Debug, Clone, PartialEq)]
+    |                 ----- in this derive macro expansion
+...
+796 |     Custom(Box<dyn Validator + 'static>),
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `dyn Validator`
+    |
+    = note: required for `Box<dyn Validator>` to implement `Clone`
+error[E0369]: binary operation `==` cannot be applied to type `&Box<dyn Validator>`
+   --> src/bin/complete_07_json_validator.rs:796:12
+    |
+770 | #[derive(Debug, Clone, PartialEq)]
+    |                        --------- in this derive macro expansion
+...
+796 |     Custom(Box<dyn Validator + 'static>),
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+warning: variable does not need to be mutable
+   --> src/bin/complete_07_json_validator.rs:261:29
+    |
+261 | ...   let mut hex_chars = self.input[hex_start..].chars().take(4);
+    |           ----^^^^^^^^^
+    |           |
+    |           help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+error[E0382]: use of partially moved value: `e`
+    --> src/bin/complete_07_json_validator.rs:1222:28
+     |
+1220 |             self.add_error(e.message);
+     |                            --------- value partially moved here
+1221 |             if self.strict_mode {
+1222 |                 return Err(e);
+     |                            ^ value used here after partial move
+     |
+     = note: partial move occurs because `e.message` has type `String`, which does not implement the `Copy` trait
+Some errors have detailed explanations: E0277, E0369, E0382.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `markdown` (bin "complete_07_json_validator") due to 3 previous errors; 2 warnings emitted

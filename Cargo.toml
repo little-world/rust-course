@@ -26,6 +26,9 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 lazy_static = "1.5.0"
 html-escape = "0.2.13"
 walkdir = "2.5.0"
+dashmap = "5.5"
+sha2 = "0.10"
+rustc-hash = "1.1"
 
 [dev-dependencies]
 tempfile = "3.12"
@@ -50,3 +53,35 @@ path = "projecta/src/bin/complete_10_vec_timeseries.rs"
 [[bin]]
 name = "complete_10_vec_binary_search"
 path = "projecta/src/bin/complete_10_vec_binary_search.rs"
+
+[[bin]]
+name = "complete_11_string_logparser"
+path = "projecta/src/bin/complete_11_string_logparser.rs"
+
+[[bin]]
+name = "complete_11_string_editor"
+path = "projecta/src/bin/complete_11_string_editor.rs"
+
+[[bin]]
+name = "complete_07_network_packets"
+path = "projecta/src/bin/complete_07_network_packets.rs"
+
+[[bin]]
+name = "complete_11_string_search"
+path = "projecta/src/bin/complete_11_string_search.rs"
+
+[[bin]]
+name = "complete_12_hashmap_analytics"
+path = "projecta/src/bin/complete_12_hashmap_analytics.rs"
+
+[[bin]]
+name = "complete_12_hashmap_hash_functio"
+path = "projecta/src/bin/complete_12_hashmap_hash_functio.rs"
+
+[[bin]]
+name = "complete_12_hashmap_cache"
+path = "projecta/src/bin/complete_12_hashmap_cache.rs"
+
+[[bin]]
+name = "complete_12_collections_autocomplete"
+path = "projecta/src/bin/complete_13_collections_autocomplete.rs"

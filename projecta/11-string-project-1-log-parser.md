@@ -929,11 +929,516 @@ pub fn benchmark_parallel_parsing(path: &str) {
 
 ---
 
-## Testing Strategies
+### Complete Working Example
 
-1. **Unit Tests**: Test each parser with known inputs
-2. **Memory Tests**: Monitor allocations with different approaches
-3. **Performance Tests**: Benchmark zero-copy vs allocation-heavy approaches
-4. **Correctness Tests**: Verify no data loss during processing
-5. **Property Tests**: Verify invariants (e.g., interned strings are unique)
-6. **Integration Tests**: End-to-end with real log files
+```rust
+use rayon::prelude::*;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    fs::File,
+    io::{self, BufRead, BufReader, Read},
+};
+
+// =============================================================================
+// Milestone 1: Zero-Copy Log Entry Parser
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogEntry<'a> {
+    pub timestamp: &'a str,
+    pub level: &'a str,
+    pub service: &'a str,
+    pub message: &'a str,
+}
+
+impl<'a> LogEntry<'a> {
+    pub fn parse_line(line: &'a str) -> Option<Self> {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('{') {
+            Self::parse_json(trimmed)
+        } else if trimmed.contains("[") && trimmed.contains("]") {
+            Self::parse_apache(trimmed)
+        } else {
+            Self::parse_syslog(trimmed)
+        }
+    }
+
+    pub fn parse_apache(line: &'a str) -> Option<Self> {
+        let timestamp_start = line.find('[')?;
+        let timestamp_end = line[timestamp_start + 1..].find(']')? + timestamp_start + 1;
+        let timestamp = &line[timestamp_start + 1..timestamp_end];
+
+        let quote_start = line.find('"')?;
+        let quote_end = line[quote_start + 1..].find('"')? + quote_start + 1;
+        let request = &line[quote_start + 1..quote_end];
+        let mut request_parts = request.split_whitespace();
+        let path = request_parts.nth(1).unwrap_or("/");
+
+        Some(LogEntry {
+            timestamp,
+            level: "INFO",
+            service: "apache",
+            message: path,
+        })
+    }
+
+    pub fn parse_json(line: &'a str) -> Option<Self> {
+        let timestamp = extract_json_field(line, "timestamp")?;
+        let level = extract_json_field(line, "level")?;
+        let service = extract_json_field(line, "service")?;
+        let message = extract_json_field(line, "message")?;
+
+        Some(LogEntry {
+            timestamp,
+            level,
+            service,
+            message,
+        })
+    }
+
+    pub fn parse_syslog(line: &'a str) -> Option<Self> {
+        let mut parts = line.splitn(5, ' ');
+        let month = parts.next()?;
+        let day = parts.next()?;
+        let time = parts.next()?;
+        let _host = parts.next()?;
+        let rest = parts.next()?;
+        let timestamp = &line[..month.len() + 1 + day.len() + 1 + time.len()];
+
+        let (service, message) = rest.split_once(':')?;
+        Some(LogEntry {
+            timestamp,
+            level: "INFO",
+            service: service.trim(),
+            message: message.trim(),
+        })
+    }
+}
+
+fn extract_json_field<'a>(json: &'a str, field: &str) -> Option<&'a str> {
+    let needle = format!("\"{}\":\"", field);
+    let start = json.find(&needle)? + needle.len();
+    let end = json[start..].find('"')? + start;
+    Some(&json[start..end])
+}
+
+// =============================================================================
+// Milestone 2: Iterator-Based Zero-Copy Filtering
+// =============================================================================
+
+pub struct LogIterator<R> {
+    reader: BufReader<R>,
+    line_buffer: String,
+}
+
+impl<R: Read> LogIterator<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::new(reader),
+            line_buffer: String::new(),
+        }
+    }
+}
+
+impl<R: Read> Iterator for LogIterator<R> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.line_buffer.clear();
+        match self.reader.read_line(&mut self.line_buffer) {
+            Ok(0) => None,
+            Ok(_) => {
+                if self.line_buffer.ends_with('\n') {
+                    self.line_buffer.pop();
+                    if self.line_buffer.ends_with('\r') {
+                        self.line_buffer.pop();
+                    }
+                }
+                Some(self.line_buffer.clone())
+            }
+            Err(_) => None,
+        }
+    }
+}
+
+pub fn filter_logs<'a, I>(
+    lines: I,
+    min_level: &str,
+    service_filter: Option<&'a str>,
+) -> impl Iterator<Item = LogEntry<'a>>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let min_priority = level_priority(min_level);
+    lines
+        .into_iter()
+        .filter_map(|line| LogEntry::parse_line(line))
+        .filter(move |entry| level_priority(entry.level) >= min_priority)
+        .filter(move |entry| service_filter.map_or(true, |service| entry.service == service))
+}
+
+fn level_priority(level: &str) -> u8 {
+    match level {
+        "DEBUG" => 1,
+        "INFO" => 2,
+        "WARN" | "WARNING" => 3,
+        "ERROR" => 4,
+        _ => 0,
+    }
+}
+
+// =============================================================================
+// Milestone 3: Cow-Based Normalization
+// =============================================================================
+
+pub struct NormalizedLogEntry<'a> {
+    pub timestamp: Cow<'a, str>,
+    pub level: Cow<'a, str>,
+    pub service: Cow<'a, str>,
+    pub message: Cow<'a, str>,
+}
+
+pub fn normalize_lowercase(input: &str) -> Cow<'_, str> {
+    if input.chars().all(|c| !c.is_uppercase()) {
+        Cow::Borrowed(input)
+    } else {
+        Cow::Owned(input.to_lowercase())
+    }
+}
+
+pub fn normalize_trim(input: &str) -> Cow<'_, str> {
+    let trimmed = input.trim();
+    if trimmed.len() == input.len() {
+        Cow::Borrowed(input)
+    } else {
+        Cow::Owned(trimmed.to_string())
+    }
+}
+
+pub fn normalize_service_name(input: &str) -> Cow<'_, str> {
+    let needs_change = input
+        .chars()
+        .any(|c| c.is_uppercase() || !(c.is_ascii_alphanumeric() || c == '-'));
+    if !needs_change {
+        Cow::Borrowed(input)
+    } else {
+        let mut normalized = String::with_capacity(input.len());
+        for ch in input.chars() {
+            if ch.is_ascii_alphanumeric() || ch == '-' {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+        Cow::Owned(normalized)
+    }
+}
+
+impl<'a> NormalizedLogEntry<'a> {
+    pub fn from_entry(entry: LogEntry<'a>) -> Self {
+        Self {
+            timestamp: Cow::Borrowed(entry.timestamp),
+            level: normalize_lowercase(entry.level),
+            service: normalize_service_name(entry.service),
+            message: normalize_trim(entry.message),
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 4: String Builder Formatter
+// =============================================================================
+
+pub struct LogFormatter {
+    buffer: String,
+}
+
+impl LogFormatter {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buffer: String::with_capacity(capacity),
+        }
+    }
+
+    pub fn format_json<'a>(&'a mut self, entry: &LogEntry) -> &'a str {
+        self.buffer.clear();
+        self.buffer.push_str("{\"timestamp\":\"");
+        self.buffer.push_str(entry.timestamp);
+        self.buffer.push_str("\",\"level\":\"");
+        self.buffer.push_str(entry.level);
+        self.buffer.push_str("\",\"service\":\"");
+        self.buffer.push_str(entry.service);
+        self.buffer.push_str("\",\"message\":\"");
+        self.buffer.push_str(entry.message);
+        self.buffer.push_str("\"}");
+        &self.buffer
+    }
+
+    pub fn format_plain<'a>(&'a mut self, entry: &LogEntry) -> &'a str {
+        self.buffer.clear();
+        self.buffer.push_str(entry.timestamp);
+        self.buffer.push_str(" | ");
+        self.buffer.push_str(entry.level);
+        self.buffer.push_str(" | ");
+        self.buffer.push_str(entry.service);
+        self.buffer.push_str(" | ");
+        self.buffer.push_str(entry.message);
+        &self.buffer
+    }
+}
+
+// =============================================================================
+// Milestone 5: Search Index with String Interning
+// =============================================================================
+
+pub struct StringInterner {
+    strings: Vec<String>,
+    indices: HashMap<String, usize>,
+}
+
+impl StringInterner {
+    pub fn new() -> Self {
+        Self {
+            strings: Vec::new(),
+            indices: HashMap::new(),
+        }
+    }
+
+    pub fn intern(&mut self, value: &str) -> usize {
+        if let Some(&idx) = self.indices.get(value) {
+            return idx;
+        }
+        let idx = self.strings.len();
+        self.strings.push(value.to_string());
+        self.indices.insert(value.to_string(), idx);
+        idx
+    }
+
+    pub fn get(&self, idx: usize) -> Option<&str> {
+        self.strings.get(idx).map(|s| s.as_str())
+    }
+}
+
+pub struct InternedLogEntry {
+    pub timestamp: String,
+    pub level: usize,
+    pub service: usize,
+    pub message: String,
+}
+
+pub struct LogIndex {
+    interner: StringInterner,
+    entries: Vec<InternedLogEntry>,
+    by_service: HashMap<usize, Vec<usize>>,
+    by_level: HashMap<usize, Vec<usize>>,
+}
+
+impl LogIndex {
+    pub fn new() -> Self {
+        Self {
+            interner: StringInterner::new(),
+            entries: Vec::new(),
+            by_service: HashMap::new(),
+            by_level: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, entry: LogEntry<'_>) {
+        let level_id = self.interner.intern(entry.level);
+        let service_id = self.interner.intern(entry.service);
+        let entry_id = self.entries.len();
+        self.entries.push(InternedLogEntry {
+            timestamp: entry.timestamp.to_string(),
+            level: level_id,
+            service: service_id,
+            message: entry.message.to_string(),
+        });
+        self.by_service
+            .entry(service_id)
+            .or_default()
+            .push(entry_id);
+        self.by_level.entry(level_id).or_default().push(entry_id);
+    }
+
+    pub fn find_by_service(&self, service: &str) -> Vec<&InternedLogEntry> {
+        self.interner
+            .indices
+            .get(service)
+            .and_then(|id| self.by_service.get(id))
+            .map(|indices| indices.iter().map(|&i| &self.entries[i]).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn find_by_level(&self, level: &str) -> Vec<&InternedLogEntry> {
+        self.interner
+            .indices
+            .get(level)
+            .and_then(|id| self.by_level.get(id))
+            .map(|indices| indices.iter().map(|&i| &self.entries[i]).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn memory_stats(&self) -> MemoryStats {
+        let interner_memory = self.strings_memory();
+        let entries_memory = self.entries.len() * std::mem::size_of::<InternedLogEntry>();
+        MemoryStats {
+            interner_memory,
+            entries_memory,
+            total_entries: self.entries.len(),
+            unique_strings: self.interner.strings.len(),
+        }
+    }
+
+    fn strings_memory(&self) -> usize {
+        self.interner.strings.iter().map(|s| s.len()).sum()
+    }
+}
+
+#[derive(Debug)]
+pub struct MemoryStats {
+    pub interner_memory: usize,
+    pub entries_memory: usize,
+    pub total_entries: usize,
+    pub unique_strings: usize,
+}
+
+// =============================================================================
+// Milestone 6: Parallel Log Processing
+// =============================================================================
+
+pub fn process_logs_parallel(path: &str, chunk_size: usize) -> io::Result<LogIndex> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut lines = Vec::new();
+    for line in reader.lines() {
+        lines.push(line?);
+    }
+
+    let parsed: Vec<Vec<LogEntry>> = lines
+        .par_chunks(chunk_size.max(1))
+        .map(|chunk| {
+            chunk
+                .iter()
+                .filter_map(|line| LogEntry::parse_line(line))
+                .collect()
+        })
+        .collect();
+
+    let mut index = LogIndex::new();
+    for group in parsed {
+        for entry in group {
+            index.add(entry);
+        }
+    }
+
+    Ok(index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn parse_json_log_line() {
+        let line = "{\"timestamp\":\"2024-10-10\",\"level\":\"ERROR\",\"service\":\"auth\",\"message\":\"failed\"}";
+        let entry = LogEntry::parse_json(line).unwrap();
+        assert_eq!(entry.level, "ERROR");
+        assert_eq!(entry.service, "auth");
+    }
+
+    #[test]
+    fn parse_apache_log_line() {
+        let line = "127.0.0.1 - - [10/Oct/2024:13:55:36 -0700] \"GET /index.html HTTP/1.1\" 200 2326";
+        let entry = LogEntry::parse_apache(line).unwrap();
+        assert_eq!(entry.timestamp, "10/Oct/2024:13:55:36 -0700");
+        assert_eq!(entry.message, "/index.html");
+    }
+
+    #[test]
+    fn parse_syslog_log_line() {
+        let line = "Oct 10 13:55:36 host service[1234]: Something happened";
+        let entry = LogEntry::parse_syslog(line).unwrap();
+        assert_eq!(entry.service, "service[1234]");
+        assert_eq!(entry.message, "Something happened");
+    }
+
+    #[test]
+    fn iterator_reads_lines() {
+        let data = b"line1\nline2\n";
+        let iter = LogIterator::new(&data[..]);
+        let collected: Vec<String> = iter.collect();
+        assert_eq!(collected, vec!["line1".to_string(), "line2".to_string()]);
+    }
+
+    #[test]
+    fn filter_by_level_and_service() {
+        let logs = vec![
+            String::from("{\"timestamp\":\"t1\",\"level\":\"INFO\",\"service\":\"api\",\"message\":\"ok\"}"),
+            String::from("{\"timestamp\":\"t2\",\"level\":\"ERROR\",\"service\":\"api\",\"message\":\"fail\"}"),
+            String::from("{\"timestamp\":\"t3\",\"level\":\"ERROR\",\"service\":\"db\",\"message\":\"oops\"}"),
+        ];
+        let borrowed: Vec<&str> = logs.iter().map(|s| s.as_str()).collect();
+        let filtered: Vec<_> = filter_logs(borrowed, "ERROR", Some("api")).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message, "fail");
+    }
+
+    #[test]
+    fn normalization_borrowed_vs_owned() {
+        match normalize_lowercase("auth") {
+            Cow::Borrowed(_) => {}
+            Cow::Owned(_) => panic!("should be borrowed"),
+        }
+        match normalize_lowercase("AUTH") {
+            Cow::Owned(val) => assert_eq!(val, "auth"),
+            Cow::Borrowed(_) => panic!("should be owned"),
+        }
+    }
+
+    #[test]
+    fn formatter_produces_json() {
+        let entry = LogEntry {
+            timestamp: "t",
+            level: "INFO",
+            service: "svc",
+            message: "msg",
+        };
+        let mut formatter = LogFormatter::with_capacity(128);
+        assert_eq!(formatter.format_json(&entry), "{\"timestamp\":\"t\",\"level\":\"INFO\",\"service\":\"svc\",\"message\":\"msg\"}");
+    }
+
+    #[test]
+    fn interner_deduplicates_strings() {
+        let mut interner = StringInterner::new();
+        let a = interner.intern("alpha");
+        let b = interner.intern("alpha");
+        assert_eq!(a, b);
+        assert_eq!(interner.get(a), Some("alpha"));
+    }
+
+    #[test]
+    fn log_index_queries() {
+        let mut index = LogIndex::new();
+        let entry = LogEntry {
+            timestamp: "t",
+            level: "ERROR",
+            service: "api",
+            message: "fail",
+        };
+        index.add(entry);
+        assert_eq!(index.find_by_service("api").len(), 1);
+        assert_eq!(index.find_by_level("ERROR").len(), 1);
+    }
+
+    #[test]
+    fn parallel_processing_builds_index() {
+        let content = "{\"timestamp\":\"t1\",\"level\":\"INFO\",\"service\":\"api\",\"message\":\"ok\"}\n{\"timestamp\":\"t2\",\"level\":\"ERROR\",\"service\":\"api\",\"message\":\"fail\"}\n";
+        let mut file = NamedTempFile::new().unwrap();
+        use std::io::Write;
+        file.write_all(content.as_bytes()).unwrap();
+        let index = process_logs_parallel(file.path().to_str().unwrap(), 1).unwrap();
+        assert_eq!(index.find_by_service("api").len(), 2);
+    }
+}
+
+```

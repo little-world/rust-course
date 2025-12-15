@@ -52,8 +52,8 @@ fn get_user_profile_cached(id: u64) -> User {
 
 **Hit Rate**: The percentage of requests served from cache
 ```
-Hit Rate = Hits / (Hits + Misses)
 
+Hit Rate = Hits / (Hits + Misses)
 Example: 900 hits, 100 misses → Hit Rate = 900/1000 = 90%
 ```
 

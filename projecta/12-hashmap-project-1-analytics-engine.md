@@ -1737,15 +1737,559 @@ fn main() {
 }
 ```
 
-## Testing Strategies
+###  Complete Working Example
 
-1. **Unit Tests**: Test each step independently
-2. **Property Tests**: Verify aggregation correctness (sum of parts = whole)
-3. **Performance Tests**: Benchmark entry API vs naive approach
-4. **Concurrency Tests**: Verify thread-safety with multiple threads
-5. **Capacity Tests**: Monitor resize behavior with/without pre-allocation
-6. **Stress Tests**: Process millions of events
+```rust
+use dashmap::DashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
+use std::hash::Hash;
 
----
+// =============================================================================
+// Milestone 1: Event Counter with Entry API
+// =============================================================================
 
-This project comprehensively demonstrates HashMap Entry API patterns, from basic counting through multi-dimensional analytics to concurrent processing, with each step building practical, production-ready analytics capabilities.
+pub struct EventCounter<K> {
+    counts: HashMap<K, u64>,
+}
+
+impl<K> EventCounter<K>
+where
+    K: Eq + Hash,
+{
+    pub fn new() -> Self {
+        EventCounter {
+            counts: HashMap::new(),
+        }
+    }
+
+    pub fn increment(&mut self, key: K) {
+        *self.counts.entry(key).or_insert(0) += 1;
+    }
+
+    pub fn get(&self, key: &K) -> u64 {
+        self.counts.get(key).copied().unwrap_or(0)
+    }
+
+    pub fn top_k(&self, k: usize) -> Vec<(K, u64)>
+    where
+        K: Clone + Ord,
+    {
+        let mut entries: Vec<_> = self
+            .counts
+            .iter()
+            .map(|(key, &count)| (key.clone(), count))
+            .collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        entries.into_iter().take(k).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.counts.len()
+    }
+}
+
+// =============================================================================
+// Milestone 2: Multi-Metric Aggregator with and_modify
+// =============================================================================
+
+#[derive(Debug, Clone)]
+pub struct Stats {
+    pub count: u64,
+    pub sum: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+impl Stats {
+    pub fn new(value: f64) -> Self {
+        Stats {
+            count: 1,
+            sum: value,
+            min: value,
+            max: value,
+        }
+    }
+
+    pub fn update(&mut self, value: f64) {
+        self.count += 1;
+        self.sum += value;
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+    }
+
+    pub fn average(&self) -> f64 {
+        if self.count == 0 {
+            0.0
+        } else {
+            self.sum / self.count as f64
+        }
+    }
+}
+
+pub struct MetricAggregator<K> {
+    metrics: HashMap<K, Stats>,
+}
+
+impl<K> MetricAggregator<K>
+where
+    K: Eq + Hash,
+{
+    pub fn new() -> Self {
+        MetricAggregator {
+            metrics: HashMap::new(),
+        }
+    }
+
+    pub fn record(&mut self, key: K, value: f64) {
+        self.metrics
+            .entry(key)
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+    }
+
+    pub fn get_stats(&self, key: &K) -> Option<&Stats> {
+        self.metrics.get(key)
+    }
+
+    pub fn average(&self, key: &K) -> Option<f64> {
+        self.get_stats(key).map(|stats| stats.average())
+    }
+}
+
+// =============================================================================
+// Milestone 3 & 4: Multi-Dimensional Aggregation with Capacity Management
+// =============================================================================
+
+pub struct MultiDimAggregator {
+    pub by_user: HashMap<String, Stats>,
+    pub by_product: HashMap<String, Stats>,
+    pub by_category: HashMap<String, Stats>,
+    pub by_user_product: HashMap<(String, String), Stats>,
+    pub by_time: HashMap<u64, Stats>,
+}
+
+impl MultiDimAggregator {
+    pub fn new() -> Self {
+        MultiDimAggregator {
+            by_user: HashMap::new(),
+            by_product: HashMap::new(),
+            by_category: HashMap::new(),
+            by_user_product: HashMap::new(),
+            by_time: HashMap::new(),
+        }
+    }
+
+    pub fn with_capacity(
+        estimated_users: usize,
+        estimated_products: usize,
+        estimated_categories: usize,
+    ) -> Self {
+        let user_capacity = ((estimated_users as f64 / 0.75).ceil() as usize).max(1);
+        let product_capacity = ((estimated_products as f64 / 0.75).ceil() as usize).max(1);
+        let category_capacity = ((estimated_categories as f64 / 0.75).ceil() as usize).max(1);
+
+        MultiDimAggregator {
+            by_user: HashMap::with_capacity(user_capacity),
+            by_product: HashMap::with_capacity(product_capacity),
+            by_category: HashMap::with_capacity(category_capacity),
+            by_user_product: HashMap::with_capacity(user_capacity.saturating_mul(product_capacity).max(1)),
+            by_time: HashMap::with_capacity(1024),
+        }
+    }
+
+    pub fn reserve_additional(&mut self, additional: usize) {
+        self.by_user.reserve(additional);
+        self.by_product.reserve(additional);
+        self.by_category.reserve(additional);
+        self.by_user_product.reserve(additional);
+        self.by_time.reserve(additional);
+    }
+
+    pub fn capacity_stats(&self) -> CapacityStats {
+        CapacityStats {
+            user_capacity: self.by_user.capacity(),
+            product_capacity: self.by_product.capacity(),
+            category_capacity: self.by_category.capacity(),
+            user_count: self.by_user.len(),
+            product_count: self.by_product.len(),
+            category_count: self.by_category.len(),
+        }
+    }
+
+    pub fn record_event(
+        &mut self,
+        user: String,
+        product: String,
+        category: String,
+        value: f64,
+        timestamp: u64,
+    ) {
+        let time_bucket = timestamp / 3600;
+        let user_for_product = user.clone();
+        let product_for_user = product.clone();
+        let category_clone = category.clone();
+        let user_for_tuple = user_for_product.clone();
+        let product_for_tuple = product_for_user.clone();
+
+        self.by_user
+            .entry(user_for_product)
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+
+        self.by_product
+            .entry(product_for_user)
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+
+        self.by_category
+            .entry(category_clone)
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+
+        self.by_user_product
+            .entry((user_for_tuple, product_for_tuple))
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+
+        self.by_time
+            .entry(time_bucket)
+            .and_modify(|stats| stats.update(value))
+            .or_insert_with(|| Stats::new(value));
+    }
+
+    pub fn query_by_user(&self, user: &str) -> Option<&Stats> {
+        self.by_user.get(user)
+    }
+
+    pub fn query_by_product(&self, product: &str) -> Option<&Stats> {
+        self.by_product.get(product)
+    }
+
+    pub fn query_by_category(&self, category: &str) -> Option<&Stats> {
+        self.by_category.get(category)
+    }
+
+    pub fn query_by_user_product(&self, user: &str, product: &str) -> Option<&Stats> {
+        self.by_user_product
+            .get(&(user.to_string(), product.to_string()))
+    }
+
+    pub fn query_by_time(&self, time_bucket: u64) -> Option<&Stats> {
+        self.by_time.get(&time_bucket)
+    }
+
+    // =============================================================================
+    // Milestone 5: Top-K Queries with Heap
+    // =============================================================================
+
+    pub fn top_k_users_by_revenue(&self, k: usize) -> Vec<(String, Stats)> {
+        Self::top_k_by(&self.by_user, k, |stats| stats.sum as i64)
+    }
+
+    pub fn top_k_products_by_count(&self, k: usize) -> Vec<(String, Stats)> {
+        Self::top_k_by(&self.by_product, k, |stats| stats.count as i64)
+    }
+
+    fn top_k_by<KF, F>(map: &HashMap<KF, Stats>, k: usize, metric: F) -> Vec<(KF, Stats)>
+    where
+        KF: Clone + Ord + Eq + Hash,
+        F: Fn(&Stats) -> i64,
+    {
+        if k == 0 {
+            return Vec::new();
+        }
+
+        let mut heap: BinaryHeap<Reverse<(i64, usize, KF)>> = BinaryHeap::new();
+        let mut idx = 0usize;
+
+        for (key, stats) in map.iter() {
+            let score = metric(stats);
+            if heap.len() < k {
+                heap.push(Reverse((score, idx, key.clone())));
+            } else if let Some(Reverse((min_score, _, _))) = heap.peek() {
+                if score > *min_score {
+                    heap.pop();
+                    heap.push(Reverse((score, idx, key.clone())));
+                }
+            }
+            idx += 1;
+        }
+
+        let mut ordered = Vec::new();
+        while let Some(Reverse((score, _, key))) = heap.pop() {
+            ordered.push((score, key));
+        }
+        ordered.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+
+        ordered
+            .into_iter()
+            .filter_map(|(_, key)| map.get(&key).map(|stats| (key, stats.clone())))
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct CapacityStats {
+    pub user_capacity: usize,
+    pub product_capacity: usize,
+    pub category_capacity: usize,
+    pub user_count: usize,
+    pub product_count: usize,
+    pub category_count: usize,
+}
+
+// =============================================================================
+// Milestone 6: Concurrent Analytics with DashMap
+// =============================================================================
+
+pub struct ConcurrentAnalytics {
+    by_user: DashMap<String, Stats>,
+    by_product: DashMap<String, Stats>,
+    by_category: DashMap<String, Stats>,
+    by_user_product: DashMap<(String, String), Stats>,
+    by_time: DashMap<u64, Stats>,
+}
+
+impl ConcurrentAnalytics {
+    pub fn new() -> Self {
+        ConcurrentAnalytics {
+            by_user: DashMap::new(),
+            by_product: DashMap::new(),
+            by_category: DashMap::new(),
+            by_user_product: DashMap::new(),
+            by_time: DashMap::new(),
+        }
+    }
+
+    pub fn with_capacity(
+        estimated_users: usize,
+        estimated_products: usize,
+        estimated_categories: usize,
+    ) -> Self {
+        ConcurrentAnalytics {
+            by_user: DashMap::with_capacity(estimated_users),
+            by_product: DashMap::with_capacity(estimated_products),
+            by_category: DashMap::with_capacity(estimated_categories),
+            by_user_product: DashMap::with_capacity(estimated_users.saturating_mul(estimated_products).max(1)),
+            by_time: DashMap::with_capacity(1024),
+        }
+    }
+
+    pub fn record_event(
+        &self,
+        user: String,
+        product: String,
+        category: String,
+        value: f64,
+        timestamp: u64,
+    ) {
+        let time_bucket = timestamp / 3600;
+        let user_for_product = user.clone();
+        let product_for_user = product.clone();
+        let category_clone = category.clone();
+        let user_for_tuple = user_for_product.clone();
+        let product_for_tuple = product_for_user.clone();
+
+        self.by_user
+            .entry(user_for_product)
+            .and_modify(|stats| stats.update(value))
+            .or_insert(Stats::new(value));
+
+        self.by_product
+            .entry(product_for_user)
+            .and_modify(|stats| stats.update(value))
+            .or_insert(Stats::new(value));
+
+        self.by_category
+            .entry(category_clone)
+            .and_modify(|stats| stats.update(value))
+            .or_insert(Stats::new(value));
+
+        self.by_user_product
+            .entry((user_for_tuple, product_for_tuple))
+            .and_modify(|stats| stats.update(value))
+            .or_insert(Stats::new(value));
+
+        self.by_time
+            .entry(time_bucket)
+            .and_modify(|stats| stats.update(value))
+            .or_insert(Stats::new(value));
+    }
+
+    pub fn snapshot(&self) -> MultiDimAggregator {
+        MultiDimAggregator {
+            by_user: self
+                .by_user
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            by_product: self
+                .by_product
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            by_category: self
+                .by_category
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            by_user_product: self
+                .by_user_product
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            by_time: self
+                .by_time
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+        }
+    }
+
+    pub fn query_by_user(&self, user: &str) -> Option<Stats> {
+        self.by_user.get(user).map(|entry| entry.value().clone())
+    }
+}
+
+fn main() {}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn test_event_counter() {
+        let mut counter = EventCounter::new();
+        counter.increment("view");
+        counter.increment("click");
+        counter.increment("view");
+        assert_eq!(counter.get(&"view"), 2);
+        assert_eq!(counter.get(&"click"), 1);
+        assert_eq!(counter.get(&"purchase"), 0);
+        let top = counter.top_k(1);
+        assert_eq!(top[0], ("view", 2));
+    }
+
+    #[test]
+    fn test_metric_aggregator() {
+        let mut agg = MetricAggregator::new();
+        agg.record("product", 10.0);
+        agg.record("product", 20.0);
+        let stats = agg.get_stats(&"product").unwrap();
+        assert_eq!(stats.count, 2);
+        assert_eq!(stats.sum, 30.0);
+        assert_eq!(stats.min, 10.0);
+        assert_eq!(stats.max, 20.0);
+        assert_eq!(agg.average(&"product"), Some(15.0));
+    }
+
+    #[test]
+    fn test_multi_dimensional_updates() {
+        let mut agg = MultiDimAggregator::new();
+        agg.record_event("user1".into(), "laptop".into(), "electronics".into(), 1000.0, 0);
+        agg.record_event("user1".into(), "laptop".into(), "electronics".into(), 1200.0, 0);
+        agg.record_event("user2".into(), "phone".into(), "electronics".into(), 500.0, 3600);
+
+        assert_eq!(agg.query_by_user("user1").unwrap().count, 2);
+        assert_eq!(agg.query_by_product("laptop").unwrap().sum, 2200.0);
+        assert_eq!(agg.query_by_category("electronics").unwrap().count, 3);
+        assert_eq!(
+            agg.query_by_user_product("user1", "laptop").unwrap().count,
+            2
+        );
+        assert_eq!(agg.query_by_time(1).unwrap().count, 1);
+    }
+
+    #[test]
+    fn test_capacity_management() {
+        let mut agg = MultiDimAggregator::with_capacity(100, 50, 20);
+        let stats = agg.capacity_stats();
+        assert!(stats.user_capacity >= 100);
+        assert!(stats.product_capacity >= 50);
+        agg.reserve_additional(500);
+        let stats_after = agg.capacity_stats();
+        assert!(stats_after.user_capacity >= stats.user_capacity);
+    }
+
+    #[test]
+    fn test_top_k_queries() {
+        let mut agg = MultiDimAggregator::new();
+        agg.record_event("user1".into(), "a".into(), "c".into(), 100.0, 0);
+        agg.record_event("user2".into(), "a".into(), "c".into(), 300.0, 0);
+        agg.record_event("user3".into(), "a".into(), "c".into(), 200.0, 0);
+        agg.record_event("user4".into(), "b".into(), "c".into(), 50.0, 0);
+
+        let top_users = agg.top_k_users_by_revenue(2);
+        assert_eq!(top_users[0].0, "user2");
+        assert_eq!(top_users[0].1.sum, 300.0);
+
+        let top_products = agg.top_k_products_by_count(1);
+        assert_eq!(top_products[0].0, "a");
+        assert_eq!(top_products[0].1.count, 3);
+    }
+
+    #[test]
+    fn test_concurrent_recording() {
+        let analytics = Arc::new(ConcurrentAnalytics::new());
+        let mut handles = vec![];
+
+        for thread_id in 0..4 {
+            let analytics_clone = Arc::clone(&analytics);
+            let handle = thread::spawn(move || {
+                for _ in 0..1000 {
+                    analytics_clone.record_event(
+                        format!("user{}", thread_id),
+                        "product".into(),
+                        "category".into(),
+                        10.0,
+                        0,
+                    );
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let snapshot = analytics.snapshot();
+        assert_eq!(snapshot.by_product.get("product").unwrap().count, 4000);
+    }
+
+    #[test]
+    fn test_concurrent_unique_users() {
+        let analytics = Arc::new(ConcurrentAnalytics::new());
+        let mut handles = vec![];
+
+        for thread_id in 0..8 {
+            let analytics_clone = Arc::clone(&analytics);
+            let handle = thread::spawn(move || {
+                analytics_clone.record_event(
+                    format!("user{}", thread_id),
+                    "p".into(),
+                    "c".into(),
+                    100.0,
+                    0,
+                );
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let snapshot = analytics.snapshot();
+        assert_eq!(snapshot.by_user.len(), 8);
+    }
+}
+
+```
