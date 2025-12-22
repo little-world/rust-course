@@ -2,7 +2,7 @@
 
 ### Problem Statement
 
-Build a string interning system that stores unique strings once and reuses them. This demonstrates Clone-on-Write (Cow) patterns and zero-copy optimization.
+Build a string interning system that stores unique strings once and reuses them. This demonstrates Clone-on-Write (Cow) patterns, zero-copy optimization, and a critical Rust pattern: escaping the borrow checker with raw pointers.
 
 ---
 
@@ -27,7 +27,6 @@ let name1 = interner.intern("Alice");  // Allocation #1
 let name2 = interner.intern("Alice");  // Reuse! No allocation
 let name3 = interner.intern("Alice");  // Reuse! No allocation
 // Memory used: 1 allocation, 5 bytes, plus 3 pointers (24 bytes total on 64-bit)
-// But pointers are often stack-allocated, so effective memory = 5 bytes!
 ```
 
 ### Core Concepts
@@ -75,7 +74,7 @@ let s1 = interner.intern("hello");  // New: stores "hello"
 let s2 = interner.intern("world");  // New: stores "world"
 let s3 = interner.intern("hello");  // Duplicate: returns existing "hello"
 
-assert!(s1.as_ptr() == s3.as_ptr());  // Same memory address!
+// s1 and s3 point to the same memory!
 ```
 
 ---
@@ -116,6 +115,203 @@ assert(s1 is s2)  # True - Python interns short strings automatically
 ## Rust Programming Concepts for This Project
 
 This project requires understanding several Rust-specific concepts related to smart pointers, borrowing patterns, and type system features. These concepts enable building memory-efficient systems with zero-cost abstractions.
+
+### The Borrow Checker Problem with String Interning
+
+Before we dive into the implementation, let's understand a critical challenge that makes string interning tricky in Rust.
+
+**The Naive Approach (Doesn't Work):**
+
+```rust
+impl StringInterner {
+    fn intern(&mut self, s: &str) -> &str {
+        // Returns a reference tied to &mut self
+        self.strings.get(s).unwrap()
+    }
+}
+
+fn main() {
+    let mut interner = StringInterner::new();
+
+    let s1 = interner.intern("hello");  // Borrows interner mutably
+    let s2 = interner.intern("hello");  // ❌ ERROR: interner already borrowed!
+
+    // Can't even compare them!
+    if s1 == s2 { }  // Still borrowing
+}
+```
+
+**Why Does This Fail?**
+
+The signature `fn intern(&mut self, s: &str) -> &str` means:
+- The returned `&str` borrows from `self`
+- As long as `s1` exists, `interner` is borrowed
+- You cannot call `intern()` again while `s1` is alive
+
+This is the borrow checker doing its job—preventing data races and dangling references. But it makes string interning practically useless!
+
+**The Solution: Raw Pointers**
+
+```rust
+let s1 = interner.intern("hello") as *const str;
+let s2 = interner.intern("hello") as *const str;
+
+// Now both calls work!
+assert!(std::ptr::eq(s1, s2));  // Same pointer!
+```
+
+By casting to `*const str`, we:
+1. Convert the borrowed `&str` to a raw pointer
+2. The borrow ends at the end of the statement
+3. We can call `intern()` again immediately
+
+---
+
+### Understanding `*const str`: Raw Pointers to String Slices
+
+A raw pointer `*const str` is Rust's "escape hatch" from the borrow checker. Let's understand what it is and why we need it.
+
+**What is `*const str`?**
+
+```rust
+// &str is a "fat pointer": pointer + length
+// *const str is also a "fat pointer": pointer + length, but without borrow tracking
+
+let s: &str = "hello";           // Borrowed reference with lifetime
+let ptr: *const str = s;         // Raw pointer, no lifetime tracking
+
+// Or explicitly cast:
+let ptr: *const str = s as *const str;
+```
+
+**Memory Layout:**
+
+```
+&str (borrowed reference):
+┌──────────────────────┬──────────────┐
+│ pointer (8 bytes)    │ len (8 bytes)│ + lifetime tracking by compiler
+└──────────────────────┴──────────────┘
+
+*const str (raw pointer):
+┌──────────────────────┬──────────────┐
+│ pointer (8 bytes)    │ len (8 bytes)│  NO lifetime tracking
+└──────────────────────┴──────────────┘
+```
+
+**Key Properties of `*const str`:**
+
+| Property | `&str` | `*const str` |
+|----------|--------|--------------|
+| Lifetime tracking | Yes (compile-time) | No |
+| Borrow checking | Yes | No |
+| Copy | Yes | Yes |
+| Null possible | No | Yes |
+| Dereferencing | Safe | Unsafe |
+| Size | 16 bytes | 16 bytes |
+
+**Why `*const str` Solves Our Problem:**
+
+```rust
+fn intern(&mut self, s: &str) -> &str {
+    // Returns &str tied to &mut self
+    self.strings.get(s).unwrap()
+}
+
+// Without casting - DOESN'T COMPILE:
+let s1 = interner.intern("hello");     // Borrow starts
+let s2 = interner.intern("hello");     // ❌ Can't borrow again!
+//       ^^^^^^^^ still borrowed here
+
+// With casting - WORKS:
+let s1 = interner.intern("hello") as *const str;  // Borrow ends at semicolon
+let s2 = interner.intern("hello") as *const str;  // New borrow, no conflict
+// Both s1 and s2 are now *const str - the borrow checker ignores them
+```
+
+**The Conversion Flow:**
+
+```rust
+interner.intern("hello")     // Step 1: Returns &str (borrows interner)
+    as *const str            // Step 2: Convert to raw pointer
+;                            // Step 3: Borrow ends here!
+
+// Next line: interner is no longer borrowed
+```
+
+---
+
+### Safety Considerations for `*const str`
+
+Converting to `*const str` is **not unsafe** (the conversion itself is safe). However, **using** the raw pointer requires care:
+
+**Safe Operations (no `unsafe` needed):**
+
+```rust
+let s1 = interner.intern("hello") as *const str;
+let s2 = interner.intern("hello") as *const str;
+
+// Pointer comparison - SAFE
+assert!(std::ptr::eq(s1, s2));
+
+// Checking for null - SAFE
+assert!(!s1.is_null());
+
+// Storing in a Vec - SAFE
+let mut pointers: Vec<*const str> = vec![s1, s2];
+```
+
+**Unsafe Operations (require `unsafe` block):**
+
+```rust
+let ptr = interner.intern("hello") as *const str;
+
+// Dereferencing - UNSAFE
+unsafe {
+    let s: &str = &*ptr;  // Convert back to reference
+    println!("{}", s);
+}
+```
+
+**When is Dereferencing Safe?**
+
+The pointer is valid as long as:
+1. The interner hasn't been dropped
+2. The interner hasn't reallocated (for Vec-based storage)
+3. The string hasn't been removed from the interner
+
+```rust
+// SAFE: Interner still exists, no reallocation
+let ptr = interner.intern("hello") as *const str;
+unsafe { println!("{}", &*ptr); }  // ✅ OK
+
+// DANGEROUS: Interner dropped
+let ptr = interner.intern("hello") as *const str;
+drop(interner);
+unsafe { println!("{}", &*ptr); }  // ❌ UNDEFINED BEHAVIOR!
+
+// DANGEROUS: Potential reallocation (for Vec-based storage)
+let ptr = interner.intern("hello") as *const str;
+for i in 0..1000 {
+    interner.intern(&format!("string{}", i));  // May reallocate!
+}
+unsafe { println!("{}", &*ptr); }  // ❌ MIGHT BE DANGLING!
+```
+
+**HashSet-Based Storage is Safer:**
+
+Using `HashSet<Box<str>>` instead of `Vec<String>` is safer because:
+- Each string is in its own heap allocation (`Box<str>`)
+- Strings don't move when the HashSet grows
+- Only the bucket pointers move, not the strings themselves
+
+```rust
+// HashSet<Box<str>> - strings are stable
+let ptr = interner.intern("hello") as *const str;
+interner.intern("world");  // HashSet grows, but "hello" doesn't move
+unsafe { println!("{}", &*ptr); }  // ✅ Still safe!
+```
+
+---
 
 ### Cow: Clone-on-Write Smart Pointer
 
@@ -184,38 +380,6 @@ For strings, this becomes:
    let cow = Cow::Borrowed("test");
    let owned = cow.into_owned();  // Allocates String only now
    ```
-
-**Common Cow Methods**:
-
-```rust
-impl<'a, B> Cow<'a, B> where B: ToOwned {
-    // Convert to owned variant (may allocate)
-    pub fn into_owned(self) -> <B as ToOwned>::Owned;
-
-    // Get mutable reference (may allocate)
-    pub fn to_mut(&mut self) -> &mut <B as ToOwned>::Owned;
-
-    // Check if borrowed
-    pub fn is_borrowed(&self) -> bool;
-
-    // Check if owned
-    pub fn is_owned(&self) -> bool;
-}
-```
-
-**Pattern Matching on Cow**:
-
-```rust
-match cow {
-    Cow::Borrowed(s) => println!("Zero-copy: {}", s),
-    Cow::Owned(s) => println!("Allocated: {}", s),
-}
-
-// Or use if let
-if let Cow::Owned(ref s) = cow {
-    println!("This was allocated: {}", s);
-}
-```
 
 **Performance Impact**:
 
@@ -319,24 +483,6 @@ let b: Box<str> = Box::from("hello");
 let s: String = b.into();
 ```
 
-**When to Use Each**:
-
-✅ **Use `&str` when**:
-- Temporary references
-- Function parameters
-- Slicing existing strings
-
-✅ **Use `String` when**:
-- Building strings incrementally (`push`, `push_str`)
-- Modifying strings (`replace`, `insert`)
-- Unknown final size
-
-✅ **Use `Box<str>` when**:
-- Fixed, immutable strings
-- String interning (this project!)
-- Minimizing memory footprint
-- Storage in collections where size matters
-
 ---
 
 ### HashSet and Hashing: Fast Lookup Data Structure
@@ -436,70 +582,11 @@ The lifetime magic:
 - Returned `&str` has the lifetime of `&self`
 - The string lives in the `HashSet`, so it outlives the input
 
-**Hash Trait Requirements**:
-
-For `HashSet<T>`, type `T` must implement:
-- `Hash` - can be hashed to a number
-- `Eq` - can be compared for equality
-
-```rust
-// String types implement these automatically:
-impl Hash for str { /* ... */ }
-impl Hash for String { /* ... */ }
-impl<T: Hash> Hash for Box<T> { /* ... */ }
-
-// Your custom types need manual impl or derive:
-#[derive(Hash, Eq, PartialEq)]
-struct Symbol {
-    index: usize,
-    generation: u32,
-}
-```
-
-**HashSet Performance**:
-
-| Operation | Average Case | Worst Case |
-|-----------|--------------|------------|
-| Insert | O(1) | O(n) |
-| Lookup | O(1) | O(n) |
-| Remove | O(1) | O(n) |
-
-Worst case happens with hash collisions (rare with good hash function).
-
-**HashSet vs Vec for String Interning**:
-
-```rust
-// Vec approach (linear search - O(n))
-fn intern_vec(&mut self, s: &str) -> &str {
-    for existing in &self.strings {
-        if existing.as_ref() == s {
-            return existing;  // Found! But took O(n) time
-        }
-    }
-    // Not found, add it
-    self.strings.push(Box::from(s));
-    self.strings.last().unwrap()
-}
-
-// HashSet approach (hash lookup - O(1))
-fn intern_hashset(&mut self, s: &str) -> &str {
-    if !self.strings.contains(s) {  // O(1)
-        self.strings.insert(Box::from(s));
-    }
-    self.strings.get(s).unwrap()  // O(1)
-}
-```
-
-For 1,000 strings:
-- Vec: Average 500 comparisons per lookup = **500n string comparisons**
-- HashSet: 1 hash + ~1 comparison = **~n operations total**
-- **Speedup: 500x faster!**
-
 ---
 
 ### Generational Indices: Safe Handles Without Lifetimes
 
-**The Problem**: References (`&str`) carry lifetime annotations that infect everything:
+**The Problem**: Raw pointers (`*const str`) work, but they're inherently unsafe. References (`&str`) carry lifetime annotations that infect everything:
 
 ```rust
 struct Compiler<'intern> {
@@ -567,348 +654,23 @@ assert_eq!(interner.resolve(sym1), None);  // Still gen=0
 assert_eq!(interner.resolve(sym2), Some("world"));  // gen=1 matches
 ```
 
-**Why Generations Prevent Bugs**:
+**Benefits Over Raw Pointers**:
 
-Without generations:
-```rust
-let sym1 = interner.intern("hello");  // Symbol{index: 0}
-interner.remove(sym1);
-let sym2 = interner.intern("world");  // Reuses index 0
-
-// BUG: sym1 now resolves to "world"!
-assert_eq!(interner.resolve(sym1), Some("world"));  // ❌ WRONG!
-```
-
-With generations:
-```rust
-let sym1 = interner.intern("hello");  // Symbol{index: 0, gen: 0}
-interner.remove(sym1);                 // Slot becomes gen 1
-let sym2 = interner.intern("world");  // Symbol{index: 0, gen: 1}
-
-// sym1 is stale → safely returns None
-assert_eq!(interner.resolve(sym1), None);  // ✅ Detected stale!
-```
-
-**Benefits Over References**:
-
-| Aspect | `&'a str` | `Symbol` |
-|--------|-----------|----------|
-| **Lifetime annotations** | Required everywhere | None (Copy, 'static) |
-| **Struct storage** | Infects struct with `'a` | Clean, no lifetimes |
+| Aspect | `*const str` | `Symbol` |
+|--------|--------------|----------|
+| **Safety** | Unsafe to dereference | Safe (generation check) |
+| **Dangling detection** | None (UB risk) | Returns `None` for stale |
+| **Lifetime annotations** | None | None |
 | **Serialization** | Impossible | Easy (just two numbers) |
-| **Threading** | Complex lifetime bounds | Simple (Send + Sync) |
-| **Flexibility** | Limited by borrow checker | Store anywhere |
-| **Safety** | Compile-time | Runtime (generation check) |
+| **Threading** | Dangerous | Simple (Send + Sync) |
 | **Speed** | Direct pointer (~1ns) | Indirect lookup (~3ns) |
-| **Size** | 8 bytes | 12 bytes |
-
-**When to Use Generational Indices**:
-
-✅ **Use generational indices when**:
-- Building complex data structures (graphs, trees)
-- Need to store handles in multiple places
-- Want to serialize/deserialize
-- Working with concurrent code
-- Lifetimes become too complex
-
-❌ **Use references when**:
-- Simple, short-lived usage
-- Performance-critical tight loops
-- Borrow checker isn't a burden
-
-**Implementation Pattern**:
-
-```rust
-struct Slot<T> {
-    data: Option<T>,
-    generation: u32,
-}
-
-struct Arena<T> {
-    slots: Vec<Slot<T>>,
-    free_list: Vec<usize>,
-}
-
-impl<T> Arena<T> {
-    fn insert(&mut self, value: T) -> Handle {
-        let index = if let Some(index) = self.free_list.pop() {
-            let slot = &mut self.slots[index];
-            slot.generation += 1;  // Increment on reuse
-            slot.data = Some(value);
-            index
-        } else {
-            let index = self.slots.len();
-            self.slots.push(Slot {
-                data: Some(value),
-                generation: 0,
-            });
-            index
-        };
-
-        Handle {
-            index,
-            generation: self.slots[index].generation,
-        }
-    }
-
-    fn get(&self, handle: Handle) -> Option<&T> {
-        self.slots.get(handle.index).and_then(|slot| {
-            if slot.generation == handle.generation {
-                slot.data.as_ref()
-            } else {
-                None  // Stale handle
-            }
-        })
-    }
-}
-```
+| **Size** | 16 bytes | 12 bytes |
 
 ---
 
-### Option Type: Safe Null Handling
+## Build the Project
 
-Rust doesn't have null. Instead, it uses `Option<T>` to represent "might not have a value."
-
-**The Option Enum**:
-
-```rust
-pub enum Option<T> {
-    Some(T),  // Has a value
-    None,     // No value
-}
-```
-
-**Why No Null?**
-
-In languages with null:
-```java
-String s = getString();  // Might return null
-int len = s.length();    // ❌ NullPointerException!
-```
-
-In Rust:
-```rust
-let s: Option<String> = get_string();  // Explicit!
-let len = s.length();  // ❌ Compile error: Option has no length method
-
-// Must explicitly handle None case:
-let len = s.unwrap().len();  // Panics if None
-let len = s.expect("no string").len();  // Panics with message
-let len = s?.len();  // Returns early if None
-match s {
-    Some(str) => str.len(),
-    None => 0,  // Handle explicitly
-}
-```
-
-**Common Option Methods**:
-
-```rust
-let opt: Option<i32> = Some(42);
-
-// Extract value (panics if None)
-opt.unwrap();  // 42
-
-// Extract or provide default
-opt.unwrap_or(0);  // 42
-opt.unwrap_or_else(|| expensive_default());
-
-// Check if Some or None
-opt.is_some();  // true
-opt.is_none();  // false
-
-// Transform the value inside
-opt.map(|x| x * 2);  // Some(84)
-
-// Chain operations
-opt.and_then(|x| Some(x * 2));  // Some(84)
-
-// Pattern matching
-match opt {
-    Some(val) => println!("{}", val),
-    None => println!("nothing"),
-}
-```
-
-**Using Option in String Interning**:
-
-```rust
-fn resolve(&self, symbol: Symbol) -> Option<&str> {
-    // Get the slot (might not exist)
-    let slot = self.slots.get(symbol.index)?;  // Return None if out of bounds
-
-    // Check generation matches
-    if slot.generation != symbol.generation {
-        return None;  // Stale symbol
-    }
-
-    // Return the string (might be None if slot freed)
-    slot.string.as_ref().map(|s| s.as_ref())
-}
-```
-
-**Option Combinators for Chaining**:
-
-```rust
-// Without combinators (verbose)
-fn resolve(&self, symbol: Symbol) -> Option<&str> {
-    if let Some(slot) = self.slots.get(symbol.index) {
-        if slot.generation == symbol.generation {
-            if let Some(string) = &slot.string {
-                return Some(string.as_ref());
-            }
-        }
-    }
-    None
-}
-
-// With combinators (concise)
-fn resolve(&self, symbol: Symbol) -> Option<&str> {
-    self.slots
-        .get(symbol.index)
-        .filter(|slot| slot.generation == symbol.generation)
-        .and_then(|slot| slot.string.as_ref().map(|s| s.as_ref()))
-}
-```
-
----
-
-### Copy Trait: Understanding Value Semantics
-
-**The Copy Trait**:
-
-```rust
-pub trait Copy: Clone { }
-```
-
-Types that implement `Copy` are duplicated on assignment:
-
-```rust
-// i32 is Copy
-let x = 42;
-let y = x;  // x is copied to y
-println!("{}", x);  // ✅ x still valid
-
-// String is NOT Copy
-let s1 = String::from("hello");
-let s2 = s1;  // s1 is moved to s2
-println!("{}", s1);  // ❌ Error: s1 was moved
-```
-
-**Copy Requirements**:
-
-A type can be `Copy` only if:
-1. All fields are `Copy`
-2. No custom `Drop` implementation (no cleanup needed)
-3. It's safe to duplicate by just copying bits
-
-**Copy Types in This Project**:
-
-```rust
-// Symbol is Copy (all fields are Copy)
-#[derive(Copy, Clone)]
-struct Symbol {
-    index: usize,     // Copy
-    generation: u32,  // Copy
-}
-
-// Can freely duplicate
-let sym1 = Symbol { index: 0, generation: 0 };
-let sym2 = sym1;  // Copied
-let sym3 = sym1;  // Can use sym1 again!
-```
-
-**Why Symbol Needs Copy**:
-
-```rust
-// With Copy
-let sym = interner.intern("hello");
-identifiers.push(sym);  // Copied
-keywords.insert(sym);   // Can still use sym!
-write_to_file(sym);     // Can still use sym!
-
-// Without Copy (if Symbol contained String)
-let sym = interner.intern("hello");
-identifiers.push(sym);  // Moved!
-// Can't use sym anymore ❌
-```
-
-**Copy vs Clone**:
-
-- **Copy**: Implicit, done on assignment, cheap (just copy bits)
-- **Clone**: Explicit, must call `.clone()`, might be expensive
-
-```rust
-// Copy (implicit)
-let x = 42;
-let y = x;  // Automatic copy
-
-// Clone (explicit)
-let s1 = String::from("hello");
-let s2 = s1.clone();  // Must explicitly clone
-```
-
----
-
-### 'static Lifetime: Global and Owned Data
-
-The `'static` lifetime is special. It means "lives for the entire program duration."
-
-**Two Meanings of 'static**:
-
-1. **String literals and constants**:
-   ```rust
-   let s: &'static str = "hello";  // Lives in program binary
-   static MAX: i32 = 100;          // Lives forever
-   ```
-
-2. **No borrowed data** (owned or Copy types):
-   ```rust
-   // Symbol is 'static because it's Copy (no references)
-   fn store(sym: Symbol) {
-       GLOBAL.lock().unwrap().push(sym);  // OK!
-   }
-
-   // &str is NOT 'static (has lifetime 'a)
-   fn store<'a>(s: &'a str) {
-       GLOBAL.lock().unwrap().push(s);  // ❌ Won't compile
-   }
-   ```
-
-**Why Symbol is 'static**:
-
-```rust
-#[derive(Copy)]
-struct Symbol {
-    index: usize,
-    generation: u32,
-}
-// No references = no lifetime = automatically 'static
-```
-
-This means Symbol can:
-- Be stored in global variables
-- Be sent across threads freely
-- Outlive any particular scope
-- Be returned from any function without lifetime annotations
-
-**Contrast with References**:
-
-```rust
-// Reference approach
-fn intern<'a>(&'a mut self, s: &str) -> &'a str;
-// Returns reference with lifetime 'a
-
-// Symbol approach
-fn intern(&mut self, s: &str) -> Symbol;
-// Returns Copy value with 'static lifetime
-```
-
----
-
-### Connection to This Project
-
-In this project, you're building a **string interning system**,
+In this project, you're building a **string interning system**:
 
 1. **Intrinsic State**: The string content itself (shared)
 2. **Extrinsic State**: Where the string is used (not stored in interner)
@@ -918,17 +680,19 @@ In this project, you're building a **string interning system**,
 **What You'll Build:**
 ```rust
 pub struct StringInterner {
-    pool: HashSet<String>,  // The flyweight pool for strings
+    pool: HashSet<Box<str>>,  // The flyweight pool for strings
 }
 
 impl StringInterner {
-    pub fn intern<'a>(&'a mut self, s: &str) -> Cow<'a, str> {
-        // Flyweight factory pattern:
-        // - Check if string exists (lookup intrinsic state)
-        // - If yes: return reference (reuse flyweight)
-        // - If no: store and return reference (create flyweight)
+    pub fn intern(&mut self, s: &str) -> &str {
+        // Store if new, return reference to stored string
     }
 }
+
+// Usage with raw pointers to escape borrow checker:
+let s1 = interner.intern("hello") as *const str;
+let s2 = interner.intern("hello") as *const str;
+assert!(std::ptr::eq(s1, s2));  // Same pointer!
 ```
 
 
@@ -938,12 +702,8 @@ impl StringInterner {
 3. **Hashing**: Hash once, reuse hash value (important for HashMaps)
 4. **Cache**: Fewer unique strings = better cache locality
 
-**Cow Pattern Benefits**:
-- **Zero-copy**: If string already interned, return borrowed reference (no allocation)
-- **Lazy allocation**: Only allocate when necessary
-- **API clarity**: Caller knows if allocation happened by checking `Cow` variant
-
 ---
+
 
 ### Milestone 1: Understand Cow Basics
 
@@ -1054,15 +814,45 @@ fn test_escape_with_html() {
 
 ---
 
-### Milestone 2: Basic String Interner
+### Milestone 2: Basic String Interner with Raw Pointers
 
-Implement a string interner that stores each unique string once and returns references to deduplicated storage.
+Implement a string interner that stores each unique string once. Because `intern()` returns `&str` tied to `&mut self`, we must convert to `*const str` to use multiple interned strings together.
 
-Now that we understand `Cow` for conditional allocation, let's tackle a bigger problem: **string duplication across your entire program**. String interning is a powerful technique that trades lookup time for dramatic memory savings.
+**The Core Problem: Borrow Checker vs Practical Usage**
 
-1. **Unique strings stored once**: First occurrence allocates and stores
-2. **Duplicates return references**: Subsequent occurrences return pointer to existing storage
-3. **Pointer equality works**: Can compare strings with `ptr::eq()` instead of `strcmp()`
+```rust
+// This is what we want to write:
+let s1 = interner.intern("hello");
+let s2 = interner.intern("hello");
+assert!(std::ptr::eq(s1, s2));  // Compare pointers
+
+// But this DOESN'T COMPILE because:
+// - intern() takes &mut self
+// - Returns &str tied to that borrow
+// - Can't call intern() again while s1 exists!
+```
+
+**The Solution: Cast to `*const str`**
+
+```rust
+// This WORKS:
+let s1 = interner.intern("hello") as *const str;
+let s2 = interner.intern("hello") as *const str;
+assert!(std::ptr::eq(s1, s2));  // ✅ Compiles and works!
+```
+
+**Why Does This Work?**
+
+```rust
+interner.intern("hello")  // Returns &str, borrows &mut self
+    as *const str         // Converts to raw pointer (Copy, no borrow tracking)
+;                         // Borrow of interner ENDS here
+
+// Now interner is free to be borrowed again!
+interner.intern("hello") as *const str;  // New borrow, no conflict
+```
+
+The key insight: `as *const str` "forgets" the borrow. The raw pointer is `Copy` and has no lifetime parameter, so the compiler stops tracking it.
 
 **Architecture**:
 
@@ -1097,31 +887,42 @@ fn intern(&mut self, s: &str) -> &str {
 
 **Key Insight**: `HashSet::get()` returns a reference to the **stored value**, not the input! This is how we return `&str` with a longer lifetime.
 
-**Lifetime Magic**:
-
-Notice the signature: `fn intern(&mut self, s: &str) -> &str`
-
-The returned `&str` is **not** tied to the input `s`—it's tied to `&mut self`! The string lives in the `HashSet`, so it lives as long as the interner.
+**Using Raw Pointers Safely**:
 
 ```rust
-let interner = StringInterner::new();
-let interned: &str = interner.intern("hello");
-// `interned` lives as long as `interner`, not the string literal
-```
+let mut interner = StringInterner::new();
 
-**Pointer Equality Optimization**:
+// Convert to *const str immediately to escape the borrow
+let s1 = interner.intern("hello") as *const str;
+let s2 = interner.intern("hello") as *const str;
 
-With interning, you can compare strings by pointer:
-
-```rust
-let s1 = interner.intern("hello");
-let s2 = interner.intern("hello");
-
-// Fast pointer comparison (1 CPU cycle)
+// Pointer comparison is SAFE (no dereferencing)
 assert!(std::ptr::eq(s1, s2));
 
-// Slow string comparison (N cycles, where N = string length)
-// assert_eq!(s1, s2);  // Not needed anymore!
+// To actually USE the string, you need unsafe:
+unsafe {
+    let str1: &str = &*s1;  // Dereference raw pointer
+    println!("{}", str1);
+}
+```
+
+**When is the Raw Pointer Valid?**
+
+The `*const str` is valid as long as:
+1. The `StringInterner` hasn't been dropped
+2. The string hasn't been removed from the interner
+3. (With HashSet<Box<str>>, individual strings don't move even if HashSet grows)
+
+```rust
+// ✅ SAFE: Interner still exists
+let ptr = interner.intern("hello") as *const str;
+interner.intern("world");  // HashSet may grow, but "hello" doesn't move
+unsafe { println!("{}", &*ptr); }  // Still valid!
+
+// ❌ UNSAFE: Interner dropped
+let ptr = interner.intern("hello") as *const str;
+drop(interner);
+unsafe { println!("{}", &*ptr); }  // UNDEFINED BEHAVIOR!
 ```
 
 **Starter Code**:
@@ -1169,8 +970,9 @@ impl StringInterner {
 fn test_intern_basic() {
     let mut interner = StringInterner::new();
 
-    let s1 = interner.intern("hello");
-    let s2 = interner.intern("hello");
+    // Must cast to *const str to escape borrow checker!
+    let s1 = interner.intern("hello") as *const str;
+    let s2 = interner.intern("hello") as *const str;
 
     // Should be same pointer (no second allocation)
     assert!(std::ptr::eq(s1, s2));
@@ -1181,8 +983,8 @@ fn test_intern_basic() {
 fn test_intern_different() {
     let mut interner = StringInterner::new();
 
-    let s1 = interner.intern("hello");
-    let s2 = interner.intern("world");
+    let s1 = interner.intern("hello") as *const str;
+    let s2 = interner.intern("world") as *const str;
 
     assert!(!std::ptr::eq(s1, s2));
     assert_eq!(interner.len(), 2);
@@ -1205,130 +1007,47 @@ fn test_total_bytes() {
 
     assert_eq!(interner.total_bytes(), 7);
 }
+
+#[test]
+fn test_pointer_stability() {
+    let mut interner = StringInterner::new();
+
+    // Get pointer to first string
+    let ptr1 = interner.intern("first") as *const str;
+
+    // Add many more strings (may cause HashSet to resize)
+    for i in 0..100 {
+        interner.intern(&format!("string{}", i));
+    }
+
+    // Original pointer should still be valid (Box<str> doesn't move)
+    let ptr1_again = interner.intern("first") as *const str;
+    assert!(std::ptr::eq(ptr1, ptr1_again));
+}
 ```
 
 **Check Your Understanding**:
 - Why do we use `Box<str>` instead of `String`?
-- Why can we return `&str` from intern even though it takes `&mut self`?
+- Why must we cast to `*const str` after calling `intern()`?
 - What makes the pointers equal for the same string?
+- When is it safe to dereference the raw pointer?
 
 ---
 
-### Milestone 3: Add Cow-based API
+### Milestone 3: Add Statistics Tracking
 
- Combine the `Cow` pattern from Milestone 1 with the interner from Milestone 2 to create an API that communicates allocation status.
+Add comprehensive statistics to measure interner effectiveness and understand allocation patterns.
 
-
-In Milestone 1, we learned that `Cow` communicates **"did we allocate or not?"** to the caller. In Milestone 2, we built an interner but lost that information—`intern()` always returns `&str`, hiding whether allocation happened.
-
-
-**The Problem with `intern()`**:
-
-```rust
-let s1 = interner.intern("hello");  // First time - allocates
-let s2 = interner.intern("hello");  // Already there - no allocation
-```
-
-Both calls return `&str`, so the caller can't tell which one allocated. 
-
-**The Solution: `get_or_intern()`**:
-
-```rust
-fn get_or_intern(&mut self, s: &str) -> Cow<str> {
-    if self.contains(s) {
-        Cow::Borrowed(self.strings.get(s).unwrap())  // Already there
-    } else {
-        self.strings.insert(Box::from(s));
-        Cow::Borrowed(self.strings.get(s).unwrap())  // Just inserted
-    }
-}
-```
-
-**Why always `Cow::Borrowed`?**
-
-You might expect:
-```rust
-// Intuitive but WRONG approach
-fn get_or_intern(&mut self, s: &str) -> Cow<str> {
-    if self.contains(s) {
-        Cow::Borrowed(self.strings.get(s).unwrap())
-    } else {
-        Cow::Owned(s.to_string())  // ❌ Wrong!
-    }
-}
-```
-**Why this is wrong**: The interner's job is to **store and return references to stored strings**. If we return `Cow::Owned(String)`, the string isn't in the interner. It's owned by the caller! That defeats the purpose.
-
-**The Correct Pattern**:
-
-Actually, for a string interner, `get_or_intern()` should **always** return `Cow::Borrowed` because:
-1. Already interned → borrow from HashSet
-2. Not interned → insert, then borrow from HashSet
-
-The `Cow` variant isn't the right way to communicate allocation here (it's always `Borrowed`). In the next milestone, we'll add explicit statistics tracking instead.
-
-
-**Key Takeaway**:
-This milestone illustrates that **`Cow` isn't always the right tool**. It's perfect for "maybe modify the input" but awkward for "maybe store the input." This prepares you for Milestone 4's better solution: explicit statistics tracking.
-
-**Starter Code**:
-```rust
-impl StringInterner {
-    fn get_or_intern(&mut self, s: &str) -> Cow<str> {
-        // TODO: Check if string is already interned
-        if todo!("self.contains(s)") {
-            // TODO: Return Cow::Borrowed with reference from HashSet
-        } else {
-            // TODO: Insert the string into HashSet
-            // TODO: Return Cow::Borrowed with reference to newly inserted string
-        }
-    }
-}
-```
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_cow_already_interned() {
-    let mut interner = StringInterner::new();
-    interner.intern("hello");
-
-    let result = interner.get_or_intern("hello");
-    assert!(matches!(result, Cow::Borrowed(_)));
-}
-
-#[test]
-fn test_cow_new_string() {
-    let mut interner = StringInterner::new();
-
-    let result = interner.get_or_intern("hello");
-    // First time still returns Borrowed after interning
-    assert!(matches!(result, Cow::Borrowed(_)));
-    assert_eq!(interner.len(), 1);
-}
-```
-
-**Check Your Understanding**:
-- Why does `get_or_intern` always return `Cow::Borrowed`?
-- When would it return `Cow::Owned`?
-- How does this API communicate whether allocation happened?
-
----
-
-### Milestone 4: Add Statistics Tracking
- Add comprehensive statistics to measure interner effectiveness and understand allocation patterns.
-
-As we learned in Milestone 3, `Cow` isn't the ideal way to track string interner performance. What we really need is **aggregate statistics** that answer questions like:
+Since we're working with raw pointers, we can't easily communicate "did this allocate?" through the return type. Instead, we track **aggregate statistics**:
 
 - **Is the interner effective?** High hit rate (lookups/total) = good reuse!
 - **Should we use interning?** If allocation rate is too low, overhead might not be worth it
 - **Memory saved**: Compare `total_bytes` vs. `(allocations + lookups) × average_length`
-- **Performance tuning**: Identify which strings are duplicated most
 
 **Architecture**:
 
 **struct**:
-- `InternerStats` 
+- `InternerStats`
 
 ```rust
 struct InternerStats {
@@ -1357,18 +1076,18 @@ fn intern(&mut self, s: &str) -> &str {
 }
 ```
 
-**Production Monitoring**:
-
-**Why Track Both `total_strings` AND `allocations`?**
-They're usually equal, but might differ if you add a `clear()` or `remove()` method:
+**Hit Rate Calculation**:
 
 ```rust
-interner.intern("hello");  // allocations=1, total_strings=1
-interner.clear();          // allocations=1, total_strings=0 (cleared!)
-interner.intern("world");  // allocations=2, total_strings=1
+impl InternerStats {
+    fn hit_rate(&self) -> f64 {
+        let total = self.allocations + self.lookups;
+        if total == 0 { 0.0 } else { self.lookups as f64 / total as f64 }
+    }
+}
 ```
 
-`allocations` is the **lifetime total**, `total_strings` is the **current count**.
+A hit rate of 0.9 (90%) means 90% of `intern()` calls found an existing string—great reuse!
 
 **Performance Cost of Statistics**:
 
@@ -1381,12 +1100,17 @@ The cost is negligible compared to the HashSet lookup (~50ns)
 
 **Starter Code**:
 ```rust
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 struct InternerStats {
     total_strings: usize,
     total_bytes: usize,
     allocations: usize,  // How many times we allocated
     lookups: usize,      // How many times we just returned existing
+}
+
+struct StringInterner {
+    strings: HashSet<Box<str>>,
+    stats: InternerStats,
 }
 
 impl StringInterner {
@@ -1442,70 +1166,87 @@ fn test_stats_empty() {
     assert_eq!(stats.total_strings, 0);
     assert_eq!(stats.allocations, 0);
 }
+
+#[test]
+fn test_hit_rate() {
+    let mut interner = StringInterner::new();
+
+    interner.intern("a");  // alloc
+    interner.intern("a");  // lookup
+    interner.intern("a");  // lookup
+    interner.intern("b");  // alloc
+
+    let stats = interner.statistics();
+    // 2 lookups / 4 total = 50% hit rate
+    let hit_rate = stats.lookups as f64 / (stats.allocations + stats.lookups) as f64;
+    assert!((hit_rate - 0.5).abs() < 0.001);
+}
 ```
 
 **Check Your Understanding**:
 - Why track both allocations and lookups?
-- How does this help evaluate interner effectiveness?
+- How does hit rate help evaluate interner effectiveness?
 
 ---
 
-#### Why Milestone 4 Isn't Enough 
+### Why Raw Pointers Aren't Enough
 
-Our interner from Milestone 4 has a critical flaw: **lifetime hell**. Every interned string reference is tied to the interner's lifetime, making it nearly impossible to use in real applications.
+Our interner with raw pointers has some critical limitations:
 
-**The Lifetime Problem**:
-
+**1. Unsafe to Dereference**:
 ```rust
-struct Compiler<'intern> {
-    identifiers: Vec<&'intern str>,  // ❌ Lifetime everywhere!
-    interner: &'intern StringInterner,  // ❌ Must hold reference
-}
+let ptr = interner.intern("hello") as *const str;
 
-// Can't return identifiers without dragging 'intern lifetime along
-fn parse<'intern>(source: &str, interner: &'intern mut StringInterner)
-    -> Result<Vec<&'intern str>, Error> {  // ❌ Lifetime infected return type!
-    // ...
+// Every time you want to USE the string:
+let s: &str = unsafe { &*ptr };  // Unsafe block required!
+```
+
+**2. No Stale Detection**:
+```rust
+let ptr = interner.intern("hello") as *const str;
+drop(interner);  // Interner gone!
+
+// ptr is now dangling - no way to detect this!
+unsafe { println!("{}", &*ptr); }  // UNDEFINED BEHAVIOR
+```
+
+**3. Lifetime Not Tracked**:
+```rust
+// Compiler can't help you catch bugs:
+fn get_interned() -> *const str {
+    let interner = StringInterner::new();
+    interner.intern("hello") as *const str
+    // interner dropped here! Pointer is dangling!
 }
 ```
 
-**The pain gets worse**:
-- Can't store identifiers in one struct and interner in another
-- Can't serialize/deserialize (references can't be saved to disk)
-- Can't send between threads easily (lifetimes don't cross thread boundaries cleanly)
-- Can't build self-referential structures (compiler forbids them)
+**The Solution: Generational Indices**
 
-**What we're adding**: **Generational Indices** (AKA "slot map" pattern):
-- **Symbol** handle: `{index: usize, generation: u32}` - Copy, 'static
-- **Indirection**: Symbol → lookup in Vec → get string
-- **Stale detection**: Generation mismatch = invalid symbol
+Instead of raw pointers, use a `Symbol` handle with an index and generation:
 
-**Improvements**:
-- **Lifetime freedom**: Symbols are `Copy` + `'static`, store anywhere
-- **Safety**: Stale symbols return `None` (not dangling pointers)
-- **Memory reuse**: Freed slots recycled with incremented generation
-- **Cost**: Extra indirection (Vec lookup) ~2-3ns
+```rust
+#[derive(Copy, Clone, PartialEq)]
+struct Symbol {
+    index: usize,
+    generation: u32,
+}
+```
 
-**Comparison**:
-- `&'a str` approach: Zero runtime cost, lifetime complexity
-- `Symbol` approach: Small runtime cost, no lifetime complexity
-- **Choose Symbol when**: Need flexibility, store in multiple places, serialize/deserialize
-
-**Memory layout**:
-- Symbol: 12 bytes (8 byte index + 4 byte generation)
-- Reference: 8 bytes (just pointer)
-- Trade-off: 50% more memory per handle, but no lifetime constraints
+Benefits:
+- **Safe API**: No `unsafe` needed for normal usage
+- **Stale detection**: Generation mismatch → returns `None`
+- **Serializable**: Just two numbers, can save to disk
+- **Thread-safe**: `Copy`, no lifetime complexity
 
 ---
 
-### Milestone 5: Symbol-Based Access with Generational Indices
+### Milestone 4: Symbol-Based Access with Generational Indices
 
-Replace lifetime-bound references with `Copy` handles that work anywhere, using the generational index pattern to detect stale handles safely.
-
+Replace raw pointers with safe `Symbol` handles that detect stale references at runtime.
 
 **Architecture**:
 
-Instead of returning `&str` (with lifetime), return a `Symbol` handle (no lifetime):
+Instead of returning `&str` (which we cast to `*const str`), return a `Symbol` handle (no lifetime):
 
 ```rust
 #[derive(Copy, Clone, PartialEq)]
@@ -1528,13 +1269,6 @@ fn parse(source: &str, interner: &mut SymbolInterner) -> Result<Vec<Symbol>, Err
 }
 ```
 
-**What Are Generational Indices?**
-
-Generational indices (also called "slot maps" or "generational arena") solve two problems:
-
-1. **Stable handles**: Index stays valid even if other items are removed
-2. **Dangling detection**: Generation number catches stale references
-
 **The Core Idea**:
 
 ```rust
@@ -1552,7 +1286,7 @@ struct SymbolInterner {
 **How It Works**:
 
 1. **Allocate**: Find free slot (or create new one), store string, return `Symbol{index, generation}`
-2. **Resolve**: Look up `slots[index]`, check generation matches, return `&str` or `None`
+2. **Resolve**: Look up `slots[index]`, check generation matches, return `Option<&str>`
 3. **Remove**: Set `slots[index].string = None`, increment generation, add index to free list
 4. **Reuse**: Next allocation reuses freed slot with new generation number
 
@@ -1581,94 +1315,16 @@ assert_eq!(interner.resolve(sym2), Some("world"));
 assert_eq!(interner.resolve(sym1), None);  // Still stale!
 ```
 
-**Why Generations?**
+**Comparison: Raw Pointers vs Symbols**:
 
-Without generations, you'd have a classic "dangling pointer" bug:
-
-```rust
-// Without generations (BAD!)
-let sym1 = interner.intern("hello");  // Symbol{index: 0}
-interner.remove(sym1);
-let sym2 = interner.intern("world");  // Reuses slot 0
-
-// BUG: sym1 resolves to "world" instead of None!
-assert_eq!(interner.resolve(sym1), Some("world"));  // ❌ Wrong string!
-```
-
-With generations, stale symbols return `None` safely:
-
-```rust
-// With generations (GOOD!)
-let sym1 = interner.intern("hello");  // Symbol{index: 0, gen: 0}
-interner.remove(sym1);                 // Slot becomes {None, gen: 1}
-let sym2 = interner.intern("world");  // Symbol{index: 0, gen: 1}
-
-assert_eq!(interner.resolve(sym1), None);       // ✅ Detects stale!
-assert_eq!(interner.resolve(sym2), Some("world"));  // ✅ Correct!
-```
-
-**Memory Layout**:
-
-```
-SymbolInterner:
-  slots: [
-    Slot{string: Some("hello"), generation: 0},   // index 0
-    Slot{string: None, generation: 3},            // index 1 (freed 3 times)
-    Slot{string: Some("world"), generation: 0},   // index 2
-  ]
-  free_list: [1]  // Slot 1 is available for reuse
-```
-
-**Performance Trade-Offs**:
-
-| Aspect | `&str` Approach | `Symbol` Approach |
-|--------|----------------|-------------------|
-| **Resolve speed** | Direct pointer dereference (~1ns) | Vec lookup + generation check (~3ns) |
-| **Handle size** | 8 bytes (pointer) | 12 bytes (index + generation) |
-| **Lifetime complexity** | High (infects everything) | Zero (Copy, 'static) |
-| **Safety** | Compiler enforced | Runtime checks |
-| **Serialization** | Impossible | Easy (just two numbers) |
-| **Thread safety** | Complex (lifetime bounds) | Simple (Copy, Send, Sync) |
-
-**When to Use Which**:
-
-✅ **Use `Symbol` (generational index) when**:
-- Need to store in multiple places
-- Need to serialize/deserialize
-- Want to avoid lifetime annotations everywhere
-- Building complex data structures (graphs, trees)
-- Working with concurrent code
-
-✅ **Use `&str` (reference) when**:
-- Short-lived, local usage only
-- Performance-critical tight loop (avoid indirection)
-- Simple codebase where lifetimes aren't a burden
-
-
-**functions**:
-
-1. **`intern(s: &str) -> Symbol`**:
-    - Check if string already exists (linear search through slots)
-    - If found: return Symbol with that index/generation
-    - If not found:
-        - Try `free_list.pop()` for reusable slot
-        - Otherwise push new slot
-        - Return Symbol
-
-2. **`resolve(symbol: Symbol) -> Option<&str>`**:
-    - Look up `slots[symbol.index]`
-    - Check `slot.generation == symbol.generation`
-    - If match: return `Some(&string)`
-    - If mismatch: return `None` (stale)
-
-3. **`remove(symbol: Symbol)`**:
-    - Check generation matches
-    - Set `slot.string = None`
-    - Increment `slot.generation`
-    - Push index to `free_list`
-
-
-
+| Aspect | `*const str` | `Symbol` |
+|--------|--------------|----------|
+| **Safety** | Unsafe to dereference | Safe (returns `Option`) |
+| **Stale detection** | None (UB risk) | Generation check → `None` |
+| **Borrow checker** | Escaped | No borrows needed |
+| **Serialization** | Impossible | Easy (two numbers) |
+| **Resolve speed** | ~1ns (direct) | ~3ns (lookup) |
+| **Size** | 16 bytes | 12 bytes |
 
 **Starter Code**:
 ```rust
@@ -1735,7 +1391,10 @@ impl SymbolInterner {
     fn remove(&mut self, symbol: Symbol) {
         // TODO: Get mutable reference to slot at symbol.index
         // TODO: Check if generation matches
-        // TODO: If matches, set string to None and push index to free_list
+        // TODO: If matches:
+        //   - Set string to None
+        //   - Increment generation
+        //   - Push index to free_list
         todo!()
     }
 
@@ -1800,29 +1459,28 @@ fn test_generation_reuse() {
 }
 
 #[test]
-fn test_symbol_lifetime_safety() {
+fn test_symbol_is_copy() {
     let mut interner = SymbolInterner::new();
     let sym = interner.intern("test");
 
-    // Symbol can outlive the borrow of interner
-    drop(interner);
-
-    // This is safe - we just can't resolve it anymore
-    let _copy = sym;  // Symbol is Copy
+    // Symbol is Copy - can use it multiple times without moving
+    let sym_copy = sym;
+    assert_eq!(interner.resolve(sym), Some("test"));
+    assert_eq!(interner.resolve(sym_copy), Some("test"));
 }
 ```
 
 **Check Your Understanding**:
-- Why use symbols instead of direct string references?
+- Why use Symbols instead of raw pointers?
 - How do generational indices detect stale references?
 - What's the advantage of reusing slots with free_list?
 - Why is Symbol Copy but still safe?
 
 ---
 
-### Milestone 6: Performance Comparison
+### Milestone 5: Performance Comparison
 
-**Goal**: Measure the benefit of interning.
+**Goal**: Measure the benefit of interning vs raw allocation.
 
 **Benchmark Code**:
 ```rust
@@ -1843,6 +1501,8 @@ fn benchmark_with_interner() {
     let stats = interner.statistics();
     println!("With interner: {:?}", duration);
     println!("Stats: {:?}", stats);
+    println!("Hit rate: {:.1}%",
+        stats.lookups as f64 / (stats.allocations + stats.lookups) as f64 * 100.0);
 }
 
 fn benchmark_without_interner() {
@@ -1854,15 +1514,28 @@ fn benchmark_without_interner() {
         for word in &words {
             strings.push(word.to_string());  // Always allocate
         }
+        strings.clear();  // Clear to avoid OOM
     }
     let duration = start.elapsed();
 
     println!("Without interner: {:?}", duration);
-    println!("Allocations: {}", strings.len());
+    println!("Allocations: {}", 100_000 * words.len());
 }
 ```
 
-**Expected Results**: Interner should be much faster for duplicate-heavy workloads and use significantly less memory.
+**Expected Results**:
+- Interner: ~10-50ms, 4 allocations, 596 lookups (99.3% hit rate)
+- Without: ~200-500ms, 600,000 allocations
+
+**When Does Interning Help Most?**
+- High duplication rate (many lookups, few allocations)
+- Long strings (allocation cost dominates)
+- Frequent equality comparisons (pointer compare vs string compare)
+
+**When Might Interning Hurt?**
+- All unique strings (100% allocation rate + hash overhead)
+- Very short-lived strings (lookup cost exceeds benefit)
+- Single-use strings that are never compared
 
 **Check Your Understanding**:
 - When does interning help most?
@@ -1912,7 +1585,7 @@ pub fn maybe_escape_html(text: &str) -> Cow<'_, str> {
 }
 
 // ============================================================================
-// Milestone 2, 3, 4: Basic String Interner with Stats
+// Milestone 2, 3: Basic String Interner with Stats and Raw Pointers
 // ============================================================================
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -1955,7 +1628,16 @@ impl StringInterner {
         }
     }
 
-    /// Intern a string, returning a reference to the stored version
+    /// Intern a string, returning a reference to the stored version.
+    ///
+    /// IMPORTANT: The returned &str borrows &mut self. To use multiple
+    /// interned strings together, cast to *const str:
+    ///
+    /// ```
+    /// let s1 = interner.intern("hello") as *const str;
+    /// let s2 = interner.intern("hello") as *const str;
+    /// assert!(std::ptr::eq(s1, s2));
+    /// ```
     pub fn intern(&mut self, s: &str) -> &str {
         if !self.strings.contains(s) {
             // New string - allocate and store
@@ -1970,21 +1652,6 @@ impl StringInterner {
         }
         // Return reference to stored string
         self.strings.get(s).unwrap().as_ref()
-    }
-
-    /// Milestone 3: Get or intern with Cow return type
-    pub fn get_or_intern(&mut self, s: &str) -> Cow<'_, str> {
-        if self.strings.contains(s) {
-            self.stats.lookups += 1;
-            Cow::Borrowed(self.strings.get(s).unwrap().as_ref())
-        } else {
-            let s_boxed: Box<str> = Box::from(s);
-            self.stats.total_strings += 1;
-            self.stats.total_bytes += s.len();
-            self.stats.allocations += 1;
-            self.strings.insert(s_boxed);
-            Cow::Borrowed(self.strings.get(s).unwrap().as_ref())
-        }
     }
 
     pub fn contains(&self, s: &str) -> bool {
@@ -2003,7 +1670,6 @@ impl StringInterner {
         self.stats.total_bytes
     }
 
-    /// Milestone 4: Get statistics
     pub fn statistics(&self) -> &InternerStats {
         &self.stats
     }
@@ -2015,10 +1681,11 @@ impl StringInterner {
 }
 
 // ============================================================================
-// Milestone 5: Symbol-Based Access with Generational Indices
+// Milestone 4: Symbol-Based Access with Generational Indices
 // ============================================================================
 
-/// A symbol is a handle to an interned string that doesn't carry lifetimes
+/// A symbol is a handle to an interned string that doesn't carry lifetimes.
+/// Unlike *const str, Symbol provides safe stale detection through generations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol {
     pub index: usize,
@@ -2043,7 +1710,8 @@ impl SymbolInterner {
         }
     }
 
-    /// Intern a string and return a symbol handle
+    /// Intern a string and return a symbol handle.
+    /// Unlike *const str, Symbol is safe and detects stale references.
     pub fn intern(&mut self, s: &str) -> Symbol {
         // Check if string already exists
         for (index, slot) in self.slots.iter().enumerate() {
@@ -2077,13 +1745,14 @@ impl SymbolInterner {
         Symbol { index, generation }
     }
 
-    /// Resolve a symbol to get the string, or None if stale
+    /// Resolve a symbol to get the string, or None if stale.
+    /// This is SAFE - no unsafe blocks needed!
     pub fn resolve(&self, symbol: Symbol) -> Option<&str> {
         self.slots.get(symbol.index).and_then(|slot| {
             if slot.generation == symbol.generation {
                 slot.string.as_deref()
             } else {
-                None
+                None  // Stale symbol - generation mismatch
             }
         })
     }
@@ -2120,13 +1789,14 @@ impl SymbolInterner {
 }
 
 // ============================================================================
-// Milestone 6: Performance Comparison
+// Milestone 5: Performance Comparison
 // ============================================================================
 
 pub fn run_benchmarks() {
     println!("\n=== String Interning Performance Benchmarks ===");
     benchmark_with_interner();
     benchmark_without_interner();
+    benchmark_raw_pointer_usage();
     println!("===============================================\n");
 }
 
@@ -2150,10 +1820,6 @@ fn benchmark_with_interner() {
     println!("  Allocations: {}", stats.allocations);
     println!("  Lookups: {}", stats.lookups);
     println!("  Hit rate: {:.2}%", stats.hit_rate() * 100.0);
-    println!(
-        "  Avg string length: {:.2} bytes",
-        stats.average_string_length()
-    );
 }
 
 fn benchmark_without_interner() {
@@ -2172,6 +1838,25 @@ fn benchmark_without_interner() {
     println!("\nWithout interner (alloc + clear):");
     println!("  Duration: {:?}", duration);
     println!("  Total allocations: {}", 100_000 * words.len());
+}
+
+fn benchmark_raw_pointer_usage() {
+    let mut interner = StringInterner::new();
+
+    let start = Instant::now();
+    for _ in 0..100_000 {
+        // Must cast to *const str to escape borrow checker
+        let s1 = interner.intern("hello") as *const str;
+        let s2 = interner.intern("hello") as *const str;
+
+        // Pointer comparison is fast and safe
+        assert!(std::ptr::eq(s1, s2));
+    }
+    let duration = start.elapsed();
+
+    println!("\nRaw pointer comparison benchmark:");
+    println!("  Duration: {:?}", duration);
+    println!("  200,000 pointer comparisons");
 }
 
 // ============================================================================
@@ -2194,42 +1879,27 @@ fn main() {
     println!("Normalize '{}': {:?}", dirty, result2);
     println!("  Is owned: {}", matches!(result2, Cow::Owned(_)));
 
-    let html = "<div>content</div>";
-    let result3 = maybe_escape_html(html);
-    println!("Escape HTML '{}': {}", html, result3);
-    println!("  Is owned: {}", matches!(result3, Cow::Owned(_)));
-
-    // Milestone 2: Basic String Interner
-    println!("\n--- Milestone 2: Basic String Interner ---");
+    // Milestone 2: Basic String Interner with Raw Pointers
+    println!("\n--- Milestone 2: String Interner with Raw Pointers ---");
     let mut interner = StringInterner::new();
 
-    interner.intern("hello");
-    interner.intern("world");
-    interner.intern("hello");
+    // IMPORTANT: Cast to *const str to escape borrow checker!
+    let s1 = interner.intern("hello") as *const str;
+    let s2 = interner.intern("hello") as *const str;
+    let s3 = interner.intern("world") as *const str;
 
     println!("Interned 'hello' twice and 'world' once");
+    println!("  s1 == s2 (same string): {}", std::ptr::eq(s1, s2));
+    println!("  s1 == s3 (different strings): {}", std::ptr::eq(s1, s3));
     println!("  Unique strings: {}", interner.len());
-    println!("  Total bytes: {}", interner.total_bytes());
 
-    // Test pointer equality separately
-    let s1_ptr = interner.intern("test") as *const str;
-    let s2_ptr = interner.intern("test") as *const str;
-    println!("  Same string returns same pointer: {}", std::ptr::eq(s1_ptr, s2_ptr));
+    // To actually use the string content, need unsafe:
+    unsafe {
+        println!("  s1 content: {}", &*s1);
+    }
 
-    // Milestone 3: Cow-based API
-    println!("\n--- Milestone 3: Cow-based API ---");
-    let mut interner2 = StringInterner::new();
-
-    let cow1 = interner2.get_or_intern("test");
-    println!("First intern: {:?}", cow1);
-    println!("  Is borrowed: {}", matches!(cow1, Cow::Borrowed(_)));
-
-    let cow2 = interner2.get_or_intern("test");
-    println!("Second intern: {:?}", cow2);
-    println!("  Is borrowed: {}", matches!(cow2, Cow::Borrowed(_)));
-
-    // Milestone 4: Statistics Tracking
-    println!("\n--- Milestone 4: Statistics Tracking ---");
+    // Milestone 3: Statistics Tracking
+    println!("\n--- Milestone 3: Statistics Tracking ---");
     let mut interner3 = StringInterner::new();
 
     for word in &["foo", "bar", "foo", "baz", "foo", "bar"] {
@@ -2244,8 +1914,8 @@ fn main() {
     println!("  Lookups: {}", stats.lookups);
     println!("  Hit rate: {:.1}%", stats.hit_rate() * 100.0);
 
-    // Milestone 5: Symbol-Based Access
-    println!("\n--- Milestone 5: Symbol-Based Access ---");
+    // Milestone 4: Symbol-Based Access
+    println!("\n--- Milestone 4: Symbol-Based Access (Safe Alternative) ---");
     let mut sym_interner = SymbolInterner::new();
 
     let sym1 = sym_interner.intern("alpha");
@@ -2257,22 +1927,22 @@ fn main() {
     println!("Symbol 3: {:?}", sym3);
     println!("  sym1 == sym3: {}", sym1 == sym3);
 
+    // No unsafe needed with symbols!
     println!("Resolve sym1: {:?}", sym_interner.resolve(sym1));
     println!("Resolve sym2: {:?}", sym_interner.resolve(sym2));
 
     // Test stale detection
     sym_interner.remove(sym1);
     println!("After removing sym1:");
-    println!("  Resolve sym1: {:?}", sym_interner.resolve(sym1));
-    println!("  Resolve sym3: {:?}", sym_interner.resolve(sym3));
+    println!("  Resolve sym1: {:?}", sym_interner.resolve(sym1));  // None - stale!
 
     let sym4 = sym_interner.intern("alpha");
     println!("New symbol for 'alpha': {:?}", sym4);
     println!("  Same index: {}", sym1.index == sym4.index);
     println!("  Different generation: {}", sym1.generation != sym4.generation);
 
-    // Milestone 6: Performance Comparison
-    println!("\n--- Milestone 6: Performance Comparison ---");
+    // Milestone 5: Performance Comparison
+    println!("\n--- Milestone 5: Performance Comparison ---");
     run_benchmarks();
 
     println!("=== All Milestones Complete! ===");
@@ -2302,13 +1972,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_tabs() {
-        let result = normalize_whitespace("hello\tworld");
-        assert!(matches!(result, Cow::Owned(_)));
-        assert_eq!(result, "hello world");
-    }
-
-    #[test]
     fn test_escape_no_html() {
         let result = maybe_escape_html("hello");
         assert!(matches!(result, Cow::Borrowed(_)));
@@ -2322,44 +1985,55 @@ mod tests {
         assert_eq!(result, "&lt;div&gt;");
     }
 
+    // Milestone 2 Tests - Raw Pointer Usage
     #[test]
-    fn test_escape_ampersand() {
-        let result = maybe_escape_html("a & b");
-        assert!(matches!(result, Cow::Owned(_)));
-        assert_eq!(result, "a &amp; b");
-    }
-
-    #[test]
-    fn test_escape_complex() {
-        let result = maybe_escape_html("<script>alert('&')</script>");
-        assert!(matches!(result, Cow::Owned(_)));
-        assert_eq!(
-            result,
-            "&lt;script&gt;alert('&amp;')&lt;/script&gt;"
-        );
-    }
-
-    // Milestone 2 Tests
-    #[test]
-    fn test_intern_basic() {
+    fn test_intern_basic_raw_pointer() {
         let mut interner = StringInterner::new();
 
-        let s1_ptr = interner.intern("hello") as *const str;
-        let s2_ptr = interner.intern("hello") as *const str;
+        // Must cast to *const str to escape borrow checker!
+        let s1 = interner.intern("hello") as *const str;
+        let s2 = interner.intern("hello") as *const str;
 
-        assert!(std::ptr::eq(s1_ptr, s2_ptr));
+        assert!(std::ptr::eq(s1, s2));
         assert_eq!(interner.len(), 1);
     }
 
     #[test]
-    fn test_intern_different() {
+    fn test_intern_different_raw_pointer() {
         let mut interner = StringInterner::new();
 
-        let s1_ptr = interner.intern("hello") as *const str;
-        let s2_ptr = interner.intern("world") as *const str;
+        let s1 = interner.intern("hello") as *const str;
+        let s2 = interner.intern("world") as *const str;
 
-        assert!(!std::ptr::eq(s1_ptr, s2_ptr));
+        assert!(!std::ptr::eq(s1, s2));
         assert_eq!(interner.len(), 2);
+    }
+
+    #[test]
+    fn test_raw_pointer_dereference() {
+        let mut interner = StringInterner::new();
+        let ptr = interner.intern("hello") as *const str;
+
+        // Safe to dereference while interner is alive
+        unsafe {
+            assert_eq!(&*ptr, "hello");
+        }
+    }
+
+    #[test]
+    fn test_pointer_stability() {
+        let mut interner = StringInterner::new();
+
+        let ptr1 = interner.intern("first") as *const str;
+
+        // Add many more strings (may cause HashSet to resize)
+        for i in 0..100 {
+            interner.intern(&format!("string{}", i));
+        }
+
+        // With HashSet<Box<str>>, original pointer should still be valid
+        let ptr1_again = interner.intern("first") as *const str;
+        assert!(std::ptr::eq(ptr1, ptr1_again));
     }
 
     #[test]
@@ -2381,25 +2055,6 @@ mod tests {
     }
 
     // Milestone 3 Tests
-    #[test]
-    fn test_cow_already_interned() {
-        let mut interner = StringInterner::new();
-        interner.intern("hello");
-
-        let result = interner.get_or_intern("hello");
-        assert!(matches!(result, Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn test_cow_new_string() {
-        let mut interner = StringInterner::new();
-
-        let result = interner.get_or_intern("hello");
-        assert!(matches!(result, Cow::Borrowed(_)));
-        assert_eq!(interner.len(), 1);
-    }
-
-    // Milestone 4 Tests
     #[test]
     fn test_stats() {
         let mut interner = StringInterner::new();
@@ -2437,7 +2092,7 @@ mod tests {
         assert_eq!(stats.hit_rate(), 0.5); // 2 lookups out of 4 total
     }
 
-    // Milestone 5 Tests
+    // Milestone 4 Tests - Symbol-Based Access
     #[test]
     fn test_symbol_intern() {
         let mut interner = SymbolInterner::new();
@@ -2483,15 +2138,14 @@ mod tests {
     }
 
     #[test]
-    fn test_symbol_lifetime_safety() {
+    fn test_symbol_is_copy() {
         let mut interner = SymbolInterner::new();
         let sym = interner.intern("test");
 
-        // Symbol can outlive the borrow of interner
-        drop(interner);
-
-        // This is safe - we just can't resolve it anymore
-        let _copy = sym; // Symbol is Copy
+        // Symbol is Copy - can use it multiple times
+        let sym_copy = sym;
+        assert_eq!(interner.resolve(sym), Some("test"));
+        assert_eq!(interner.resolve(sym_copy), Some("test"));
     }
 
     #[test]
@@ -2520,26 +2174,5 @@ mod tests {
         assert_eq!(interner.resolve(sym1), Some("hello"));
         assert_eq!(interner.resolve(sym2), Some("world"));
     }
-
-    #[test]
-    fn test_multiple_removes_and_interns() {
-        let mut interner = SymbolInterner::new();
-
-        let sym1 = interner.intern("a");
-        let sym2 = interner.intern("b");
-
-        interner.remove(sym1);
-        interner.remove(sym2);
-
-        let sym3 = interner.intern("c");
-        let sym4 = interner.intern("d");
-
-        // Should reuse slots
-        assert_eq!(interner.resolve(sym3), Some("c"));
-        assert_eq!(interner.resolve(sym4), Some("d"));
-        assert_eq!(interner.resolve(sym1), None);
-        assert_eq!(interner.resolve(sym2), None);
-    }
 }
-
 ```

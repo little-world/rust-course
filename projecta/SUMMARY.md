@@ -1,7 +1,7 @@
 [lru-cache](01-lru-cache.md)
 [expression-parser-arena](02-expression-parser-arena.md)
 [string-interning](03-string-interning.md)
-[generic-data-structures](04-generic-data-structures.md)
+[generic-data-structures](04-advanced-generics.md)
 [memory-pool](05-memory-pool.md)
 [reference-count](06-reference-count.md)
 [safe-configuration](06-safe-configuration.md)

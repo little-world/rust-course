@@ -7,7 +7,7 @@
   3. [string-interning](03-string-interning.md) – Create a string interning
      system that stores each unique string once and hands out reusable
      references.
-  4. [generic-data-structures](04-generic-data-structures.md) – Assemble a const-
+  4. [generic-data-structures](04-advanced-generics.md) – Assemble a const-
      generic collection toolkit whose sizes live in the type system and incur
      zero runtime cost.
   5. [memory-pool](05-memory-pool.md) – Write a pool allocator that pre-allocates

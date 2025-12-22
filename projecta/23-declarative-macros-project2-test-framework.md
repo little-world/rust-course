@@ -59,63 +59,6 @@ Before building complex test frameworks, understand how macros generate multiple
   - **Expands to**: Custom assertion with context
   - **Role**: Improved error messages
 
-### Checkpoint Tests
-
-```rust
-#[test]
-fn test_test_case_macro_generates_function() {
-    // This test verifies the macro generates valid test functions
-    // We can't directly test macro output, but we can run generated tests
-    test_case! {
-        name: generated_test,
-        run: {
-            let x = 2 + 2;
-            assert_eq!(x, 4);
-        }
-    }
-
-    // The generated test will run with `cargo test`
-}
-
-#[test]
-fn test_suite_generates_multiple_tests() {
-    fn add(a: i32, b: i32) -> i32 { a + b }
-
-    test_suite! {
-        add {
-            positive: (2, 3) => 5,
-            negative: (-2, -3) => -5,
-            zero: (0, 5) => 5,
-        }
-    }
-
-    // This generates 3 test functions:
-    // - test_add_positive
-    // - test_add_negative
-    // - test_add_zero
-}
-
-#[test]
-fn test_assert_that_macro() {
-    let value = 10;
-
-    assert_that!(value).equals(10);
-    assert_that!(value).is_greater_than(5);
-    assert_that!(value).is_less_than(20);
-
-    let text = "hello";
-    assert_that!(text).equals("hello");
-    assert_that!(text.len()).equals(5);
-}
-
-#[test]
-#[should_panic(expected = "Expected value to equal 20, but got 10")]
-fn test_assert_that_fails_with_message() {
-    let value = 10;
-    assert_that!(value).equals(20);
-}
-```
-
 ### Starter Code
 
 ```rust
@@ -218,6 +161,65 @@ fn main() {
 5. `AssertionBuilder` implements fluent API pattern for chaining assertions
 
 ---
+
+
+### Checkpoint Tests
+
+```rust
+#[test]
+fn test_test_case_macro_generates_function() {
+    // This test verifies the macro generates valid test functions
+    // We can't directly test macro output, but we can run generated tests
+    test_case! {
+        name: generated_test,
+        run: {
+            let x = 2 + 2;
+            assert_eq!(x, 4);
+        }
+    }
+
+    // The generated test will run with `cargo test`
+}
+
+#[test]
+fn test_suite_generates_multiple_tests() {
+    fn add(a: i32, b: i32) -> i32 { a + b }
+
+    test_suite! {
+        add {
+            positive: (2, 3) => 5,
+            negative: (-2, -3) => -5,
+            zero: (0, 5) => 5,
+        }
+    }
+
+    // This generates 3 test functions:
+    // - test_add_positive
+    // - test_add_negative
+    // - test_add_zero
+}
+
+#[test]
+fn test_assert_that_macro() {
+    let value = 10;
+
+    assert_that!(value).equals(10);
+    assert_that!(value).is_greater_than(5);
+    assert_that!(value).is_less_than(20);
+
+    let text = "hello";
+    assert_that!(text).equals("hello");
+    assert_that!(text.len()).equals(5);
+}
+
+#[test]
+#[should_panic(expected = "Expected value to equal 20, but got 10")]
+fn test_assert_that_fails_with_message() {
+    let value = 10;
+    assert_that!(value).equals(20);
+}
+```
+
 
 ## Milestone 2: Parametric Tests with Test Matrix
 

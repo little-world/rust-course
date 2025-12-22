@@ -1,19 +1,9 @@
 
-# Type-Safe Query Builder with Macro DSL
+# Query Builder with Macro DSL
 
 ### Problem Statement
 
-Build a compile-time type-safe query builder DSL using declarative macros that translates SQL-like syntax into Rust iterator chains. The system should parse queries at compile time, validate table/column names against schema definitions, generate optimal iterator code, and provide helpful compile errors for invalid queries. Unlike runtime query builders, all validation happens at compile time with zero runtime overhead.
-
-### Use Cases
-
-- **ORM-lite systems** - Type-safe database queries without heavy ORMs
-- **In-memory data processing** - SQL-like syntax for Vec/HashMap operations
-- **Configuration querying** - Query config data structures with familiar syntax
-- **Log analysis tools** - Query log entries with SQL semantics
-- **Test data builders** - Fluent query syntax for test fixtures
-- **Data transformation pipelines** - Readable transformations on collections
-- **Report generation** - Extract and aggregate data from collections
+Build a SQL-like query DSL using Rust's declarative macros. Transform queries like `SELECT name FROM users WHERE |u| u.age > 30` into efficient iterator chains at compile time.
 
 ### Why It Matters
 
@@ -23,8 +13,6 @@ Build a compile-time type-safe query builder DSL using declarative macros that t
 
 **Ergonomics vs Performance**: Hand-written iterator chains are fast but unreadable for complex queries. `.iter().filter().flat_map().group_by()` chains hard to understand. SQL syntax familiar to all developers. Macros give SQL ergonomics with iterator performance—best of both worlds.
 
-**DSL Power**: Demonstrates macro capabilities: pattern matching complex syntax, generating type-safe code, compile-time validation, custom error messages. Skills transfer to any DSL (HTML templates, state machines, config languages).
-
 Example performance comparison:
 ```
 Runtime query builder: parse SQL (5μs) + execute → 1M queries = 5 seconds overhead
@@ -32,39 +20,159 @@ Macro DSL: parse at compile time (0μs runtime) + execute → 1M queries = 0 ove
 Hand-written iterators: same as macro (but 5x more code, harder to read)
 ```
 
+## Understanding Declarative Macros
+
+Before diving into milestones, let's understand the key concepts.
+
+### Basic Macro Syntax
+
+```rust
+macro_rules! my_macro {
+    // Pattern => Expansion
+    (some tokens $variable:type) => {
+        // Code to generate
+    };
+}
+```
+
+### Fragment Specifiers
+
+| Specifier | Matches | Example                         |
+|-----------|---------|---------------------------------|
+| `$x:ident` | Identifier | `name`, `users`, `age`          |
+| `$x:expr` | Expression | `\|u\| u.age > 30`, `5 + 3`     |
+| `$x:ty` | Type | `u32`, `String`, `Vec<i32>`     |
+| `$x:tt` | Token tree | Any single token or `(...)` group |
+
+For example, a simple macro that greets a user:
+
+```rust
+macro_rules! greet {
+    // Pattern: matches an expression and captures it as $name
+    ($name:expr) => {
+        // Expansion: the code that replaces the macro call
+        println!("Hello, {}!", $name);
+    };
+}
+
+fn main() {
+    // Usage
+    greet!("Rustacean"); 
+    // At compile time, this expands to:
+    // println!("Hello, {}!", "Rustacean");
+}
+```
+
+Macros can also match multiple patterns, similar to a `match` statement:
+
+```rust
+macro_rules! calculate {
+    // Pattern for addition
+    (add $a:expr and $b:expr) => {
+        $a + $b
+    };
+    // Pattern for subtraction
+    (sub $a:expr from $b:expr) => {
+        $b - $a
+    };
+}
+
+fn main() {
+    let sum = calculate!(add 5 and 10);      // Expands to: 5 + 10
+    let diff = calculate!(sub 5 from 10);    // Expands to: 10 - 5
+}
+```
+
 ---
+## Build the Project
 
-## Milestone 1: Basic SELECT with Single Table
+### Milestone 1: Basic SELECT Queries
 
-### Introduction
+#### Goal
 
-Before building complex queries, you need to understand how macros parse SQL-like syntax and generate iterator chains. This milestone teaches pattern matching with literal keywords (SELECT, FROM, WHERE) and fragment specifiers.
+Create two macros:
+1. `table!` - Define a struct representing a table row
+2. `query!` - Transform SQL-like syntax into iterator chains
 
-**Why Start Here**: SQL queries have structure: `SELECT fields FROM table WHERE condition`. Learning to parse this pattern is foundational. You'll match keywords as literals and expressions as fragments, then generate the corresponding Rust code.
+### Starter Code
 
-### Architecture
+**The `table!` Macro**
 
-**Macros:**
-- `table!` - Defines a table schema with field names
-  - **Pattern**: `table! { name: StructName { field1: Type1, field2: Type2 } }`
-  - **Expands to**: A struct definition with the specified fields
-  - **Role**: Provides compile-time schema information for queries
+```rust
+macro_rules! table {
+    (
+        name: $name:ident {
+            $( $field:ident: $type:ty ),* $(,)?
+        }
+    ) => {
+        // TODO: write the expanded code
+    };
+}
 
-- `query!` - Parses SQL-like SELECT queries
-  - **Pattern**: `query! { SELECT field FROM table WHERE condition }`
-  - **Expands to**: Iterator chain `.iter().filter().map()`
-  - **Role**: Main query interface
+// Usage:
+table! {
+    name: User {
+        id: u32,
+        name: String,
+        age: u32,
+    }
+}
 
-**Key Structs:**
-- `Table` structs generated by `table!` macro
-  - **Fields**: User-defined via macro invocation
-  - **Role**: Data containers with known schema
+// Expands to:
+#[derive(Debug, Clone, PartialEq)]
+pub struct User {
+    pub id: u32,
+    pub name: String,
+    pub age: u32,
+}
+```
+
+**The `query!` Macro**
+
+```rust
+macro_rules! query {
+    // Pattern 1: SELECT * FROM table
+    (SELECT * FROM $table:ident) => {{
+        // TODO: clone the table
+    }};
+
+    // Pattern 2: SELECT field FROM table
+    (SELECT $field:ident FROM $table:ident) => {{
+        // TODO: map(|row| row.$field.clone()) 
+    }};
+
+    // Pattern 3: SELECT field FROM table WHERE condition
+    (SELECT $field:ident FROM $table:ident WHERE $condition:expr) => {{
+                // TODO: filter($condition)
+                // TODO: map(|row| row.$field.clone()) 
+ 
+    }};
+}
+```
+
+#### How It Works
+
+```rust
+// This query:
+let names = query! {
+    SELECT name FROM users WHERE |u| u.age > 28
+};
+
+// Expands to:
+let names = {
+    users
+        .iter()
+        .filter(|u| u.age > 28)
+        .map(|row| row.name.clone())
+        .collect::<Vec<_>>()
+};
+```
 
 ### Checkpoint Tests
 
 ```rust
 #[test]
-fn test_table_macro_generates_struct() {
+fn test_table_macro() {
     table! {
         name: User {
             id: u32,
@@ -73,70 +181,39 @@ fn test_table_macro_generates_struct() {
         }
     }
 
-    let user = User {
-        id: 1,
-        name: "Alice".to_string(),
-        age: 30,
-    };
-
+    let user = User { id: 1, name: "Alice".to_string(), age: 30 };
     assert_eq!(user.id, 1);
-    assert_eq!(user.age, 30);
 }
 
 #[test]
-fn test_simple_select_all() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
+fn test_select_all() {
+    table! { name: User { id: u32, name: String } }
 
     let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
+        User { id: 1, name: "Alice".to_string() },
+        User { id: 2, name: "Bob".to_string() },
     ];
 
-    // SELECT * returns all fields
-    let results = query! {
-        SELECT * FROM users
-    };
-
+    let results = query! { SELECT * FROM users };
     assert_eq!(results.len(), 2);
 }
 
 #[test]
-fn test_select_single_field() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
+fn test_select_field() {
+    table! { name: User { id: u32, name: String } }
 
     let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
+        User { id: 1, name: "Alice".to_string() },
+        User { id: 2, name: "Bob".to_string() },
     ];
 
-    let names = query! {
-        SELECT name FROM users
-    };
-
+    let names = query! { SELECT name FROM users };
     assert_eq!(names, vec!["Alice", "Bob"]);
 }
 
 #[test]
 fn test_select_with_where() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
+    table! { name: User { id: u32, name: String, age: u32 } }
 
     let users = vec![
         User { id: 1, name: "Alice".to_string(), age: 30 },
@@ -144,127 +221,70 @@ fn test_select_with_where() {
         User { id: 3, name: "Carol".to_string(), age: 35 },
     ];
 
-    let results = query! {
+    let names = query! {
         SELECT name FROM users WHERE |u| u.age > 28
     };
-
-    assert_eq!(results, vec!["Alice", "Carol"]);
+    assert_eq!(names, vec!["Alice", "Carol"]);
 }
 ```
-
-### Starter Code
-
-```rust
-//================================================
-// Milestone 1: Define tables and simple queries
-//================================================
-
-// TODO: Implement table! macro that generates struct definitions
-// Pattern: table! { name: StructName { field1: Type1, field2: Type2 } }
-// Should expand to: struct StructName { field1: Type1, field2: Type2 }
-macro_rules! table {
-    (
-        name: $name:ident {
-            $(
-                $field:ident: $type:ty
-            ),* $(,)?
-        }
-    ) => {
-        // TODO: Generate struct definition
-        // Hint: Use #[derive(Debug, Clone)] for convenience
-        todo!("Implement table! macro")
-    };
-}
-
-// TODO: Implement query! macro for SELECT queries
-// Pattern 1: SELECT * FROM table
-// Pattern 2: SELECT field FROM table
-// Pattern 3: SELECT field FROM table WHERE condition
-macro_rules! query {
-    // Pattern: SELECT * FROM $table
-    (SELECT * FROM $table:ident) => {
-        // TODO: Return the entire collection
-        // Hint: Just clone the collection
-        todo!("Implement SELECT *")
-    };
-
-    // Pattern: SELECT $field FROM $table
-    (SELECT $field:ident FROM $table:ident) => {
-        // TODO: Map to extract the specified field
-        // Hint: $table.iter().map(|row| row.$field.clone()).collect()
-        todo!("Implement SELECT field")
-    };
-
-    // Pattern: SELECT $field FROM $table WHERE $condition
-    (SELECT $field:ident FROM $table:ident WHERE $condition:expr) => {
-        // TODO: Filter then map
-        // Hint: $table.iter().filter($condition).map(|row| row.$field.clone()).collect()
-        todo!("Implement SELECT with WHERE")
-    };
-}
-
-fn main() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-    ];
-
-    let names = query! {
-        SELECT name FROM users WHERE |u| u.age > 26
-    };
-
-    println!("Names: {:?}", names);
-}
-```
-
-**Implementation Hints:**
-1. In `table!`, use `$(#[derive(Debug, Clone)])? struct $name { ... }`
-2. For `SELECT *`, just return `$table.clone()` or `$table.into_iter().collect()`
-3. For single field SELECT, use `.map(|row| row.$field.clone())`
-4. WHERE clause receives a closure expression: `.filter($condition)`
-5. Always `.collect::<Vec<_>>()` at the end to materialize results
 
 ---
 
-## Milestone 2: Multiple Fields and Tuple Returns
+## Milestone 2: Multiple Fields (Tuples)
 
-### Introduction
+Select multiple fields: `SELECT name, age FROM users` → `Vec<(String, u32)>`
 
-**Why Milestone 1 Isn't Enough**: Selecting a single field is limiting. Real queries need `SELECT name, age FROM users` returning tuples. This requires repetition patterns `$($field:ident),+` to match multiple fields.
+### Starter Code
 
-**The Improvement**: Parse multiple comma-separated field names and generate tuple returns. `SELECT name, age` expands to `.map(|row| (row.name.clone(), row.age.clone()))`.
+**New Pattern with Repetition**
 
-**New Concepts**: Repetition in macro patterns matches variable arguments. Repetition in macro body generates code for each matched element.
+```rust
+macro_rules! query {
+    // ... previous patterns ...
 
-### Architecture
+    // Multiple fields: SELECT field1, field2, ... FROM table
+    (SELECT $first:ident, $($rest:ident),+ FROM $table:ident) => {{
+         // TODO: map(|row| (row.$first.clone(), $(row.$rest.clone()),+))
+    }};
 
-**Enhanced Macros:**
-- `query!` extended with multi-field SELECT
-  - **Pattern**: `SELECT field1, field2, ... FROM table WHERE condition`
-  - **Expands to**: `.filter().map(|row| (row.field1, row.field2, ...))`
+    // Multiple fields with WHERE
+    (SELECT $first:ident, $($rest:ident),+ FROM $table:ident WHERE $condition:expr) => {{
+             // TODO: filter($condition)
+             // TODO: map(|row| (row.$first.clone(), $(row.$rest.clone()),+))
+  
+    }};
+}
+```
 
-**Why Tuples**: Returning tuples maintains type safety—compiler knows exact types of all fields. Alternative would be HashMap<String, Value> losing type information.
+**Understanding Repetition**
+
+```rust
+// Pattern: $($rest:ident),+
+// Matches: one or more comma-separated identifiers
+
+// In expansion: $(row.$rest.clone()),+
+// For input "name, age, score", generates:
+// row.name.clone(), row.age.clone(), row.score.clone()
+```
+
+**Why Separate First and Rest**
+
+```rust
+// This pattern: $($field:ident),+
+// Would also match single field, causing ambiguity!
+
+// Solution: $first:ident, $($rest:ident),+
+// Matches: name, age       → first=name, rest=[age]
+// Matches: name, age, score → first=name, rest=[age, score]
+// Does NOT match: name     → Use single-field pattern instead
+```
 
 ### Checkpoint Tests
 
 ```rust
 #[test]
 fn test_select_two_fields() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
+    table! { name: User { id: u32, name: String, age: u32 } }
 
     let users = vec![
         User { id: 1, name: "Alice".to_string(), age: 30 },
@@ -282,342 +302,205 @@ fn test_select_two_fields() {
 }
 
 #[test]
-fn test_select_three_fields_with_filter() {
-    table! {
-        name: Product {
-            id: u32,
-            name: String,
-            price: f64,
-            stock: u32,
-        }
-    }
+fn test_three_fields_with_where() {
+    table! { name: Product { id: u32, name: String, price: f64, stock: u32 } }
 
     let products = vec![
         Product { id: 1, name: "Widget".to_string(), price: 9.99, stock: 100 },
         Product { id: 2, name: "Gadget".to_string(), price: 19.99, stock: 0 },
-        Product { id: 3, name: "Gizmo".to_string(), price: 14.99, stock: 50 },
     ];
 
     let results: Vec<(String, f64, u32)> = query! {
         SELECT name, price, stock FROM products WHERE |p| p.stock > 0
     };
 
-    assert_eq!(results.len(), 2);
+    assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "Widget");
-    assert_eq!(results[1].0, "Gizmo");
 }
+```
 
-#[test]
-fn test_select_all_fields_explicitly() {
-    table! {
-        name: Point {
-            x: i32,
-            y: i32,
-        }
-    }
+---
 
-    let points = vec![
-        Point { x: 1, y: 2 },
-        Point { x: 3, y: 4 },
-    ];
+### Milestone 3: ORDER BY and LIMIT
 
-    let results: Vec<(i32, i32)> = query! {
-        SELECT x, y FROM points
-    };
+Add sorting and pagination: `SELECT name FROM users ORDER BY age ASC LIMIT 2`
 
-    assert_eq!(results, vec![(1, 2), (3, 4)]);
-}
+**The Float Problem**
+
+`f64` doesn't implement `Ord` (because of `NaN`), so we can't use `.cmp()`:
+
+```rust
+// ❌ Doesn't compile for f64
+.sorted_by(|a, b| a.price.cmp(&b.price))
+
+// ✅ Works for all types
+.sorted_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal))
 ```
 
 ### Starter Code
 
 ```rust
-// TODO: Extend query! macro to support multiple fields
+use itertools::Itertools;  // Add to Cargo.toml: itertools = "0.12"
+
 macro_rules! query {
-    // Keep existing patterns from Milestone 1...
+    // ... previous patterns ...
 
-    // NEW PATTERN: SELECT multiple fields FROM table
-    // Use $($field:ident),+ to match one or more comma-separated fields
-    (SELECT $($field:ident),+ FROM $table:ident) => {
-        {
-            // TODO: Map each row to a tuple of the selected fields
-            // Hint: $table.iter().map(|row| ($(row.$field.clone()),+)).collect()
-            todo!("Implement multi-field SELECT")
-        }
-    };
+    // ORDER BY ASC
+    (SELECT $field:ident FROM $table:ident ORDER BY $sort:ident ASC) => {{
+          // TODO:  sorted_by(...)
+          // TODO:  map(...)
+    }};
 
-    // NEW PATTERN: SELECT multiple fields with WHERE
-    (SELECT $($field:ident),+ FROM $table:ident WHERE $condition:expr) => {
-        {
-            // TODO: Filter then map to tuple
-            // Hint: $table.iter().filter($condition).map(|row| ($(row.$field.clone()),+)).collect()
-            todo!("Implement multi-field SELECT with WHERE")
-        }
-    };
+    // ORDER BY DESC
+    (SELECT $field:ident FROM $table:ident ORDER BY $sort:ident DESC) => {{
+          // TODO:  sorted_by(...)
+          // TODO:  map(...)
+      :
+    }};
+
+    // LIMIT
+    (SELECT $field:ident FROM $table:ident LIMIT $n:expr) => {{
+         // TODO:  take($n)
+         // TODO:  map(...)
+    }};
+
+    // WHERE + ORDER BY + LIMIT (note the comma after condition!)
+    (SELECT $field:ident FROM $table:ident WHERE $cond:expr, ORDER BY $sort:ident ASC LIMIT $n:expr) => {{
+      
+            // TODO: filter
+            // TODO: sorted_by
+            // TODO: take
+            // TODO: map
+            // TODO: collect
+    }};
 }
 ```
 
-**Implementation Hints:**
-1. Pattern `$($field:ident),+` matches one or more comma-separated identifiers
-2. In expansion, `$(row.$field.clone()),+` generates `row.field1.clone(), row.field2.clone(), ...`
-3. The outer `()` makes it a tuple: `($(row.$field.clone()),+)`
-4. Repetition separator `,` appears both in pattern and expansion
-5. Order matters: more specific patterns (multi-field) should come after general patterns (single field)
+### The Comma Trick
 
----
+Remember: `expr` can only be followed by `,`, `;`, or `=>`.
 
-## Milestone 3: ORDER BY and LIMIT Clauses
-
-### Introduction
-
-**Why Milestone 2 Isn't Enough**: Queries often need sorted results or pagination. `SELECT name FROM users ORDER BY age DESC LIMIT 10` is a common pattern. Without these clauses, users must manually sort and slice.
-
-**The Improvement**: Add `ORDER BY field ASC/DESC` to sort results and `LIMIT n` to take first N results. Expand to `.sorted_by()` and `.take(n)` iterator methods.
-
-**Optimization (Speed)**: LIMIT without ORDER BY allows early termination—iterator stops after N elements without processing entire collection. `SELECT * FROM huge_table LIMIT 10` is O(10), not O(table_size).
-
-### Architecture
-
-**Enhanced Query Syntax:**
-- `ORDER BY field [ASC|DESC]` - Sort results by field
-- `LIMIT n` - Take first n results
-
-**Iterator Methods Used:**
-- `.sorted_by(|a, b| a.field.cmp(&b.field))` - For ORDER BY ASC
-- `.sorted_by(|a, b| b.field.cmp(&a.field))` - For ORDER BY DESC
-- `.take(n)` - For LIMIT
-
-**Why This Ordering**: SQL semantics: WHERE filters → ORDER BY sorts → LIMIT takes top N. Iterator chain mirrors this: `.filter().sorted_by().take()`.
+```rust
+// Query syntax with comma:
+query! {
+    SELECT name FROM users WHERE |u| u.age > 27, ORDER BY age ASC LIMIT 2
+}
+//                                             ^ comma required!
+```
 
 ### Checkpoint Tests
 
 ```rust
-#[test]
-fn test_order_by_ascending() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;  // Import needed for sorted_by!
+
+    #[test]
+    fn test_order_by_ascending() {
+        table! { name: User { id: u32, name: String, age: u32 } }
+
+        let users = vec![
+            User { id: 1, name: "Alice".to_string(), age: 30 },
+            User { id: 2, name: "Bob".to_string(), age: 25 },
+            User { id: 3, name: "Carol".to_string(), age: 35 },
+        ];
+
+        let results = query! {
+            SELECT name FROM users ORDER BY age ASC
+        };
+
+        assert_eq!(results, vec!["Bob", "Alice", "Carol"]);
     }
 
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-        User { id: 3, name: "Carol".to_string(), age: 35 },
-    ];
+    #[test]
+    fn test_where_order_limit() {
+        table! { name: User { id: u32, name: String, age: u32 } }
 
-    let results = query! {
-        SELECT name FROM users ORDER BY age ASC
-    };
+        let users = vec![
+            User { id: 1, name: "Alice".to_string(), age: 30 },
+            User { id: 2, name: "Bob".to_string(), age: 25 },
+            User { id: 3, name: "Carol".to_string(), age: 35 },
+            User { id: 4, name: "Dave".to_string(), age: 28 },
+        ];
 
-    assert_eq!(results, vec!["Bob", "Alice", "Carol"]);
-}
+        // Note the comma after the WHERE condition!
+        let results = query! {
+            SELECT name FROM users WHERE |u: &&User| u.age > 27, ORDER BY age ASC LIMIT 2
+        };
 
-#[test]
-fn test_order_by_descending() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
+        assert_eq!(results, vec!["Dave", "Alice"]);
     }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-        User { id: 3, name: "Carol".to_string(), age: 35 },
-    ];
-
-    let results = query! {
-        SELECT name FROM users ORDER BY age DESC
-    };
-
-    assert_eq!(results, vec!["Carol", "Alice", "Bob"]);
-}
-
-#[test]
-fn test_limit_clause() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-        User { id: 3, name: "Carol".to_string(), age: 35 },
-        User { id: 4, name: "Dave".to_string(), age: 28 },
-    ];
-
-    let results = query! {
-        SELECT name FROM users LIMIT 2
-    };
-
-    assert_eq!(results.len(), 2);
-}
-
-#[test]
-fn test_order_by_with_limit() {
-    table! {
-        name: Product {
-            id: u32,
-            name: String,
-            price: f64,
-        }
-    }
-
-    let products = vec![
-        Product { id: 1, name: "Cheap".to_string(), price: 5.0 },
-        Product { id: 2, name: "Medium".to_string(), price: 15.0 },
-        Product { id: 3, name: "Expensive".to_string(), price: 50.0 },
-        Product { id: 4, name: "Moderate".to_string(), price: 20.0 },
-    ];
-
-    // Top 2 most expensive products
-    let results = query! {
-        SELECT name, price FROM products ORDER BY price DESC LIMIT 2
-    };
-
-    assert_eq!(results[0].0, "Expensive");
-    assert_eq!(results[1].0, "Moderate");
-}
-
-#[test]
-fn test_where_order_limit_combination() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-        User { id: 3, name: "Carol".to_string(), age: 35 },
-        User { id: 4, name: "Dave".to_string(), age: 28 },
-        User { id: 5, name: "Eve".to_string(), age: 32 },
-    ];
-
-    // Youngest 2 users over 27
-    let results = query! {
-        SELECT name FROM users WHERE |u| u.age > 27 ORDER BY age ASC LIMIT 2
-    };
-
-    assert_eq!(results, vec!["Dave", "Alice"]);
 }
 ```
-
-### Starter Code
-
-```rust
-// TODO: Add itertools as dependency for sorted_by
-// In Cargo.toml: itertools = "0.12"
-
-use itertools::Itertools;
-
-// TODO: Extend query! macro with ORDER BY and LIMIT
-macro_rules! query {
-    // Keep existing patterns...
-
-    // NEW: SELECT with ORDER BY ASC
-    (SELECT $($field:ident),+ FROM $table:ident ORDER BY $sort_field:ident ASC) => {
-        {
-            // TODO: Use .sorted_by() with ascending comparison
-            // Hint: $table.iter().sorted_by(|a, b| a.$sort_field.cmp(&b.$sort_field))
-            //       .map(|row| ($(row.$field.clone()),+)).collect()
-            todo!("Implement ORDER BY ASC")
-        }
-    };
-
-    // NEW: SELECT with ORDER BY DESC
-    (SELECT $($field:ident),+ FROM $table:ident ORDER BY $sort_field:ident DESC) => {
-        {
-            // TODO: Use .sorted_by() with descending comparison (swap a and b)
-            todo!("Implement ORDER BY DESC")
-        }
-    };
-
-    // NEW: SELECT with LIMIT
-    (SELECT $($field:ident),+ FROM $table:ident LIMIT $n:expr) => {
-        {
-            // TODO: Use .take() to limit results
-            // Hint: $table.iter().take($n).map(|row| ($(row.$field.clone()),+)).collect()
-            todo!("Implement LIMIT")
-        }
-    };
-
-    // NEW: SELECT with WHERE, ORDER BY, and LIMIT (full query)
-    (SELECT $($field:ident),+ FROM $table:ident WHERE $condition:expr ORDER BY $sort_field:ident $order:ident LIMIT $n:expr) => {
-        {
-            // TODO: Chain filter, sorted_by, take, and map
-            // ORDER BY logic depends on $order being ASC or DESC
-            todo!("Implement full query")
-        }
-    };
-}
-```
-
-**Implementation Hints:**
-1. Use `itertools::Itertools` trait for `.sorted_by()`
-2. ASC: `sorted_by(|a, b| a.field.cmp(&b.field))`
-3. DESC: `sorted_by(|a, b| b.field.cmp(&a.field))` (note reversed a and b)
-4. `.take(n)` must come after `.sorted_by()` (can't limit before sorting for ORDER BY)
-5. Chain order: `.filter()` → `.sorted_by()` → `.take()` → `.map()`
 
 ---
 
-## Milestone 4: JOIN Support for Multiple Tables
+## Milestone 4: Simple JOINs
 
-### Introduction
+Join two tables: `users JOIN orders`
 
-**Why Milestone 3 Isn't Enough**: Real queries join tables: `SELECT users.name, orders.total FROM users JOIN orders ON users.id = orders.user_id`. Single-table queries can't correlate data across collections.
+### Simplified Approach
 
-**The Improvement**: Implement `JOIN table2 ON condition` that expands to nested `.flat_map()` with filtering. Generates Cartesian product filtered by join condition.
+Instead of complex field selection syntax like `users.name, orders.total`, we use `SELECT *` which returns tuples of full rows. This is simpler and avoids macro complexity.
 
-**Optimization (Algorithm Choice)**: Nested loop join is O(N*M) but simple and works for small tables. Real databases use hash joins (O(N+M)) for large tables. For macro DSL teaching purposes, nested loops sufficient. Students learn JOIN semantics, not database internals.
+### Starter Code
+```rust
+macro_rules! query {
+    // ... previous patterns ...
 
-### Architecture
+    // Simple JOIN - returns Vec<(LeftRow, RightRow)>
+    (
+        SELECT * FROM $left:ident
+        JOIN $right:ident ON $condition:expr
+    ) => {{
+        let mut results = Vec::new();
+        // TODO: for $left iter 
+        // TODO:     for $right iter 
+        // TODO:         if $condition
+        // TODO:             results.push (left_row.clone(), right_row.clone())
+            
+        results
+    }};
 
-**JOIN Syntax:**
-- `FROM table1 JOIN table2 ON condition` - Inner join two tables
-- Condition is a closure: `|t1, t2| t1.id == t2.foreign_id`
+    // JOIN with WHERE (note semicolon after ON condition!)
+    (
+        SELECT * FROM $left:ident
+        JOIN $right:ident ON $join_cond:expr;
+        WHERE $where_cond:expr
+    ) => {{
+        let mut results = Vec::new();
+        // TODO: for $left iter 
+        // TODO:     for $right iter 
+        // TODO:         if $condition
+        // TODO:            pair 
+        // TODO:               if $where_cond 
+        // TODO:                    results.push pair
+  
+        results
+    }};
+}
+```
 
-**Iterator Strategy:**
-- Cartesian product: `table1.iter().flat_map(|row1| table2.iter().map(move |row2| (row1, row2)))`
-- Filter by join condition: `.filter(|(row1, row2)| condition(row1, row2))`
-- Project selected fields: `.map(|(row1, row2)| (row1.field, row2.field))`
+### Why Semicolons?
 
-**Field Qualification:**
-- Fields prefixed with table name: `table1.field` vs `table2.field`
-- Prevents ambiguity when both tables have same field name
+The ON condition is an `expr`, so it must be followed by `,` or `;`:
+
+```rust
+// Syntax with semicolons:
+query! {
+    SELECT * FROM users
+    JOIN orders ON |u: &User, o: &Order| u.id == o.user_id;
+    WHERE |(u, o): (&User, &Order)| u.age > 26
+}
+```
 
 ### Checkpoint Tests
 
 ```rust
 #[test]
 fn test_simple_join() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-        }
-    }
-
-    table! {
-        name: Order {
-            id: u32,
-            user_id: u32,
-            total: f64,
-        }
-    }
+    table! { name: User { id: u32, name: String } }
+    table! { name: Order { id: u32, user_id: u32, total: f64 } }
 
     let users = vec![
         User { id: 1, name: "Alice".to_string() },
@@ -631,34 +514,20 @@ fn test_simple_join() {
     ];
 
     let results = query! {
-        SELECT users.name, orders.total
-        FROM users
-        JOIN orders ON |u, o| u.id == o.user_id
+        SELECT * FROM users
+        JOIN orders ON |u: &User, o: &Order| u.id == o.user_id
     };
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results[0], ("Alice".to_string(), 100.0));
-    assert_eq!(results[1], ("Alice".to_string(), 50.0));
-    assert_eq!(results[2], ("Bob".to_string(), 75.0));
+    // Access fields from the tuple:
+    assert_eq!(results[0].0.name, "Alice");
+    assert_eq!(results[0].1.total, 100.0);
 }
 
 #[test]
 fn test_join_with_where() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
-
-    table! {
-        name: Order {
-            id: u32,
-            user_id: u32,
-            total: f64,
-        }
-    }
+    table! { name: User { id: u32, name: String, age: u32 } }
+    table! { name: Order { id: u32, user_id: u32, total: f64 } }
 
     let users = vec![
         User { id: 1, name: "Alice".to_string(), age: 30 },
@@ -670,142 +539,89 @@ fn test_join_with_where() {
         Order { id: 2, user_id: 2, total: 50.0 },
     ];
 
-    // Join with additional WHERE filter
     let results = query! {
-        SELECT users.name, orders.total
-        FROM users
-        JOIN orders ON |u, o| u.id == o.user_id
-        WHERE |(u, _o)| u.age > 26
+        SELECT * FROM users
+        JOIN orders ON |u: &User, o: &Order| u.id == o.user_id;
+        WHERE |(u, _o): (&User, &Order)| u.age > 26
     };
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0, "Alice");
+    assert_eq!(results[0].0.name, "Alice");
 }
+```
 
-#[test]
-fn test_three_table_join() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-        }
-    }
+---
 
-    table! {
-        name: Order {
-            id: u32,
-            user_id: u32,
-            product_id: u32,
-        }
-    }
+## Milestone 5: Aggregations
 
-    table! {
-        name: Product {
-            id: u32,
-            name: String,
-            price: f64,
-        }
-    }
+Implement COUNT, SUM, AVG, MIN, MAX.
 
-    let users = vec![User { id: 1, name: "Alice".to_string() }];
-    let orders = vec![Order { id: 1, user_id: 1, product_id: 10 }];
-    let products = vec![Product { id: 10, name: "Widget".to_string(), price: 9.99 }];
+### The Type Annotation Problem
 
-    let results = query! {
-        SELECT users.name, products.name, products.price
-        FROM users
-        JOIN orders ON |u, o| u.id == o.user_id
-        JOIN products ON |(_u, o), p| o.product_id == p.id
-    };
+SUM needs to know the return type:
 
-    assert_eq!(results[0], ("Alice".to_string(), "Widget".to_string(), 9.99));
-}
+```rust
+// ❌ Type cannot be inferred
+let sum = query! { SELECT SUM(total) FROM orders };
+
+// ✅ Explicit type annotation
+let sum: f64 = query! { SELECT SUM(total) FROM orders };
 ```
 
 ### Starter Code
 
 ```rust
-// TODO: Extend query! to support JOIN
 macro_rules! query {
-    // Keep existing patterns...
+    // COUNT(*)
+    (SELECT COUNT(*) FROM $table:ident) => {{
+        // TODO: len()
+    }};
 
-    // NEW: SELECT with single JOIN
-    // Qualified field access: table.field
-    (
-        SELECT $($table1:ident.$field1:ident),+ $(, $table2:ident.$field2:ident)*
-        FROM $table1_name:ident
-        JOIN $table2_name:ident ON $join_condition:expr
-    ) => {
-        {
-            // TODO: Cartesian product with filter
-            // Hint: $table1_name.iter().flat_map(|row1| {
-            //           $table2_name.iter()
-            //               .filter(move |row2| $join_condition(row1, row2))
-            //               .map(move |row2| (row1.$field1.clone(), row2.$field2.clone()))
-            //       }).collect()
-            todo!("Implement JOIN")
-        }
-    };
+    // COUNT(*) with WHERE
+    (SELECT COUNT(*) FROM $table:ident WHERE $condition:expr) => {{
+        // TODO: filter($condition).len()
+    }};
 
-    // NEW: JOIN with WHERE clause
-    (
-        SELECT $($table1:ident.$field1:ident),+ $(, $table2:ident.$field2:ident)*
-        FROM $table1_name:ident
-        JOIN $table2_name:ident ON $join_condition:expr
-        WHERE $where_condition:expr
-    ) => {
-        {
-            // TODO: Add .filter($where_condition) after join
-            todo!("Implement JOIN with WHERE")
-        }
-    };
+    // SUM(field)
+    (SELECT SUM($field:ident) FROM $table:ident) => {{
+        // TODO: map(|row|...).sum()
+    }};
+
+    // AVG(field)
+    (SELECT AVG($field:ident) FROM $table:ident) => {{
+        let count = $table.len();
+        // TODO: let sum = map(|row|...).sum()
+        // TODO: result = sum / count 
+        // TODO: check 0 
+    
+    
+    
+    }};
+
+    // MIN(field) - uses partial_cmp for f64 support
+    (SELECT MIN($field:ident) FROM $table:ident) => {{
+        $table
+            // TODO: map(|row|...).sum()
+            // TODO: min_by(|a, b| a.partial_cmp(b)...)
+    
+    
+    }};
+
+    // MAX(field)
+    (SELECT MAX($field:ident) FROM $table:ident) => {{
+        $table
+            // TODO: map(|row|...).sum()
+            // TODO: max_by(|a, b| a.partial_cmp(b)...)
+    
 }
 ```
-
-**Implementation Hints:**
-1. `flat_map` creates Cartesian product by iterating table2 for each table1 row
-2. `move` closure captures `row1` by value for use in inner map
-3. Join condition receives `(row1, row2)` pair
-4. WHERE condition after JOIN receives joined tuple
-5. Field access: `row1.$field1` extracts field from first table
-
----
-
-## Milestone 5: Aggregation Functions (COUNT, SUM, AVG)
-
-### Introduction
-
-**Why Milestone 4 Isn't Enough**: Analytics require aggregations: `SELECT COUNT(*) FROM users`, `SELECT SUM(total) FROM orders`. JOINs give row-level data; aggregations give summaries.
-
-**The Improvement**: Add aggregate functions that expand to iterator fold operations. `COUNT(*)` → `.count()`, `SUM(field)` → `.map(|r| r.field).sum()`, `AVG(field)` → `.map(|r| r.field).sum() / count`.
-
-**Optimization (Memory)**: Aggregations are streaming operations—O(1) memory regardless of table size. Non-aggregated queries materialize entire result set (O(N) memory). `SELECT COUNT(*) FROM huge_table` uses constant memory; `SELECT * FROM huge_table` stores all rows.
-
-### Architecture
-
-**Aggregate Functions:**
-- `COUNT(*)` - Count all rows (after WHERE filter)
-- `COUNT(field)` - Count non-null values of field
-- `SUM(field)` - Sum numeric field
-- `AVG(field)` - Average of numeric field
-- `MIN(field)`, `MAX(field)` - Extrema
-
-**Return Type Changes:**
-- Non-aggregate queries return `Vec<T>` (multiple rows)
-- Aggregate queries return single value: `usize` for COUNT, `T` for SUM, `f64` for AVG
 
 ### Checkpoint Tests
 
 ```rust
 #[test]
-fn test_count_all() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
+fn test_count() {
+    table! { name: User { id: u32, name: String, age: u32 } }
 
     let users = vec![
         User { id: 1, name: "Alice".to_string(), age: 30 },
@@ -813,44 +629,18 @@ fn test_count_all() {
         User { id: 3, name: "Carol".to_string(), age: 35 },
     ];
 
-    let count = query! {
-        SELECT COUNT(*) FROM users
-    };
-
+    let count = query! { SELECT COUNT(*) FROM users };
     assert_eq!(count, 3);
-}
 
-#[test]
-fn test_count_with_where() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-            age: u32,
-        }
-    }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string(), age: 30 },
-        User { id: 2, name: "Bob".to_string(), age: 25 },
-        User { id: 3, name: "Carol".to_string(), age: 35 },
-    ];
-
-    let count = query! {
+    let count_filtered = query! {
         SELECT COUNT(*) FROM users WHERE |u| u.age > 28
     };
-
-    assert_eq!(count, 2);
+    assert_eq!(count_filtered, 2);
 }
 
 #[test]
-fn test_sum_aggregate() {
-    table! {
-        name: Order {
-            id: u32,
-            total: f64,
-        }
-    }
+fn test_sum() {
+    table! { name: Order { id: u32, total: f64 } }
 
     let orders = vec![
         Order { id: 1, total: 100.0 },
@@ -858,21 +648,14 @@ fn test_sum_aggregate() {
         Order { id: 3, total: 75.0 },
     ];
 
-    let sum = query! {
-        SELECT SUM(total) FROM orders
-    };
-
+    // Type annotation required!
+    let sum: f64 = query! { SELECT SUM(total) FROM orders };
     assert_eq!(sum, 225.0);
 }
 
 #[test]
-fn test_avg_aggregate() {
-    table! {
-        name: User {
-            id: u32,
-            age: u32,
-        }
-    }
+fn test_avg() {
+    table! { name: User { id: u32, age: u32 } }
 
     let users = vec![
         User { id: 1, age: 30 },
@@ -880,21 +663,13 @@ fn test_avg_aggregate() {
         User { id: 3, age: 35 },
     ];
 
-    let avg = query! {
-        SELECT AVG(age) FROM users
-    };
-
+    let avg = query! { SELECT AVG(age) FROM users };
     assert_eq!(avg, 30.0);
 }
 
 #[test]
-fn test_min_max_aggregates() {
-    table! {
-        name: Product {
-            id: u32,
-            price: f64,
-        }
-    }
+fn test_min_max() {
+    table! { name: Product { id: u32, price: f64 } }
 
     let products = vec![
         Product { id: 1, price: 9.99 },
@@ -902,405 +677,176 @@ fn test_min_max_aggregates() {
         Product { id: 3, price: 14.99 },
     ];
 
-    let min_price = query! {
-        SELECT MIN(price) FROM products
-    };
-
-    let max_price = query! {
-        SELECT MAX(price) FROM products
-    };
+    let min_price = query! { SELECT MIN(price) FROM products };
+    let max_price = query! { SELECT MAX(price) FROM products };
 
     assert_eq!(min_price, 9.99);
     assert_eq!(max_price, 19.99);
 }
 ```
 
-### Starter Code
-
-```rust
-// TODO: Add aggregate function patterns to query! macro
-macro_rules! query {
-    // Keep existing patterns...
-
-    // NEW: COUNT(*) - count all rows
-    (SELECT COUNT(*) FROM $table:ident) => {
-        {
-            $table.len()
-        }
-    };
-
-    // NEW: COUNT(*) with WHERE
-    (SELECT COUNT(*) FROM $table:ident WHERE $condition:expr) => {
-        {
-            // TODO: Filter then count
-            // Hint: $table.iter().filter($condition).count()
-            todo!("Implement COUNT with WHERE")
-        }
-    };
-
-    // NEW: SUM(field)
-    (SELECT SUM($field:ident) FROM $table:ident) => {
-        {
-            // TODO: Map to field then sum
-            // Hint: $table.iter().map(|row| row.$field).sum()
-            todo!("Implement SUM")
-        }
-    };
-
-    // NEW: SUM(field) with WHERE
-    (SELECT SUM($field:ident) FROM $table:ident WHERE $condition:expr) => {
-        {
-            // TODO: Filter, map, then sum
-            todo!("Implement SUM with WHERE")
-        }
-    };
-
-    // NEW: AVG(field)
-    (SELECT AVG($field:ident) FROM $table:ident) => {
-        {
-            // TODO: Calculate average
-            // Hint: sum / count, but watch for integer division
-            // Cast to f64: $table.iter().map(|row| row.$field as f64).sum::<f64>() / $table.len() as f64
-            todo!("Implement AVG")
-        }
-    };
-
-    // NEW: MIN(field)
-    (SELECT MIN($field:ident) FROM $table:ident) => {
-        {
-            // TODO: Use .min() or .min_by()
-            // Hint: $table.iter().map(|row| row.$field).min().unwrap()
-            todo!("Implement MIN")
-        }
-    };
-
-    // NEW: MAX(field)
-    (SELECT MAX($field:ident) FROM $table:ident) => {
-        {
-            // TODO: Use .max() or .max_by()
-            todo!("Implement MAX")
-        }
-    };
-}
-```
-
-**Implementation Hints:**
-1. `COUNT(*)` is just `.len()` for Vec, `.count()` after filter
-2. `SUM(field)` requires the field type to implement `Sum` trait
-3. `AVG` needs casting to f64 to avoid integer division: `field as f64`
-4. `MIN`/`MAX` return `Option<T>`—use `.unwrap()` or return Option
-5. For WHERE clauses, chain `.filter($condition)` before aggregation
-
 ---
 
-## Milestone 6: Compile-Time Schema Validation
-
-### Introduction
-
-**Why Milestone 5 Isn't Enough**: Current implementation accepts any field name: `query! { SELECT nonexistent FROM users }` compiles, then fails at runtime with "no field `nonexistent`". We want compile-time errors for invalid fields.
-
-**The Improvement**: Use `compile_error!` to validate field names against table schema at compile time. Macro expansion checks field existence and generates helpful error messages before type-checking.
-
-**Optimization (Developer Experience)**: Catching errors at compile time is 100x faster than runtime debugging. CI fails immediately vs production error after deployment. Type errors at compile time vs panics at runtime.
-
-### Architecture
-
-**Schema Registration:**
-- Tables registered with macro invocations store metadata
-- Query macros validate field references against registered schemas
-- Invalid field access generates `compile_error!` with helpful message
-
-**Validation Strategy:**
-- For each field in SELECT, check if it exists in table definition
-- For ORDER BY, verify sort field exists and is Ord
-- For aggregations, verify field is numeric (for SUM/AVG)
-
-**Technical Challenge**: Declarative macros can't share state between invocations (no global registry). Solution: use type-level validation or require explicit schema in query macro.
-
-### Checkpoint Tests
-
-```rust
-// These should FAIL to compile with helpful errors:
-
-// #[test]
-// fn test_invalid_field_compile_error() {
-//     table! {
-//         name: User {
-//             id: u32,
-//             name: String,
-//         }
-//     }
-//
-//     let users = vec![...];
-//
-//     // ERROR: field 'age' does not exist in table 'User'
-//     let results = query! {
-//         SELECT age FROM users
-//     };
-// }
-
-// #[test]
-// fn test_invalid_table_compile_error() {
-//     // ERROR: table 'nonexistent' not defined
-//     let results = query! {
-//         SELECT * FROM nonexistent
-//     };
-// }
-
-#[test]
-fn test_valid_query_compiles() {
-    table! {
-        name: User {
-            id: u32,
-            name: String,
-        }
-    }
-
-    let users = vec![
-        User { id: 1, name: "Alice".to_string() },
-    ];
-
-    // This should compile fine
-    let results = query! {
-        SELECT name FROM users
-    };
-
-    assert_eq!(results.len(), 1);
-}
-
-#[test]
-fn test_type_safe_aggregation() {
-    table! {
-        name: Product {
-            id: u32,
-            name: String,
-            price: f64,
-        }
-    }
-
-    let products = vec![
-        Product { id: 1, name: "Widget".to_string(), price: 9.99 },
-    ];
-
-    // SUM on numeric field works
-    let sum = query! {
-        SELECT SUM(price) FROM products
-    };
-
-    // This should fail to compile (SUM on String):
-    // let invalid = query! {
-    //     SELECT SUM(name) FROM products
-    // };
-}
-```
-
-### Starter Code
-
-```rust
-// TODO: Add schema validation to macros
-
-// Approach 1: Embed schema in query macro
-// User specifies table schema inline
-macro_rules! query_validated {
-    (
-        SCHEMA { $($field:ident: $type:ty),* }
-        SELECT $($select_field:ident),+
-        FROM $table:ident
-    ) => {
-        {
-            // TODO: Check if each $select_field is in SCHEMA
-            // If not, generate compile_error!
-            // This is advanced—requires recursive macro matching
-
-            // For now, generate the query normally
-            $table.iter().map(|row| ($(row.$select_field.clone()),+)).collect()
-        }
-    };
-}
-
-// Approach 2: Type-level validation (compile fails if field doesn't exist)
-// Rely on Rust's type checker—if field doesn't exist, compilation fails
-// This is what current implementation does
-
-// Approach 3: Better error messages using helper macros
-macro_rules! validate_field {
-    ($table:ident, $field:ident) => {
-        // This expands to field access, which fails with error if field doesn't exist
-        // We can wrap with custom error via compile_error! based on known schemas
-        // But declarative macros can't introspect types, so limited
-    };
-}
-
-// TODO: Document that validation happens via type-checking
-// Invalid fields produce error: "no field `age` on type `User`"
-// We can improve error messages with wrapper macros or proc macros
-```
-
-**Implementation Hints:**
-1. Full schema validation requires procedural macros (beyond declarative macros)
-2. Declarative macros can use `compile_error!` for pattern validation
-3. Type-checking catches invalid fields automatically: `row.nonexistent` fails
-4. Error messages can be improved with helper macros that add context
-5. For teaching purposes, document that Rust's type system provides validation
-
----
 
 ## Complete Working Example
 
-Here's a full implementation demonstrating all milestones:
-
 ```rust
-// Cargo.toml dependencies:
-// [dependencies]
-// itertools = "0.12"
+#![allow(clippy::needless_clone)]
 
-use itertools::Itertools;
+// =============================================================================
+// table! macro - Generates struct definitions
+// =============================================================================
 
-//======================
-// Table definition macro
-//======================
 macro_rules! table {
     (
         name: $name:ident {
-            $(
-                $field:ident: $type:ty
-            ),* $(,)?
+            $( $field:ident: $type:ty ),* $(,)?
         }
     ) => {
         #[derive(Debug, Clone, PartialEq)]
-        struct $name {
-            $(
-                $field: $type,
-            )*
+        pub struct $name {
+            $(pub $field: $type,)*
         }
     };
 }
 
-//======================
-// Query DSL macro
-//======================
+// =============================================================================
+// query! macro - SQL-like DSL
+// =============================================================================
+
 macro_rules! query {
-    // SELECT * FROM table
-    (SELECT * FROM $table:ident) => {
-        $table.clone()
-    };
+    // ===== Aggregations =====
 
-    // SELECT field FROM table
-    (SELECT $field:ident FROM $table:ident) => {
-        $table.iter().map(|row| row.$field.clone()).collect::<Vec<_>>()
-    };
-
-    // SELECT field FROM table WHERE condition
-    (SELECT $field:ident FROM $table:ident WHERE $condition:expr) => {
-        $table.iter()
-            .filter($condition)
-            .map(|row| row.$field.clone())
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT multiple fields FROM table
-    (SELECT $($field:ident),+ FROM $table:ident) => {
-        $table.iter()
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT multiple fields FROM table WHERE condition
-    (SELECT $($field:ident),+ FROM $table:ident WHERE $condition:expr) => {
-        $table.iter()
-            .filter($condition)
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT with ORDER BY ASC
-    (SELECT $($field:ident),+ FROM $table:ident ORDER BY $sort_field:ident ASC) => {
-        $table.iter()
-            .sorted_by(|a, b| a.$sort_field.cmp(&b.$sort_field))
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT with ORDER BY DESC
-    (SELECT $($field:ident),+ FROM $table:ident ORDER BY $sort_field:ident DESC) => {
-        $table.iter()
-            .sorted_by(|a, b| b.$sort_field.cmp(&a.$sort_field))
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT with LIMIT
-    (SELECT $($field:ident),+ FROM $table:ident LIMIT $n:expr) => {
-        $table.iter()
-            .take($n)
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // SELECT with WHERE, ORDER BY, and LIMIT
-    (SELECT $($field:ident),+ FROM $table:ident WHERE $condition:expr ORDER BY $sort_field:ident ASC LIMIT $n:expr) => {
-        $table.iter()
-            .filter($condition)
-            .sorted_by(|a, b| a.$sort_field.cmp(&b.$sort_field))
-            .take($n)
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    (SELECT $($field:ident),+ FROM $table:ident WHERE $condition:expr ORDER BY $sort_field:ident DESC LIMIT $n:expr) => {
-        $table.iter()
-            .filter($condition)
-            .sorted_by(|a, b| b.$sort_field.cmp(&a.$sort_field))
-            .take($n)
-            .map(|row| ($(row.$field.clone()),+))
-            .collect::<Vec<_>>()
-    };
-
-    // COUNT(*)
-    (SELECT COUNT(*) FROM $table:ident) => {
+    (SELECT COUNT(*) FROM $table:ident) => {{
         $table.len()
-    };
+    }};
 
-    // COUNT(*) with WHERE
-    (SELECT COUNT(*) FROM $table:ident WHERE $condition:expr) => {
+    (SELECT COUNT(*) FROM $table:ident WHERE $condition:expr) => {{
         $table.iter().filter($condition).count()
-    };
+    }};
 
-    // SUM(field)
-    (SELECT SUM($field:ident) FROM $table:ident) => {
-        $table.iter().map(|row| row.$field).sum()
-    };
+    (SELECT SUM($field:ident) FROM $table:ident) => {{
+        $table.iter().map(|row| row.$field.clone()).sum::<_>()
+    }};
 
-    // SUM(field) with WHERE
-    (SELECT SUM($field:ident) FROM $table:ident WHERE $condition:expr) => {
-        $table.iter().filter($condition).map(|row| row.$field).sum()
-    };
-
-    // AVG(field)
-    (SELECT AVG($field:ident) FROM $table:ident) => {
-        {
+    (SELECT AVG($field:ident) FROM $table:ident) => {{
+        let count = $table.len();
+        if count == 0 { 0.0 } else {
             let sum: f64 = $table.iter().map(|row| row.$field as f64).sum();
-            let count = $table.len() as f64;
-            if count > 0.0 { sum / count } else { 0.0 }
+            sum / count as f64
         }
-    };
+    }};
 
-    // MIN(field)
-    (SELECT MIN($field:ident) FROM $table:ident) => {
-        $table.iter().map(|row| row.$field).min().unwrap()
-    };
+    (SELECT MIN($field:ident) FROM $table:ident) => {{
+        $table.iter().map(|row| row.$field.clone())
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .expect("MIN on empty table")
+    }};
 
-    // MAX(field)
-    (SELECT MAX($field:ident) FROM $table:ident) => {
-        $table.iter().map(|row| row.$field).max().unwrap()
-    };
+    (SELECT MAX($field:ident) FROM $table:ident) => {{
+        $table.iter().map(|row| row.$field.clone())
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .expect("MAX on empty table")
+    }};
+
+    // ===== SELECT * =====
+
+    (SELECT * FROM $table:ident) => {{
+        $table.clone()
+    }};
+
+    // ===== Single field =====
+
+    (SELECT $field:ident FROM $table:ident) => {{
+        $table.iter().map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    (SELECT $field:ident FROM $table:ident WHERE $condition:expr) => {{
+        $table.iter().filter($condition)
+            .map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    (SELECT $field:ident FROM $table:ident ORDER BY $sort:ident ASC) => {{
+        $table.iter()
+            .sorted_by(|a, b| a.$sort.partial_cmp(&b.$sort).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    (SELECT $field:ident FROM $table:ident ORDER BY $sort:ident DESC) => {{
+        $table.iter()
+            .sorted_by(|a, b| b.$sort.partial_cmp(&a.$sort).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    (SELECT $field:ident FROM $table:ident LIMIT $n:expr) => {{
+        $table.iter().take($n).map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    // WHERE + ORDER BY + LIMIT (comma after WHERE condition)
+    (SELECT $field:ident FROM $table:ident WHERE $cond:expr, ORDER BY $sort:ident ASC LIMIT $n:expr) => {{
+        $table.iter().filter($cond)
+            .sorted_by(|a, b| a.$sort.partial_cmp(&b.$sort).unwrap_or(std::cmp::Ordering::Equal))
+            .take($n).map(|row| row.$field.clone()).collect::<Vec<_>>()
+    }};
+
+    // ===== Multiple fields =====
+
+    (SELECT $first:ident, $($rest:ident),+ FROM $table:ident) => {{
+        $table.iter()
+            .map(|row| (row.$first.clone(), $(row.$rest.clone()),+))
+            .collect::<Vec<_>>()
+    }};
+
+    (SELECT $first:ident, $($rest:ident),+ FROM $table:ident WHERE $condition:expr) => {{
+        $table.iter().filter($condition)
+            .map(|row| (row.$first.clone(), $(row.$rest.clone()),+))
+            .collect::<Vec<_>>()
+    }};
+
+    (SELECT $first:ident, $($rest:ident),+ FROM $table:ident ORDER BY $sort:ident DESC LIMIT $n:expr) => {{
+        $table.iter()
+            .sorted_by(|a, b| b.$sort.partial_cmp(&a.$sort).unwrap_or(std::cmp::Ordering::Equal))
+            .take($n)
+            .map(|row| (row.$first.clone(), $(row.$rest.clone()),+))
+            .collect::<Vec<_>>()
+    }};
+
+    // ===== JOINs =====
+
+    (SELECT * FROM $left:ident JOIN $right:ident ON $join_cond:expr) => {{
+        let mut results = Vec::new();
+        for left_row in $left.iter() {
+            for right_row in $right.iter() {
+                if ($join_cond)(left_row, right_row) {
+                    results.push((left_row.clone(), right_row.clone()));
+                }
+            }
+        }
+        results
+    }};
+
+    (SELECT * FROM $left:ident JOIN $right:ident ON $join_cond:expr; WHERE $where_cond:expr) => {{
+        let mut results = Vec::new();
+        for left_row in $left.iter() {
+            for right_row in $right.iter() {
+                if ($join_cond)(left_row, right_row) {
+                    if ($where_cond)((&left_row, &right_row)) {
+                        results.push((left_row.clone(), right_row.clone()));
+                    }
+                }
+            }
+        }
+        results
+    }};
 }
 
-//======================
-// Example usage
-//======================
+// =============================================================================
+// Example Usage
+// =============================================================================
+
 fn main() {
-    // Define tables
+    use itertools::Itertools;
+
     table! {
         name: User {
             id: u32,
@@ -1309,101 +855,73 @@ fn main() {
         }
     }
 
-    table! {
-        name: Order {
-            id: u32,
-            user_id: u32,
-            total: f64,
-        }
-    }
-
-    // Create test data
     let users = vec![
         User { id: 1, name: "Alice".to_string(), age: 30 },
         User { id: 2, name: "Bob".to_string(), age: 25 },
         User { id: 3, name: "Carol".to_string(), age: 35 },
-        User { id: 4, name: "Dave".to_string(), age: 28 },
     ];
 
-    let orders = vec![
-        Order { id: 1, user_id: 1, total: 100.0 },
-        Order { id: 2, user_id: 1, total: 50.0 },
-        Order { id: 3, user_id: 2, total: 75.0 },
-        Order { id: 4, user_id: 3, total: 200.0 },
-    ];
+    // Basic SELECT
+    let names = query! { SELECT name FROM users };
+    println!("Names: {:?}", names);
 
-    // Example 1: Simple SELECT
-    println!("=== Example 1: Simple SELECT ===");
-    let names = query! {
-        SELECT name FROM users
-    };
-    println!("All names: {:?}", names);
+    // SELECT with WHERE
+    let adults = query! { SELECT name FROM users WHERE |u| u.age >= 30 };
+    println!("Adults: {:?}", adults);
 
-    // Example 2: SELECT with WHERE
-    println!("\n=== Example 2: SELECT with WHERE ===");
-    let old_users = query! {
-        SELECT name, age FROM users WHERE |u| u.age > 28
-    };
-    println!("Users over 28: {:?}", old_users);
+    // Multiple fields
+    let name_ages: Vec<(String, u32)> = query! { SELECT name, age FROM users };
+    println!("Name/Age: {:?}", name_ages);
 
-    // Example 3: ORDER BY and LIMIT
-    println!("\n=== Example 3: ORDER BY and LIMIT ===");
-    let youngest_two = query! {
-        SELECT name FROM users ORDER BY age ASC LIMIT 2
-    };
-    println!("Youngest 2 users: {:?}", youngest_two);
+    // ORDER BY
+    let by_age = query! { SELECT name FROM users ORDER BY age ASC };
+    println!("By age: {:?}", by_age);
 
-    // Example 4: Complex query with all clauses
-    println!("\n=== Example 4: Complex query ===");
-    let results = query! {
-        SELECT name, age FROM users WHERE |u| u.age > 25 ORDER BY age DESC LIMIT 2
-    };
-    println!("Top 2 oldest users over 25: {:?}", results);
-
-    // Example 5: Aggregations
-    println!("\n=== Example 5: Aggregations ===");
-    let user_count = query! {
-        SELECT COUNT(*) FROM users
-    };
-    println!("Total users: {}", user_count);
-
-    let avg_age = query! {
-        SELECT AVG(age) FROM users
-    };
-    println!("Average age: {:.1}", avg_age);
-
-    let total_revenue = query! {
-        SELECT SUM(total) FROM orders
-    };
-    println!("Total revenue: ${:.2}", total_revenue);
-
-    let max_order = query! {
-        SELECT MAX(total) FROM orders
-    };
-    println!("Largest order: ${:.2}", max_order);
-
-    // Example 6: Filtered aggregations
-    println!("\n=== Example 6: Filtered aggregations ===");
-    let high_value_count = query! {
-        SELECT COUNT(*) FROM orders WHERE |o| o.total > 80.0
-    };
-    println!("Orders over $80: {}", high_value_count);
-
-    let alice_total = query! {
-        SELECT SUM(total) FROM orders WHERE |o| o.user_id == 1
-    };
-    println!("Alice's total: ${:.2}", alice_total);
+    // Aggregations
+    let count = query! { SELECT COUNT(*) FROM users };
+    let avg_age = query! { SELECT AVG(age) FROM users };
+    println!("Count: {}, Avg age: {}", count, avg_age);
 }
 ```
 
-This complete implementation demonstrates:
-1. **Table definition macro** - Creates structs with schema
-2. **Multi-pattern query macro** - Handles various SQL-like queries
-3. **Single and multi-field SELECT** - Returns values or tuples
-4. **WHERE clauses** - Filters using closures
-5. **ORDER BY** - Sorting with ASC/DESC
-6. **LIMIT** - Result pagination
-7. **Aggregations** - COUNT, SUM, AVG, MIN, MAX
-8. **Type safety** - Compile-time field validation via Rust's type system
+---
 
-The DSL compiles to efficient iterator chains with zero runtime parsing overhead—a production-ready foundation for building type-safe query systems.
+## Key Lessons Learned
+
+### 1. Follow-Set Rules Are Strict
+
+`expr` fragments can ONLY be followed by `=>`, `,`, or `;`. Plan your syntax around this.
+
+### 2. Closure Types Matter
+
+When using `iter().filter()`, closures receive `&&T`. Use type inference or explicit `&&T`.
+
+### 3. Floats Need Special Handling
+
+`f64` doesn't implement `Ord`. Use `partial_cmp` with `unwrap_or(Ordering::Equal)` for sorting.
+
+### 4. Type Annotations Sometimes Required
+
+Aggregations like SUM may need explicit type annotations: `let sum: f64 = ...`
+
+### 5. Keep JOINs Simple
+
+Returning full row tuples is much simpler than trying to select specific fields from multiple tables.
+
+### 6. Pattern Order Matters
+
+More specific patterns should come before general ones, or use distinguishing syntax.
+
+---
+
+## Cargo.toml
+
+```toml
+[package]
+name = "query-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itertools = "0.12"
+```

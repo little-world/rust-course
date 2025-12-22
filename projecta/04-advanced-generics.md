@@ -199,22 +199,6 @@ let huge: Stack<i32, 100000> = Stack::new();
        // Compile error if you pass Stack<T, 5> or Stack<T, 20>
    }
    ```
-
-**Real-World Example**:
-```rust
-// Graphics programming with fixed-size vectors
-struct Vec3<T, const N: usize> {
-    coords: [T; N],
-}
-
-type Vec2D = Vec3<f32, 2>;  // 2D vector
-type Vec3D = Vec3<f32, 3>;  // 3D vector
-type Vec4D = Vec3<f32, 4>;  // 4D vector (homogeneous coordinates)
-
-// Compiler generates specialized code for each dimension
-// No runtime checks, perfect optimization
-```
-
 ---
 
 ### MaybeUninit<T>: Safe Uninitialized Memory
@@ -254,11 +238,10 @@ It's the **safe** way to work with uninitialized memory in Rust.
 
 ```rust
 // 1. Create uninitialized memory
-let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
+let mut uninit: MaybeUninit<i32> = MaybeUninit::uninit();
 // This is just raw memory, contains garbage
 
 // 2. Write a value into it
-let mut uninit = MaybeUninit::uninit();
 uninit.write(42);  // Now contains 42
 
 // 3. Read the value (UNSAFE - you must know it's initialized!)
