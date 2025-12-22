@@ -538,7 +538,7 @@ Symbol:
   generation: u32     // Must match slot's generation
 ```
 
-**Example Lifecycle**:
+**Example**:
 
 ```rust
 let mut interner = SymbolInterner::new();
@@ -852,7 +852,7 @@ let s2 = s1.clone();  // Must explicitly clone
 
 ### 'static Lifetime: Global and Owned Data
 
-The `'static` lifetime is special—it means "lives for the entire program duration."
+The `'static` lifetime is special. It means "lives for the entire program duration."
 
 **Two Meanings of 'static**:
 
@@ -948,79 +948,6 @@ impl StringInterner {
 ### Milestone 1: Understand Cow Basics
 
  Learn how `Cow` (Clone-on-Write) works through hands-on examples that demonstrate zero-copy optimization.
-
-
-**The Problem `Cow` Solves**:
-
-Imagine writing a function that normalizes whitespace in text. Sometimes the input is already normalized (no work needed), sometimes it needs modification. What should the function signature be?
-
-**Option 1: Always return `String` (always allocate)**
-```rust
-fn normalize(text: &str) -> String {
-    text.replace("  ", " ")  // Always allocates, even if no changes!
-}
-```
-❌ **Problem**: Wastes memory and time when input is already clean (90% of cases)
-
-**Option 2: Return `&str` (never allocate)**
-```rust
-fn normalize(text: &str) -> &str {
-    text  // Can't modify!
-}
-```
-❌ **Problem**: Can't handle cases that need modification
-
-**Option 3: Return `Cow<str>` (allocate only when needed)**
-```rust
-fn normalize(text: &str) -> Cow<str> {
-    if text.contains("  ") {
-        Cow::Owned(text.replace("  ", " "))  // Allocate when needed
-    } else {
-        Cow::Borrowed(text)  // Zero-copy when clean
-    }
-}
-```
-✅ **Perfect**: Zero overhead for clean input, handles modifications when needed!
-
-**What is `Cow`?**
-
-`Cow` stands for **Clone-on-Write** (or **Copy-on-Write**). It's an enum with two variants:
-
-```rust
-pub enum Cow<'a, B: ?Sized + 'a>
-where
-    B: ToOwned,
-{
-    Borrowed(&'a B),  // Borrowed reference (zero-copy)
-    Owned(<B as ToOwned>::Owned),  // Owned value (allocated)
-}
-```
-
-For strings:
-- `Cow::Borrowed(&str)` - Points to existing string data
-- `Cow::Owned(String)` - Owns heap-allocated string data
-
-**Key Insights**:
-
-1. **Caller's perspective**: `Cow<str>` acts like a string—you can read it, compare it, print it
-2. **Zero-copy path**: When no modification needed, return `Cow::Borrowed` (no allocation!)
-3. **Allocation path**: When modification needed, return `Cow::Owned` (allocate once)
-4. **API clarity**: The type signature tells callers "might allocate, might not"
-
-**Real-World Performance Impact**:
-
-Consider processing 10,000 log lines, normalizing whitespace:
-- 9,000 lines already clean (90%)
-- 1,000 lines need normalization (10%)
-
-**With `String` return (always allocate)**:
-- 10,000 allocations
-- ~75ns each = **750,000ns = 0.75ms**
-
-**With `Cow<str>` return (allocate only when needed)**:
-- 1,000 allocations (only for dirty lines)
-- ~75ns each = **75,000ns = 0.075ms**
-- **10x faster!**
 
 
 **Architecture**:
@@ -1131,12 +1058,8 @@ fn test_escape_with_html() {
 
 Implement a string interner that stores each unique string once and returns references to deduplicated storage.
 
-
 Now that we understand `Cow` for conditional allocation, let's tackle a bigger problem: **string duplication across your entire program**. String interning is a powerful technique that trades lookup time for dramatic memory savings.
 
-**What is String Interning?**
-
-String interning is a technique where:
 1. **Unique strings stored once**: First occurrence allocates and stores
 2. **Duplicates return references**: Subsequent occurrences return pointer to existing storage
 3. **Pointer equality works**: Can compare strings with `ptr::eq()` instead of `strcmp()`
@@ -1201,8 +1124,6 @@ assert!(std::ptr::eq(s1, s2));
 // assert_eq!(s1, s2);  // Not needed anymore!
 ```
 
-
-
 **Starter Code**:
 ```rust
 use std::collections::HashSet;
@@ -1218,15 +1139,9 @@ impl StringInterner {
     }
 
     fn intern(&mut self, s: &str) -> &str {
-        // TODO: Check if string already interned using contains()
-        if todo!("Check if !self.strings.contains(s)") {
-            // TODO: Insert Box::from(s) into self.strings
-            todo!();
-        }
-
-        // TODO: Get reference to the interned string from HashSet
-        // Hint: self.strings.get(s).unwrap()
-        // This works because we just inserted it if it wasn't there
+        // TODO: Check if string already in set
+        // TODO: First time seeing this string - allocate and store
+        // TODO: Return reference to the string in the set
         todo!()
     }
 
@@ -1242,7 +1157,6 @@ impl StringInterner {
 
     fn total_bytes(&self) -> usize {
         // TODO: Sum up the length of all strings
-        // Hint: self.strings.iter().map(|s| s.len()).sum()
         todo!()
     }
 }
@@ -1332,7 +1246,7 @@ fn get_or_intern(&mut self, s: &str) -> Cow<str> {
 
 **Why always `Cow::Borrowed`?**
 
-Good question! You might expect:
+You might expect:
 ```rust
 // Intuitive but WRONG approach
 fn get_or_intern(&mut self, s: &str) -> Cow<str> {
@@ -1343,8 +1257,7 @@ fn get_or_intern(&mut self, s: &str) -> Cow<str> {
     }
 }
 ```
-
-**Why this is wrong**: The interner's job is to **store and return references to stored strings**. If we return `Cow::Owned(String)`, the string isn't in the interner—it's owned by the caller! That defeats the purpose.
+**Why this is wrong**: The interner's job is to **store and return references to stored strings**. If we return `Cow::Owned(String)`, the string isn't in the interner. It's owned by the caller! That defeats the purpose.
 
 **The Correct Pattern**:
 
@@ -1356,10 +1269,7 @@ The `Cow` variant isn't the right way to communicate allocation here (it's alway
 
 
 **Key Takeaway**:
-
 This milestone illustrates that **`Cow` isn't always the right tool**. It's perfect for "maybe modify the input" but awkward for "maybe store the input." This prepares you for Milestone 4's better solution: explicit statistics tracking.
-
-
 
 **Starter Code**:
 ```rust
@@ -1368,18 +1278,13 @@ impl StringInterner {
         // TODO: Check if string is already interned
         if todo!("self.contains(s)") {
             // TODO: Return Cow::Borrowed with reference from HashSet
-            // Hint: Cow::Borrowed(self.strings.get(s).unwrap())
-            todo!()
         } else {
             // TODO: Insert the string into HashSet
-            todo!();
             // TODO: Return Cow::Borrowed with reference to newly inserted string
-            todo!()
         }
     }
 }
 ```
-
 
 **Checkpoint Tests**:
 ```rust
@@ -1422,8 +1327,6 @@ As we learned in Milestone 3, `Cow` isn't the ideal way to track string interner
 
 **Architecture**:
 
-Without stats, you're flying blind. You don't know if the interner is paying for itself!
-
 **struct**:
 - `InternerStats` 
 
@@ -1456,10 +1359,8 @@ fn intern(&mut self, s: &str) -> &str {
 
 **Production Monitoring**:
 
-
 **Why Track Both `total_strings` AND `allocations`?**
-
-Good question! They're usually equal, but might differ if you add a `clear()` or `remove()` method:
+They're usually equal, but might differ if you add a `clear()` or `remove()` method:
 
 ```rust
 interner.intern("hello");  // allocations=1, total_strings=1
@@ -1476,9 +1377,7 @@ Adding stats is cheap:
 - String length: already computed for HashSet
 - No allocations, no complex computation
 
-The cost is negligible compared to the HashSet lookup (~50ns).
-
-
+The cost is negligible compared to the HashSet lookup (~50ns)
 
 **Starter Code**:
 ```rust
@@ -1913,8 +1812,6 @@ fn test_symbol_lifetime_safety() {
 }
 ```
 
-
-
 **Check Your Understanding**:
 - Why use symbols instead of direct string references?
 - How do generational indices detect stale references?
@@ -1972,29 +1869,12 @@ fn benchmark_without_interner() {
 - When might interning hurt performance?
 - What's the memory trade-off?
 
----
-
-### Complete Project Summary
-
-**What You Built**:
-1. Understanding of `Cow<T>` for zero-copy patterns
-2. Basic string interner with HashSet
-3. Statistics tracking for allocations
-4. Symbol-based access with generational indices
-5. Performance comparisons
-
-**Key Concepts Practiced**:
-- Clone-on-Write patterns
-- String interning benefits
-- Generational indices for safe handles
-- Trade-offs between copying and interning
 
 ---
 ## Complete Working Example
 
 ```rust
 // Complete String Interning Implementation
-// Implements all 6 milestones from the project specification
 
 use std::borrow::Cow;
 use std::collections::HashSet;

@@ -1590,48 +1590,6 @@ mod benchmarks {
 }
 ```
 
-## Extensions and Challenges
-
-1. **HTTP Parsing**: Add HTTP request/response parsing and threat detection (SQL injection, XSS)
-2. **IPv6 Support**: Extend to support IPv6 addresses and protocols
-3. **PCAP Files**: Read/write packet capture files in PCAP format
-4. **More Protocols**: Add DNS, DHCP, SMTP, FTP parsing
-5. **TLS Inspection**: Inspect encrypted traffic metadata
-6. **Distributed Capture**: Aggregate packets from multiple sources
-7. **Real-time Visualization**: Create a terminal UI for live packet analysis
-8. **Machine Learning**: Detect anomalies using statistical models
-
-## Pattern Matching Features Demonstrated
-
-✅ **Byte Slice Patterns**: Parsing binary protocol headers
-✅ **Deep Destructuring**: Extracting data through Ethernet → IP → TCP layers
-✅ **Range Patterns**: Port classification (1..=1023)
-✅ **Pattern Guards**: Complex firewall rules and validation
-✅ **Or-Patterns**: Service detection across multiple ports (80 | 8080 | 8000)
-✅ **Exhaustive Matching**: All protocol variants handled
-✅ **Matches! Macro**: Quick TCP flag checks
-✅ **If-Let Chains**: Optional field handling in complex rules
-✅ **While-Let**: Stream processing
-✅ **Let-Else**: Error handling in extraction functions
-✅ **Array Patterns**: IP address classification ([10, _, _, _])
-✅ **Tuple Matching**: Protocol and port combinations
-
-## Real-World Applications
-
-- **Network Security**: Firewalls, IDS/IPS systems
-- **Traffic Analysis**: Bandwidth monitoring, QoS enforcement
-- **Protocol Testing**: Validate protocol implementations
-- **Forensics**: Analyze network captures for security incidents
-- **Performance Optimization**: Identify network bottlenecks
-- **Compliance**: Monitor for policy violations
-
-This project demonstrates how pattern matching naturally expresses network protocol analysis, making code both safe (exhaustive checking) and maintainable (clear structure).
-
----
-
-## Complete Working Implementation
-
-Below is a complete, working implementation of all the components discussed in this project. Use this as a reference after attempting the exercises yourself.
 
 ### Complete Working Code
 

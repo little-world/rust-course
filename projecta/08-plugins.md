@@ -1380,23 +1380,6 @@ mod tests {
 }
 ```
 
-**Key Takeaways from Complete Example**:
-
-1. **Static vs Dynamic Dispatch**:
-    - Static: `run_plugin<T>` generates code for each type, zero overhead
-    - Dynamic: `run_plugin_dynamic(&dyn Plugin)` uses vtable, one function for all types
-
-2. **Object Safety**: Plugin traits must follow rules (no generic methods, etc.)
-
-3. **Heterogeneous Collections**: `Vec<Box<dyn Plugin>>` stores different types
-
-4. **Lifecycle Management**: Init/execute/cleanup pattern for stateful plugins
-
-5. **Trade-offs**:
-    - Static: Fast, large binary, compile-time known types
-    - Dynamic: Small binary, runtime polymorphism, slight overhead
-
----
 
 ### Complete Working Example
 

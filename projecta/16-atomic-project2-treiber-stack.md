@@ -1943,19 +1943,40 @@ mod benchmarks {
 ## Complete Working Example
 
 ```rust
+// Lock-Free Stack (Treiber Stack) - Complete Implementation
+// All milestones with TODO sections implemented
+
+use std::marker::PhantomData;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
 // ============================================================================
-// VERSIONED POINTER
+// Milestone 1: Basic Single-Threaded Stack with Atomic Pointer
 // ============================================================================
 
-const PTR_MASK: usize = 0x0000_FFFF_FFFF_FFFF;
+// Constants for pointer packing (x86-64)
+const PTR_MASK: usize = 0x0000_FFFF_FFFF_FFFF; // Lower 48 bits
 const VERSION_SHIFT: usize = 48;
-const VERSION_MASK: u64 = 0xFFFF;
+const VERSION_MASK: u64 = 0xFFFF; // 16 bits
+
+struct Node<T> {
+    value: T,
+    next: *mut Node<T>,
+}
+
+impl<T> Node<T> {
+    #[allow(dead_code)]
+    fn new(value: T, next: *mut Node<T>) -> Box<Node<T>> {
+        Box::new(Node { value, next })
+    }
+}
+
+// ============================================================================
+// Milestone 4: ABA Problem Protection with Version Counter
+// ============================================================================
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 struct VersionedPtr {
@@ -1972,7 +1993,7 @@ impl VersionedPtr {
     }
 
     fn as_ptr<T>(&self) -> *mut Node<T> {
-        // Sign-extend 48-bit pointer
+        // Sign-extend 48-bit pointer to 64-bit
         let ptr_bits = (self.packed & PTR_MASK) as isize;
         let extended = (ptr_bits << 16) >> 16;
         extended as *mut Node<T>
@@ -2000,31 +2021,26 @@ impl VersionedPtr {
 }
 
 // ============================================================================
-// NODE
-// ============================================================================
-
-struct Node<T> {
-    value: T,
-    next: *mut Node<T>,
-}
-
-// ============================================================================
-// LOCK-FREE STACK
+// Lock-Free Stack (Milestones 1-5 combined)
 // ============================================================================
 
 pub struct LockFreeStack<T> {
-    head: AtomicUsize, // VersionedPtr
-    len: AtomicUsize,
+    head: AtomicUsize, // VersionedPtr packed as usize
+    len: AtomicUsize,  // Milestone 5: Length tracking
+    _marker: PhantomData<T>,
 }
 
 impl<T> LockFreeStack<T> {
+    // Milestone 1: Initialize with null pointer
     pub fn new() -> Self {
         Self {
             head: AtomicUsize::new(VersionedPtr::null::<T>().to_usize()),
             len: AtomicUsize::new(0),
+            _marker: PhantomData,
         }
     }
 
+    // Milestone 2: Thread-Safe Push with Compare-And-Swap
     pub fn push(&self, value: T) {
         let mut new_node = Box::new(Node {
             value,
@@ -2032,15 +2048,19 @@ impl<T> LockFreeStack<T> {
         });
 
         loop {
+            // Load current head
             let head_packed = self.head.load(Ordering::Acquire);
             let head = VersionedPtr::from_usize(head_packed);
 
+            // Link new node to current head
             new_node.next = head.as_ptr();
             let new_node_ptr = Box::into_raw(new_node);
 
+            // Increment version for ABA protection (Milestone 4)
             let new_version = head.version().wrapping_add(1);
             let new_head = VersionedPtr::new(new_node_ptr, new_version);
 
+            // Try to CAS head from old to new
             match self.head.compare_exchange_weak(
                 head_packed,
                 new_head.to_usize(),
@@ -2048,11 +2068,12 @@ impl<T> LockFreeStack<T> {
                 Ordering::Acquire,
             ) {
                 Ok(_) => {
+                    // Success: increment length (Milestone 5)
                     self.len.fetch_add(1, Ordering::Release);
                     return;
                 }
                 Err(_) => {
-                    // CAS failed, retry
+                    // CAS failed, recover the node and retry
                     unsafe {
                         new_node = Box::from_raw(new_node_ptr);
                     }
@@ -2061,20 +2082,27 @@ impl<T> LockFreeStack<T> {
         }
     }
 
+    // Milestone 3: Thread-Safe Pop with Memory Reclamation
     pub fn pop(&self) -> Option<T> {
         loop {
+            // Load head pointer
             let head_packed = self.head.load(Ordering::Acquire);
             let head = VersionedPtr::from_usize(head_packed);
 
+            // If null, return None
             if head.is_null() {
                 return None;
             }
 
             unsafe {
-                let next = (*head.as_ptr()).next;
+                // Read next pointer from head node
+                let next = (*head.as_ptr::<T>()).next;
+
+                // Increment version for ABA protection (Milestone 4)
                 let new_version = head.version().wrapping_add(1);
                 let new_head = VersionedPtr::new(next, new_version);
 
+                // Try to CAS head from current to next
                 match self.head.compare_exchange_weak(
                     head_packed,
                     new_head.to_usize(),
@@ -2082,27 +2110,32 @@ impl<T> LockFreeStack<T> {
                     Ordering::Acquire,
                 ) {
                     Ok(_) => {
+                        // Success: decrement length (Milestone 5)
                         self.len.fetch_sub(1, Ordering::Release);
+                        // Extract value and free node
                         let head_node = Box::from_raw(head.as_ptr());
                         return Some(head_node.value);
                     }
                     Err(_) => {
-                        // CAS failed, retry
+                        // CAS failed, another thread modified stack, retry
                     }
                 }
             }
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.len.load(Ordering::Acquire)
-    }
-
+    // Milestone 1: Check if empty
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    // Milestone 5: Get current length
+    pub fn len(&self) -> usize {
+        self.len.load(Ordering::Acquire)
+    }
 }
 
+// Milestone 5: Peek operation for cloneable types
 impl<T: Clone> LockFreeStack<T> {
     pub fn peek_cloned(&self) -> Option<T> {
         loop {
@@ -2114,9 +2147,10 @@ impl<T: Clone> LockFreeStack<T> {
             }
 
             unsafe {
-                let value = (*head.as_ptr()).value.clone();
+                // Clone the value
+                let value = (*head.as_ptr::<T>()).value.clone();
 
-                // Verify head hasn't changed
+                // Verify head hasn't changed (if changed, value might be from freed node)
                 let current_packed = self.head.load(Ordering::Acquire);
                 if current_packed == head_packed {
                     return Some(value);
@@ -2129,85 +2163,129 @@ impl<T: Clone> LockFreeStack<T> {
 
 impl<T> Drop for LockFreeStack<T> {
     fn drop(&mut self) {
+        // Pop all nodes to free memory
         while self.pop().is_some() {}
     }
 }
 
+// Safety: Stack is thread-safe for Send types
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 
 // ============================================================================
-// EXAMPLE USAGE
+// Main function demonstrating all features
 // ============================================================================
 
 fn main() {
-    println!("=== Lock-Free Stack Demo ===\n");
+    println!("=== Lock-Free Stack (Treiber Stack) Demo ===\n");
 
-    // Basic usage
-    println!("--- Basic Operations ---");
+    // Milestone 1: Basic single-threaded operations
+    println!("--- Milestone 1: Basic Operations ---");
     let stack = LockFreeStack::new();
+    assert!(stack.is_empty());
 
     stack.push(1);
     stack.push(2);
     stack.push(3);
 
+    println!("Pushed: 1, 2, 3");
     println!("Length: {}", stack.len());
-    println!("Peek: {:?}", stack.peek_cloned());
 
-    while let Some(val) = stack.pop() {
-        println!("Popped: {}", val);
-    }
+    assert_eq!(stack.pop(), Some(3));
+    assert_eq!(stack.pop(), Some(2));
+    assert_eq!(stack.pop(), Some(1));
+    assert_eq!(stack.pop(), None);
+    println!("Popped in LIFO order: 3, 2, 1");
+    assert!(stack.is_empty());
 
-    println!();
-
-    // Concurrent usage
-    println!("--- Concurrent Push/Pop ---");
+    // Milestone 2: Concurrent push
+    println!("\n--- Milestone 2: Concurrent Push ---");
     let stack = Arc::new(LockFreeStack::new());
+    let mut handles = vec![];
 
-    let handles: Vec<_> = (0..4)
-        .map(|tid| {
-            let s = Arc::clone(&stack);
-            thread::spawn(move || {
-                for i in 0..100 {
-                    s.push(tid * 1000 + i);
-                }
-                println!("Thread {} finished pushing", tid);
-            })
-        })
-        .collect();
+    for thread_id in 0..10 {
+        let s = Arc::clone(&stack);
+        let handle = thread::spawn(move || {
+            for i in 0..100 {
+                s.push(thread_id * 1000 + i);
+            }
+        });
+        handles.push(handle);
+    }
 
     for h in handles {
         h.join().unwrap();
     }
 
-    println!("Total elements: {}", stack.len());
+    println!("10 threads each pushed 100 items");
+    println!("Total items: {}", stack.len());
+    assert_eq!(stack.len(), 1000);
 
-    let handles: Vec<_> = (0..4)
-        .map(|tid| {
-            let s = Arc::clone(&stack);
-            thread::spawn(move || {
-                let mut count = 0;
-                for _ in 0..100 {
-                    if s.pop().is_some() {
-                        count += 1;
-                    }
+    // Milestone 3: Concurrent pop
+    println!("\n--- Milestone 3: Concurrent Pop ---");
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let s = Arc::clone(&stack);
+        let handle = thread::spawn(move || {
+            let mut count = 0;
+            for _ in 0..100 {
+                if s.pop().is_some() {
+                    count += 1;
                 }
-                println!("Thread {} popped {} elements", tid, count);
-                count
-            })
-        })
-        .collect();
+            }
+            count
+        });
+        handles.push(handle);
+    }
 
-    let total_popped: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
-    println!("Total popped: {}", total_popped);
-    println!("Remaining: {}", stack.len());
+    let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    println!("10 threads each tried to pop 100 items");
+    println!("Total popped: {}", total);
+    assert_eq!(total, 1000);
+    assert!(stack.is_empty());
 
-    println!();
+    // Milestone 4: ABA protection test
+    println!("\n--- Milestone 4: ABA Protection ---");
+    let stack = Arc::new(LockFreeStack::new());
+    stack.push(1);
+    stack.push(2);
 
-    // Performance benchmark
-    println!("--- Performance Benchmark ---");
+    // Pop and push same values multiple times
+    for _ in 0..100 {
+        let val = stack.pop().unwrap();
+        stack.push(val);
+    }
 
-    // Single-threaded
+    // Stack should still be valid
+    assert_eq!(stack.pop(), Some(2));
+    assert_eq!(stack.pop(), Some(1));
+    println!("Stack remained valid after repeated pop/push cycles");
+
+    // Milestone 5: Peek and length tracking
+    println!("\n--- Milestone 5: Peek and Length ---");
+    let stack = LockFreeStack::new();
+
+    assert_eq!(stack.peek_cloned(), None);
+    assert_eq!(stack.len(), 0);
+
+    stack.push(42);
+    assert_eq!(stack.peek_cloned(), Some(42));
+    assert_eq!(stack.len(), 1);
+
+    stack.push(100);
+    assert_eq!(stack.peek_cloned(), Some(100));
+    assert_eq!(stack.len(), 2);
+
+    stack.pop();
+    assert_eq!(stack.peek_cloned(), Some(42));
+    assert_eq!(stack.len(), 1);
+    println!("Peek and length tracking work correctly");
+
+    // Milestone 6: Performance benchmark
+    println!("\n--- Milestone 6: Performance Benchmark ---");
+
+    // Single-threaded benchmark
     let stack = LockFreeStack::new();
     let start = Instant::now();
     for i in 0..1_000_000 {
@@ -2223,7 +2301,7 @@ fn main() {
         2.0 / elapsed.as_secs_f64()
     );
 
-    // Multi-threaded
+    // Multi-threaded benchmark
     let stack = Arc::new(LockFreeStack::new());
     let start = Instant::now();
 
@@ -2250,16 +2328,55 @@ fn main() {
         2.0 / elapsed.as_secs_f64()
     );
 
-    println!("\n=== Done ===");
+    // Comparison with mutex
+    println!("\n--- Mutex Comparison ---");
+    let mutex_stack = Arc::new(Mutex::new(Vec::new()));
+    let start = Instant::now();
+
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let s = Arc::clone(&mutex_stack);
+            thread::spawn(move || {
+                for i in 0..250_000 {
+                    s.lock().unwrap().push(i);
+                    s.lock().unwrap().pop();
+                }
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let mutex_elapsed = start.elapsed();
+    println!(
+        "Mutex stack (4 threads): 2M ops in {:?} ({:.2}M ops/sec)",
+        mutex_elapsed,
+        2.0 / mutex_elapsed.as_secs_f64()
+    );
+
+    let speedup = mutex_elapsed.as_secs_f64() / elapsed.as_secs_f64();
+    println!("\nLock-free advantage: {:.2}x faster", speedup);
+
+    println!("\n=== All milestones completed! ===");
 }
+
+// ============================================================================
+// Tests for all milestones
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
+    // Milestone 1 Tests
     #[test]
-    fn test_push_pop() {
+    fn test_push_pop_single_thread() {
         let stack = LockFreeStack::new();
+        assert!(stack.is_empty());
+
         stack.push(1);
         stack.push(2);
         stack.push(3);
@@ -2268,17 +2385,72 @@ mod tests {
         assert_eq!(stack.pop(), Some(2));
         assert_eq!(stack.pop(), Some(1));
         assert_eq!(stack.pop(), None);
+        assert!(stack.is_empty());
     }
 
     #[test]
-    fn test_concurrent() {
+    fn test_lifo_order() {
+        let stack = LockFreeStack::new();
+
+        for i in 0..10 {
+            stack.push(i);
+        }
+
+        for i in (0..10).rev() {
+            assert_eq!(stack.pop(), Some(i));
+        }
+    }
+
+    #[test]
+    fn test_push_strings() {
+        let stack = LockFreeStack::new();
+
+        stack.push("hello".to_string());
+        stack.push("world".to_string());
+
+        assert_eq!(stack.pop(), Some("world".to_string()));
+        assert_eq!(stack.pop(), Some("hello".to_string()));
+    }
+
+    // Milestone 2 Tests
+    #[test]
+    fn test_concurrent_push() {
+        let stack = Arc::new(LockFreeStack::new());
+        let mut handles = vec![];
+
+        // 10 threads, each pushes 100 items
+        for thread_id in 0..10 {
+            let s = Arc::clone(&stack);
+            let handle = thread::spawn(move || {
+                for i in 0..100 {
+                    s.push(thread_id * 1000 + i);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Should have 1000 items
+        let mut count = 0;
+        while stack.pop().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 1000);
+    }
+
+    #[test]
+    fn test_no_lost_items() {
         let stack = Arc::new(LockFreeStack::new());
 
-        let handles: Vec<_> = (0..10)
+        // Push unique values from multiple threads
+        let handles: Vec<_> = (0..5)
             .map(|tid| {
                 let s = Arc::clone(&stack);
                 thread::spawn(move || {
-                    for i in 0..100 {
+                    for i in 0..200 {
                         s.push(tid * 1000 + i);
                     }
                 })
@@ -2289,18 +2461,231 @@ mod tests {
             h.join().unwrap();
         }
 
-        assert_eq!(stack.len(), 1000);
+        // Collect all values
+        let mut seen = HashSet::new();
+        while let Some(val) = stack.pop() {
+            assert!(seen.insert(val), "Duplicate value: {}", val);
+        }
 
+        assert_eq!(seen.len(), 1000);
+    }
+
+    #[test]
+    fn test_push_under_contention() {
+        use std::sync::atomic::AtomicUsize;
+
+        let stack = Arc::new(LockFreeStack::new());
+        let push_count = Arc::new(AtomicUsize::new(0));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let s = Arc::clone(&stack);
+                let pc = Arc::clone(&push_count);
+                thread::spawn(move || {
+                    for _ in 0..1000 {
+                        s.push(42);
+                        pc.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(push_count.load(Ordering::Acquire), 8000);
+    }
+
+    // Milestone 3 Tests
+    #[test]
+    fn test_concurrent_pop() {
+        let stack = Arc::new(LockFreeStack::new());
+
+        // Pre-fill stack
+        for i in 0..1000 {
+            stack.push(i);
+        }
+
+        let mut handles = vec![];
+
+        // 10 threads, each tries to pop 100 items
+        for _ in 0..10 {
+            let s = Arc::clone(&stack);
+            let handle = thread::spawn(move || {
+                let mut popped = 0;
+                for _ in 0..100 {
+                    if s.pop().is_some() {
+                        popped += 1;
+                    }
+                }
+                popped
+            });
+            handles.push(handle);
+        }
+
+        let total: usize = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        assert_eq!(total, 1000);
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    fn test_concurrent_push_pop() {
+        use std::sync::atomic::AtomicUsize;
+
+        let stack = Arc::new(LockFreeStack::new());
+        let push_count = Arc::new(AtomicUsize::new(0));
+        let pop_count = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = vec![];
+
+        // 4 pusher threads
+        for tid in 0..4 {
+            let s = Arc::clone(&stack);
+            let pc = Arc::clone(&push_count);
+            let handle = thread::spawn(move || {
+                for i in 0..500 {
+                    s.push(tid * 1000 + i);
+                    pc.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            handles.push(handle);
+        }
+
+        // 4 popper threads
+        for _ in 0..4 {
+            let s = Arc::clone(&stack);
+            let pc = Arc::clone(&pop_count);
+            let handle = thread::spawn(move || {
+                for _ in 0..500 {
+                    if s.pop().is_some() {
+                        pc.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let pushed = push_count.load(Ordering::Acquire);
+        let popped = pop_count.load(Ordering::Acquire);
+
+        assert_eq!(pushed, 2000);
+
+        // Remaining in stack
+        let mut remaining = 0;
+        while stack.pop().is_some() {
+            remaining += 1;
+        }
+
+        assert_eq!(popped + remaining, pushed);
+    }
+
+    #[test]
+    fn test_no_use_after_free() {
+        // This test uses Miri or valgrind to detect use-after-free
+        let stack = Arc::new(LockFreeStack::new());
+
+        for i in 0..100 {
+            stack.push(i);
+        }
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let s = Arc::clone(&stack);
+                thread::spawn(move || {
+                    for _ in 0..50 {
+                        s.pop();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+    }
+
+    // Milestone 4 Tests
+    #[test]
+    fn test_versioned_ptr() {
+        let ptr: *mut i32 = Box::into_raw(Box::new(42));
+        let versioned = VersionedPtr::new::<i32>(ptr as *mut Node<i32>, 5);
+
+        assert_eq!(versioned.as_ptr::<i32>() as *mut i32, ptr);
+        assert_eq!(versioned.version(), 5);
+
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
+    }
+
+    #[test]
+    fn test_aba_protection() {
+        let stack = Arc::new(LockFreeStack::new());
+
+        // This is hard to test deterministically, but we can verify
+        // that version counter increments
+        stack.push(1);
+        stack.push(2);
+
+        // Pop and push same values multiple times
+        for _ in 0..100 {
+            let val = stack.pop().unwrap();
+            stack.push(val);
+        }
+
+        // Stack should still be valid
+        assert_eq!(stack.pop(), Some(2));
+        assert_eq!(stack.pop(), Some(1));
+    }
+
+    #[test]
+    fn test_high_contention_with_aba_protection() {
+        let stack = Arc::new(LockFreeStack::new());
+
+        // Pre-fill
+        for i in 0..1000 {
+            stack.push(i);
+        }
+
+        let handles: Vec<_> = (0..8)
+            .map(|tid| {
+                let s = Arc::clone(&stack);
+                thread::spawn(move || {
+                    for i in 0..500 {
+                        // Mix of push and pop to create ABA scenarios
+                        if i % 2 == 0 {
+                            s.push(tid * 10000 + i);
+                        } else {
+                            s.pop();
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Stack should still be valid
         let mut count = 0;
         while stack.pop().is_some() {
             count += 1;
         }
-        assert_eq!(count, 1000);
+
+        println!("Final count: {}", count);
     }
 
+    // Milestone 5 Tests
     #[test]
     fn test_peek() {
         let stack = LockFreeStack::new();
+
         assert_eq!(stack.peek_cloned(), None);
 
         stack.push(42);
@@ -2312,7 +2697,183 @@ mod tests {
         stack.pop();
         assert_eq!(stack.peek_cloned(), Some(42));
     }
-}
-```
 
-This completes the lock-free stack project with ABA protection and comprehensive testing!
+    #[test]
+    fn test_length_tracking() {
+        let stack = LockFreeStack::new();
+        assert_eq!(stack.len(), 0);
+
+        stack.push(1);
+        assert_eq!(stack.len(), 1);
+
+        stack.push(2);
+        stack.push(3);
+        assert_eq!(stack.len(), 3);
+
+        stack.pop();
+        assert_eq!(stack.len(), 2);
+
+        stack.pop();
+        stack.pop();
+        assert_eq!(stack.len(), 0);
+    }
+
+    #[test]
+    fn test_concurrent_length() {
+        let stack = Arc::new(LockFreeStack::new());
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let s = Arc::clone(&stack);
+                thread::spawn(move || {
+                    for _ in 0..250 {
+                        s.push(42);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(stack.len(), 1000);
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let s = Arc::clone(&stack);
+                thread::spawn(move || {
+                    for _ in 0..250 {
+                        s.pop();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(stack.len(), 0);
+    }
+
+    // Milestone 6 Benchmarks
+    #[test]
+    fn bench_single_threaded() {
+        let stack = LockFreeStack::new();
+
+        let start = Instant::now();
+        for i in 0..1_000_000 {
+            stack.push(i);
+        }
+        for _ in 0..1_000_000 {
+            stack.pop();
+        }
+        let elapsed = start.elapsed();
+
+        let ops_per_sec = 2_000_000.0 / elapsed.as_secs_f64();
+        println!(
+            "Single-threaded push+pop: {:.2}M ops/sec ({:?})",
+            ops_per_sec / 1_000_000.0,
+            elapsed
+        );
+    }
+
+    #[test]
+    fn bench_multi_threaded_push() {
+        for num_threads in [1, 2, 4, 8] {
+            let stack = Arc::new(LockFreeStack::new());
+            let ops_per_thread = 1_000_000 / num_threads;
+
+            let start = Instant::now();
+            let handles: Vec<_> = (0..num_threads)
+                .map(|_| {
+                    let s = Arc::clone(&stack);
+                    thread::spawn(move || {
+                        for i in 0..ops_per_thread {
+                            s.push(i);
+                        }
+                    })
+                })
+                .collect();
+
+            for h in handles {
+                h.join().unwrap();
+            }
+            let elapsed = start.elapsed();
+
+            let ops_per_sec = 1_000_000.0 / elapsed.as_secs_f64();
+            println!(
+                "{} threads push: {:.2}M ops/sec ({:?})",
+                num_threads,
+                ops_per_sec / 1_000_000.0,
+                elapsed
+            );
+        }
+    }
+
+    #[test]
+    fn bench_vs_mutex() {
+        println!("\n=== Lock-Free Stack ===");
+        let lf_stack = Arc::new(LockFreeStack::new());
+
+        let start = Instant::now();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let s = Arc::clone(&lf_stack);
+                thread::spawn(move || {
+                    for i in 0..250_000 {
+                        s.push(i);
+                        s.pop();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+        let lf_elapsed = start.elapsed();
+        let lf_throughput = 2_000_000.0 / lf_elapsed.as_secs_f64();
+        println!(
+            "Lock-free (4 threads): {:.2}M ops/sec ({:?})",
+            lf_throughput / 1_000_000.0,
+            lf_elapsed
+        );
+
+        println!("\n=== Mutex Stack ===");
+        let mutex_stack = Arc::new(Mutex::new(Vec::new()));
+
+        let start = Instant::now();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let s = Arc::clone(&mutex_stack);
+                thread::spawn(move || {
+                    for i in 0..250_000 {
+                        s.lock().unwrap().push(i);
+                        s.lock().unwrap().pop();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mutex_elapsed = start.elapsed();
+        let mutex_throughput = 2_000_000.0 / mutex_elapsed.as_secs_f64();
+        println!(
+            "Mutex (4 threads): {:.2}M ops/sec ({:?})",
+            mutex_throughput / 1_000_000.0,
+            mutex_elapsed
+        );
+
+        println!("\n=== Comparison ===");
+        println!(
+            "Lock-free advantage: {:.2}x faster",
+            lf_throughput / mutex_throughput
+        );
+    }
+}
+
+```

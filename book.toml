@@ -1,8 +1,8 @@
 [book]
 authors = ["littleworld"]
 language = "en"
-src = "src"
-title = "Rust Patterns"
+src = "projecta"
+title = "Rust Workbook Patterns"
 
 
 

@@ -3593,14 +3593,4 @@ async fn main() {
 - ❌ Batch processing (use Rayon for parallel batches)
 - ❌ Simple scripts (overkill for low volume)
 
-**Production lessons**:
-1. **Always use bounded channels**: Prevents OOM (10MB vs unbounded crash)
-2. **Batch operations**: 100× speedup for DB writes, network sends
-3. **Time-based windows**: Accurate metrics (not count-based)
-4. **Implement backpressure**: Sampling or dropping prevents memory growth
-5. **Merge similar sources**: DRY code, consistent processing
-6. **Fan-out for parallelism**: 1.75× speedup with 3 parallel consumers
-7. **Monitor with atomics**: Lock-free stats tracking (20× faster than Mutex)
-
----
 

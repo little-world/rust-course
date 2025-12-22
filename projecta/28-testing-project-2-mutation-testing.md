@@ -202,6 +202,71 @@ Project B: 85% line coverage, 88% mutation score
 
 ---
 
+## Rust Programming Concepts for This Project
+
+This project requires understanding several advanced Rust concepts to build a functional mutation testing framework.
+
+### AST Parsing with `syn`
+
+**The Problem**: To mutate code intelligently (e.g., changing `a + b` to `a - b`), we can't just use string replacement, which is fragile. We need to understand the grammatical structure of the code.
+
+**The Solution**: The `syn` crate parses Rust code into an **Abstract Syntax Tree (AST)**. This allows us to traverse the code programmatically and find specific patterns like binary operations or function calls.
+
+```rust
+// Code: let x = a + b;
+let expr: Expr = syn::parse_str("let x = a + b;").unwrap();
+// We can now inspect 'expr' to find the BinOp (+)
+```
+
+### Code Generation with `quote`
+
+**The Problem**: After modifying the AST (e.g., changing the operator), we need to convert it back into valid Rust source code to compile and run it.
+
+**The Solution**: The `quote` crate allows us to turn AST nodes back into tokens and source strings. It uses a macro `quote!` that makes code generation safe and easy.
+
+```rust
+let op = quote! { - };
+let new_code = quote! { let x = a #op b; };
+```
+
+### Mutation Operators
+
+**The Concept**: A **mutation operator** is a rule that defines a specific type of code transformation. It consists of:
+1.  **Pattern**: What to look for (e.g., `BinaryOp::Add`).
+2.  **Transformation**: How to change it (e.g., replace with `BinaryOp::Sub`).
+
+Defining these operators clearly is crucial for a modular and extensible framework.
+
+### Test Harness Integration
+
+**The Problem**: We need to run the project's test suite repeatedly against hundreds of slightly different versions of the code (mutants).
+
+**The Solution**: We programmatically invoke `cargo test` using `std::process::Command`. We need to manage:
+-   **Compilation**: Compiling each mutant (often to a temporary directory).
+-   **Execution**: Running the tests and capturing exit codes.
+-   **Timeouts**: Killing tests that enter infinite loops due to mutations (e.g., `i < 10` becoming `i > 10`).
+
+### Parallel Execution with `rayon`
+
+**The Problem**: Mutation testing is computationally expensive. Testing 100 mutations sequentially could take minutes.
+
+**The Solution**: Use `rayon` to execute independent mutation tests in parallel across all available CPU cores.
+
+---
+
+## Connection to This Project
+
+This project guides you through building a mutation testing tool similar to `cargo-mutants`.
+
+1.  **Milestone 1**: You'll implement the **Mutation Operator Engine**, using `syn` to parse code and find places to apply mutations (like arithmetic or logical operators).
+2.  **Milestone 2**: You'll build the **Test Execution Engine**, enabling your tool to compile mutants and run `cargo test` against them, handling results and timeouts.
+3.  **Milestone 3**: You'll use `rayon` to implement **Parallel Mutation Testing**, drastically reducing the time it takes to analyze a codebase.
+4.  **Milestone 4**: You'll compute the **Mutation Score** and generate reports, analyzing which mutations were killed and which survived.
+5.  **Milestone 5**: You'll create **Source Code Annotations**, visualizing exactly where tests are weak directly in the source code.
+6.  **Milestone 6**: You'll implement **Advanced Mutation Strategies**, moving beyond simple operator swaps to more semantic changes like statement deletion or return value modification.
+
+---
+
 ## Building the Project
 
 ### Milestone 1: Mutation Operator Engine

@@ -236,8 +236,7 @@ impl<'a, T: Ord + Clone> Iterator for MergeIterator<'a, T> {
         let Reverse((value, seq_idx)) = self.heap.pop()?;
         self.indices[seq_idx] += 1;
         if let Some(next_val) = self.sequences[seq_idx].get(self.indices[seq_idx]) {
-            self.heap
-                .push(Reverse((next_val.clone(), seq_idx)));
+            self.heap.push(Reverse((next_val.clone(), seq_idx)));
         }
         Some(value)
     }
@@ -359,11 +358,13 @@ impl CollectionBenchmark {
 
     pub fn measure_memory(&self) {
         for &size in &self.sizes {
-            println!("Estimated memory for size {}: SortedVec={} bytes, BTreeSet={}, HashSet={}",
+            println!(
+                "Estimated memory for size {}: SortedVec={} bytes, BTreeSet={}, HashSet={}",
                 size,
                 size * std::mem::size_of::<usize>(),
                 size * (std::mem::size_of::<usize>() * 2),
-                size * (std::mem::size_of::<usize>() * 3));
+                size * (std::mem::size_of::<usize>() * 3)
+            );
         }
     }
 
@@ -459,9 +460,21 @@ mod tests {
     #[test]
     fn test_query_logs() {
         let logs = vec![
-            LogEntry { timestamp: 100, level: "INFO".into(), message: "Msg1".into() },
-            LogEntry { timestamp: 200, level: "INFO".into(), message: "Msg2".into() },
-            LogEntry { timestamp: 300, level: "ERROR".into(), message: "Msg3".into() },
+            LogEntry {
+                timestamp: 100,
+                level: "INFO".into(),
+                message: "Msg1".into(),
+            },
+            LogEntry {
+                timestamp: 200,
+                level: "INFO".into(),
+                message: "Msg2".into(),
+            },
+            LogEntry {
+                timestamp: 300,
+                level: "ERROR".into(),
+                message: "Msg3".into(),
+            },
         ];
         let result = query_logs_by_time(&logs, 150, 250);
         assert_eq!(result.len(), 1);
@@ -536,9 +549,7 @@ mod tests {
     #[test]
     fn test_merge_performance() {
         use std::time::Instant;
-        let sequences: Vec<Vec<i32>> = (0..10)
-            .map(|i| (i..1000).step_by(10).collect())
-            .collect();
+        let sequences: Vec<Vec<i32>> = (0..10).map(|i| (i..1000).step_by(10).collect()).collect();
         let seq_refs: Vec<&[i32]> = sequences.iter().map(|seq| seq.as_slice()).collect();
         let start = Instant::now();
         let _ = merge_k(&seq_refs);

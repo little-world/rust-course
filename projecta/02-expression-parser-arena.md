@@ -1,21 +1,18 @@
 # Arena-Based Expression Parser
 
-### Problem Statement
+#### Problem Statement
 
-Build a parser for arithmetic expressions, that uses arena (bump) allocation. This demonstrates how arena allocation can dramatically speed up programs that create many small objects.
-Wew go from simple expression enums to lexer to parser
+Build a parser for arithmetic expressions, that uses arena (bump) allocation. This demonstrates how arena allocation can speed up programs that create many small objects. We will go from simple expression enums to lexer to parser
 
----
+
 **Key Learning Points**:
 - ASTs represent program structure as trees
 - Lexers simplify parsing by handling character-level details
 - Recursive descent is an intuitive parsing technique
 - Grammar structure encodes operator precedence
-- Arena allocation can dramatically speed up tree construction
+- Arena allocation can speed up tree construction
 
----
-
-### Use Cases
+#### Use Cases
 
 **When you need this pattern**:
 1. **Compiler frontends**: Lexer tokens, AST nodes, symbol table entries
@@ -51,11 +48,9 @@ This tree says: "First multiply 3 and 4, then add 2 to the result"
 Result: 2 + 12 = 14 (not 20!)
 ```
 
----
-
 ### Abstract Syntax Trees (ASTs)
 
-An **Abstract Syntax Tree (AST)** is a tree representation of the structure of source code. Each node in the tree represents a construct in the code.
+An **Abstract Syntax Tree (AST)** is a tree representation of the source code. Each node in the tree represents a construct in the code.
 
 **Why "Abstract"?**
 - The tree abstracts away syntactic details like parentheses, whitespace, and semicolons
@@ -158,8 +153,6 @@ AST:
    - In `2 + 3 * 4`, the multiplication is a child of addition
    - The multiplication must evaluate first (depth-first)
 
----
-
 ### What are Expressions?
 
 An **expression** is a combination of values, variables, and operators that can be **evaluated** to produce a value.
@@ -215,8 +208,6 @@ Every programming language has expressions:
 - **SQL**: `price * quantity`, `UPPER(name)`, `age > 18 AND active = true`
 
 Understanding how to parse expressions is fundamental to working with any language.
-
----
 
 ### What is a Lexer (Tokenizer)?
 
@@ -333,8 +324,6 @@ struct Lexer {
 - Easy indexing by character (not byte)
 - Handles multi-byte Unicode correctly
 - Simple position counter
-
----
 
 ### What is Recursive Descent Parsing?
 
@@ -490,8 +479,6 @@ Result AST:
 
 **Key Insight**: The parentheses forced `parse_factor()` to recursively call `parse_expr()`, which parsed the entire `2 + 3` before returning. This is how parentheses override precedence!
 
----
-
 ### The Complete Parser Pipeline
 
 Putting it all together:
@@ -524,31 +511,6 @@ Output: 20
 3. **Evaluator** (or code generator, or interpreter) uses the clean AST
 
 Each stage is simpler and more testable because of this separation!
-
----
-
-### Real-World Applications
-
-**Compilers and Interpreters**:
-- **C compiler**: Parses `int x = 5;` into an AST, generates assembly
-- **Python**: Parses code into AST, interprets or compiles to bytecode
-- **JavaScript V8**: Parses JS code, generates optimized machine code
-
-**Data Formats**:
-- **JSON**: Parses `{"name": "Alice"}` into object representation
-- **XML/HTML**: Parses tags into DOM tree
-- **YAML**: Parses configuration into nested structures
-
-**Query Languages**:
-- **SQL**: Parses `SELECT * FROM users WHERE age > 18` into query plan
-- **GraphQL**: Parses queries into execution plan
-
-**Domain-Specific Languages (DSLs)**:
-- **CSS selectors**: `.class > #id` parsed into selector tree
-- **Regex**: `/a+b*/` parsed into state machine
-- **Build systems**: `Makefile` rules parsed into dependency graph
-
----
 
 ## Rust Programming Concepts for This Project
 
@@ -621,7 +583,7 @@ impl Arena {
 **Why This Works**:
 ```rust
 {
-    let arena = Arena::new();           // Arena created
+    let arena = Arena::new_with_capacity(4 * 1024);           // Arena created
     let expr = build_tree(&arena);      // AST built in arena
     let result = expr.eval();           // Can use AST
     // arena dropped here, all references invalidated
@@ -632,7 +594,7 @@ impl Arena {
 **What Lifetimes Prevent**:
 ```rust
 let dangling_ref = {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let expr = arena.alloc(Expr::Literal(42));
     expr  // ❌ Error: expr references arena, which is about to be dropped
 };
@@ -662,8 +624,226 @@ enum Expr<'arena> {
     }
 }
 ```
+### RefCell: Interior Mutability for Arena
 
----
+**The Problem**: The arena's `alloc()` method takes `&self` (shared reference), but needs to modify the internal `Vec<u8>` storage.
+
+```rust
+impl Arena {
+    fn alloc<T>(&self, value: T) -> &mut T {
+        // Need to mutate storage, but only have &self!
+        self.storage.push(value);  // ❌ Error: can't mutate through &self
+    }
+}
+```
+
+**Why `&self` Instead of `&mut self`?**
+
+We need multiple references into the arena simultaneously:
+
+```rust
+let arena = Arena::new_with_capacity(4 * 1024);
+let two = arena.alloc(Expr::Literal(2));      // Borrow 1
+let three = arena.alloc(Expr::Literal(3));    // Borrow 2
+let sum = arena.alloc(Expr::BinOp {
+    op: Add,
+    left: two,     // Still using borrow 1
+    right: three,  // Still using borrow 2
+});
+```
+
+With `&mut self`, we could only have one allocation at a time!
+
+**The Solution: RefCell**:
+
+```rust
+use std::cell::RefCell;
+
+struct Arena {
+    storage: RefCell<Vec<u8>>,  // Interior mutability
+}
+
+impl Arena {
+    fn alloc<T>(&self, value: T) -> &mut T {
+        let mut storage = self.storage.borrow_mut();  // Get mutable borrow
+        // ... modify storage ...
+        // Borrow released when `storage` drops at end of function
+    }
+}
+```
+
+**How RefCell Works**:
+
+- **Compile-time**: Allows mutation through `&self`
+- **Runtime**: Tracks borrows dynamically, panics if rules violated
+- **Cost**: Small overhead (~2-3 CPU cycles) for borrow checking
+
+**Borrow Rules** (enforced at runtime):
+- Multiple readers OR one writer
+- Not both simultaneously
+
+**Example of RefCell Panic**:
+
+```rust
+let arena = Arena::new_with_capacity(4 * 1024);
+let storage1 = arena.storage.borrow_mut();  // Acquire write lock
+let storage2 = arena.storage.borrow_mut();  // ❌ PANIC: already borrowed!
+```
+
+**Why Our Code Is Safe**:
+
+Each `alloc()` call borrows, does its work, and releases before the next borrow:
+
+```rust
+fn alloc(&self, value: T) -> &mut T {
+    {
+        let mut storage = self.storage.borrow_mut();  // Borrow
+        // ... work ...
+    }  // Borrow released here
+
+    // Return reference (points into arena, not into RefCell)
+}
+```
+
+The returned reference points to data in the arena's buffer, not the `RefCell` itself, so we can have many of them simultaneously.
+
+### Result Type: Structured Error Handling
+
+**The Problem**: Parsing can fail in many ways—invalid syntax, unexpected tokens, division by zero. We need to propagate errors up the call stack with context.
+
+```rust
+// Bad: Using panic for expected failures
+fn eval(expr: &Expr) -> i64 {
+    match expr {
+        Expr::BinOp { op: Div, right, .. } if right.eval() == 0 => {
+            panic!("Division by zero");  // ❌ Too harsh!
+        }
+        // ...
+    }
+}
+
+// Good: Using Result
+fn eval(expr: &Expr) -> Result<i64, String> {
+    match expr {
+        Expr::BinOp { op: Div, left, right } => {
+            let r = right.eval()?;  // Propagate error if any
+            if r == 0 {
+                return Err("Division by zero".to_string());
+            }
+            Ok(left.eval()? / r)
+        }
+        // ...
+    }
+}
+```
+
+**Result Type Basics**:
+
+```rust
+enum Result<T, E> {
+    Ok(T),      // Success case with value
+    Err(E),     // Failure case with error
+}
+```
+
+**The `?` Operator**: Syntactic sugar for error propagation
+
+```rust
+// Without ?
+let left_val = match left.eval() {
+    Ok(v) => v,
+    Err(e) => return Err(e),  // Propagate error
+};
+
+// With ? (equivalent)
+let left_val = left.eval()?;
+```
+
+**Our Error Types**:
+
+```rust
+// Simple string errors (fine for learning project)
+Result<i64, String>
+Result<&'arena Expr<'arena>, String>
+Result<Vec<Token>, String>
+
+// Examples:
+Err("Expected number, found '+'"to_string())
+Err("Division by zero".to_string())
+Err("Unmatched parenthesis".to_string())
+```
+
+**Error Propagation in Parsing**:
+
+```rust
+fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
+    let left = self.parse_term()?;  // If error, return immediately
+
+    while matches!(self.peek(), Token::Plus | Token::Minus) {
+        let op = self.consume_op()?;
+        let right = self.parse_term()?;
+        left = self.builder.binary(op, left, right);
+    }
+
+    Ok(left)
+}
+```
+
+If any nested call returns `Err`, it bubbles up through all the `?` operators automatically!
+
+### Pattern Matching: Structural Decomposition
+
+Pattern matching is Rust's way of deconstructing enums and extracting data. This project uses it extensively.
+
+**Basic Enum Matching**:
+
+```rust
+match expr {
+    Expr::Literal(n) => Ok(*n),  // Extract the number
+    Expr::BinOp { op, left, right } => {  // Extract all fields
+        // Use op, left, right
+    }
+}
+```
+
+**Matching Tokens in Parser**:
+
+```rust
+match self.peek() {
+    Token::Number(n) => {
+        let n = *n;  // Copy the value
+        self.advance();
+        Ok(self.builder.literal(n))
+    }
+    Token::LeftParen => {
+        self.advance();
+        let expr = self.parse_expr()?;
+        self.expect(Token::RightParen)?;
+        Ok(expr)
+    }
+    token => Err(format!("Unexpected token: {:?}", token)),
+}
+```
+
+**Guards and Nested Patterns**:
+
+```rust
+match token {
+    Token::Plus | Token::Minus => OpType::Additive,  // Match either
+    Token::Star | Token::Slash => OpType::Multiplicative,
+    _ => unreachable!(),  // All other cases impossible here
+}
+```
+
+**Destructuring in Let Bindings**:
+
+```rust
+let Expr::BinOp { op, left, right } = expr else {
+    panic!("Expected binary operation");
+};
+```
+
+---\
 
 ### Arena Allocation: The Core Performance Technique
 
@@ -748,7 +928,7 @@ After alloc(Expr::Literal(5)):
 
 2. **No Individual Deallocation**: Can't free single objects
    ```rust
-   let arena = Arena::new();
+   let arena = Arena::new_with_capacity(4 * 1024);
    let x = arena.alloc(42);
    // No way to free just x!
    // Drop arena → everything freed at once
@@ -757,7 +937,7 @@ After alloc(Expr::Literal(5)):
 3. **Perfect for Phase-Based Allocation**: Allocate many objects, use them, discard all at once
    ```rust
    fn parse(input: &str) -> Result<i64, String> {
-       let arena = Arena::new();        // Create arena
+       let arena = Arena::new_with_capacity(4 * 1024);        // Create arena
        let ast = parse_to_ast(input, &arena);  // Allocate many nodes
        let result = eval(ast);          // Use AST
        Ok(result)
@@ -796,8 +976,6 @@ After alloc(Expr::Literal(5)):
 - Long-lived objects with individual lifecycles
 - Objects that need to be freed independently
 - Incremental data structures (growing over time)
-
----
 
 ### Memory Alignment: Why It Matters
 
@@ -852,9 +1030,9 @@ start = 13 + 3 = 16 (divisible by 8 ✓)
 
 Memory layout:
 ┌────────────────────────────────────┐
-│ [prev][X][X][X][u64 goes here...] │
+│ [prev][X][X][X][u64 goes here...]  │
 └────────────────────────────────────┘
-       ^pad^    ^16 (aligned)
+        ^pad^    ^16 (aligned)
 ```
 
 **The Modulo Formula**:
@@ -871,8 +1049,6 @@ current_len = 16, align = 8
 Without the second %:
 (8 - 0) = 8  (would add unnecessary padding!) ✗
 ```
-
----
 
 ### Unsafe Rust: Working with Raw Pointers
 
@@ -967,7 +1143,7 @@ unsafe { std::ptr::write(ptr, value); }  // Writes past end of buffer!
 
 // Bug 3: Use after free → UNDEFINED BEHAVIOR
 let expr = {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     arena.alloc(Expr::Literal(42))
 };  // arena dropped, but expr still references it!
 ```
@@ -979,232 +1155,6 @@ let expr = {
 3. **Test thoroughly**: Unsafe bugs can be silent (corruption, not crashes)
 4. **Use tools**: Miri can detect some undefined behavior
 
----
-
-### RefCell: Interior Mutability for Arena
-
-**The Problem**: The arena's `alloc()` method takes `&self` (shared reference), but needs to modify the internal `Vec<u8>` storage.
-
-```rust
-impl Arena {
-    fn alloc<T>(&self, value: T) -> &mut T {
-        // Need to mutate storage, but only have &self!
-        self.storage.push(value);  // ❌ Error: can't mutate through &self
-    }
-}
-```
-
-**Why `&self` Instead of `&mut self`?**
-
-We need multiple references into the arena simultaneously:
-
-```rust
-let arena = Arena::new();
-let two = arena.alloc(Expr::Literal(2));      // Borrow 1
-let three = arena.alloc(Expr::Literal(3));    // Borrow 2
-let sum = arena.alloc(Expr::BinOp {
-    op: Add,
-    left: two,     // Still using borrow 1
-    right: three,  // Still using borrow 2
-});
-```
-
-With `&mut self`, we could only have one allocation at a time!
-
-**The Solution: RefCell**:
-
-```rust
-use std::cell::RefCell;
-
-struct Arena {
-    storage: RefCell<Vec<u8>>,  // Interior mutability
-}
-
-impl Arena {
-    fn alloc<T>(&self, value: T) -> &mut T {
-        let mut storage = self.storage.borrow_mut();  // Get mutable borrow
-        // ... modify storage ...
-        // Borrow released when `storage` drops at end of function
-    }
-}
-```
-
-**How RefCell Works**:
-
-- **Compile-time**: Allows mutation through `&self`
-- **Runtime**: Tracks borrows dynamically, panics if rules violated
-- **Cost**: Small overhead (~2-3 CPU cycles) for borrow checking
-
-**Borrow Rules** (enforced at runtime):
-- Multiple readers OR one writer
-- Not both simultaneously
-
-**Example of RefCell Panic**:
-
-```rust
-let arena = Arena::new();
-let storage1 = arena.storage.borrow_mut();  // Acquire write lock
-let storage2 = arena.storage.borrow_mut();  // ❌ PANIC: already borrowed!
-```
-
-**Why Our Code Is Safe**:
-
-Each `alloc()` call borrows, does its work, and releases before the next borrow:
-
-```rust
-fn alloc(&self, value: T) -> &mut T {
-    {
-        let mut storage = self.storage.borrow_mut();  // Borrow
-        // ... work ...
-    }  // Borrow released here
-
-    // Return reference (points into arena, not into RefCell)
-}
-```
-
-The returned reference points to data in the arena's buffer, not the `RefCell` itself, so we can have many of them simultaneously.
-
----
-
-### Result Type: Structured Error Handling
-
-**The Problem**: Parsing can fail in many ways—invalid syntax, unexpected tokens, division by zero. We need to propagate errors up the call stack with context.
-
-```rust
-// Bad: Using panic for expected failures
-fn eval(expr: &Expr) -> i64 {
-    match expr {
-        Expr::BinOp { op: Div, right, .. } if right.eval() == 0 => {
-            panic!("Division by zero");  // ❌ Too harsh!
-        }
-        // ...
-    }
-}
-
-// Good: Using Result
-fn eval(expr: &Expr) -> Result<i64, String> {
-    match expr {
-        Expr::BinOp { op: Div, left, right } => {
-            let r = right.eval()?;  // Propagate error if any
-            if r == 0 {
-                return Err("Division by zero".to_string());
-            }
-            Ok(left.eval()? / r)
-        }
-        // ...
-    }
-}
-```
-
-**Result Type Basics**:
-
-```rust
-enum Result<T, E> {
-    Ok(T),      // Success case with value
-    Err(E),     // Failure case with error
-}
-```
-
-**The `?` Operator**: Syntactic sugar for error propagation
-
-```rust
-// Without ?
-let left_val = match left.eval() {
-    Ok(v) => v,
-    Err(e) => return Err(e),  // Propagate error
-};
-
-// With ? (equivalent)
-let left_val = left.eval()?;
-```
-
-**Our Error Types**:
-
-```rust
-// Simple string errors (fine for learning project)
-Result<i64, String>
-Result<&'arena Expr<'arena>, String>
-Result<Vec<Token>, String>
-
-// Examples:
-Err("Expected number, found '+'"to_string())
-Err("Division by zero".to_string())
-Err("Unmatched parenthesis".to_string())
-```
-
-**Error Propagation in Parsing**:
-
-```rust
-fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
-    let left = self.parse_term()?;  // If error, return immediately
-
-    while matches!(self.peek(), Token::Plus | Token::Minus) {
-        let op = self.consume_op()?;
-        let right = self.parse_term()?;
-        left = self.builder.binary(op, left, right);
-    }
-
-    Ok(left)
-}
-```
-
-If any nested call returns `Err`, it bubbles up through all the `?` operators automatically!
-
----
-
-### Pattern Matching: Structural Decomposition
-
-Pattern matching is Rust's way of deconstructing enums and extracting data. This project uses it extensively.
-
-**Basic Enum Matching**:
-
-```rust
-match expr {
-    Expr::Literal(n) => Ok(*n),  // Extract the number
-    Expr::BinOp { op, left, right } => {  // Extract all fields
-        // Use op, left, right
-    }
-}
-```
-
-**Matching Tokens in Parser**:
-
-```rust
-match self.peek() {
-    Token::Number(n) => {
-        let n = *n;  // Copy the value
-        self.advance();
-        Ok(self.builder.literal(n))
-    }
-    Token::LeftParen => {
-        self.advance();
-        let expr = self.parse_expr()?;
-        self.expect(Token::RightParen)?;
-        Ok(expr)
-    }
-    token => Err(format!("Unexpected token: {:?}", token)),
-}
-```
-
-**Guards and Nested Patterns**:
-
-```rust
-match token {
-    Token::Plus | Token::Minus => OpType::Additive,  // Match either
-    Token::Star | Token::Slash => OpType::Multiplicative,
-    _ => unreachable!(),  // All other cases impossible here
-}
-```
-
-**Destructuring in Let Bindings**:
-
-```rust
-let Expr::BinOp { op, left, right } = expr else {
-    panic!("Expected binary operation");
-};
-```
-
----
 
 ### Performance Concepts: Why Arena Wins
 
@@ -1257,9 +1207,27 @@ drop(arena);  // ~10ns total
 // OS reclaims entire buffer at once
 ```
 
----
+When running the benchmarks (available in the Complete Code Example)
 
-## Connection to This Project
+```text
+=== Performance Comparison: Box vs Arena ===
+Box allocation   : 276.513458ms
+Arena allocation : 125.069875ms
+Arena speedup    : 2.21x faster
+============================================
+
+
+=== Bulk Deallocation Benchmark ===
+Building 10000 trees with 2047 nodes each
+
+Box (alloc + 2047 deallocations/tree): 470.23ms
+Arena (reused, O(1) reset):          197.782541ms
+Arena speedup: 2.38x faster
+===================================
+```
+
+
+**Connection to This Project**
 
 In this project, you'll implement the complete pipeline:
 
@@ -1279,7 +1247,7 @@ In this project, you'll implement the complete pipeline:
 
 **Architecture**:
 - **enum**: `Expr` - Expression Type
-  - **field**: `Literal` - a literal number
+  - **field**: `Literal` - literal number
   - **field**: `BinOp`   - needs to store: the operator and left and right sub-expressions
 
 - **enum**: `OpType` - Operator Type
@@ -1305,8 +1273,37 @@ In this project, you'll implement the complete pipeline:
 - For recursive evaluation, use the `?` operator to propagate errors
 - Return appropriate error messages for invalid operations
 
+**Starter Code**:
+```rust
+#[derive(Debug, PartialEq)]
+enum Expr<'arena> {
+   // TODO: literal, binary expression
+}
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum OpType {
+    // TODO: basic math operators
+}
 
+impl OpType {
+    fn eval(&self, left: i64, right: i64) -> Result<i64, String> {
+        match self {
+           // TODO: calculate 
+        }
+    }
+}
+```
+
+**Add evaluation**:
+```rust
+impl<'arena> Expr<'arena> {
+    fn eval(&self) -> Result<i64, String> {
+        match self {
+            // TODO:  recursive call of eval() on left and right
+        }
+    }
+}
+```
 **Checkpoint Tests**:
 ```rust
 #[test]
@@ -1368,73 +1365,16 @@ fn test_division_by_zero() {
 - How does the recursive `eval()` work?
 
 
-**Solution**:
-```rust
-#[derive(Debug, PartialEq)]
-enum Expr<'arena> {
-    Literal(i64),
-    BinOp {
-        op: OpType,
-        left: &'arena Expr<'arena>,
-        right: &'arena Expr<'arena>,
-    },
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-enum OpType {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-impl OpType {
-    fn eval(&self, left: i64, right: i64) -> Result<i64, String> {
-        match self {
-            OpType::Add => Ok(left + right),
-            OpType::Sub => Ok(left - right),
-            OpType::Mul => Ok(left * right),
-            OpType::Div => {
-                if right == 0 {
-                    Err("Division by zero".to_string())
-                } else {
-                    Ok(left / right)
-                }
-            }
-        }
-    }
-}
-```
-
-**Add evaluation**:
-```rust
-impl<'arena> Expr<'arena> {
-    fn eval(&self) -> Result<i64, String> {
-        match self {
-            Expr::Literal(n) => Ok(*n),
-            Expr::BinOp { op, left, right } => {
-                let left_val = left.eval()?;
-                let right_val = right.eval()?;
-                op.eval(left_val, right_val)
-            }
-        }
-    }
-}
-```
-
----
 
 #### Why Milestone 1 Isn't Enough 
 
 **Limitation**: We've defined the types, but how do we actually create these AST nodes? Using stack allocation limits us to small, fixed-size trees. We need heap allocation.
 
-**What we're adding**: First, we'll implement the traditional `Box` approach to understand the baseline, then optimize with arena allocation.
-
----
+**What we're adding**: First, we'll implement the traditional `Box` approach to understand the baseline, later on we will optimize with arena allocation.
 
 ### Milestone 2: Box-Based Expression Trees
 
-Implement expressions using `Box<Expr>` to understand traditional heap allocation.
+Implement expressions using `Box<Expr>` the traditional heap allocation.
 
 **Architecture**:
 - Each AST node gets its own heap allocation via `Box::new()`
@@ -1442,30 +1382,20 @@ Implement expressions using `Box<Expr>` to understand traditional heap allocatio
 - This is the "normal" approach used in many programming languages
 
 **Design Changes**:
-Instead of using references with lifetimes for `left` and `right`, we'll use `Box` pointers:
+Instead of using references with lifetimes for `left` and `right`, we'll use `Box` pointers. And we will use the builder pattern to simplify AST node creation.
 
 
 **solution**
 ```rust
 #[derive(Debug, PartialEq)]
 enum BoxExpr {
-    Literal(i64),
-    BinOp {
-        op: OpType,
-        left: Box<BoxExpr>,
-        right: Box<BoxExpr>,
-    },
+    // TODO: literal, binary operator
 }
 
 impl BoxExpr {
     fn eval(&self) -> Result<i64, String> {
         match self {
-            BoxExpr::Literal(n) => Ok(*n),
-            BoxExpr::BinOp { op, left, right } => {
-                let left_val = left.eval()?;
-                let right_val = right.eval()?;
-                op.eval(left_val, right_val)
-            }
+            // TODO:  recursive call of eval() on left and right
         }
     }
 }
@@ -1477,32 +1407,26 @@ struct BoxExprBuilder;
 
 impl BoxExprBuilder {
     fn literal(n: i64) -> Box<BoxExpr> {
-        // TODO: Allocate BoxExpr::Literal(n) using Box::new()
         todo!()
     }
 
     fn binary(op: OpType, left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-        // TODO: Allocate BoxExpr::BinOp using Box::new()
         todo!()
     }
 
     fn add(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-        // TODO: Call binary() with OpType::Add
         todo!()
     }
 
     fn sub(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-        // TODO: Call binary() with OpType::Sub
         todo!()
     }
 
     fn mul(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-        // TODO: Call binary() with OpType::Mul
         todo!()
     }
 
     fn div(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-        // TODO: Call binary() with OpType::Div
         todo!()
     }
 }
@@ -1563,8 +1487,6 @@ fn test_box_expr_complex() {
 - Why does the builder consume (take ownership of) the `Box` parameters?
 - What are the performance implications of many small allocations?
 
----
-
 #### Why Milestone 2 Isn't Enough 
 
 **Performance Problem**: Every single AST node requires a separate heap allocation with `Box::new()`. Let's analyze the cost:
@@ -1582,21 +1504,15 @@ fn test_box_expr_complex() {
 
 **What we're adding**: 
 **Arena allocator** - bump allocation strategy:
-An arena (also called a bump allocator) is a simple memory allocator that hands out memory by continuously "bumping" a pointer forward inside a pre-allocated buffer. Individual allocations are extremely cheap (often just pointer arithmetic), and deallocation is even simpler: you free everything at once by dropping the arena.
-
 How it works at a glance:
 1. Reserve a big chunk of memory (e.g., 4 KB).
 2. Keep an offset (the "bump" pointer) into that chunk.
 3. To allocate `T`, round the offset up to `align_of::<T>()`, ensure there’s room, then return a pointer/reference to that slot and advance the offset by `size_of::<T>()`.
 4. When the arena goes out of scope, the whole chunk is freed at once.
 
-Why use it for ASTs and similar graphs:
+`Why use it for ASTs and similar graphs:
 - Many small nodes created together and dropped together at the end of parsing/evaluation.
-- Significantly fewer calls to the global allocator → better performance and cache locality.
-
-Contrast with `Box<T>` per node:
-- `Box<T>`: many small, scattered allocations; each `Box` is freed individually.
-- Arena: one or few big allocations; trivial per-object allocation; single bulk free.
+- Significantly fewer calls to the global allocator → better performance and cache locality.`
 
 **Improvements**:
 - **Speed**: Allocation is pointer increment (~2-5ns) vs malloc (~75ns) = **25x faster**
@@ -1605,8 +1521,6 @@ Contrast with `Box<T>` per node:
 - **Alignment**: Must handle properly (u8 at any address, u64 needs 8-byte alignment)
 
 **Complexity trade-off**: Can't free individual objects. Only works when all objects have same lifetime.
-
----
 
 ### Milestone 3: Simple Bump Allocator
 
@@ -1627,13 +1541,13 @@ use std::cell::RefCell;
 use std::ptr::NonNull;
 
 struct Arena {
-    storage: RefCell<Vec<u8>>,
+    // TODO: storage
 }
 
 impl Arena {
     fn new() -> Self {
         Arena {
-            storage: RefCell::new(Vec::with_capacity(4096)),
+            // refcell -> vec -> 4k = 4096
         }
     }
 
@@ -1654,7 +1568,6 @@ impl Arena {
 
         // TODO: Ensure we have space in storage
         // Hint: Use storage.resize(start + size, 0)
-        todo!();
 
         // TODO: Get pointer to allocated space
         // Hint: &mut storage[start] as *mut u8 as *mut T
@@ -1662,9 +1575,7 @@ impl Arena {
 
         unsafe {
             // TODO: Write value to allocated space using std::ptr::write
-            todo!();
             // TODO: Return mutable reference with arena lifetime
-            todo!()
         }
     }
 }
@@ -1675,17 +1586,14 @@ impl Arena {
 ```rust
 #[test]
 fn test_arena_alloc_int() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let x = arena.alloc(42);
     assert_eq!(*x, 42);
-
-    *x = 100;
-    assert_eq!(*x, 100);
 }
 
 #[test]
 fn test_arena_multiple_allocs() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let x = arena.alloc(1);
     let y = arena.alloc(2);
     let z = arena.alloc(3);
@@ -1697,14 +1605,14 @@ fn test_arena_multiple_allocs() {
 
 #[test]
 fn test_arena_alloc_string() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let s = arena.alloc(String::from("hello"));
     assert_eq!(s, "hello");
 }
 
 #[test]
 fn test_arena_alignment() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let _byte = arena.alloc(1u8);
     let num = arena.alloc(1234u64);  // Needs 8-byte alignment
 
@@ -1719,8 +1627,6 @@ fn test_arena_alignment() {
 - What does `std::ptr::write` do?
 - Why is the function marked `unsafe`?
 - What lifetime does the returned reference have?
-
----
 
 ### Milestone 4: Build Expressions in Arena
 
@@ -1830,7 +1736,7 @@ impl<'arena> ExprBuilder<'arena> {
 ```rust
 #[test]
 fn test_builder() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let builder = ExprBuilder::new(&arena);
 
     // Build: (2 + 3) * 4
@@ -1846,7 +1752,7 @@ fn test_builder() {
 
 #[test]
 fn test_complex_expression() {
-    let arena = Arena::new();
+    let arena = Arena::new_with_capacity(4 * 1024);
     let builder = ExprBuilder::new(&arena);
 
     // Build: ((10 - 5) * 2) + (8 / 4)
@@ -1867,8 +1773,6 @@ fn test_complex_expression() {
 - Why does the builder need a reference to the arena?
 - Can expressions outlive the arena?
 - How many heap allocations happen for a 3-node tree?
-
----
 
 ### Milestone 5: Lexer (Tokenizer)
 
@@ -1949,49 +1853,6 @@ Result: Err("Unexpected character '&'")
 
 Returning `Result<Token, String>` allows propagating errors up to the caller.
 
-
-**Checkpoint Tests**:
-```rust
-#[test]
-fn test_lexer_numbers() {
-    let mut lexer = Lexer::new("123 456");
-    assert_eq!(lexer.next_token(), Ok(Token::Number(123)));
-    assert_eq!(lexer.next_token(), Ok(Token::Number(456)));
-    assert_eq!(lexer.next_token(), Ok(Token::End));
-}
-
-#[test]
-fn test_lexer_operators() {
-    let mut lexer = Lexer::new("+ - * /");
-    assert_eq!(lexer.next_token(), Ok(Token::Plus));
-    assert_eq!(lexer.next_token(), Ok(Token::Minus));
-    assert_eq!(lexer.next_token(), Ok(Token::Star));
-    assert_eq!(lexer.next_token(), Ok(Token::Slash));
-}
-
-#[test]
-fn test_lexer_expression() {
-    let mut lexer = Lexer::new("(2 + 3) * 4");
-    let tokens = lexer.tokenize().unwrap();
-    assert_eq!(tokens, vec![
-        Token::LeftParen,
-        Token::Number(2),
-        Token::Plus,
-        Token::Number(3),
-        Token::RightParen,
-        Token::Star,
-        Token::Number(4),
-        Token::End,
-    ]);
-}
-
-#[test]
-fn test_lexer_error() {
-    let mut lexer = Lexer::new("2 & 3");
-    assert!(lexer.tokenize().is_err());
-}
-```
-
 **Starter Code**:
 ```rust
 #[derive(Debug, PartialEq, Clone)]
@@ -2014,18 +1875,14 @@ struct Lexer {
 impl Lexer {
     fn new(input: &str) -> Self {
         // TODO: Create Lexer with input converted to Vec<char> and position 0
-        todo!()
     }
 
     fn peek(&self) -> Option<char> {
         // TODO: Return the character at current position (or None if at end)
-        // Hint: self.input.get(self.position).copied()
-        todo!()
     }
 
     fn advance(&mut self) {
         // TODO: Increment position by 1
-        todo!()
     }
 
     fn skip_whitespace(&mut self) {
@@ -2069,12 +1926,55 @@ impl Lexer {
 ```
 
 
+
+
+**Checkpoint Tests**:
+```rust
+#[test]
+fn test_lexer_numbers() {
+    let mut lexer = Lexer::new("123 456");
+    assert_eq!(lexer.next_token(), Ok(Token::Number(123)));
+    assert_eq!(lexer.next_token(), Ok(Token::Number(456)));
+    assert_eq!(lexer.next_token(), Ok(Token::End));
+}
+
+#[test]
+fn test_lexer_operators() {
+    let mut lexer = Lexer::new("+ - * /");
+    assert_eq!(lexer.next_token(), Ok(Token::Plus));
+    assert_eq!(lexer.next_token(), Ok(Token::Minus));
+    assert_eq!(lexer.next_token(), Ok(Token::Star));
+    assert_eq!(lexer.next_token(), Ok(Token::Slash));
+}
+
+#[test]
+fn test_lexer_expression() {
+    let mut lexer = Lexer::new("(2 + 3) * 4");
+    let tokens = lexer.tokenize().unwrap();
+    assert_eq!(tokens, vec![
+        Token::LeftParen,
+        Token::Number(2),
+        Token::Plus,
+        Token::Number(3),
+        Token::RightParen,
+        Token::Star,
+        Token::Number(4),
+        Token::End,
+    ]);
+}
+
+#[test]
+fn test_lexer_error() {
+    let mut lexer = Lexer::new("2 & 3");
+    assert!(lexer.tokenize().is_err());
+}
+```
+
+
 **Check Your Understanding**:
 - Why do we skip whitespace?
 - How does `read_number()` build up the number?
 - What happens if we forget to `advance()` after a token?
-
----
 
 ### Milestone 6: Recursive Descent Parser
 
@@ -2244,6 +2144,92 @@ Factor → Number | '(' Expr ')'
 ```
 
 
+
+**Starter Code**:
+```rust
+struct Parser<'arena> {
+    tokens: Vec<Token>,
+    position: usize,
+    builder: ExprBuilder<'arena>,
+}
+
+impl<'arena> Parser<'arena> {
+    fn new(tokens: Vec<Token>, arena: &'arena Arena) -> Self {
+        // TODO:`Create Parser
+    }
+
+    fn peek(&self) -> &Token {
+        // TODO: Give position or END
+    }
+
+    fn advance(&mut self) {
+        // TODO: increment
+    }
+
+    fn expect(&mut self, expected: Token) -> Result<(), String> {
+        // TODO: if current is expected, advance and return Ok, else return Err
+    }
+
+    // Factor → Number | '(' Expr ')'
+    fn parse_factor(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        match self.peek() {
+            Token::Number(n) => {
+                todo!()
+            }
+            Token::LeftParen => {
+                todo!()
+            }
+            token => Err(format!("Expected number or '(', found {:?}", token)),
+        }
+    }
+
+    // Term → Factor (('*' | '/') Factor)*
+    fn parse_term(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        let mut left = self.parse_factor()?;
+
+        loop {
+            match self.peek() {
+                Token::Star => {
+                    todo!()
+                }
+                Token::Slash => {
+                    todo!()
+                }
+                _ => break,
+            }
+        }
+
+        Ok(left)
+    }
+
+    // Expr → Term (('+' | '-') Term)*
+    fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        // TODO: Similar to parse_term but for + and -
+        // Start with parse_term(), then loop handling + and -
+        todo!()
+    }
+
+    fn parse(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        let expr = self.parse_expr()?;
+        if self.peek() != &Token::End {
+            return Err(format!("Unexpected token: {:?}", self.peek()));
+        }
+        Ok(expr)
+    }
+}
+
+// Helper function
+fn parse_and_eval(input: &str) -> Result<i64, String> {
+    let arena = Arena::new_with_capacity(4 * 1024);
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize()?;
+    let mut parser = Parser::new(tokens, &arena);
+    let expr = parser.parse()?;
+    expr.eval()
+}
+```
+
+
 **Checkpoint Tests**:
 ```rust
 #[test]
@@ -2282,115 +2268,13 @@ fn test_parse_error() {
     assert!(parse_and_eval("(2 + 3").is_err());  // Unclosed paren
 }
 ```
-**Starter Code**:
-```rust
-struct Parser<'arena> {
-    tokens: Vec<Token>,
-    position: usize,
-    builder: ExprBuilder<'arena>,
-}
 
-impl<'arena> Parser<'arena> {
-    fn new(tokens: Vec<Token>, arena: &'arena Arena) -> Self {
-        Parser {
-            tokens,
-            position: 0,
-            builder: ExprBuilder::new(arena),
-        }
-    }
-
-    fn peek(&self) -> &Token {
-        self.tokens.get(self.position).unwrap_or(&Token::End)
-    }
-
-    fn advance(&mut self) {
-        self.position += 1;
-    }
-
-    fn expect(&mut self, expected: Token) -> Result<(), String> {
-        if self.peek() == &expected {
-            self.advance();
-            Ok(())
-        } else {
-            Err(format!("Expected {:?}, found {:?}", expected, self.peek()))
-        }
-    }
-
-    // Factor → Number | '(' Expr ')'
-    fn parse_factor(&mut self) -> Result<&'arena Expr<'arena>, String> {
-        match self.peek() {
-            Token::Number(n) => {
-                let n = *n;
-                self.advance();
-                Ok(self.builder.literal(n))
-            }
-            Token::LeftParen => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                self.expect(Token::RightParen)?;
-                Ok(expr)
-            }
-            token => Err(format!("Expected number or '(', found {:?}", token)),
-        }
-    }
-
-    // Term → Factor (('*' | '/') Factor)*
-    fn parse_term(&mut self) -> Result<&'arena Expr<'arena>, String> {
-        let mut left = self.parse_factor()?;
-
-        loop {
-            match self.peek() {
-                Token::Star => {
-                    self.advance();
-                    let right = self.parse_factor()?;
-                    left = self.builder.mul(left, right);
-                }
-                Token::Slash => {
-                    self.advance();
-                    let right = self.parse_factor()?;
-                    left = self.builder.div(left, right);
-                }
-                _ => break,
-            }
-        }
-
-        Ok(left)
-    }
-
-    // Expr → Term (('+' | '-') Term)*
-    fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
-        // TODO: Similar to parse_term but for + and -
-        // Start with parse_term(), then loop handling + and -
-        todo!()
-    }
-
-    fn parse(&mut self) -> Result<&'arena Expr<'arena>, String> {
-        let expr = self.parse_expr()?;
-        if self.peek() != &Token::End {
-            return Err(format!("Unexpected token: {:?}", self.peek()));
-        }
-        Ok(expr)
-    }
-}
-
-// Helper function
-fn parse_and_eval(input: &str) -> Result<i64, String> {
-    let arena = Arena::new();
-    let mut lexer = Lexer::new(input);
-    let tokens = lexer.tokenize()?;
-    let mut parser = Parser::new(tokens, &arena);
-    let expr = parser.parse()?;
-    expr.eval()
-}
-```
 
 **Check Your Understanding**:
 - Why does the grammar have three levels (Expr, Term, Factor)?
 - How does this handle operator precedence?
 - Why do we parse Factor in Term and Term in Expr?
 - When do we create nodes in the arena?
-
----
 
 ### Milestone 7: Performance Comparison
 
@@ -2403,7 +2287,7 @@ use std::time::Instant;
 fn benchmark_arena() {
     let start = Instant::now();
     for _ in 0..10000 {
-        let arena = Arena::new();
+        let arena = Arena::new_with_capacity(4 * 1024);
         // Build expression: (1+2)*(3+4)+(5-2)*7
         let builder = ExprBuilder::new(&arena);
         let expr = builder.add(
@@ -2449,19 +2333,31 @@ fn main() {
 }
 ```
 
-**Expected Results**: Arena should be 5-20x faster depending on expression complexity.
+**Expected Results**: Arena should be 5-10x faster depending on expression complexity.
 
-**Check Your Understanding**:
-- Why is arena allocation faster?
-- When would Box be better than arena?
-- What's the memory trade-off?
+On my laptop it was 3x slower, because this benchmark is really comparing:
 
----
+- Box: One optimized malloc + free per node
+- Arena: RefCell lock + alignment math + possible Vec realloc + zero-fill + write
+
+Box wins because modern allocators (jemalloc, mimalloc, even glibc) are extremely optimized for small, same-size allocations—they use thread-local caches and size-class pools.
+
+If you want to see the expected 5-10x speedup, try the `bumpalo` crate or rewrite using `UnsafeCell` 
 
 
 ## Complete Working Example
 ```rust
-// Common types used across milestones
+// Complete Expression Parser with Arena Allocation
+// Implements all 7 milestones from the project specification
+
+use std::cell::RefCell;
+use std::mem;
+use std::time::Instant;
+
+// ============================================================================
+// Common Types
+// ============================================================================
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OpType {
     Add,
@@ -2487,521 +2383,873 @@ impl OpType {
     }
 }
 
+// ============================================================================
 // Milestone 1: Define AST Types
-mod milestone_1 {
-    use super::OpType;
+// ============================================================================
 
-    #[derive(Debug, PartialEq)]
-    pub enum Expr<'arena> {
-        Literal(i64),
-        BinOp {
-            op: OpType,
-            left: &'arena Expr<'arena>,
-            right: &'arena Expr<'arena>,
-        },
-    }
+#[derive(Debug, PartialEq)]
+pub enum Expr<'arena> {
+    Literal(i64),
+    BinOp {
+        op: OpType,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    },
+}
 
-    impl<'arena> Expr<'arena> {
-        pub fn eval(&self) -> Result<i64, String> {
-            match self {
-                Expr::Literal(n) => Ok(*n),
-                Expr::BinOp { op, left, right } => {
-                    let left_val = left.eval()?;
-                    let right_val = right.eval()?;
-                    op.eval(left_val, right_val)
-                }
+impl<'arena> Expr<'arena> {
+    pub fn eval(&self) -> Result<i64, String> {
+        match self {
+            Expr::Literal(n) => Ok(*n),
+            Expr::BinOp { op, left, right } => {
+                let left_val = left.eval()?;
+                let right_val = right.eval()?;
+                op.eval(left_val, right_val)
             }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn test_literal_eval() {
-            let expr = Expr::Literal(42);
-            assert_eq!(expr.eval(), Ok(42));
-        }
-
-        #[test]
-        fn test_binop_eval() {
-            let left = Expr::Literal(10);
-            let right = Expr::Literal(5);
-            let expr = Expr::BinOp {
-                op: OpType::Add,
-                left: &left,
-                right: &right,
-            };
-            assert_eq!(expr.eval(), Ok(15));
-        }
-
-        #[test]
-        fn test_nested_eval() {
-            // (2 + 3) * 4 = 20
-            let two = Expr::Literal(2);
-            let three = Expr::Literal(3);
-            let four = Expr::Literal(4);
-            let add = Expr::BinOp { op: OpType::Add, left: &two, right: &three, };
-            let mul = Expr::BinOp { op: OpType::Mul, left: &add, right: &four, };
-            assert_eq!(mul.eval(), Ok(20));
-        }
-
-        #[test]
-        fn test_division_by_zero() {
-            let ten = Expr::Literal(10);
-            let zero = Expr::Literal(0);
-            let expr = Expr::BinOp { op: OpType::Div, left: &ten, right: &zero, };
-            assert!(expr.eval().is_err());
         }
     }
 }
 
+// ============================================================================
 // Milestone 2: Box-Based Expression Trees
-mod milestone_2 {
-    use super::OpType;
+// ============================================================================
 
-    #[derive(Debug, PartialEq)]
-    pub enum BoxExpr {
-        Literal(i64),
-        BinOp {
-            op: OpType,
-            left: Box<BoxExpr>,
-            right: Box<BoxExpr>,
-        },
-    }
+#[derive(Debug, PartialEq)]
+pub enum BoxExpr {
+    Literal(i64),
+    BinOp {
+        op: OpType,
+        left: Box<BoxExpr>,
+        right: Box<BoxExpr>,
+    },
+}
 
-    impl BoxExpr {
-        pub fn eval(&self) -> Result<i64, String> {
-            match self {
-                BoxExpr::Literal(n) => Ok(*n),
-                BoxExpr::BinOp { op, left, right } => {
-                    let left_val = left.eval()?;
-                    let right_val = right.eval()?;
-                    op.eval(left_val, right_val)
-                }
+impl BoxExpr {
+    pub fn eval(&self) -> Result<i64, String> {
+        match self {
+            BoxExpr::Literal(n) => Ok(*n),
+            BoxExpr::BinOp { op, left, right } => {
+                let left_val = left.eval()?;
+                let right_val = right.eval()?;
+                op.eval(left_val, right_val)
             }
-        }
-    }
-
-    pub struct BoxExprBuilder;
-
-    impl BoxExprBuilder {
-        pub fn literal(n: i64) -> Box<BoxExpr> {
-            Box::new(BoxExpr::Literal(n))
-        }
-        pub fn binary(op: OpType, left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-            Box::new(BoxExpr::BinOp { op, left, right })
-        }
-        pub fn add(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-            Self::binary(OpType::Add, left, right)
-        }
-        pub fn sub(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-            Self::binary(OpType::Sub, left, right)
-        }
-        pub fn mul(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-            Self::binary(OpType::Mul, left, right)
-        }
-        pub fn div(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
-            Self::binary(OpType::Div, left, right)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        #[test]
-        fn test_box_expr_literal() {
-            assert_eq!(BoxExprBuilder::literal(42).eval(), Ok(42));
-        }
-        #[test]
-        fn test_box_expr_addition() {
-            let expr = BoxExprBuilder::add(BoxExprBuilder::literal(10), BoxExprBuilder::literal(5));
-            assert_eq!(expr.eval(), Ok(15));
-        }
-        #[test]
-        fn test_box_expr_nested() {
-            let expr = BoxExprBuilder::mul(
-                BoxExprBuilder::add(BoxExprBuilder::literal(2), BoxExprBuilder::literal(3)),
-                BoxExprBuilder::literal(4),
-            );
-            assert_eq!(expr.eval(), Ok(20));
-        }
-        #[test]
-        fn test_box_expr_complex() {
-            let expr = BoxExprBuilder::add(
-                BoxExprBuilder::mul(
-                    BoxExprBuilder::sub(BoxExprBuilder::literal(10), BoxExprBuilder::literal(5)),
-                    BoxExprBuilder::literal(2),
-                ),
-                BoxExprBuilder::div(BoxExprBuilder::literal(8), BoxExprBuilder::literal(4)),
-            );
-            assert_eq!(expr.eval(), Ok(12));
         }
     }
 }
 
-// Milestone 3: Simple Bump Allocator
+pub struct BoxExprBuilder;
+
+impl BoxExprBuilder {
+    pub fn literal(n: i64) -> Box<BoxExpr> {
+        Box::new(BoxExpr::Literal(n))
+    }
+
+    pub fn binary(op: OpType, left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
+        Box::new(BoxExpr::BinOp { op, left, right })
+    }
+
+    pub fn add(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
+        Self::binary(OpType::Add, left, right)
+    }
+
+    pub fn sub(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
+        Self::binary(OpType::Sub, left, right)
+    }
+
+    pub fn mul(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
+        Self::binary(OpType::Mul, left, right)
+    }
+
+    pub fn div(left: Box<BoxExpr>, right: Box<BoxExpr>) -> Box<BoxExpr> {
+        Self::binary(OpType::Div, left, right)
+    }
+}
+
+// ============================================================================
+// Milestone 3: Simple Bump Allocator (Arena)
+// ============================================================================
+
+pub struct Arena {
+    storage: RefCell<Vec<u8>>,
+}
+
+impl Arena {
+    pub fn new_with_capacity(capacity: usize) -> Self {
+        Arena {
+            storage: RefCell::new(Vec::with_capacity(capacity)),
+        }
+    }
+
+    pub fn alloc<'arena, T>(&'arena self, value: T) -> &'arena T {
+        let mut storage = self.storage.borrow_mut();
+
+        // Calculate size and alignment
+        let size = mem::size_of::<T>();
+        let align = mem::align_of::<T>();
+
+        // Get current position
+        let current_len = storage.len();
+
+        // Calculate aligned position
+        let padding = (align - (current_len % align)) % align;
+        let start = current_len + padding;
+
+        // Ensure we have space
+        storage.resize(start + size, 0);
+
+        // Get pointer to allocated space
+        let ptr = &mut storage[start] as *mut u8 as *mut T;
+
+        unsafe {
+            // Write value to allocated space
+            ptr.write(value);
+            // Return reference with arena lifetime
+            &*ptr
+        }
+    }
+
+    /// Reset the arena for reuse without deallocating underlying memory.
+    /// SAFETY: Caller must ensure no references to arena-allocated data exist.
+    pub fn reset(&self) {
+        let mut storage = self.storage.borrow_mut();
+        // Clear length but keep capacity - no reallocation needed
+        storage.clear();
+    }
+
+    pub fn bytes_used(&self) -> usize {
+        self.storage.borrow().len()
+    }
+}
+
+// ============================================================================
 // Milestone 4: Build Expressions in Arena
-// We combine these as the Arena and Builder are tightly coupled.
-mod milestone_3_4 {
-    use super::OpType;
-    use std::cell::RefCell;
-    use std::mem;
+// ============================================================================
 
-    // From Milestone 1
-    #[derive(Debug, PartialEq)]
-    pub enum Expr<'arena> {
-        Literal(i64),
-        BinOp {
-            op: OpType,
-            left: &'arena Expr<'arena>,
-            right: &'arena Expr<'arena>,
-        },
+pub struct ExprBuilder<'arena> {
+    arena: &'arena Arena,
+}
+
+impl<'arena> ExprBuilder<'arena> {
+    pub fn new(arena: &'arena Arena) -> Self {
+        ExprBuilder { arena }
     }
-    impl<'arena> Expr<'arena> {
-        pub fn eval(&self) -> Result<i64, String> {
-            match self {
-                Expr::Literal(n) => Ok(*n),
-                Expr::BinOp { op, left, right } => {
-                    op.eval(left.eval()?, right.eval()?)
+
+    pub fn literal(&self, n: i64) -> &'arena Expr<'arena> {
+        self.arena.alloc(Expr::Literal(n))
+    }
+
+    pub fn binary(
+        &self,
+        op: OpType,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    ) -> &'arena Expr<'arena> {
+        self.arena.alloc(Expr::BinOp { op, left, right })
+    }
+
+    pub fn add(
+        &self,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    ) -> &'arena Expr<'arena> {
+        self.binary(OpType::Add, left, right)
+    }
+
+    pub fn sub(
+        &self,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    ) -> &'arena Expr<'arena> {
+        self.binary(OpType::Sub, left, right)
+    }
+
+    pub fn mul(
+        &self,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    ) -> &'arena Expr<'arena> {
+        self.binary(OpType::Mul, left, right)
+    }
+
+    pub fn div(
+        &self,
+        left: &'arena Expr<'arena>,
+        right: &'arena Expr<'arena>,
+    ) -> &'arena Expr<'arena> {
+        self.binary(OpType::Div, left, right)
+    }
+}
+
+// ============================================================================
+// Milestone 5: Lexer (Tokenizer)
+// ============================================================================
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Token {
+    Number(i64),
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    LeftParen,
+    RightParen,
+    End,
+}
+
+pub struct Lexer {
+    input: Vec<char>,
+    position: usize,
+}
+
+impl Lexer {
+    pub fn new(input: &str) -> Self {
+        Lexer {
+            input: input.chars().collect(),
+            position: 0,
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.input.get(self.position).copied()
+    }
+
+    fn advance(&mut self) {
+        self.position += 1;
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(c) = self.peek() {
+            if c.is_whitespace() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn read_number(&mut self) -> i64 {
+        let mut num = 0;
+        while let Some(c) = self.peek() {
+            if c.is_ascii_digit() {
+                num = num * 10 + (c as i64 - '0' as i64);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        num
+    }
+
+    pub fn next_token(&mut self) -> Result<Token, String> {
+        self.skip_whitespace();
+
+        match self.peek() {
+            None => Ok(Token::End),
+            Some(c) => match c {
+                '0'..='9' => Ok(Token::Number(self.read_number())),
+                '+' => {
+                    self.advance();
+                    Ok(Token::Plus)
                 }
+                '-' => {
+                    self.advance();
+                    Ok(Token::Minus)
+                }
+                '*' => {
+                    self.advance();
+                    Ok(Token::Star)
+                }
+                '/' => {
+                    self.advance();
+                    Ok(Token::Slash)
+                }
+                '(' => {
+                    self.advance();
+                    Ok(Token::LeftParen)
+                }
+                ')' => {
+                    self.advance();
+                    Ok(Token::RightParen)
+                }
+                _ => Err(format!("Unexpected character '{}'", c)),
+            },
+        }
+    }
+
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
+        let mut tokens = Vec::new();
+        loop {
+            let token = self.next_token()?;
+            tokens.push(token.clone());
+            if token == Token::End {
+                break;
             }
         }
-    }
-
-    // Milestone 3
-    pub struct Arena {
-        storage: RefCell<Vec<u8>>,
-    }
-
-    impl Arena {
-        pub fn new() -> Self {
-            Arena {
-                storage: RefCell::new(Vec::with_capacity(4096)),
-            }
-        }
-
-        pub fn alloc<'arena, T>(&'arena self, value: T) -> &'arena T {
-            let mut storage = self.storage.borrow_mut();
-            let size = mem::size_of::<T>();
-            let align = mem::align_of::<T>();
-            let current_len = storage.len();
-            let padding = (align - (current_len % align)) % align;
-            let start = current_len + padding;
-            storage.resize(start + size, 0);
-            let ptr = &mut storage[start] as *mut u8 as *mut T;
-            unsafe {
-                ptr.write(value);
-                &*ptr
-            }
-        }
-    }
-
-    // Milestone 4
-    pub struct ExprBuilder<'arena> {
-        arena: &'arena Arena,
-    }
-
-    impl<'arena> ExprBuilder<'arena> {
-        pub fn new(arena: &'arena Arena) -> Self {
-            ExprBuilder { arena }
-        }
-        pub fn literal(&self, n: i64) -> &'arena Expr<'arena> {
-            self.arena.alloc(Expr::Literal(n))
-        }
-        pub fn binary(&self, op: OpType, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena> {
-            self.arena.alloc(Expr::BinOp { op, left, right })
-        }
-        pub fn add(&self, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena> {
-            self.binary(OpType::Add, left, right)
-        }
-        pub fn sub(&self, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena> {
-            self.binary(OpType::Sub, left, right)
-        }
-        pub fn mul(&self, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena> {
-            self.binary(OpType::Mul, left, right)
-        }
-        pub fn div(&self, left: &'arena Expr<'arena>, right: &'arena Expr<'arena>) -> &'arena Expr<'arena> {
-            self.binary(OpType::Div, left, right)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        // Milestone 3 Tests
-        #[test]
-        fn test_arena_alloc_int() {
-            let arena = Arena::new();
-            let x = arena.alloc(42);
-            assert_eq!(*x, 42);
-        }
-        #[test]
-        fn test_arena_multiple_allocs() {
-            let arena = Arena::new();
-            assert_eq!(*arena.alloc(1), 1);
-            assert_eq!(*arena.alloc(2), 2);
-            assert_eq!(*arena.alloc(3), 3);
-        }
-        #[test]
-        fn test_arena_alloc_string() {
-            let arena = Arena::new();
-            let s = arena.alloc(String::from("hello"));
-            assert_eq!(s, "hello");
-        }
-        #[test]
-        fn test_arena_alignment() {
-            let arena = Arena::new();
-            let _byte = arena.alloc(1u8);
-            let num = arena.alloc(1234u64);
-            assert_eq!((num as *const u64 as usize) % 8, 0);
-        }
-
-        // Milestone 4 Tests
-        #[test]
-        fn test_builder() {
-            let arena = Arena::new();
-            let builder = ExprBuilder::new(&arena);
-            let expr = builder.mul(builder.add(builder.literal(2), builder.literal(3)), builder.literal(4));
-            assert_eq!(expr.eval(), Ok(20));
-        }
-        #[test]
-        fn test_complex_expression() {
-            let arena = Arena::new();
-            let builder = ExprBuilder::new(&arena);
-            let expr = builder.add(
-                builder.mul(
-                    builder.sub(builder.literal(10), builder.literal(5)),
-                    builder.literal(2),
-                ),
-                builder.div(builder.literal(8), builder.literal(4)),
-            );
-            assert_eq!(expr.eval(), Ok(12));
-        }
+        Ok(tokens)
     }
 }
 
-// Milestone 5 & 6: Lexer and Parser
-mod milestone_5_6 {
-    use super::milestone_3_4::{Arena, Expr, ExprBuilder};
-    use super::OpType;
+// ============================================================================
+// Milestone 6: Recursive Descent Parser
+// ============================================================================
 
-    // Milestone 5
-    #[derive(Debug, PartialEq, Clone)]
-    pub enum Token {
-        Number(i64), Plus, Minus, Star, Slash, LeftParen, RightParen, End,
+pub struct Parser<'arena> {
+    tokens: Vec<Token>,
+    position: usize,
+    builder: ExprBuilder<'arena>,
+}
+
+impl<'arena> Parser<'arena> {
+    pub fn new(tokens: Vec<Token>, arena: &'arena Arena) -> Self {
+        Parser {
+            tokens,
+            position: 0,
+            builder: ExprBuilder::new(arena),
+        }
     }
 
-    pub struct Lexer {
-        input: Vec<char>,
-        position: usize,
+    fn peek(&self) -> &Token {
+        self.tokens.get(self.position).unwrap_or(&Token::End)
     }
 
-    impl Lexer {
-        pub fn new(input: &str) -> Self {
-            Lexer { input: input.chars().collect(), position: 0 }
+    fn advance(&mut self) {
+        self.position += 1;
+    }
+
+    fn expect(&mut self, expected: Token) -> Result<(), String> {
+        if self.peek() == &expected {
+            self.advance();
+            Ok(())
+        } else {
+            Err(format!("Expected {:?}, found {:?}", expected, self.peek()))
         }
-        fn peek(&self) -> Option<char> { self.input.get(self.position).copied() }
-        fn advance(&mut self) { self.position += 1; }
-        fn skip_whitespace(&mut self) {
-            while let Some(c) = self.peek() {
-                if c.is_whitespace() { self.advance(); } else { break; }
+    }
+
+    // Factor → Number | '(' Expr ')'
+    fn parse_factor(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        match self.peek().clone() {
+            Token::Number(n) => {
+                self.advance();
+                Ok(self.builder.literal(n))
             }
-        }
-        fn read_number(&mut self) -> i64 {
-            let mut num = 0;
-            while let Some(c) = self.peek() {
-                if c.is_ascii_digit() {
-                    num = num * 10 + (c as i64 - '0' as i64);
-                    self.advance();
-                } else { break; }
+            Token::LeftParen => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                self.expect(Token::RightParen)?;
+                Ok(expr)
             }
-            num
+            token => Err(format!("Expected number or '(', found {:?}", token)),
         }
-        pub fn next_token(&mut self) -> Result<Token, String> {
-            self.skip_whitespace();
+    }
+
+    // Term → Factor (('*' | '/') Factor)*
+    fn parse_term(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        let mut left = self.parse_factor()?;
+
+        loop {
             match self.peek() {
-                None => Ok(Token::End),
-                Some(c) => match c {
-                    '0'..='9' => Ok(Token::Number(self.read_number())),
-                    '+' => { self.advance(); Ok(Token::Plus) },
-                    '-' => { self.advance(); Ok(Token::Minus) },
-                    '*' => { self.advance(); Ok(Token::Star) },
-                    '/' => { self.advance(); Ok(Token::Slash) },
-                    '(' => { self.advance(); Ok(Token::LeftParen) },
-                    ')' => { self.advance(); Ok(Token::RightParen) },
-                    _ => Err(format!("Unexpected character '{}'", c)),
-                },
-            }
-        }
-        pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
-            let mut tokens = Vec::new();
-            loop {
-                let token = self.next_token()?;
-                tokens.push(token.clone());
-                if token == Token::End { break; }
-            }
-            Ok(tokens)
-        }
-    }
-
-    // Milestone 6
-    pub struct Parser<'arena> {
-        tokens: Vec<Token>,
-        position: usize,
-        builder: ExprBuilder<'arena>,
-    }
-    
-    impl<'arena> Parser<'arena> {
-        pub fn new(tokens: Vec<Token>, arena: &'arena Arena) -> Self {
-            Parser { tokens, position: 0, builder: ExprBuilder::new(arena) }
-        }
-        fn peek(&self) -> &Token { self.tokens.get(self.position).unwrap_or(&Token::End) }
-        fn advance(&mut self) { self.position += 1; }
-        fn expect(&mut self, expected: Token) -> Result<(), String> {
-            if self.peek() == &expected { self.advance(); Ok(()) } 
-            else { Err(format!("Expected {:?}, found {:?}", expected, self.peek())) }
-        }
-        fn parse_factor(&mut self) -> Result<&'arena Expr<'arena>, String> {
-            match self.peek().clone() {
-                Token::Number(n) => { self.advance(); Ok(self.builder.literal(n)) },
-                Token::LeftParen => {
+                Token::Star => {
                     self.advance();
-                    let expr = self.parse_expr()?;
-                    self.expect(Token::RightParen)?;
-                    Ok(expr)
-                },
-                token => Err(format!("Expected number or '(', found {:?}", token)),
+                    let right = self.parse_factor()?;
+                    left = self.builder.mul(left, right);
+                }
+                Token::Slash => {
+                    self.advance();
+                    let right = self.parse_factor()?;
+                    left = self.builder.div(left, right);
+                }
+                _ => break,
             }
         }
-        fn parse_term(&mut self) -> Result<&'arena Expr<'arena>, String> {
-            let mut left = self.parse_factor()?;
-            while let Token::Star | Token::Slash = self.peek() {
-                let op = if matches!(self.peek(), Token::Star) { OpType::Mul } else { OpType::Div };
-                self.advance();
-                let right = self.parse_factor()?;
-                left = self.builder.binary(op, left, right);
-            }
-            Ok(left)
-        }
-        fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
-            let mut left = self.parse_term()?;
-            while let Token::Plus | Token::Minus = self.peek() {
-                let op = if matches!(self.peek(), Token::Plus) { OpType::Add } else { OpType::Sub };
-                self.advance();
-                let right = self.parse_term()?;
-                left = self.builder.binary(op, left, right);
-            }
-            Ok(left)
-        }
-        pub fn parse(&mut self) -> Result<&'arena Expr<'arena>, String> {
-            let expr = self.parse_expr()?;
-            if self.peek() != &Token::End { Err(format!("Unexpected token: {:?}", self.peek())) }
-            else { Ok(expr) }
-        }
-    }
-    
-    // Helper for tests
-    pub fn parse_and_eval(input: &str) -> Result<i64, String> {
-        let arena = Arena::new();
-        let tokens = Lexer::new(input).tokenize()?;
-        let expr = Parser::new(tokens, &arena).parse()?;
-        expr.eval()
+
+        Ok(left)
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+    // Expr → Term (('+' | '-') Term)*
+    fn parse_expr(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        let mut left = self.parse_term()?;
 
-        // Milestone 5 Tests
-        #[test] fn test_lexer_numbers() {
-            let tokens = Lexer::new("123 456").tokenize().unwrap();
-            assert_eq!(tokens, vec![Token::Number(123), Token::Number(456), Token::End]);
+        loop {
+            match self.peek() {
+                Token::Plus => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = self.builder.add(left, right);
+                }
+                Token::Minus => {
+                    self.advance();
+                    let right = self.parse_term()?;
+                    left = self.builder.sub(left, right);
+                }
+                _ => break,
+            }
         }
-        #[test] fn test_lexer_operators() {
-            let tokens = Lexer::new("+ - * /").tokenize().unwrap();
-            assert_eq!(tokens, vec![Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::End]);
+
+        Ok(left)
+    }
+
+    pub fn parse(&mut self) -> Result<&'arena Expr<'arena>, String> {
+        let expr = self.parse_expr()?;
+        if self.peek() != &Token::End {
+            return Err(format!("Unexpected token: {:?}", self.peek()));
         }
-        #[test] fn test_lexer_expression() {
-            let tokens = Lexer::new("(2 + 3) * 4").tokenize().unwrap();
-            assert_eq!(tokens, vec![Token::LeftParen, Token::Number(2), Token::Plus, Token::Number(3), Token::RightParen, Token::Star, Token::Number(4), Token::End]);
-        }
-        #[test] fn test_lexer_error() { assert!(Lexer::new("2 & 3").tokenize().is_err()); }
-        
-        // Milestone 6 Tests
-        #[test] fn test_parse_number() { assert_eq!(parse_and_eval("42"), Ok(42)); }
-        #[test] fn test_parse_addition() { assert_eq!(parse_and_eval("2 + 3"), Ok(5)); }
-        #[test] fn test_parse_precedence() { assert_eq!(parse_and_eval("2 + 3 * 4"), Ok(14)); }
-        #[test] fn test_parse_parentheses() { assert_eq!(parse_and_eval("(2 + 3) * 4"), Ok(20)); }
-        #[test] fn test_parse_complex() { assert_eq!(parse_and_eval("(10 - 5) * 2 + 8 / 4"), Ok(12)); }
-        #[test] fn test_parse_nested() { assert_eq!(parse_and_eval("((1 + 2) * (3 + 4)) / (5 - 2)"), Ok(7)); }
-        #[test] fn test_parse_error() {
-            assert!(parse_and_eval("2 + + 3").is_err());
-            assert!(parse_and_eval("(2 + 3").is_err());
-        }
+        Ok(expr)
     }
 }
 
+// Helper function for parsing and evaluating
+pub fn parse_and_eval(input: &str) -> Result<i64, String> {
+    let arena = Arena::new_with_capacity(4 * 1024);
+    let mut lexer = Lexer::new(input);
+    let tokens = lexer.tokenize()?;
+    let mut parser = Parser::new(tokens, &arena);
+    let expr = parser.parse()?;
+    expr.eval()
+}
+
+// ============================================================================
 // Milestone 7: Performance Comparison
-mod milestone_7 {
-    use super::milestone_2::{BoxExprBuilder};
-    use super::milestone_3_4::{Arena, ExprBuilder};
-    use std::time::Instant;
+// ============================================================================
 
-    pub fn run_benchmarks() {
-        println!("\n--- Running Performance Benchmarks ---");
-        let box_duration = benchmark_box();
-        let arena_duration = benchmark_arena();
-        println!("Box      : {:?}", box_duration);
-        println!("Arena    : {:?}", arena_duration);
-        if arena_duration.as_nanos() > 0 {
-            let factor = box_duration.as_nanos() as f64 / arena_duration.as_nanos() as f64;
-            println!("Speedup  : {:.2}x", factor);
+fn benchmark_arena() -> std::time::Duration {
+    // Create ONE arena outside the loop - this is how arenas should be used
+    let arena = Arena::new_with_capacity(64 * 1024 * 1024); // 64MB pre-allocated
+    let start = Instant::now();
+    for _ in 0..1000000 {
+        let builder = ExprBuilder::new(&arena);
+        // Build expression: (1+2)*(3+4)+(5-2)*7
+        let expr = builder.add(
+            builder.mul(
+                builder.add(builder.literal(1), builder.literal(2)),
+                builder.add(builder.literal(3), builder.literal(4)),
+            ),
+            builder.mul(
+                builder.sub(builder.literal(5), builder.literal(2)),
+                builder.literal(7),
+            ),
+        );
+        let _ = expr.eval();
+    }
+    start.elapsed()
+    // Single deallocation when arena drops
+}
+
+fn benchmark_box() -> std::time::Duration {
+    let start = Instant::now();
+    for _ in 0..1000000 {
+        // Build same expression with Box
+        let expr = BoxExprBuilder::add(
+            BoxExprBuilder::mul(
+                BoxExprBuilder::add(BoxExprBuilder::literal(1), BoxExprBuilder::literal(2)),
+                BoxExprBuilder::add(BoxExprBuilder::literal(3), BoxExprBuilder::literal(4)),
+            ),
+            BoxExprBuilder::mul(
+                BoxExprBuilder::sub(BoxExprBuilder::literal(5), BoxExprBuilder::literal(2)),
+                BoxExprBuilder::literal(7),
+            ),
+        );
+        let _ = expr.eval();
+    }
+    start.elapsed()
+}
+
+
+fn benchmark_bulk_deallocation() {
+    const ITERATIONS: usize = 10_000;
+    const TREE_DEPTH: usize = 10;  // 2^10 - 1 = 2047 nodes per tree
+
+    println!("\n=== Bulk Deallocation Benchmark ===");
+    println!("Building {} trees with {} nodes each\n", ITERATIONS, (1 << (TREE_DEPTH + 1)) - 1);
+
+    // Box version: must free each node individually
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        fn build_box_tree(depth: usize) -> Box<BoxExpr> {
+            if depth == 0 {
+                BoxExprBuilder::literal(1)
+            } else {
+                BoxExprBuilder::add(
+                    build_box_tree(depth - 1),
+                    build_box_tree(depth - 1),
+                )
+            }
         }
-        println!("------------------------------------");
+        let tree = build_box_tree(TREE_DEPTH);
+        let _ = tree.eval();
+        // Drop happens here: ~2047 individual free() calls per tree
+    }
+    let box_time = start.elapsed();
+
+    // Arena version with REUSE: pre-allocate once, reset each iteration
+    // This is the proper way to use arenas
+    let arena = Arena::new_with_capacity(256 * 1024); // Pre-allocate 256KB once
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let builder = ExprBuilder::new(&arena);
+
+        fn build_arena_tree<'a>(
+            builder: &ExprBuilder<'a>,
+            depth: usize
+        ) -> &'a Expr<'a> {
+            if depth == 0 {
+                builder.literal(1)
+            } else {
+                builder.add(
+                    build_arena_tree(builder, depth - 1),
+                    build_arena_tree(builder, depth - 1),
+                )
+            }
+        }
+        let tree = build_arena_tree(&builder, TREE_DEPTH);
+        let _ = tree.eval();
+        // Reset arena for next iteration - O(1) operation, no free() calls
+        arena.reset();
+    }
+    let arena_reuse_time = start.elapsed();
+
+    println!("Box (alloc + {} deallocations/tree): {:?}", (1 << (TREE_DEPTH + 1)) - 1, box_time);
+    println!("Arena (reused, O(1) reset):          {:?}", arena_reuse_time);
+
+    if arena_reuse_time.as_nanos() > 0 {
+        let speedup = box_time.as_nanos() as f64 / arena_reuse_time.as_nanos() as f64;
+        println!("Arena speedup: {:.2}x faster", speedup);
+    }
+    println!("===================================\n");
+}
+
+pub fn run_benchmarks() {
+    println!("\n=== Performance Comparison: Box vs Arena ===");
+    let box_duration = benchmark_box();
+    let arena_duration = benchmark_arena();
+    println!("Box allocation   : {:?}", box_duration);
+    println!("Arena allocation : {:?}", arena_duration);
+    if arena_duration.as_nanos() > 0 {
+        let factor = box_duration.as_millis() as f64 / arena_duration.as_millis() as f64;
+        println!("Arena speedup    : {:.2}x faster", factor);
+    }
+    println!("============================================\n");
+}
+
+// ============================================================================
+// Main Function - Demonstrates All Milestones
+// ============================================================================
+
+fn main() {
+    println!("=== Expression Parser with Arena Allocation ===\n");
+
+    // Milestone 1: Basic AST evaluation
+    println!("--- Milestone 1: Define AST Types ---");
+    let two = Expr::Literal(2);
+    let three = Expr::Literal(3);
+    let add = Expr::BinOp {
+        op: OpType::Add,
+        left: &two,
+        right: &three,
+    };
+    println!("2 + 3 = {:?}", add.eval());
+
+    // Milestone 2: Box-based expressions
+    println!("\n--- Milestone 2: Box-Based Expression Trees ---");
+    let expr = BoxExprBuilder::mul(
+        BoxExprBuilder::add(BoxExprBuilder::literal(2), BoxExprBuilder::literal(3)),
+        BoxExprBuilder::literal(4),
+    );
+    println!("(2 + 3) * 4 = {:?}", expr.eval());
+
+    // Milestone 3 & 4: Arena allocation
+    println!("\n--- Milestone 3 & 4: Arena Allocation ---");
+    let arena = Arena::new_with_capacity(4 * 1024);
+    let builder = ExprBuilder::new(&arena);
+    let expr = builder.mul(
+        builder.add(builder.literal(2), builder.literal(3)),
+        builder.literal(4),
+    );
+    println!("(2 + 3) * 4 = {:?}", expr.eval());
+
+    // Milestone 5: Lexer
+    println!("\n--- Milestone 5: Lexer (Tokenizer) ---");
+    let mut lexer = Lexer::new("(2 + 3) * 4");
+    let tokens = lexer.tokenize().unwrap();
+    println!("Input: \"(2 + 3) * 4\"");
+    println!("Tokens: {:?}", tokens);
+
+    // Milestone 6: Parser
+    println!("\n--- Milestone 6: Recursive Descent Parser ---");
+    let test_cases = vec![
+        "42",
+        "2 + 3",
+        "2 + 3 * 4",
+        "(2 + 3) * 4",
+        "10 - 5 * 2 + 8 / 4",
+        "((1 + 2) * (3 + 4)) / (5 - 2)",
+    ];
+
+    for input in test_cases {
+        match parse_and_eval(input) {
+            Ok(result) => println!("{:<30} = {}", input, result),
+            Err(e) => println!("{:<30} ERROR: {}", input, e),
+        }
     }
 
-    fn benchmark_arena() -> std::time::Duration {
-        let start = Instant::now();
-        for _ in 0..10000 {
-            let arena = Arena::new();
-            let builder = ExprBuilder::new(&arena);
-            let expr = builder.add(
-                builder.mul(
-                    builder.add(builder.literal(1), builder.literal(2)),
-                    builder.add(builder.literal(3), builder.literal(4)),
-                ),
-                builder.mul(
-                    builder.sub(builder.literal(5), builder.literal(2)),
-                    builder.literal(7),
-                ),
-            );
-            let _ = expr.eval();
+    // Test error cases
+    println!("\nError handling:");
+    let error_cases = vec!["2 + + 3", "(2 + 3", "2 / 0"];
+    for input in error_cases {
+        match parse_and_eval(input) {
+            Ok(result) => println!("{:<30} = {}", input, result),
+            Err(e) => println!("{:<30} ERROR: {}", input, e),
         }
-        start.elapsed()
     }
 
-    fn benchmark_box() -> std::time::Duration {
-        let start = Instant::now();
-        for _ in 0..10000 {
-            let expr = BoxExprBuilder::add(
-                BoxExprBuilder::mul(
-                    BoxExprBuilder::add(BoxExprBuilder::literal(1), BoxExprBuilder::literal(2)),
-                    BoxExprBuilder::add(BoxExprBuilder::literal(3), BoxExprBuilder::literal(4)),
-                ),
-                BoxExprBuilder::mul(
-                    BoxExprBuilder::sub(BoxExprBuilder::literal(5), BoxExprBuilder::literal(2)),
-                    BoxExprBuilder::literal(7),
-                ),
-            );
-            let _ = expr.eval();
-        }
-        start.elapsed()
+    // Milestone 7: Performance comparison
+    println!("\n--- Milestone 7: Performance Comparison ---");
+    run_benchmarks();
+    benchmark_bulk_deallocation();
+
+    println!("=== All Milestones Complete! ===");
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Milestone 1 Tests
+    #[test]
+    fn test_literal_eval() {
+        let expr = Expr::Literal(42);
+        assert_eq!(expr.eval(), Ok(42));
+    }
+
+    #[test]
+    fn test_binop_eval() {
+        let left = Expr::Literal(10);
+        let right = Expr::Literal(5);
+        let expr = Expr::BinOp {
+            op: OpType::Add,
+            left: &left,
+            right: &right,
+        };
+        assert_eq!(expr.eval(), Ok(15));
+    }
+
+    #[test]
+    fn test_nested_eval() {
+        let two = Expr::Literal(2);
+        let three = Expr::Literal(3);
+        let four = Expr::Literal(4);
+        let add = Expr::BinOp {
+            op: OpType::Add,
+            left: &two,
+            right: &three,
+        };
+        let mul = Expr::BinOp {
+            op: OpType::Mul,
+            left: &add,
+            right: &four,
+        };
+        assert_eq!(mul.eval(), Ok(20));
+    }
+
+    #[test]
+    fn test_division_by_zero() {
+        let ten = Expr::Literal(10);
+        let zero = Expr::Literal(0);
+        let expr = Expr::BinOp {
+            op: OpType::Div,
+            left: &ten,
+            right: &zero,
+        };
+        assert!(expr.eval().is_err());
+    }
+
+    // Milestone 2 Tests
+    #[test]
+    fn test_box_expr_literal() {
+        let expr = BoxExprBuilder::literal(42);
+        assert_eq!(expr.eval(), Ok(42));
+    }
+
+    #[test]
+    fn test_box_expr_addition() {
+        let expr = BoxExprBuilder::add(
+            BoxExprBuilder::literal(10),
+            BoxExprBuilder::literal(5),
+        );
+        assert_eq!(expr.eval(), Ok(15));
+    }
+
+    #[test]
+    fn test_box_expr_nested() {
+        let expr = BoxExprBuilder::mul(
+            BoxExprBuilder::add(BoxExprBuilder::literal(2), BoxExprBuilder::literal(3)),
+            BoxExprBuilder::literal(4),
+        );
+        assert_eq!(expr.eval(), Ok(20));
+    }
+
+    #[test]
+    fn test_box_expr_complex() {
+        let expr = BoxExprBuilder::add(
+            BoxExprBuilder::mul(
+                BoxExprBuilder::sub(BoxExprBuilder::literal(10), BoxExprBuilder::literal(5)),
+                BoxExprBuilder::literal(2),
+            ),
+            BoxExprBuilder::div(BoxExprBuilder::literal(8), BoxExprBuilder::literal(4)),
+        );
+        assert_eq!(expr.eval(), Ok(12));
+    }
+
+    // Milestone 3 Tests
+    #[test]
+    fn test_arena_alloc_int() {
+        let arena = Arena::new_with_capacity(4 * 1024);
+        let x = arena.alloc(42);
+        assert_eq!(*x, 42);
+    }
+
+    #[test]
+    fn test_arena_multiple_allocs() {
+        let arena = Arena::new_with_capacity(4 * 1024);
+        let x = arena.alloc(1);
+        let y = arena.alloc(2);
+        let z = arena.alloc(3);
+        assert_eq!(*x, 1);
+        assert_eq!(*y, 2);
+        assert_eq!(*z, 3);
+    }
+
+    #[test]
+    fn test_arena_alloc_string() {
+        let arena = Arena::new_with_capacity( 4* 1024);
+        let s = arena.alloc(String::from("hello"));
+        assert_eq!(s, "hello");
+    }
+
+    #[test]
+    fn test_arena_alignment() {
+        let arena = Arena::new_with_capacity(4 * 1024);
+        let _byte = arena.alloc(1u8);
+        let num = arena.alloc(1234u64);
+        let ptr = num as *const u64 as usize;
+        assert_eq!(ptr % 8, 0, "u64 should be 8-byte aligned");
+    }
+
+    // Milestone 4 Tests
+    #[test]
+    fn test_builder() {
+        let arena = Arena::new_with_capacity(4 * 1024);
+        let builder = ExprBuilder::new(&arena);
+        let two = builder.literal(2);
+        let three = builder.literal(3);
+        let four = builder.literal(4);
+        let sum = builder.add(two, three);
+        let product = builder.mul(sum, four);
+        assert_eq!(product.eval(), Ok(20));
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let arena = Arena::new_with_capacity(4 * 1024);
+        let builder = ExprBuilder::new(&arena);
+        let expr = builder.add(
+            builder.mul(
+                builder.sub(builder.literal(10), builder.literal(5)),
+                builder.literal(2),
+            ),
+            builder.div(builder.literal(8), builder.literal(4)),
+        );
+        assert_eq!(expr.eval(), Ok(12));
+    }
+
+    // Milestone 5 Tests
+    #[test]
+    fn test_lexer_numbers() {
+        let mut lexer = Lexer::new("123 456");
+        assert_eq!(lexer.next_token(), Ok(Token::Number(123)));
+        assert_eq!(lexer.next_token(), Ok(Token::Number(456)));
+        assert_eq!(lexer.next_token(), Ok(Token::End));
+    }
+
+    #[test]
+    fn test_lexer_operators() {
+        let mut lexer = Lexer::new("+ - * /");
+        assert_eq!(lexer.next_token(), Ok(Token::Plus));
+        assert_eq!(lexer.next_token(), Ok(Token::Minus));
+        assert_eq!(lexer.next_token(), Ok(Token::Star));
+        assert_eq!(lexer.next_token(), Ok(Token::Slash));
+    }
+
+    #[test]
+    fn test_lexer_expression() {
+        let mut lexer = Lexer::new("(2 + 3) * 4");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LeftParen,
+                Token::Number(2),
+                Token::Plus,
+                Token::Number(3),
+                Token::RightParen,
+                Token::Star,
+                Token::Number(4),
+                Token::End,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lexer_error() {
+        let mut lexer = Lexer::new("2 & 3");
+        assert!(lexer.tokenize().is_err());
+    }
+
+    // Milestone 6 Tests
+    #[test]
+    fn test_parse_number() {
+        assert_eq!(parse_and_eval("42"), Ok(42));
+    }
+
+    #[test]
+    fn test_parse_addition() {
+        assert_eq!(parse_and_eval("2 + 3"), Ok(5));
+    }
+
+    #[test]
+    fn test_parse_precedence() {
+        assert_eq!(parse_and_eval("2 + 3 * 4"), Ok(14));
+    }
+
+    #[test]
+    fn test_parse_parentheses() {
+        assert_eq!(parse_and_eval("(2 + 3) * 4"), Ok(20));
+    }
+
+    #[test]
+    fn test_parse_complex() {
+        assert_eq!(parse_and_eval("(10 - 5) * 2 + 8 / 4"), Ok(12));
+    }
+
+    #[test]
+    fn test_parse_nested() {
+        assert_eq!(parse_and_eval("((1 + 2) * (3 + 4)) / (5 - 2)"), Ok(7));
+    }
+
+    #[test]
+    fn test_parse_error() {
+        assert!(parse_and_eval("2 + + 3").is_err());
+        assert!(parse_and_eval("(2 + 3").is_err());
+    }
+
+    #[test]
+    fn test_division_by_zero_parse() {
+        assert!(parse_and_eval("10 / 0").is_err());
     }
 }
+
 ```
 
-// To run benchmarks, you could add this to a main function:
-// milestone_7::run_benchmarks();

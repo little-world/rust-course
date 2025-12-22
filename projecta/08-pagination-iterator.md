@@ -1400,11 +1400,7 @@ mod tests {
     }
 }
 ```
-
 ---
-
-
-
 ### Complete Working Example
 
 ```rust
@@ -2447,12 +2443,3 @@ mod tests {
 
 ```
 
-This complete example demonstrates:
-- **Core Pagination**: Lazy-loading iterator over API pages
-- **Rate Limiting**: Token bucket algorithm to respect API limits
-- **Composability**: Works with standard iterator combinators
-- **Real-World Patterns**: Typical API client usage
-
-The paginated iterator pattern transforms complex API interaction into simple iterator operations, making API clients easier to build and use.
-
----

@@ -991,37 +991,6 @@ fn test_common_methods_all_states() {
 
 ---
 
-### Complete Project Summary
-
-**What You Built**:
-1. Enum-based state machine with associated data per state
-2. State transition methods with exhaustive pattern matching
-3. Typestate pattern for compile-time state checking
-4. Comparison of runtime vs compile-time state enforcement
-
-**Key Concepts Practiced**:
-- Enum variants with different associated data
-- Exhaustive pattern matching
-- Consuming transitions (taking `self`)
-- Phantom types and zero-sized types
-- Compile-time state machines
-
-**Runtime vs Compile-Time Comparison**:
-
-| Aspect | Enum States (Runtime) | Typestate (Compile-Time) |
-|--------|----------------------|--------------------------|
-| **Flexibility** | Can store mixed states in `Vec<OrderState>` | Can't store mixed states easily |
-| **Validation** | Returns `Result`, checked at runtime | Compile error for invalid transitions |
-| **IDE Support** | Shows all methods on all states | Shows only valid methods for current state |
-| **Memory** | Size = largest variant + discriminant | Size = data only, state in type |
-| **Complexity** | Simpler, one type | More complex, multiple types |
-| **Use Case** | Dynamic state, runtime decisions | Known state flow, API safety |
-
-**Real-World Applications**:
-- **Enum approach**: Payment processors, workflow engines with dynamic states
-- **Typestate approach**: Database connections, file handles, builder patterns
-
----
 
 ### Complete Working Example
 ```rust

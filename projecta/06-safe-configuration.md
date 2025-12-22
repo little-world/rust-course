@@ -1595,12 +1595,8 @@ fn test_builder_missing_required() {
 
 ### Complete Working Example
 
-Here's the fully implemented solution combining all three milestones:
-
-
 ```rust
 // Complete Type-Safe Configuration System
-// Demonstrates newtype pattern, validation, and builder pattern
 
 use std::num::NonZeroU32;
 use std::ops::Deref;
@@ -2212,13 +2208,3 @@ mod tests {
 }
 
 ```
-**Key Takeaways from Complete Example**:
-
-1. **Type Safety**: Compiler prevents mixing up `Port`, `Timeout`, and `MaxConnections`
-2. **Validation**: Smart constructors ensure only valid values can be created
-3. **Ergonomics**: Builder pattern + Deref trait make API pleasant to use
-4. **Error Handling**: Collects all validation errors, not just first one
-5. **Zero Cost**: All newtypes compile to same size as underlying types
-6. **Defaults**: Builder provides sensible defaults for optional fields
-
----

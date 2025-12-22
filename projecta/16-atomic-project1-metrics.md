@@ -1617,9 +1617,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-// ============================================================================
-// ATOMIC COUNTER
-// ============================================================================
+// =============================================================================
+// Milestone 1: Basic Atomic Counter
+// =============================================================================
 
 pub struct AtomicCounter {
     count: AtomicUsize,
@@ -1633,25 +1633,25 @@ impl AtomicCounter {
     }
 
     pub fn increment(&self) {
-        self.count.fetch_add(1, Ordering::Relaxed);
+        self.count.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn add(&self, value: usize) {
-        self.count.fetch_add(value, Ordering::Relaxed);
+        self.count.fetch_add(value, Ordering::SeqCst);
     }
 
     pub fn get(&self) -> usize {
-        self.count.load(Ordering::Acquire)
+        self.count.load(Ordering::SeqCst)
     }
 
     pub fn reset(&self) -> usize {
-        self.count.swap(0, Ordering::AcqRel)
+        self.count.swap(0, Ordering::SeqCst)
     }
 }
 
-// ============================================================================
-// METRICS COLLECTOR
-// ============================================================================
+// =============================================================================
+// Milestone 2: Multiple Metric Types with Relaxed Ordering
+// =============================================================================
 
 pub struct MetricsCollector {
     requests: AtomicUsize,
@@ -1718,9 +1718,9 @@ impl MetricsSnapshot {
     }
 }
 
-// ============================================================================
-// ATOMIC HISTOGRAM
-// ============================================================================
+// =============================================================================
+// Milestone 3: Histogram with Lock-Free Buckets
+// =============================================================================
 
 pub struct AtomicHistogram<const N: usize> {
     buckets: [AtomicUsize; N],
@@ -1741,20 +1741,19 @@ impl<const N: usize> AtomicHistogram<N> {
     }
 
     fn find_bucket(&self, value: u64) -> usize {
-        self.bucket_boundaries
-            .iter()
-            .position(|&boundary| value <= boundary)
-            .unwrap_or(N - 1)
+        match self.bucket_boundaries.binary_search(&value) {
+            Ok(idx) => idx,
+            Err(idx) => idx.min(N - 1),
+        }
     }
 
     pub fn snapshot(&self) -> HistogramSnapshot {
-        let buckets = self.buckets
-            .iter()
-            .map(|b| b.load(Ordering::Acquire))
-            .collect();
-
         HistogramSnapshot {
-            buckets,
+            buckets: self
+                .buckets
+                .iter()
+                .map(|bucket| bucket.load(Ordering::Acquire))
+                .collect(),
             boundaries: self.bucket_boundaries.to_vec(),
         }
     }
@@ -1775,18 +1774,22 @@ impl HistogramSnapshot {
         if total == 0 {
             return 0;
         }
-
-        let target = (total as f64 * p) as usize;
+        let mut target = (total as f64 * p).ceil() as usize;
+        if target == 0 {
+            target = 1;
+        }
         let mut accumulated = 0;
-
-        for (i, &count) in self.buckets.iter().enumerate() {
+        for (idx, count) in self.buckets.iter().enumerate() {
             accumulated += count;
             if accumulated >= target {
-                return self.boundaries[i];
+                if idx == 0 {
+                    return self.boundaries[0];
+                } else {
+                    return self.boundaries[idx - 1];
+                }
             }
         }
-
-        *self.boundaries.last().unwrap()
+        *self.boundaries.last().unwrap_or(&0)
     }
 
     pub fn mean(&self) -> f64 {
@@ -1796,21 +1799,23 @@ impl HistogramSnapshot {
         }
 
         let mut sum = 0.0;
-        let mut prev_boundary = 0;
-
-        for (i, &count) in self.buckets.iter().enumerate() {
-            let midpoint = (prev_boundary + self.boundaries[i]) as f64 / 2.0;
-            sum += midpoint * count as f64;
-            prev_boundary = self.boundaries[i];
+        for (idx, count) in self.buckets.iter().enumerate() {
+            if *count == 0 {
+                continue;
+            }
+            let lower = if idx == 0 { 0 } else { self.boundaries[idx - 1] };
+            let upper = self.boundaries[idx];
+            let midpoint = (lower + upper) as f64 / 2.0;
+            sum += midpoint * (*count as f64);
         }
 
         sum / total as f64
     }
 }
 
-// ============================================================================
-// ATOMIC MIN/MAX
-// ============================================================================
+// =============================================================================
+// Milestone 4: Compare-and-Swap for Atomic Max/Min
+// =============================================================================
 
 pub struct AtomicMinMax {
     min: AtomicU64,
@@ -1826,35 +1831,29 @@ impl AtomicMinMax {
     }
 
     pub fn update(&self, value: u64) {
-        // Update min
         let mut current_min = self.min.load(Ordering::Relaxed);
         loop {
             if value >= current_min {
                 break;
             }
-            match self.min.compare_exchange_weak(
-                current_min,
-                value,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
+            match self
+                .min
+                .compare_exchange_weak(current_min, value, Ordering::Relaxed, Ordering::Relaxed)
+            {
                 Ok(_) => break,
                 Err(actual) => current_min = actual,
             }
         }
 
-        // Update max
         let mut current_max = self.max.load(Ordering::Relaxed);
         loop {
             if value <= current_max {
                 break;
             }
-            match self.max.compare_exchange_weak(
-                current_max,
-                value,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
+            match self
+                .max
+                .compare_exchange_weak(current_max, value, Ordering::Relaxed, Ordering::Relaxed)
+            {
                 Ok(_) => break,
                 Err(actual) => current_max = actual,
             }
@@ -1875,14 +1874,13 @@ impl AtomicMinMax {
     }
 }
 
-// ============================================================================
-// METRICS REGISTRY
-// ============================================================================
+// =============================================================================
+// Milestone 5: Full Metrics System with Periodic Export
+// =============================================================================
 
 pub struct MetricsRegistry {
     collectors: HashMap<String, Arc<MetricsCollector>>,
     histograms: HashMap<String, Arc<AtomicHistogram<8>>>,
-    minmax: HashMap<String, Arc<AtomicMinMax>>,
     export_interval: Duration,
     running: Arc<AtomicBool>,
 }
@@ -1892,7 +1890,6 @@ impl MetricsRegistry {
         Self {
             collectors: HashMap::new(),
             histograms: HashMap::new(),
-            minmax: HashMap::new(),
             export_interval: interval,
             running: Arc::new(AtomicBool::new(false)),
         }
@@ -1904,27 +1901,23 @@ impl MetricsRegistry {
         collector
     }
 
-    pub fn register_histogram(&mut self, name: String, boundaries: [u64; 8]) -> Arc<AtomicHistogram<8>> {
-        let hist = Arc::new(AtomicHistogram::new(boundaries));
-        self.histograms.insert(name, Arc::clone(&hist));
-        hist
+    pub fn register_histogram(
+        &mut self,
+        name: String,
+        boundaries: [u64; 8],
+    ) -> Arc<AtomicHistogram<8>> {
+        let histogram = Arc::new(AtomicHistogram::new(boundaries));
+        self.histograms.insert(name, Arc::clone(&histogram));
+        histogram
     }
 
-    pub fn register_minmax(&mut self, name: String) -> Arc<AtomicMinMax> {
-        let mm = Arc::new(AtomicMinMax::new());
-        self.minmax.insert(name, Arc::clone(&mm));
-        mm
-    }
-
-    pub fn start_export_thread<F>(&mut self, callback: F) -> thread::JoinHandle<()>
+    pub fn start_export_thread<F>(&self, callback: F)
     where
         F: Fn(FullSnapshot) + Send + 'static,
     {
         self.running.store(true, Ordering::SeqCst);
-
         let collectors = self.collectors.clone();
         let histograms = self.histograms.clone();
-        let minmax = self.minmax.clone();
         let interval = self.export_interval;
         let running = Arc::clone(&self.running);
 
@@ -1936,21 +1929,17 @@ impl MetricsRegistry {
                     timestamp: SystemTime::now(),
                     metrics: collectors
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.snapshot()))
+                        .map(|(name, collector)| (name.clone(), collector.snapshot()))
                         .collect(),
                     histograms: histograms
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.snapshot()))
-                        .collect(),
-                    minmax: minmax
-                        .iter()
-                        .map(|(k, v)| (k.clone(), (v.get_min(), v.get_max())))
+                        .map(|(name, histogram)| (name.clone(), histogram.snapshot()))
                         .collect(),
                 };
 
                 callback(snapshot);
             }
-        })
+        });
     }
 
     pub fn stop(&self) {
@@ -1960,17 +1949,15 @@ impl MetricsRegistry {
     pub fn snapshot_all(&self) -> FullSnapshot {
         FullSnapshot {
             timestamp: SystemTime::now(),
-            metrics: self.collectors
+            metrics: self
+                .collectors
                 .iter()
-                .map(|(k, v)| (k.clone(), v.snapshot()))
+                .map(|(name, collector)| (name.clone(), collector.snapshot()))
                 .collect(),
-            histograms: self.histograms
+            histograms: self
+                .histograms
                 .iter()
-                .map(|(k, v)| (k.clone(), v.snapshot()))
-                .collect(),
-            minmax: self.minmax
-                .iter()
-                .map(|(k, v)| (k.clone(), (v.get_min(), v.get_max())))
+                .map(|(name, histogram)| (name.clone(), histogram.snapshot()))
                 .collect(),
         }
     }
@@ -1980,7 +1967,6 @@ pub struct FullSnapshot {
     pub timestamp: SystemTime,
     pub metrics: HashMap<String, MetricsSnapshot>,
     pub histograms: HashMap<String, HistogramSnapshot>,
-    pub minmax: HashMap<String, (u64, u64)>,
 }
 
 impl FullSnapshot {
@@ -1990,230 +1976,154 @@ impl FullSnapshot {
         for (name, snapshot) in &self.metrics {
             output.push_str(&format!("# TYPE {}_requests counter\n", name));
             output.push_str(&format!("{}_requests {}\n", name, snapshot.requests));
-
             output.push_str(&format!("# TYPE {}_errors counter\n", name));
             output.push_str(&format!("{}_errors {}\n", name, snapshot.errors));
-
             output.push_str(&format!("# TYPE {}_bytes_sent counter\n", name));
             output.push_str(&format!("{}_bytes_sent {}\n", name, snapshot.bytes_sent));
-
             output.push_str(&format!("# TYPE {}_active_connections gauge\n", name));
-            output.push_str(&format!("{}_active_connections {}\n", name, snapshot.active_connections));
+            output.push_str(&format!(
+                "{}_active_connections {}\n",
+                name, snapshot.active_connections
+            ));
         }
 
-        for (name, hist) in &self.histograms {
-            output.push_str(&format!("# TYPE {}_latency_us histogram\n", name));
-            for (i, count) in hist.buckets.iter().enumerate() {
+        for (name, histogram) in &self.histograms {
+            output.push_str(&format!("# TYPE {}_latency histogram\n", name));
+            for (idx, count) in histogram.buckets.iter().enumerate() {
                 output.push_str(&format!(
-                    "{}_latency_us_bucket{{le=\"{}\"}} {}\n",
-                    name, hist.boundaries[i], count
+                    "{}_latency_bucket{{le=\"{}\"}} {}\n",
+                    name, histogram.boundaries[idx], count
                 ));
             }
-        }
-
-        for (name, (min, max)) in &self.minmax {
-            output.push_str(&format!("# TYPE {}_min gauge\n", name));
-            output.push_str(&format!("{}_min {}\n", name, min));
-            output.push_str(&format!("# TYPE {}_max gauge\n", name));
-            output.push_str(&format!("{}_max {}\n", name, max));
+            output.push_str(&format!(
+                "{}_latency_count {}\n",
+                name,
+                histogram.total()
+            ));
         }
 
         output
     }
 }
 
-// ============================================================================
-// EXAMPLE USAGE
-// ============================================================================
+// =============================================================================
+// Milestone 6: Memory Ordering Optimization and Benchmarking
+// =============================================================================
 
-fn main() {
-    println!("=== Lock-Free Metrics Collector Demo ===\n");
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Instant;
 
-    // Create registry with 2-second export interval
-    let mut registry = MetricsRegistry::new(Duration::from_secs(2));
-
-    // Register metrics
-    let http_metrics = registry.register_collector("http".to_string());
-    let latency_hist = registry.register_histogram(
-        "http_latency".to_string(),
-        [1000, 5000, 10_000, 50_000, 100_000, 500_000, 1_000_000, u64::MAX],
-    );
-    let latency_minmax = registry.register_minmax("http_latency".to_string());
-
-    // Start export thread
-    let _export_handle = registry.start_export_thread(|snapshot| {
-        println!("\n--- Metrics Snapshot ---");
-        println!("Timestamp: {:?}", snapshot.timestamp);
-
-        for (name, metrics) in &snapshot.metrics {
-            println!("\n{}:", name);
-            println!("  Requests: {}", metrics.requests);
-            println!("  Errors: {} ({:.2}% error rate)",
-                metrics.errors,
-                metrics.error_rate() * 100.0
-            );
-            println!("  Bytes sent: {}", metrics.bytes_sent);
-            println!("  Active connections: {}", metrics.active_connections);
+    fn benchmark_operation<F>(name: &str, iterations: usize, mut op: F)
+    where
+        F: FnMut(),
+    {
+        let start = Instant::now();
+        for _ in 0..iterations {
+            op();
         }
-
-        for (name, hist) in &snapshot.histograms {
-            println!("\n{} histogram:", name);
-            println!("  Total observations: {}", hist.total());
-            println!("  Mean: {:.0}μs", hist.mean());
-            println!("  p50: {}μs", hist.percentile(0.5));
-            println!("  p95: {}μs", hist.percentile(0.95));
-            println!("  p99: {}μs", hist.percentile(0.99));
-        }
-
-        for (name, (min, max)) in &snapshot.minmax {
-            println!("\n{} range:", name);
-            println!("  Min: {}μs", min);
-            println!("  Max: {}μs", max);
-        }
-    });
-
-    // Simulate workload with multiple threads
-    println!("Simulating workload with 4 worker threads...\n");
-
-    let workers: Vec<_> = (0..4)
-        .map(|worker_id| {
-            let metrics = Arc::clone(&http_metrics);
-            let hist = Arc::clone(&latency_hist);
-            let minmax = Arc::clone(&latency_minmax);
-
-            thread::spawn(move || {
-                use rand::Rng;
-                let mut rng = rand::thread_rng();
-
-                for i in 0..50 {
-                    // Simulate request processing
-                    let latency_us = rng.gen_range(100..100_000);
-
-                    metrics.record_request();
-
-                    // Simulate error rate ~5%
-                    if rng.gen_bool(0.05) {
-                        metrics.record_error();
-                    }
-
-                    metrics.record_bytes(rng.gen_range(100..10_000));
-
-                    if i % 10 == 0 {
-                        metrics.connection_opened();
-                    }
-                    if i % 15 == 0 && i > 0 {
-                        metrics.connection_closed();
-                    }
-
-                    // Record latency
-                    hist.record(latency_us);
-                    minmax.update(latency_us);
-
-                    thread::sleep(Duration::from_millis(rng.gen_range(10..50)));
-                }
-
-                println!("Worker {} completed", worker_id);
-            })
-        })
-        .collect();
-
-    // Wait for workers
-    for worker in workers {
-        worker.join().unwrap();
+        let elapsed = start.elapsed();
+        let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+        let ns_per_op = elapsed.as_nanos() as f64 / iterations as f64;
+        println!(
+            "{}: {:.0} ops/sec ({:.2} ns/op)",
+            name, ops_per_sec, ns_per_op
+        );
     }
 
-    // Let final export happen
-    thread::sleep(Duration::from_secs(3));
+    #[test]
+    fn compare_orderings() {
+        const ITERATIONS: usize = 100_000;
 
-    // Stop export thread
-    registry.stop();
+        let seq_counter = AtomicUsize::new(0);
+        benchmark_operation("SeqCst", ITERATIONS, || {
+            seq_counter.fetch_add(1, Ordering::SeqCst);
+        });
+        assert_eq!(seq_counter.load(Ordering::SeqCst), ITERATIONS);
 
-    // Final snapshot
-    println!("\n\n=== Final Prometheus Export ===\n");
-    let final_snapshot = registry.snapshot_all();
-    println!("{}", final_snapshot.to_prometheus_format());
+        let acqrel_counter = AtomicUsize::new(0);
+        benchmark_operation("AcqRel", ITERATIONS, || {
+            acqrel_counter.fetch_add(1, Ordering::AcqRel);
+        });
+        assert_eq!(acqrel_counter.load(Ordering::SeqCst), ITERATIONS);
 
-    println!("\n=== Benchmarking ===\n");
-
-    // Benchmark counter throughput
-    let counter = AtomicCounter::new();
-    let start = Instant::now();
-    for _ in 0..1_000_000 {
-        counter.increment();
+        let relaxed_counter = AtomicUsize::new(0);
+        benchmark_operation("Relaxed", ITERATIONS, || {
+            relaxed_counter.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(relaxed_counter.load(Ordering::SeqCst), ITERATIONS);
     }
-    let elapsed = start.elapsed();
-    println!("1M counter increments: {:?}", elapsed);
-    println!("Throughput: {:.0} ops/sec", 1_000_000.0 / elapsed.as_secs_f64());
-
-    // Benchmark concurrent throughput
-    let metrics = Arc::new(MetricsCollector::new());
-    let start = Instant::now();
-
-    let bench_workers: Vec<_> = (0..4)
-        .map(|_| {
-            let m = Arc::clone(&metrics);
-            thread::spawn(move || {
-                for _ in 0..250_000 {
-                    m.record_request();
-                }
-            })
-        })
-        .collect();
-
-    for worker in bench_workers {
-        worker.join().unwrap();
-    }
-
-    let elapsed = start.elapsed();
-    println!("\n1M concurrent increments (4 threads): {:?}", elapsed);
-    println!("Throughput: {:.0} ops/sec", 1_000_000.0 / elapsed.as_secs_f64());
-
-    println!("\n=== Done ===");
 }
+
+pub mod ordering_docs {
+    pub const GUIDELINES: &str = "Use Relaxed for independent counters, Acquire loads for \
+snapshots/export, and SeqCst for control flags like shutdown signals.";
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::random;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    // ----- Milestone 1 -------------------------------------------------------
 
     #[test]
-    fn test_atomic_counter() {
+    fn test_counter_increment() {
         let counter = AtomicCounter::new();
         assert_eq!(counter.get(), 0);
 
         counter.increment();
         assert_eq!(counter.get(), 1);
 
-        counter.add(41);
-        assert_eq!(counter.get(), 42);
+        counter.add(5);
+        assert_eq!(counter.get(), 6);
+    }
 
-        let old = counter.reset();
-        assert_eq!(old, 42);
+    #[test]
+    fn test_counter_reset() {
+        let counter = AtomicCounter::new();
+        counter.add(42);
+
+        let old_value = counter.reset();
+        assert_eq!(old_value, 42);
         assert_eq!(counter.get(), 0);
     }
 
     #[test]
-    fn test_concurrent_counter() {
+    fn test_concurrent_increments() {
         let counter = Arc::new(AtomicCounter::new());
-        let handles: Vec<_> = (0..10)
-            .map(|_| {
-                let c = Arc::clone(&counter);
-                thread::spawn(move || {
-                    for _ in 0..1000 {
-                        c.increment();
-                    }
-                })
-            })
-            .collect();
+        let mut handles = vec![];
 
-        for h in handles {
-            h.join().unwrap();
+        for _ in 0..10 {
+            let counter_clone = Arc::clone(&counter);
+            let handle = thread::spawn(move || {
+                for _ in 0..1000 {
+                    counter_clone.increment();
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
         }
 
         assert_eq!(counter.get(), 10_000);
     }
 
+    // ----- Milestone 2 -------------------------------------------------------
+
     #[test]
-    fn test_metrics_collector() {
+    fn test_multiple_metrics() {
         let metrics = MetricsCollector::new();
 
         metrics.record_request();
@@ -2221,41 +2131,296 @@ mod tests {
         metrics.record_error();
         metrics.record_bytes(1024);
 
-        let snap = metrics.snapshot();
-        assert_eq!(snap.requests, 2);
-        assert_eq!(snap.errors, 1);
-        assert_eq!(snap.bytes_sent, 1024);
-        assert_eq!(snap.error_rate(), 0.5);
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.requests, 2);
+        assert_eq!(snapshot.errors, 1);
+        assert_eq!(snapshot.bytes_sent, 1024);
+        assert_eq!(snapshot.error_rate(), 0.5);
     }
 
     #[test]
-    fn test_histogram() {
-        let hist = AtomicHistogram::new([10, 50, 100, 500, u64::MAX, 0, 0, 0]);
+    fn test_gauge_operations() {
+        let metrics = MetricsCollector::new();
 
-        hist.record(5);
-        hist.record(25);
-        hist.record(75);
-        hist.record(200);
+        metrics.connection_opened();
+        metrics.connection_opened();
+        assert_eq!(metrics.snapshot().active_connections, 2);
 
-        let snap = hist.snapshot();
-        assert_eq!(snap.total(), 4);
-        assert!(snap.percentile(0.5) <= 100);
+        metrics.connection_closed();
+        assert_eq!(metrics.snapshot().active_connections, 1);
     }
 
     #[test]
-    fn test_minmax() {
-        let mm = AtomicMinMax::new();
+    fn test_concurrent_mixed_operations() {
+        let metrics = Arc::new(MetricsCollector::new());
+        let mut handles = vec![];
 
-        mm.update(100);
-        assert_eq!(mm.get_min(), 100);
-        assert_eq!(mm.get_max(), 100);
+        for _ in 0..5 {
+            let m = Arc::clone(&metrics);
+            let handle = thread::spawn(move || {
+                for _ in 0..100 {
+                    m.record_request();
+                    if random::<bool>() {
+                        m.record_error();
+                    }
+                    m.record_bytes(256);
+                }
+            });
+            handles.push(handle);
+        }
 
-        mm.update(50);
-        mm.update(150);
-        assert_eq!(mm.get_min(), 50);
-        assert_eq!(mm.get_max(), 150);
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.requests, 500);
+        assert_eq!(snapshot.bytes_sent, 500 * 256);
+    }
+
+    // ----- Milestone 3 -------------------------------------------------------
+
+    #[test]
+    fn test_histogram_basic() {
+        let hist = AtomicHistogram::new([10_000, 50_000, 100_000, 500_000, u64::MAX]);
+
+        hist.record(5_000);
+        hist.record(25_000);
+        hist.record(75_000);
+
+        let snapshot = hist.snapshot();
+        assert_eq!(snapshot.buckets[0], 1);
+        assert_eq!(snapshot.buckets[1], 1);
+        assert_eq!(snapshot.buckets[2], 1);
+        assert_eq!(snapshot.total(), 3);
+    }
+
+    #[test]
+    fn test_percentile_calculation() {
+        let hist = AtomicHistogram::new([10_000, 50_000, 100_000, 500_000, u64::MAX]);
+
+        for _ in 0..50 {
+            hist.record(5_000);
+        }
+        for _ in 0..30 {
+            hist.record(25_000);
+        }
+        for _ in 0..20 {
+            hist.record(75_000);
+        }
+
+        let snapshot = hist.snapshot();
+        assert!(snapshot.percentile(0.5) <= 10_000);
+        let p90 = snapshot.percentile(0.9);
+        assert!(p90 > 10_000 && p90 <= 50_000);
+    }
+
+    #[test]
+    fn test_concurrent_histogram() {
+        let hist = Arc::new(AtomicHistogram::new([
+            10_000,
+            50_000,
+            100_000,
+            500_000,
+            u64::MAX,
+        ]));
+        let mut handles = vec![];
+
+        for thread_id in 0..10 {
+            let h = Arc::clone(&hist);
+            let handle = thread::spawn(move || {
+                for i in 0..100 {
+                    let value = (thread_id * 1000 + i * 100) as u64;
+                    h.record(value);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(hist.snapshot().total(), 1000);
+    }
+
+    // ----- Milestone 4 -------------------------------------------------------
+
+    #[test]
+    fn test_minmax_basic() {
+        let minmax = AtomicMinMax::new();
+
+        minmax.update(100);
+        assert_eq!(minmax.get_min(), 100);
+        assert_eq!(minmax.get_max(), 100);
+
+        minmax.update(50);
+        assert_eq!(minmax.get_min(), 50);
+        assert_eq!(minmax.get_max(), 100);
+
+        minmax.update(150);
+        assert_eq!(minmax.get_min(), 50);
+        assert_eq!(minmax.get_max(), 150);
+    }
+
+    #[test]
+    fn test_concurrent_minmax() {
+        let minmax = Arc::new(AtomicMinMax::new());
+        let mut handles = vec![];
+
+        for thread_id in 0..10 {
+            let mm = Arc::clone(&minmax);
+            let handle = thread::spawn(move || {
+                for i in 0..100 {
+                    let value = (thread_id * 100 + i) as u64;
+                    mm.update(value);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(minmax.get_min(), 0);
+        assert_eq!(minmax.get_max(), 999);
+    }
+
+    #[test]
+    fn test_reset() {
+        let minmax = AtomicMinMax::new();
+        minmax.update(50);
+        minmax.update(150);
+
+        minmax.reset();
+        assert_eq!(minmax.get_min(), u64::MAX);
+        assert_eq!(minmax.get_max(), 0);
+    }
+
+    // ----- Milestone 5 -------------------------------------------------------
+
+    #[test]
+    fn test_registry_registration() {
+        let mut registry = MetricsRegistry::new(Duration::from_secs(10));
+
+        let collector1 = registry.register_collector("http".to_string());
+        let collector2 = registry.register_collector("db".to_string());
+
+        collector1.record_request();
+        collector2.record_request();
+        collector2.record_request();
+
+        let snapshot = registry.snapshot_all();
+        assert_eq!(snapshot.metrics["http"].requests, 1);
+        assert_eq!(snapshot.metrics["db"].requests, 2);
+    }
+
+    #[test]
+    fn test_periodic_export() {
+        let mut registry = MetricsRegistry::new(Duration::from_millis(100));
+        let collector = registry.register_collector("test".to_string());
+
+        let export_count = Arc::new(Mutex::new(0));
+        let count_clone = Arc::clone(&export_count);
+
+        registry.start_export_thread(move |_snapshot| {
+            *count_clone.lock().unwrap() += 1;
+        });
+
+        for _ in 0..10 {
+            collector.record_request();
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        registry.stop();
+        assert!(*export_count.lock().unwrap() >= 1);
+    }
+
+    #[test]
+    fn test_prometheus_format() {
+        let mut registry = MetricsRegistry::new(Duration::from_secs(60));
+        let collector = registry.register_collector("http".to_string());
+
+        collector.record_request();
+        collector.record_request();
+        collector.record_error();
+        collector.record_bytes(1024);
+
+        let snapshot = registry.snapshot_all();
+        let prom = snapshot.to_prometheus_format();
+
+        assert!(prom.contains("http_requests 2"));
+        assert!(prom.contains("http_errors 1"));
+        assert!(prom.contains("http_bytes_sent 1024"));
+    }
+
+    // ----- Milestone 6 -------------------------------------------------------
+
+    #[test]
+    fn benchmark_counter_increment_relaxed() {
+        let counter = AtomicCounter::new();
+        let start = Instant::now();
+
+        for _ in 0..1_000_000 {
+            counter.increment();
+        }
+
+        let elapsed = start.elapsed();
+        println!("1M increments (Relaxed impl): {:?}", elapsed);
+        assert_eq!(counter.get(), 1_000_000);
+    }
+
+    #[test]
+    fn benchmark_concurrent_throughput() {
+        let metrics = Arc::new(MetricsCollector::new());
+        let start = Instant::now();
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let m = Arc::clone(&metrics);
+                thread::spawn(move || {
+                    for _ in 0..250_000 {
+                        m.record_request();
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let elapsed = start.elapsed();
+        let ops_per_sec = 1_000_000.0 / elapsed.as_secs_f64();
+
+        println!("Throughput: {:.0} ops/sec", ops_per_sec);
+        assert_eq!(metrics.snapshot().requests, 1_000_000);
+    }
+
+    #[test]
+    fn verify_snapshot_consistency() {
+        let metrics = Arc::new(MetricsCollector::new());
+
+        let m1 = Arc::clone(&metrics);
+        let writer = thread::spawn(move || {
+            for i in 0..1000 {
+                m1.record_request();
+                m1.record_bytes(i);
+            }
+        });
+
+        let m2 = Arc::clone(&metrics);
+        let reader = thread::spawn(move || {
+            for _ in 0..100 {
+                let snap = m2.snapshot();
+                assert!(snap.bytes_sent <= snap.requests * 1000);
+            }
+        });
+
+        writer.join().unwrap();
+        reader.join().unwrap();
     }
 }
-```
 
-This completes the lock-free metrics collector project with all milestones!
+```

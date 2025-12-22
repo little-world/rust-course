@@ -1181,25 +1181,840 @@ fn main() {
     // Note: Full shutdown implementation omitted for brevity
 }
 ```
+## Complete Working Example
 
-### Testing Strategies
+```rust
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam::deque::{Injector, Steal, Stealer, Worker as DequeWorker};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
-1. **Concurrency Tests**: Verify thread safety with ThreadSanitizer
-2. **Correctness Tests**: All submitted tasks execute exactly once
-3. **Performance Tests**: Measure throughput scaling with thread count
-4. **Stress Tests**: 1M+ tasks, 32+ threads
-5. **Fairness Tests**: Verify work stealing prevents starvation
-6. **Priority Tests**: High priority tasks execute before low priority
+// =============================================================================
+// Milestone 1: Basic MPMC Queue with Crossbeam
+// =============================================================================
 
----
+pub struct Task {
+    pub id: u64,
+    work: Box<dyn FnOnce() + Send>,
+    pub priority: u8,
+}
 
-This project comprehensively demonstrates lock-free concurrent queues using Crossbeam, from basic MPMC channels through work-stealing thread pools, priority scheduling, performance metrics, and benchmarks comparing lock-free vs mutex-based approaches.
+impl Task {
+    pub fn new(id: u64, work: impl FnOnce() + Send + 'static, priority: u8) -> Self {
+        Task {
+            id,
+            work: Box::new(work),
+            priority,
+        }
+    }
 
----
+    pub fn execute(self) {
+        (self.work)();
+    }
+}
 
-**All three Chapter 13 projects demonstrate:**
-1. Priority queues for scheduling (Project 1 - BinaryHeap)
-2. Prefix trees for search (Project 2 - Trie)
-3. Lock-free concurrency (Project 3 - Crossbeam)
+pub struct WorkQueue {
+    sender: Sender<Task>,
+    receiver: Receiver<Task>,
+    next_id: AtomicU64,
+}
 
-Each includes 6 progressive steps, checkpoint tests, starter code, complete working examples, and performance benchmarks.
+impl WorkQueue {
+    pub fn new() -> Self {
+        let (sender, receiver) = unbounded();
+        WorkQueue {
+            sender,
+            receiver,
+            next_id: AtomicU64::new(0),
+        }
+    }
+
+    pub fn submit(&self, work: impl FnOnce() + Send + 'static) {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let task = Task::new(id, work, 0);
+        self.sender.send(task).expect("queue send failed");
+    }
+
+    pub fn try_recv(&self) -> Option<Task> {
+        self.receiver.try_recv().ok()
+    }
+
+    pub fn recv(&self) -> Option<Task> {
+        self.receiver.recv().ok()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.receiver.is_empty()
+    }
+}
+
+impl Clone for WorkQueue {
+    fn clone(&self) -> Self {
+        WorkQueue {
+            sender: self.sender.clone(),
+            receiver: self.receiver.clone(),
+            next_id: AtomicU64::new(self.next_id.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+// =============================================================================
+// Milestone 2: Worker Thread Pool
+// =============================================================================
+
+#[derive(Default)]
+pub struct WorkerStats {
+    pub tasks_completed: AtomicU64,
+    pub active_workers: AtomicUsize,
+    pub idle_workers: AtomicUsize,
+}
+
+pub struct ThreadPool {
+    workers: Vec<JoinHandle<()>>,
+    queue: Arc<WorkQueue>,
+    shutdown: Arc<AtomicBool>,
+    stats: Arc<WorkerStats>,
+}
+
+impl ThreadPool {
+    pub fn new(num_workers: usize) -> Self {
+        let queue = Arc::new(WorkQueue::new());
+        let mut pool = ThreadPool {
+            workers: Vec::new(),
+            queue,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            stats: Arc::new(WorkerStats::default()),
+        };
+        pool.spawn_workers(num_workers);
+        pool
+    }
+
+    fn spawn_workers(&mut self, num_workers: usize) {
+        for _worker_id in 0..num_workers {
+            let queue = self.queue.clone();
+            let shutdown = self.shutdown.clone();
+            let stats = self.stats.clone();
+
+            let handle = thread::spawn(move || loop {
+                if shutdown.load(Ordering::Relaxed) && queue.is_empty() {
+                    break;
+                }
+
+                stats.idle_workers.fetch_add(1, Ordering::SeqCst);
+                let result = queue.receiver.recv_timeout(Duration::from_millis(10));
+                stats.idle_workers.fetch_sub(1, Ordering::SeqCst);
+
+                match result {
+                    Ok(task) => {
+                        stats.active_workers.fetch_add(1, Ordering::SeqCst);
+                        task.execute();
+                        stats.active_workers.fetch_sub(1, Ordering::SeqCst);
+                        stats.tasks_completed.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            });
+
+            self.workers.push(handle);
+        }
+    }
+
+    pub fn submit(&self, work: impl FnOnce() + Send + 'static) {
+        self.queue.submit(work);
+    }
+
+    pub fn wait_idle(&self) {
+        while self.stats.active_workers.load(Ordering::SeqCst) > 0 || !self.queue.is_empty() {
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    pub fn shutdown(self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        for handle in self.workers {
+            handle.join().expect("worker join failed");
+        }
+    }
+
+    pub fn stats(&self) -> &WorkerStats {
+        &self.stats
+    }
+}
+
+// =============================================================================
+// Milestone 3: Work Stealing for Load Balancing
+// =============================================================================
+
+pub struct WorkStealingPool {
+    workers: Vec<JoinHandle<()>>,
+    stealers: Arc<Vec<Stealer<Task>>>,
+    shutdown: Arc<AtomicBool>,
+    stats: Arc<StealingStats>,
+    injector: Arc<Injector<Task>>,
+    tasks_submitted: Arc<AtomicU64>,
+}
+
+#[derive(Default)]
+pub struct StealingStats {
+    pub tasks_completed: AtomicU64,
+    pub steal_attempts: AtomicU64,
+    pub successful_steals: AtomicU64,
+    pub active_workers: AtomicUsize,
+}
+
+impl WorkStealingPool {
+    pub fn new(num_workers: usize) -> Self {
+        let mut local_workers = Vec::with_capacity(num_workers);
+        let mut stealers = Vec::with_capacity(num_workers);
+        for _ in 0..num_workers {
+            let worker = DequeWorker::new_fifo();
+            stealers.push(worker.stealer());
+            local_workers.push(worker);
+        }
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let stats = Arc::new(StealingStats::default());
+        let injector = Arc::new(Injector::new());
+        let tasks_submitted = Arc::new(AtomicU64::new(0));
+        let stealers = Arc::new(stealers);
+        let mut workers = Vec::with_capacity(num_workers);
+
+        for (worker_id, local) in local_workers.into_iter().enumerate() {
+            let stealers_clone = stealers.clone();
+            let shutdown_clone = shutdown.clone();
+            let stats_clone = stats.clone();
+            let injector_clone = injector.clone();
+            let submitted_clone = tasks_submitted.clone();
+
+            let handle = thread::spawn(move || {
+                Self::worker_loop(
+                    worker_id,
+                    local,
+                    stealers_clone,
+                    injector_clone,
+                    shutdown_clone,
+                    stats_clone,
+                    submitted_clone,
+                );
+            });
+
+            workers.push(handle);
+        }
+
+        WorkStealingPool {
+            workers,
+            stealers,
+            shutdown,
+            stats,
+            injector,
+            tasks_submitted,
+        }
+    }
+
+    fn worker_loop(
+        worker_id: usize,
+        local: DequeWorker<Task>,
+        stealers: Arc<Vec<Stealer<Task>>>,
+        injector: Arc<Injector<Task>>,
+        shutdown: Arc<AtomicBool>,
+        stats: Arc<StealingStats>,
+        submitted: Arc<AtomicU64>,
+    ) {
+        while !shutdown.load(Ordering::Relaxed)
+            || stats.tasks_completed.load(Ordering::Relaxed) < submitted.load(Ordering::Relaxed)
+        {
+            if let Some(task) = Self::find_work(worker_id, &local, &stealers, &injector, &stats) {
+                stats.active_workers.fetch_add(1, Ordering::Relaxed);
+                task.execute();
+                stats.active_workers.fetch_sub(1, Ordering::Relaxed);
+                stats.tasks_completed.fetch_add(1, Ordering::Relaxed);
+            } else {
+                thread::yield_now();
+            }
+        }
+    }
+
+    fn find_work(
+        worker_id: usize,
+        local: &DequeWorker<Task>,
+        stealers: &[Stealer<Task>],
+        injector: &Injector<Task>,
+        stats: &StealingStats,
+    ) -> Option<Task> {
+        if let Some(task) = local.pop() {
+            return Some(task);
+        }
+
+        loop {
+            match injector.steal_batch_and_pop(local) {
+                Steal::Success(task) => return Some(task),
+                Steal::Retry => continue,
+                Steal::Empty => break,
+            }
+        }
+
+        for (i, stealer) in stealers.iter().enumerate() {
+            if i == worker_id {
+                continue;
+            }
+
+            stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
+
+            loop {
+                match stealer.steal() {
+                    Steal::Success(task) => {
+                        stats.successful_steals.fetch_add(1, Ordering::Relaxed);
+                        return Some(task);
+                    }
+                    Steal::Retry => continue,
+                    Steal::Empty => break,
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn submit(&self, work: impl FnOnce() + Send + 'static) {
+        let id = self.tasks_submitted.fetch_add(1, Ordering::Relaxed);
+        let task = Task::new(id, work, 0);
+        self.injector.push(task);
+    }
+
+    pub fn wait_idle(&self) {
+        loop {
+            let submitted = self.tasks_submitted.load(Ordering::SeqCst);
+            let completed = self.stats.tasks_completed.load(Ordering::SeqCst);
+            let active = self.stats.active_workers.load(Ordering::SeqCst);
+            if completed >= submitted && active == 0 && self.injector.is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    pub fn shutdown(self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        for handle in self.workers {
+            handle.join().expect("stealing worker join failed");
+        }
+    }
+
+    pub fn stats(&self) -> &StealingStats {
+        &self.stats
+    }
+}
+
+// =============================================================================
+// Milestone 4: Priority-Based Work Stealing
+// =============================================================================
+
+const PRIORITY_HIGH: u8 = 200;
+const PRIORITY_NORMAL: u8 = 50;
+
+pub struct PriorityQueues {
+    high: DequeWorker<Task>,
+    normal: DequeWorker<Task>,
+    low: DequeWorker<Task>,
+}
+
+impl PriorityQueues {
+    fn new() -> Self {
+        PriorityQueues {
+            high: DequeWorker::new_fifo(),
+            normal: DequeWorker::new_fifo(),
+            low: DequeWorker::new_fifo(),
+        }
+    }
+
+    fn push(&self, task: Task) {
+        if task.priority >= PRIORITY_HIGH {
+            self.high.push(task);
+        } else if task.priority >= PRIORITY_NORMAL {
+            self.normal.push(task);
+        } else {
+            self.low.push(task);
+        }
+    }
+
+    fn pop(&self) -> Option<Task> {
+        self.high
+            .pop()
+            .or_else(|| self.normal.pop())
+            .or_else(|| self.low.pop())
+    }
+
+    fn stealers(&self) -> (Stealer<Task>, Stealer<Task>, Stealer<Task>) {
+        (
+            self.high.stealer(),
+            self.normal.stealer(),
+            self.low.stealer(),
+        )
+    }
+}
+
+// =============================================================================
+// Milestone 5: Performance Metrics and Monitoring
+// =============================================================================
+
+pub struct TaskMetrics {
+    submit_time: Instant,
+    start_time: Option<Instant>,
+    completion_time: Option<Instant>,
+}
+
+impl TaskMetrics {
+    pub fn new() -> Self {
+        TaskMetrics {
+            submit_time: Instant::now(),
+            start_time: None,
+            completion_time: None,
+        }
+    }
+
+    pub fn record_start(&mut self) {
+        self.start_time = Some(Instant::now());
+    }
+
+    pub fn record_completion(&mut self) {
+        self.completion_time = Some(Instant::now());
+    }
+}
+
+#[derive(Default)]
+pub struct PoolMetrics {
+    pub total_submitted: AtomicU64,
+    pub total_completed: AtomicU64,
+    pub total_queue_time_us: AtomicU64,
+    pub total_execution_time_us: AtomicU64,
+    pub steal_attempts: AtomicU64,
+    pub successful_steals: AtomicU64,
+}
+
+impl PoolMetrics {
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        let completed = self.total_completed.load(Ordering::Relaxed);
+
+        MetricsSnapshot {
+            total_tasks: completed,
+            avg_queue_time_us: if completed > 0 {
+                self.total_queue_time_us.load(Ordering::Relaxed) / completed
+            } else {
+                0
+            },
+            avg_execution_time_us: if completed > 0 {
+                self.total_execution_time_us.load(Ordering::Relaxed) / completed
+            } else {
+                0
+            },
+            steal_success_rate: {
+                let attempts = self.steal_attempts.load(Ordering::Relaxed);
+                if attempts > 0 {
+                    self.successful_steals.load(Ordering::Relaxed) as f64 / attempts as f64
+                } else {
+                    0.0
+                }
+            },
+        }
+    }
+}
+
+pub struct MetricsSnapshot {
+    pub total_tasks: u64,
+    pub avg_queue_time_us: u64,
+    pub avg_execution_time_us: u64,
+    pub steal_success_rate: f64,
+}
+
+// =============================================================================
+// Milestone 6: Benchmark Lock-Free vs Mutex
+// =============================================================================
+
+pub struct MutexQueue {
+    queue: Arc<Mutex<VecDeque<Task>>>,
+}
+
+impl MutexQueue {
+    pub fn new() -> Self {
+        MutexQueue {
+            queue: Arc::new(Mutex::new(VecDeque::new())),
+        }
+    }
+
+    pub fn submit(&self, task: Task) {
+        self.queue.lock().unwrap().push_back(task);
+    }
+
+    pub fn try_recv(&self) -> Option<Task> {
+        self.queue.lock().unwrap().pop_front()
+    }
+}
+
+pub struct Benchmark;
+
+impl Benchmark {
+    pub fn benchmark_lock_free(
+        num_producers: usize,
+        num_consumers: usize,
+        num_tasks: usize,
+    ) -> Duration {
+        let pool = Arc::new(WorkStealingPool::new(num_consumers));
+        let start = Instant::now();
+
+        let mut producers = Vec::new();
+        for producer_idx in 0..num_producers {
+            let pool_clone = pool.clone();
+            let tasks_for_producer =
+                num_tasks / num_producers + usize::from(producer_idx < num_tasks % num_producers);
+            let handle = thread::spawn(move || {
+                for _ in 0..tasks_for_producer {
+                    pool_clone.submit(|| {
+                        let mut acc = 0u64;
+                        for i in 0..100 {
+                            acc = acc.wrapping_add(i);
+                        }
+                        std::hint::black_box(acc);
+                    });
+                }
+            });
+            producers.push(handle);
+        }
+
+        for handle in producers {
+            handle.join().expect("producer join failed");
+        }
+
+        pool.wait_idle();
+        let elapsed = start.elapsed();
+        match Arc::try_unwrap(pool) {
+            Ok(pool) => pool.shutdown(),
+            Err(_) => panic!("work stealing pool still in use"),
+        }
+
+        elapsed
+    }
+
+    pub fn benchmark_mutex(
+        num_producers: usize,
+        num_consumers: usize,
+        num_tasks: usize,
+    ) -> Duration {
+        let queue = Arc::new(MutexQueue::new());
+        let completed = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let start = Instant::now();
+
+        let mut consumers = Vec::new();
+        for _ in 0..num_consumers {
+            let queue_clone = queue.clone();
+            let completed_clone = completed.clone();
+            let stop_clone = stop.clone();
+            let handle = thread::spawn(move || loop {
+                if let Some(task) = queue_clone.try_recv() {
+                    task.execute();
+                    completed_clone.fetch_add(1, Ordering::Relaxed);
+                } else if stop_clone.load(Ordering::Relaxed) {
+                    break;
+                } else {
+                    thread::yield_now();
+                }
+            });
+            consumers.push(handle);
+        }
+
+        let mut producers = Vec::new();
+        for producer_idx in 0..num_producers {
+            let queue_clone = queue.clone();
+            let tasks_for_producer =
+                num_tasks / num_producers + usize::from(producer_idx < num_tasks % num_producers);
+            let handle = thread::spawn(move || {
+                for task_id in 0..tasks_for_producer {
+                    let task = Task::new(
+                        task_id as u64,
+                        || {
+                            let mut acc = 0u64;
+                            for i in 0..100 {
+                                acc = acc.wrapping_add(i);
+                            }
+                            std::hint::black_box(acc);
+                        },
+                        0,
+                    );
+                    queue_clone.submit(task);
+                }
+            });
+            producers.push(handle);
+        }
+
+        for handle in producers {
+            handle.join().expect("mutex producer join failed");
+        }
+
+        while completed.load(Ordering::Relaxed) < num_tasks {
+            thread::sleep(Duration::from_millis(2));
+        }
+        stop.store(true, Ordering::Relaxed);
+
+        for handle in consumers {
+            handle.join().expect("mutex consumer join failed");
+        }
+
+        start.elapsed()
+    }
+
+    pub fn run_comparison() {
+        println!("=== Lock-Free vs Mutex Performance ===\n");
+        let num_tasks = 2000;
+        for &threads in &[1, 2, 4] {
+            println!("Threads: {} producers, {} consumers", threads, threads);
+            let lock_free = Self::benchmark_lock_free(threads, threads, num_tasks);
+            let mutex = Self::benchmark_mutex(threads, threads, num_tasks);
+            let lf_rate = num_tasks as f64 / lock_free.as_secs_f64();
+            let mutex_rate = num_tasks as f64 / mutex.as_secs_f64();
+            println!("  Lock-Free: {:?} ({:.0} tasks/sec)", lock_free, lf_rate);
+            println!("  Mutex:     {:?} ({:.0} tasks/sec)", mutex, mutex_rate);
+            println!("  Speedup:   {:.2}x\n", lf_rate / mutex_rate);
+        }
+    }
+}
+
+fn main() {}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
+
+    // Milestone 1 tests -------------------------------------------------------
+
+    #[test]
+    fn test_basic_submit_and_receive() {
+        let queue = WorkQueue::new();
+
+        queue.submit(|| {});
+        queue.submit(|| {});
+
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_none());
+    }
+
+    #[test]
+    fn test_multiple_producers() {
+        use std::sync::Arc;
+        let queue = Arc::new(WorkQueue::new());
+        let mut handles = vec![];
+
+        for i in 0..4 {
+            let q = queue.clone();
+            let handle = thread::spawn(move || {
+                for j in 0..100 {
+                    let _task_num = i * 100 + j;
+                    q.submit(|| {
+                        thread::sleep(Duration::from_micros(50));
+                    });
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let mut count = 0;
+        while queue.try_recv().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 400);
+    }
+
+    #[test]
+    fn test_task_execution() {
+        use std::sync::Arc;
+        let queue = WorkQueue::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..10 {
+            let c = counter.clone();
+            queue.submit(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        while let Some(task) = queue.try_recv() {
+            task.execute();
+        }
+
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+    }
+
+    // Milestone 2 tests -------------------------------------------------------
+
+    #[test]
+    fn test_thread_pool_execution() {
+        use std::sync::Arc;
+        let pool = ThreadPool::new(4);
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..100 {
+            let c = counter.clone();
+            pool.submit(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        pool.wait_idle();
+        let stats = pool.stats();
+        assert_eq!(stats.tasks_completed.load(Ordering::SeqCst), 100);
+        pool.shutdown();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 100);
+    }
+
+    #[test]
+    fn test_parallel_execution_speed() {
+        let pool = ThreadPool::new(4);
+        let start = Instant::now();
+
+        for _ in 0..4 {
+            pool.submit(|| {
+                thread::sleep(Duration::from_millis(100));
+            });
+        }
+
+        pool.wait_idle();
+        let elapsed = start.elapsed();
+        pool.shutdown();
+
+        assert!(elapsed < Duration::from_millis(250));
+    }
+
+    #[test]
+    fn test_graceful_shutdown() {
+        let pool = ThreadPool::new(2);
+
+        for _ in 0..10 {
+            pool.submit(|| thread::sleep(Duration::from_millis(10)));
+        }
+
+        pool.wait_idle();
+        pool.shutdown();
+    }
+
+    // Milestone 3 tests -------------------------------------------------------
+
+    #[test]
+    fn test_work_stealing_completes_tasks() {
+        let pool = WorkStealingPool::new(4);
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..200 {
+            let c = counter.clone();
+            pool.submit(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+                thread::sleep(Duration::from_micros(100));
+            });
+        }
+
+        pool.wait_idle();
+        assert_eq!(counter.load(Ordering::SeqCst), 200);
+        pool.shutdown();
+    }
+
+    #[test]
+    fn test_work_stealing_distribution() {
+        let pool = WorkStealingPool::new(4);
+        for _ in 0..100 {
+            pool.submit(|| thread::sleep(Duration::from_millis(5)));
+        }
+        pool.wait_idle();
+        let attempts = pool.stats().steal_attempts.load(Ordering::SeqCst);
+        assert!(attempts > 0);
+        pool.shutdown();
+    }
+
+    // Milestone 4 tests -------------------------------------------------------
+
+    #[test]
+    fn test_priority_queue_ordering() {
+        let queues = PriorityQueues::new();
+        let order = Arc::new(StdMutex::new(Vec::new()));
+
+        for i in 0..5 {
+            let task = Task::new(
+                i,
+                {
+                    let o = order.clone();
+                    move || o.lock().unwrap().push(format!("low-{i}"))
+                },
+                10,
+            );
+            queues.push(task);
+        }
+
+        for i in 0..5 {
+            let task = Task::new(
+                i,
+                {
+                    let o = order.clone();
+                    move || o.lock().unwrap().push(format!("high-{i}"))
+                },
+                220,
+            );
+            queues.push(task);
+        }
+
+        // Drain high priority first
+        for _ in 0..10 {
+            if let Some(task) = queues.pop() {
+                task.execute();
+            }
+        }
+
+        let captures = order.lock().unwrap();
+        assert!(captures.iter().take(5).all(|s| s.starts_with("high")));
+    }
+
+    // Milestone 5 tests -------------------------------------------------------
+
+    #[test]
+    fn test_metrics_snapshot() {
+        let metrics = PoolMetrics::default();
+        metrics.total_queue_time_us.store(5000, Ordering::Relaxed);
+        metrics
+            .total_execution_time_us
+            .store(10000, Ordering::Relaxed);
+        metrics.total_completed.store(5, Ordering::Relaxed);
+        metrics.successful_steals.store(50, Ordering::Relaxed);
+        metrics.steal_attempts.store(100, Ordering::Relaxed);
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_tasks, 5);
+        assert_eq!(snapshot.avg_queue_time_us, 1000);
+        assert_eq!(snapshot.avg_execution_time_us, 2000);
+        assert!((snapshot.steal_success_rate - 0.5).abs() < f64::EPSILON);
+    }
+
+    // Milestone 6 tests -------------------------------------------------------
+
+    #[test]
+    fn test_benchmark_helpers() {
+        let lock_free = Benchmark::benchmark_lock_free(2, 2, 200);
+        let mutex = Benchmark::benchmark_mutex(2, 2, 200);
+        assert!(lock_free > Duration::from_millis(0));
+        assert!(mutex > Duration::from_millis(0));
+    }
+}
+
+```

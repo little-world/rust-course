@@ -1718,22 +1718,6 @@ mod benchmarks {
 | Alternation `cat\|dog` | N/A | 150ms | 80ms | **2× faster** |
 | Memory per pattern | 0 bytes | 200 bytes | 200 bytes | **Acceptable** |
 
-**Real-world validation**:
-- **Rust regex crate**: Uses similar AST + pattern matching design
-- **grep/ripgrep**: Optimized regex matching with pattern analysis
-- **sed/awk**: Pattern matching for text processing
-- **Syntax highlighters**: Use regex engines for token matching
-
-**Lessons learned**:
-1. **Exhaustive matching** prevents bugs when adding features
-2. **Range patterns** are surprisingly fast (3-5× vs HashSet)
-3. **Backtracking** is powerful but needs limits (prevent DoS)
-4. **Box** enables recursive types with minimal overhead
-5. **Pattern analysis** (detecting anchors, literals) enables major optimizations
-
-This project teaches the patterns used in production regex engines processing billions of matches daily.
-
----
 
 
 ## Complete Working Example

@@ -1594,46 +1594,6 @@ mod tests {
 
 ---
 
-## Summary
-
-You've built a **complete zero-copy text parser** with:
-
-1. **Basic Parser with Input Lifetime** - `Parser<'input>` borrowing from input
-2. **Token Enum with Lifetime Variants** - `Token<'a>` with zero allocation
-3. **Iterator Implementation** - Idiomatic Rust iteration over tokens
-4. **Multiple Lifetime Parameters** - `Parser<'input, 'ctx>` for context
-5. **Performance Comparison** - Demonstrating 10-100x speedup
-
-**Key Patterns Learned**:
-- **Struct lifetimes**: `Parser<'input>` ensures tokens can't outlive input
-- **Lifetime elision**: Compiler infers lifetimes in most method signatures
-- **Multiple lifetimes**: `'input` and `'ctx` for independent borrowed data
-- **Lifetime bounds**: Implicit bounds from usage (modern Rust)
-- **Iterator with lifetimes**: `Item = Token<'input>` preserves zero-copy
-- **Zero-cost abstraction**: Lifetimes erased after compilation (no runtime cost)
-
-**Performance Characteristics**:
-- **Zero-copy**: 1-2ns per token (pointer arithmetic only)
-- **Allocating**: 50-100ns per token (malloc + memcpy)
-- **10-100x speedup** on real-world parsing workloads
-- **Memory efficiency**: Vec of &str vs Vec of String (no heap fragmentation)
-- **Cache friendly**: All tokens reference contiguous input buffer
-
-**Real-World Applications**:
-- Compiler lexers (Rust compiler, JavaScript engines)
-- JSON/XML parsers (`serde_json` uses zero-copy)
-- Log file analyzers (grep-like tools)
-- Network protocol parsers (HTTP, DNS)
-- CSV/data processors (streaming large files)
-
-**Next Steps**:
-- Add error recovery and position tracking for diagnostics
-- Implement full expression parser (recursive descent)
-- Support Unicode and multi-byte characters properly
-- Add macro/comment handling (nested structures)
-- Benchmark against real parsers (nom, pest, logos)
-
-
 ## Complete Working Example
 
 ```rust

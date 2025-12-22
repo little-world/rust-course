@@ -112,9 +112,7 @@ impl RetryConfig {
     }
 
     pub fn backoff_duration(&self, attempt: usize) -> Duration {
-        let multiplier = 1u64
-            .checked_shl(attempt as u32)
-            .unwrap_or(u64::MAX);
+        let multiplier = 1u64.checked_shl(attempt as u32).unwrap_or(u64::MAX);
         let base = self.initial_backoff_ms.saturating_mul(multiplier);
         let capped = base.min(self.max_backoff_ms);
         let millis = if self.jitter {
@@ -133,7 +131,10 @@ impl ScraperError {
             self,
             ScraperError::NetworkError(_)
                 | ScraperError::TimeoutError(_)
-                | ScraperError::HttpError { status: 500..=599, .. }
+                | ScraperError::HttpError {
+                    status: 500..=599,
+                    ..
+                }
         )
     }
 }
@@ -385,7 +386,8 @@ pub async fn fetch_all(
 
             let result = breaker
                 .call(async {
-                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    let outcome =
+                        fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
                     *attempts_inner.lock().unwrap() = outcome.attempt_count;
                     outcome.result
                 })
@@ -432,7 +434,8 @@ pub async fn fetch_all_with_limit(
 
             let result = breaker
                 .call(async {
-                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    let outcome =
+                        fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
                     *attempts_inner.lock().unwrap() = outcome.attempt_count;
                     outcome.result
                 })
@@ -476,7 +479,12 @@ impl RateLimiter {
     }
 
     pub async fn acquire(&self) -> OwnedSemaphorePermit {
-        let permit = self.semaphore.clone().acquire_owned().await.expect("permit");
+        let permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("permit");
         let interval = Duration::from_secs_f64(1.0 / self.rate_per_second);
         let mut last = self.last_request.lock().unwrap();
         let now = Instant::now();
@@ -559,7 +567,8 @@ pub async fn fetch_all_managed(
 
             let result = breaker
                 .call(async {
-                    let outcome = fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
+                    let outcome =
+                        fetch_with_retry_internal(&client, &url, timeout_ms, &retry).await;
                     *attempts_inner.lock().unwrap() = outcome.attempt_count;
                     outcome.result
                 })
@@ -570,7 +579,11 @@ pub async fn fetch_all_managed(
                 *guard
             };
 
-            let bytes = result.as_ref().ok().map(|body| body.len() as u64).unwrap_or(0);
+            let bytes = result
+                .as_ref()
+                .ok()
+                .map(|body| body.len() as u64)
+                .unwrap_or(0);
             manager.end_request(bytes);
             drop(permit);
 
@@ -595,7 +608,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::Duration;
-    use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     #[tokio::test]
     async fn test_fetch_url_success() {
@@ -743,9 +759,7 @@ mod tests {
     async fn test_fetch_all_with_limit_respects_limit() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .respond_with(
-                ResponseTemplate::new(200).set_delay(Duration::from_millis(100)),
-            )
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(100)))
             .mount(&server)
             .await;
 

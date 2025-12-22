@@ -3064,399 +3064,816 @@ async fn main() {
 ## Complete Working Example
 
 ```rust
-// Cargo.toml:
-// [dependencies]
-// tokio = { version = "1.35", features = ["full"] }
-// tokio-util = "0.7"
-// image = "0.24"
-// futures = "0.3"
-// serde = { version = "1.0", features = ["derive"] }
-// serde_json = "1.0"
-
-use tokio::fs;
-use tokio::sync::{mpsc, Semaphore};
-use tokio_util::sync::CancellationToken;
-use image::{DynamicImage, GenericImageView, ImageFormat as ImgFormat};
-use futures::stream::{self, StreamExt};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
 
-// Image formats
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ImageFormat {
-    Jpeg,
-    Png,
-    Gif,
-    WebP,
-    Bmp,
+// =============================================================================
+// Milestone 1: Basic Atomic Counter
+// =============================================================================
+
+pub struct AtomicCounter {
+    count: AtomicUsize,
 }
 
-impl ImageFormat {
-    fn from_path(path: &Path) -> Option<Self> {
-        path.extension()
-            .and_then(|s| s.to_str())
-            .and_then(|ext| match ext.to_lowercase().as_str() {
-                "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
-                "png" => Some(ImageFormat::Png),
-                "gif" => Some(ImageFormat::Gif),
-                "webp" => Some(ImageFormat::WebP),
-                "bmp" => Some(ImageFormat::Bmp),
-                _ => None,
-            })
-    }
-
-    fn to_image_format(&self) -> ImgFormat {
-        match self {
-            ImageFormat::Jpeg => ImgFormat::Jpeg,
-            ImageFormat::Png => ImgFormat::Png,
-            ImageFormat::Gif => ImgFormat::Gif,
-            ImageFormat::WebP => ImgFormat::WebP,
-            ImageFormat::Bmp => ImgFormat::Bmp,
-        }
-    }
-
-    fn extension(&self) -> &str {
-        match self {
-            ImageFormat::Jpeg => "jpg",
-            ImageFormat::Png => "png",
-            ImageFormat::Gif => "gif",
-            ImageFormat::WebP => "webp",
-            ImageFormat::Bmp => "bmp",
-        }
-    }
-}
-
-// Image file metadata
-#[derive(Debug, Clone)]
-pub struct ImageFile {
-    pub path: PathBuf,
-    pub filename: String,
-    pub size_bytes: u64,
-    pub format: ImageFormat,
-}
-
-// Transformations
-#[derive(Debug, Clone)]
-pub enum ImageTransform {
-    Resize { width: u32, height: u32 },
-    Thumbnail { max_size: u32 },
-    Grayscale,
-    Blur { sigma: f32 },
-    Brighten { value: i32 },
-}
-
-impl ImageTransform {
-    fn apply(&self, img: DynamicImage) -> DynamicImage {
-        match self {
-            ImageTransform::Resize { width, height } => {
-                img.resize_exact(*width, *height, image::imageops::FilterType::Lanczos3)
-            }
-            ImageTransform::Thumbnail { max_size } => img.thumbnail(*max_size, *max_size),
-            ImageTransform::Grayscale => img.grayscale(),
-            ImageTransform::Blur { sigma } => img.blur(*sigma),
-            ImageTransform::Brighten { value } => img.brighten(*value),
-        }
-    }
-}
-
-// Output variant
-#[derive(Debug, Clone)]
-pub struct OutputVariant {
-    pub name: String,
-    pub transforms: Vec<ImageTransform>,
-    pub format: ImageFormat,
-}
-
-// Processing statistics
-pub struct ProcessingStats {
-    pub processed: AtomicUsize,
-    pub failed: AtomicUsize,
-    pub total_bytes: AtomicU64,
-}
-
-impl ProcessingStats {
+impl AtomicCounter {
     pub fn new() -> Self {
         Self {
-            processed: AtomicUsize::new(0),
-            failed: AtomicUsize::new(0),
-            total_bytes: AtomicU64::new(0),
+            count: AtomicUsize::new(0),
         }
     }
 
-    pub fn report(&self) -> String {
-        let processed = self.processed.load(Ordering::Relaxed);
-        let failed = self.failed.load(Ordering::Relaxed);
-        let bytes = self.total_bytes.load(Ordering::Relaxed);
+    pub fn increment(&self) {
+        self.count.fetch_add(1, Ordering::SeqCst);
+    }
 
-        format!(
-            "Processed: {}, Failed: {}, Total size: {:.2} MB",
-            processed,
-            failed,
-            bytes as f64 / 1_000_000.0
-        )
+    pub fn add(&self, value: usize) {
+        self.count.fetch_add(value, Ordering::SeqCst);
+    }
+
+    pub fn get(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    pub fn reset(&self) -> usize {
+        self.count.swap(0, Ordering::SeqCst)
     }
 }
 
-// Progress tracking
+// =============================================================================
+// Milestone 2: Multiple Metric Types with Relaxed Ordering
+// =============================================================================
+
+pub struct MetricsCollector {
+    requests: AtomicUsize,
+    errors: AtomicUsize,
+    bytes_sent: AtomicUsize,
+    active_connections: AtomicUsize,
+}
+
+impl MetricsCollector {
+    pub fn new() -> Self {
+        Self {
+            requests: AtomicUsize::new(0),
+            errors: AtomicUsize::new(0),
+            bytes_sent: AtomicUsize::new(0),
+            active_connections: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn record_request(&self) {
+        self.requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_error(&self) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_bytes(&self, bytes: usize) {
+        self.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn connection_opened(&self) {
+        self.active_connections.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn connection_closed(&self) {
+        self.active_connections.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        MetricsSnapshot {
+            requests: self.requests.load(Ordering::Acquire),
+            errors: self.errors.load(Ordering::Acquire),
+            bytes_sent: self.bytes_sent.load(Ordering::Acquire),
+            active_connections: self.active_connections.load(Ordering::Acquire),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct ProgressUpdate {
-    pub processed: usize,
-    pub total: usize,
-    pub current: String,
+pub struct MetricsSnapshot {
+    pub requests: usize,
+    pub errors: usize,
+    pub bytes_sent: usize,
+    pub active_connections: usize,
 }
 
-impl ProgressUpdate {
-    pub fn format(&self) -> String {
-        let percent = if self.total > 0 {
-            (self.processed as f64 / self.total as f64) * 100.0
-        } else {
+impl MetricsSnapshot {
+    pub fn error_rate(&self) -> f64 {
+        if self.requests == 0 {
             0.0
-        };
-
-        format!(
-            "[{}/{}] {:.1}% - {}",
-            self.processed, self.total, percent, self.current
-        )
+        } else {
+            self.errors as f64 / self.requests as f64
+        }
     }
 }
 
-// Main functions
-pub async fn scan_directory(path: &Path) -> Result<Vec<ImageFile>, String> {
-    let mut files = Vec::new();
-    let mut entries = fs::read_dir(path)
-        .await
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
+// =============================================================================
+// Milestone 3: Histogram with Lock-Free Buckets
+// =============================================================================
 
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|e| format!("Failed to read entry: {}", e))?
-    {
-        let path = entry.path();
+pub struct AtomicHistogram<const N: usize> {
+    buckets: [AtomicUsize; N],
+    bucket_boundaries: [u64; N],
+}
 
-        if path.is_file() {
-            if let Some(format) = ImageFormat::from_path(&path) {
-                let metadata = entry
-                    .metadata()
-                    .await
-                    .map_err(|e| format!("Failed to get metadata: {}", e))?;
+impl<const N: usize> AtomicHistogram<N> {
+    pub fn new(boundaries: [u64; N]) -> Self {
+        Self {
+            buckets: std::array::from_fn(|_| AtomicUsize::new(0)),
+            bucket_boundaries: boundaries,
+        }
+    }
 
-                files.push(ImageFile {
-                    path: path.clone(),
-                    filename: path
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_string(),
-                    size_bytes: metadata.len(),
-                    format,
-                });
+    pub fn record(&self, value_us: u64) {
+        let bucket_idx = self.find_bucket(value_us);
+        self.buckets[bucket_idx].fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn find_bucket(&self, value: u64) -> usize {
+        match self.bucket_boundaries.binary_search(&value) {
+            Ok(idx) => idx,
+            Err(idx) => idx.min(N - 1),
+        }
+    }
+
+    pub fn snapshot(&self) -> HistogramSnapshot {
+        HistogramSnapshot {
+            buckets: self
+                .buckets
+                .iter()
+                .map(|bucket| bucket.load(Ordering::Acquire))
+                .collect(),
+            boundaries: self.bucket_boundaries.to_vec(),
+        }
+    }
+}
+
+pub struct HistogramSnapshot {
+    pub buckets: Vec<usize>,
+    pub boundaries: Vec<u64>,
+}
+
+impl HistogramSnapshot {
+    pub fn total(&self) -> usize {
+        self.buckets.iter().sum()
+    }
+
+    pub fn percentile(&self, p: f64) -> u64 {
+        let total = self.total();
+        if total == 0 {
+            return 0;
+        }
+        let mut target = (total as f64 * p).ceil() as usize;
+        if target == 0 {
+            target = 1;
+        }
+        let mut accumulated = 0;
+        for (idx, count) in self.buckets.iter().enumerate() {
+            accumulated += count;
+            if accumulated >= target {
+                if idx == 0 {
+                    return self.boundaries[0];
+                } else {
+                    return self.boundaries[idx - 1];
+                }
+            }
+        }
+        *self.boundaries.last().unwrap_or(&0)
+    }
+
+    pub fn mean(&self) -> f64 {
+        let total = self.total();
+        if total == 0 {
+            return 0.0;
+        }
+
+        let mut sum = 0.0;
+        for (idx, count) in self.buckets.iter().enumerate() {
+            if *count == 0 {
+                continue;
+            }
+            let lower = if idx == 0 { 0 } else { self.boundaries[idx - 1] };
+            let upper = self.boundaries[idx];
+            let midpoint = (lower + upper) as f64 / 2.0;
+            sum += midpoint * (*count as f64);
+        }
+
+        sum / total as f64
+    }
+}
+
+// =============================================================================
+// Milestone 4: Compare-and-Swap for Atomic Max/Min
+// =============================================================================
+
+pub struct AtomicMinMax {
+    min: AtomicU64,
+    max: AtomicU64,
+}
+
+impl AtomicMinMax {
+    pub fn new() -> Self {
+        Self {
+            min: AtomicU64::new(u64::MAX),
+            max: AtomicU64::new(0),
+        }
+    }
+
+    pub fn update(&self, value: u64) {
+        let mut current_min = self.min.load(Ordering::Relaxed);
+        loop {
+            if value >= current_min {
+                break;
+            }
+            match self
+                .min
+                .compare_exchange_weak(current_min, value, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => break,
+                Err(actual) => current_min = actual,
+            }
+        }
+
+        let mut current_max = self.max.load(Ordering::Relaxed);
+        loop {
+            if value <= current_max {
+                break;
+            }
+            match self
+                .max
+                .compare_exchange_weak(current_max, value, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => break,
+                Err(actual) => current_max = actual,
             }
         }
     }
 
-    Ok(files)
-}
-
-pub async fn load_image(file: &ImageFile) -> Result<DynamicImage, String> {
-    let bytes = fs::read(&file.path)
-        .await
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-
-    image::load_from_memory(&bytes).map_err(|e| format!("Failed to decode image: {}", e))
-}
-
-pub async fn process_image(
-    img: DynamicImage,
-    transforms: &[ImageTransform],
-) -> DynamicImage {
-    let mut result = img;
-
-    for transform in transforms {
-        result = tokio::task::spawn_blocking({
-            let t = transform.clone();
-            let img = result.clone();
-            move || t.apply(img)
-        })
-        .await
-        .unwrap();
+    pub fn get_min(&self) -> u64 {
+        self.min.load(Ordering::Acquire)
     }
 
-    result
+    pub fn get_max(&self) -> u64 {
+        self.max.load(Ordering::Acquire)
+    }
+
+    pub fn reset(&self) {
+        self.min.store(u64::MAX, Ordering::Release);
+        self.max.store(0, Ordering::Release);
+    }
 }
 
-pub async fn save_image(
-    img: &DynamicImage,
-    path: &Path,
-    format: ImageFormat,
-) -> Result<(), String> {
-    let img_clone = img.clone();
-    let path_clone = path.to_path_buf();
-    let fmt = format.to_image_format();
+// =============================================================================
+// Milestone 5: Full Metrics System with Periodic Export
+// =============================================================================
 
-    tokio::task::spawn_blocking(move || {
-        img_clone
-            .save_with_format(&path_clone, fmt)
-            .map_err(|e| format!("Failed to save: {}", e))
-    })
-    .await
-    .unwrap()
+pub struct MetricsRegistry {
+    collectors: HashMap<String, Arc<MetricsCollector>>,
+    histograms: HashMap<String, Arc<AtomicHistogram<8>>>,
+    export_interval: Duration,
+    running: Arc<AtomicBool>,
 }
 
-pub async fn process_directory(
-    input_dir: &Path,
-    output_dir: &Path,
-    variants: Vec<OutputVariant>,
-    max_concurrent: usize,
-    progress_tx: mpsc::Sender<ProgressUpdate>,
-) -> ProcessingStats {
-    fs::create_dir_all(output_dir).await.ok();
+impl MetricsRegistry {
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            collectors: HashMap::new(),
+            histograms: HashMap::new(),
+            export_interval: interval,
+            running: Arc::new(AtomicBool::new(false)),
+        }
+    }
 
-    let files = scan_directory(input_dir).await.unwrap_or_default();
-    let total = files.len();
-    let stats = Arc::new(ProcessingStats::new());
-    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    pub fn register_collector(&mut self, name: String) -> Arc<MetricsCollector> {
+        let collector = Arc::new(MetricsCollector::new());
+        self.collectors.insert(name, Arc::clone(&collector));
+        collector
+    }
 
-    let tasks: Vec<_> = files
-        .into_iter()
-        .enumerate()
-        .map(|(idx, file)| {
-            let stats = Arc::clone(&stats);
-            let sem = Arc::clone(&semaphore);
-            let variants = variants.clone();
-            let output_dir = output_dir.to_path_buf();
-            let progress_tx = progress_tx.clone();
+    pub fn register_histogram(
+        &mut self,
+        name: String,
+        boundaries: [u64; 8],
+    ) -> Arc<AtomicHistogram<8>> {
+        let histogram = Arc::new(AtomicHistogram::new(boundaries));
+        self.histograms.insert(name, Arc::clone(&histogram));
+        histogram
+    }
 
-            tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
+    pub fn start_export_thread<F>(&self, callback: F)
+    where
+        F: Fn(FullSnapshot) + Send + 'static,
+    {
+        self.running.store(true, Ordering::SeqCst);
+        let collectors = self.collectors.clone();
+        let histograms = self.histograms.clone();
+        let interval = self.export_interval;
+        let running = Arc::clone(&self.running);
 
-                // Send progress
-                let _ = progress_tx
-                    .send(ProgressUpdate {
-                        processed: idx,
-                        total,
-                        current: file.filename.clone(),
-                    })
-                    .await;
+        thread::spawn(move || {
+            while running.load(Ordering::SeqCst) {
+                thread::sleep(interval);
 
-                // Load image
-                let img = match load_image(&file).await {
-                    Ok(img) => img,
-                    Err(_) => {
-                        stats.failed.fetch_add(1, Ordering::Relaxed);
-                        return;
-                    }
+                let snapshot = FullSnapshot {
+                    timestamp: SystemTime::now(),
+                    metrics: collectors
+                        .iter()
+                        .map(|(name, collector)| (name.clone(), collector.snapshot()))
+                        .collect(),
+                    histograms: histograms
+                        .iter()
+                        .map(|(name, histogram)| (name.clone(), histogram.snapshot()))
+                        .collect(),
                 };
 
-                // Process each variant
-                for variant in variants {
-                    let processed = process_image(img.clone(), &variant.transforms).await;
+                callback(snapshot);
+            }
+        });
+    }
 
-                    let output_path = output_dir.join(format!(
-                        "{}_{}.{}",
-                        file.path.file_stem().unwrap().to_string_lossy(),
-                        variant.name,
-                        variant.format.extension()
-                    ));
+    pub fn stop(&self) {
+        self.running.store(false, Ordering::SeqCst);
+    }
 
-                    if save_image(&processed, &output_path, variant.format)
-                        .await
-                        .is_ok()
-                    {
-                        stats.processed.fetch_add(1, Ordering::Relaxed);
-                        stats
-                            .total_bytes
-                            .fetch_add(file.size_bytes, Ordering::Relaxed);
-                    } else {
-                        stats.failed.fetch_add(1, Ordering::Relaxed);
-                    }
+    pub fn snapshot_all(&self) -> FullSnapshot {
+        FullSnapshot {
+            timestamp: SystemTime::now(),
+            metrics: self
+                .collectors
+                .iter()
+                .map(|(name, collector)| (name.clone(), collector.snapshot()))
+                .collect(),
+            histograms: self
+                .histograms
+                .iter()
+                .map(|(name, histogram)| (name.clone(), histogram.snapshot()))
+                .collect(),
+        }
+    }
+}
+
+pub struct FullSnapshot {
+    pub timestamp: SystemTime,
+    pub metrics: HashMap<String, MetricsSnapshot>,
+    pub histograms: HashMap<String, HistogramSnapshot>,
+}
+
+impl FullSnapshot {
+    pub fn to_prometheus_format(&self) -> String {
+        let mut output = String::new();
+
+        for (name, snapshot) in &self.metrics {
+            output.push_str(&format!("# TYPE {}_requests counter\n", name));
+            output.push_str(&format!("{}_requests {}\n", name, snapshot.requests));
+            output.push_str(&format!("# TYPE {}_errors counter\n", name));
+            output.push_str(&format!("{}_errors {}\n", name, snapshot.errors));
+            output.push_str(&format!("# TYPE {}_bytes_sent counter\n", name));
+            output.push_str(&format!("{}_bytes_sent {}\n", name, snapshot.bytes_sent));
+            output.push_str(&format!("# TYPE {}_active_connections gauge\n", name));
+            output.push_str(&format!(
+                "{}_active_connections {}\n",
+                name, snapshot.active_connections
+            ));
+        }
+
+        for (name, histogram) in &self.histograms {
+            output.push_str(&format!("# TYPE {}_latency histogram\n", name));
+            for (idx, count) in histogram.buckets.iter().enumerate() {
+                output.push_str(&format!(
+                    "{}_latency_bucket{{le=\"{}\"}} {}\n",
+                    name, histogram.boundaries[idx], count
+                ));
+            }
+            output.push_str(&format!(
+                "{}_latency_count {}\n",
+                name,
+                histogram.total()
+            ));
+        }
+
+        output
+    }
+}
+
+// =============================================================================
+// Milestone 6: Memory Ordering Optimization and Benchmarking
+// =============================================================================
+
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Instant;
+
+    fn benchmark_operation<F>(name: &str, iterations: usize, mut op: F)
+    where
+        F: FnMut(),
+    {
+        let start = Instant::now();
+        for _ in 0..iterations {
+            op();
+        }
+        let elapsed = start.elapsed();
+        let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+        let ns_per_op = elapsed.as_nanos() as f64 / iterations as f64;
+        println!(
+            "{}: {:.0} ops/sec ({:.2} ns/op)",
+            name, ops_per_sec, ns_per_op
+        );
+    }
+
+    #[test]
+    fn compare_orderings() {
+        const ITERATIONS: usize = 100_000;
+
+        let seq_counter = AtomicUsize::new(0);
+        benchmark_operation("SeqCst", ITERATIONS, || {
+            seq_counter.fetch_add(1, Ordering::SeqCst);
+        });
+        assert_eq!(seq_counter.load(Ordering::SeqCst), ITERATIONS);
+
+        let acqrel_counter = AtomicUsize::new(0);
+        benchmark_operation("AcqRel", ITERATIONS, || {
+            acqrel_counter.fetch_add(1, Ordering::AcqRel);
+        });
+        assert_eq!(acqrel_counter.load(Ordering::SeqCst), ITERATIONS);
+
+        let relaxed_counter = AtomicUsize::new(0);
+        benchmark_operation("Relaxed", ITERATIONS, || {
+            relaxed_counter.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(relaxed_counter.load(Ordering::SeqCst), ITERATIONS);
+    }
+}
+
+pub mod ordering_docs {
+    pub const GUIDELINES: &str = "Use Relaxed for independent counters, Acquire loads for \
+snapshots/export, and SeqCst for control flags like shutdown signals.";
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::random;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    // ----- Milestone 1 -------------------------------------------------------
+
+    #[test]
+    fn test_counter_increment() {
+        let counter = AtomicCounter::new();
+        assert_eq!(counter.get(), 0);
+
+        counter.increment();
+        assert_eq!(counter.get(), 1);
+
+        counter.add(5);
+        assert_eq!(counter.get(), 6);
+    }
+
+    #[test]
+    fn test_counter_reset() {
+        let counter = AtomicCounter::new();
+        counter.add(42);
+
+        let old_value = counter.reset();
+        assert_eq!(old_value, 42);
+        assert_eq!(counter.get(), 0);
+    }
+
+    #[test]
+    fn test_concurrent_increments() {
+        let counter = Arc::new(AtomicCounter::new());
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let counter_clone = Arc::clone(&counter);
+            let handle = thread::spawn(move || {
+                for _ in 0..1000 {
+                    counter_clone.increment();
                 }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(counter.get(), 10_000);
+    }
+
+    // ----- Milestone 2 -------------------------------------------------------
+
+    #[test]
+    fn test_multiple_metrics() {
+        let metrics = MetricsCollector::new();
+
+        metrics.record_request();
+        metrics.record_request();
+        metrics.record_error();
+        metrics.record_bytes(1024);
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.requests, 2);
+        assert_eq!(snapshot.errors, 1);
+        assert_eq!(snapshot.bytes_sent, 1024);
+        assert_eq!(snapshot.error_rate(), 0.5);
+    }
+
+    #[test]
+    fn test_gauge_operations() {
+        let metrics = MetricsCollector::new();
+
+        metrics.connection_opened();
+        metrics.connection_opened();
+        assert_eq!(metrics.snapshot().active_connections, 2);
+
+        metrics.connection_closed();
+        assert_eq!(metrics.snapshot().active_connections, 1);
+    }
+
+    #[test]
+    fn test_concurrent_mixed_operations() {
+        let metrics = Arc::new(MetricsCollector::new());
+        let mut handles = vec![];
+
+        for _ in 0..5 {
+            let m = Arc::clone(&metrics);
+            let handle = thread::spawn(move || {
+                for _ in 0..100 {
+                    m.record_request();
+                    if random::<bool>() {
+                        m.record_error();
+                    }
+                    m.record_bytes(256);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.requests, 500);
+        assert_eq!(snapshot.bytes_sent, 500 * 256);
+    }
+
+    // ----- Milestone 3 -------------------------------------------------------
+
+    #[test]
+    fn test_histogram_basic() {
+        let hist = AtomicHistogram::new([10_000, 50_000, 100_000, 500_000, u64::MAX]);
+
+        hist.record(5_000);
+        hist.record(25_000);
+        hist.record(75_000);
+
+        let snapshot = hist.snapshot();
+        assert_eq!(snapshot.buckets[0], 1);
+        assert_eq!(snapshot.buckets[1], 1);
+        assert_eq!(snapshot.buckets[2], 1);
+        assert_eq!(snapshot.total(), 3);
+    }
+
+    #[test]
+    fn test_percentile_calculation() {
+        let hist = AtomicHistogram::new([10_000, 50_000, 100_000, 500_000, u64::MAX]);
+
+        for _ in 0..50 {
+            hist.record(5_000);
+        }
+        for _ in 0..30 {
+            hist.record(25_000);
+        }
+        for _ in 0..20 {
+            hist.record(75_000);
+        }
+
+        let snapshot = hist.snapshot();
+        assert!(snapshot.percentile(0.5) <= 10_000);
+        let p90 = snapshot.percentile(0.9);
+        assert!(p90 > 10_000 && p90 <= 50_000);
+    }
+
+    #[test]
+    fn test_concurrent_histogram() {
+        let hist = Arc::new(AtomicHistogram::new([
+            10_000,
+            50_000,
+            100_000,
+            500_000,
+            u64::MAX,
+        ]));
+        let mut handles = vec![];
+
+        for thread_id in 0..10 {
+            let h = Arc::clone(&hist);
+            let handle = thread::spawn(move || {
+                for i in 0..100 {
+                    let value = (thread_id * 1000 + i * 100) as u64;
+                    h.record(value);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(hist.snapshot().total(), 1000);
+    }
+
+    // ----- Milestone 4 -------------------------------------------------------
+
+    #[test]
+    fn test_minmax_basic() {
+        let minmax = AtomicMinMax::new();
+
+        minmax.update(100);
+        assert_eq!(minmax.get_min(), 100);
+        assert_eq!(minmax.get_max(), 100);
+
+        minmax.update(50);
+        assert_eq!(minmax.get_min(), 50);
+        assert_eq!(minmax.get_max(), 100);
+
+        minmax.update(150);
+        assert_eq!(minmax.get_min(), 50);
+        assert_eq!(minmax.get_max(), 150);
+    }
+
+    #[test]
+    fn test_concurrent_minmax() {
+        let minmax = Arc::new(AtomicMinMax::new());
+        let mut handles = vec![];
+
+        for thread_id in 0..10 {
+            let mm = Arc::clone(&minmax);
+            let handle = thread::spawn(move || {
+                for i in 0..100 {
+                    let value = (thread_id * 100 + i) as u64;
+                    mm.update(value);
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(minmax.get_min(), 0);
+        assert_eq!(minmax.get_max(), 999);
+    }
+
+    #[test]
+    fn test_reset() {
+        let minmax = AtomicMinMax::new();
+        minmax.update(50);
+        minmax.update(150);
+
+        minmax.reset();
+        assert_eq!(minmax.get_min(), u64::MAX);
+        assert_eq!(minmax.get_max(), 0);
+    }
+
+    // ----- Milestone 5 -------------------------------------------------------
+
+    #[test]
+    fn test_registry_registration() {
+        let mut registry = MetricsRegistry::new(Duration::from_secs(10));
+
+        let collector1 = registry.register_collector("http".to_string());
+        let collector2 = registry.register_collector("db".to_string());
+
+        collector1.record_request();
+        collector2.record_request();
+        collector2.record_request();
+
+        let snapshot = registry.snapshot_all();
+        assert_eq!(snapshot.metrics["http"].requests, 1);
+        assert_eq!(snapshot.metrics["db"].requests, 2);
+    }
+
+    #[test]
+    fn test_periodic_export() {
+        let mut registry = MetricsRegistry::new(Duration::from_millis(100));
+        let collector = registry.register_collector("test".to_string());
+
+        let export_count = Arc::new(Mutex::new(0));
+        let count_clone = Arc::clone(&export_count);
+
+        registry.start_export_thread(move |_snapshot| {
+            *count_clone.lock().unwrap() += 1;
+        });
+
+        for _ in 0..10 {
+            collector.record_request();
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        registry.stop();
+        assert!(*export_count.lock().unwrap() >= 1);
+    }
+
+    #[test]
+    fn test_prometheus_format() {
+        let mut registry = MetricsRegistry::new(Duration::from_secs(60));
+        let collector = registry.register_collector("http".to_string());
+
+        collector.record_request();
+        collector.record_request();
+        collector.record_error();
+        collector.record_bytes(1024);
+
+        let snapshot = registry.snapshot_all();
+        let prom = snapshot.to_prometheus_format();
+
+        assert!(prom.contains("http_requests 2"));
+        assert!(prom.contains("http_errors 1"));
+        assert!(prom.contains("http_bytes_sent 1024"));
+    }
+
+    // ----- Milestone 6 -------------------------------------------------------
+
+    #[test]
+    fn benchmark_counter_increment_relaxed() {
+        let counter = AtomicCounter::new();
+        let start = Instant::now();
+
+        for _ in 0..1_000_000 {
+            counter.increment();
+        }
+
+        let elapsed = start.elapsed();
+        println!("1M increments (Relaxed impl): {:?}", elapsed);
+        assert_eq!(counter.get(), 1_000_000);
+    }
+
+    #[test]
+    fn benchmark_concurrent_throughput() {
+        let metrics = Arc::new(MetricsCollector::new());
+        let start = Instant::now();
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let m = Arc::clone(&metrics);
+                thread::spawn(move || {
+                    for _ in 0..250_000 {
+                        m.record_request();
+                    }
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    for task in tasks {
-        task.await.ok();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let elapsed = start.elapsed();
+        let ops_per_sec = 1_000_000.0 / elapsed.as_secs_f64();
+
+        println!("Throughput: {:.0} ops/sec", ops_per_sec);
+        assert_eq!(metrics.snapshot().requests, 1_000_000);
     }
 
-    Arc::try_unwrap(stats).unwrap_or_else(|arc| (*arc).clone())
-}
+    #[test]
+    fn verify_snapshot_consistency() {
+        let metrics = Arc::new(MetricsCollector::new());
 
-// Clone implementation for ProcessingStats
-impl Clone for ProcessingStats {
-    fn clone(&self) -> Self {
-        Self {
-            processed: AtomicUsize::new(self.processed.load(Ordering::Relaxed)),
-            failed: AtomicUsize::new(self.failed.load(Ordering::Relaxed)),
-            total_bytes: AtomicU64::new(self.total_bytes.load(Ordering::Relaxed)),
-        }
+        let m1 = Arc::clone(&metrics);
+        let writer = thread::spawn(move || {
+            for i in 0..1000 {
+                m1.record_request();
+                m1.record_bytes(i);
+            }
+        });
+
+        let m2 = Arc::clone(&metrics);
+        let reader = thread::spawn(move || {
+            for _ in 0..100 {
+                let snap = m2.snapshot();
+                assert!(snap.bytes_sent <= snap.requests * 1000);
+            }
+        });
+
+        writer.join().unwrap();
+        reader.join().unwrap();
     }
 }
 
-#[tokio::main]
-async fn main() {
-    println!("=== Concurrent Image Processing Pipeline ===\n");
-
-    let input_dir = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "./input".to_string());
-    let output_dir = std::env::args()
-        .nth(2)
-        .unwrap_or_else(|| "./output".to_string());
-
-    let variants = vec![
-        OutputVariant {
-            name: "thumbnail".to_string(),
-            transforms: vec![ImageTransform::Thumbnail { max_size: 256 }],
-            format: ImageFormat::Jpeg,
-        },
-        OutputVariant {
-            name: "web".to_string(),
-            transforms: vec![
-                ImageTransform::Thumbnail { max_size: 1920 },
-                ImageTransform::Brighten { value: 5 },
-            ],
-            format: ImageFormat::WebP,
-        },
-    ];
-
-    let (progress_tx, mut progress_rx) = mpsc::channel(100);
-
-    // Spawn progress monitor
-    tokio::spawn(async move {
-        while let Some(update) = progress_rx.recv().await {
-            println!("{}", update.format());
-        }
-    });
-
-    let start = Instant::now();
-
-    let stats = process_directory(
-        Path::new(&input_dir),
-        Path::new(&output_dir),
-        variants,
-        8, // concurrent workers
-        progress_tx,
-    )
-    .await;
-
-    let elapsed = start.elapsed();
-
-    println!("\n=== Complete ===");
-    println!("{}", stats.report());
-    println!("Time: {:.2}s", elapsed.as_secs_f64());
-}
 ```
-
-This complete implementation provides a production-ready concurrent image processor with:
-1. **Async directory scanning** - Finds images efficiently
-2. **Concurrent processing** - Parallel transformation on multiple cores
-3. **Multiple output variants** - Generate thumbnails, web versions, etc.
-4. **Progress tracking** - Real-time feedback
-5. **Error handling** - Gracefully skip corrupted images
-6. **Memory efficiency** - Bounded concurrency prevents OOM
-
-Perfect for batch photo processing, thumbnail generation, and image optimization workflows!

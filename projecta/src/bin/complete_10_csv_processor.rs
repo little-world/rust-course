@@ -686,8 +686,8 @@ id,name,email,age,country
         }
 
         let file = create_test_csv(&content);
-        let stats = process_csv_chunked_with_stats(file.path().to_str().unwrap(), 10, |_| {})
-            .unwrap();
+        let stats =
+            process_csv_chunked_with_stats(file.path().to_str().unwrap(), 10, |_| {}).unwrap();
 
         assert_eq!(stats.total_chunks, 5);
         assert_eq!(stats.total_records, 50);
@@ -824,9 +824,27 @@ id,name,email,age,country
     #[test]
     fn test_dedup_removes_duplicates() {
         let mut records = vec![
-            UserRecord { id: 1, name: "A".into(), email: "a@test.com".into(), age: 30, country: "US".into() },
-            UserRecord { id: 2, name: "B".into(), email: "b@test.com".into(), age: 25, country: "UK".into() },
-            UserRecord { id: 1, name: "A2".into(), email: "a2@test.com".into(), age: 31, country: "CA".into() },
+            UserRecord {
+                id: 1,
+                name: "A".into(),
+                email: "a@test.com".into(),
+                age: 30,
+                country: "US".into(),
+            },
+            UserRecord {
+                id: 2,
+                name: "B".into(),
+                email: "b@test.com".into(),
+                age: 25,
+                country: "UK".into(),
+            },
+            UserRecord {
+                id: 1,
+                name: "A2".into(),
+                email: "a2@test.com".into(),
+                age: 31,
+                country: "CA".into(),
+            },
         ];
         deduplicate_chunk(&mut records);
         assert_eq!(records.len(), 2);
@@ -835,20 +853,59 @@ id,name,email,age,country
     #[test]
     fn test_dedup_ordering() {
         let mut records = vec![
-            UserRecord { id: 3, name: "C".into(), email: "c@test.com".into(), age: 30, country: "US".into() },
-            UserRecord { id: 1, name: "A".into(), email: "a@test.com".into(), age: 25, country: "UK".into() },
-            UserRecord { id: 2, name: "B".into(), email: "b@test.com".into(), age: 25, country: "UK".into() },
+            UserRecord {
+                id: 3,
+                name: "C".into(),
+                email: "c@test.com".into(),
+                age: 30,
+                country: "US".into(),
+            },
+            UserRecord {
+                id: 1,
+                name: "A".into(),
+                email: "a@test.com".into(),
+                age: 25,
+                country: "UK".into(),
+            },
+            UserRecord {
+                id: 2,
+                name: "B".into(),
+                email: "b@test.com".into(),
+                age: 25,
+                country: "UK".into(),
+            },
         ];
         deduplicate_chunk(&mut records);
-        assert_eq!(records.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(
+            records.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 
     #[test]
     fn test_hashset_dedup_correctness() {
         let mut records = vec![
-            UserRecord { id: 1, name: "A".into(), email: "a@test.com".into(), age: 30, country: "US".into() },
-            UserRecord { id: 1, name: "A2".into(), email: "a2@test.com".into(), age: 31, country: "CA".into() },
-            UserRecord { id: 2, name: "B".into(), email: "b@test.com".into(), age: 25, country: "UK".into() },
+            UserRecord {
+                id: 1,
+                name: "A".into(),
+                email: "a@test.com".into(),
+                age: 30,
+                country: "US".into(),
+            },
+            UserRecord {
+                id: 1,
+                name: "A2".into(),
+                email: "a2@test.com".into(),
+                age: 31,
+                country: "CA".into(),
+            },
+            UserRecord {
+                id: 2,
+                name: "B".into(),
+                email: "b@test.com".into(),
+                age: 25,
+                country: "UK".into(),
+            },
         ];
         deduplicate_hashset(&mut records);
         assert_eq!(records.len(), 2);
@@ -857,9 +914,27 @@ id,name,email,age,country
     #[test]
     fn test_dedup_methods_equivalent() {
         let original = vec![
-            UserRecord { id: 3, name: "C".into(), email: "c@test.com".into(), age: 30, country: "US".into() },
-            UserRecord { id: 1, name: "A".into(), email: "a@test.com".into(), age: 25, country: "UK".into() },
-            UserRecord { id: 3, name: "C2".into(), email: "c2@test.com".into(), age: 32, country: "CA".into() },
+            UserRecord {
+                id: 3,
+                name: "C".into(),
+                email: "c@test.com".into(),
+                age: 30,
+                country: "US".into(),
+            },
+            UserRecord {
+                id: 1,
+                name: "A".into(),
+                email: "a@test.com".into(),
+                age: 25,
+                country: "UK".into(),
+            },
+            UserRecord {
+                id: 3,
+                name: "C2".into(),
+                email: "c2@test.com".into(),
+                age: 32,
+                country: "CA".into(),
+            },
         ];
 
         let mut sort = original.clone();

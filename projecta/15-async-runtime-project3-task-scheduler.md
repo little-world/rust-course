@@ -2462,12 +2462,3 @@ async fn main() {
     scheduler.shutdown_gracefully().await;
 }
 ```
-
-This complete implementation provides a production-ready async task scheduler with:
-1. **Priority-based scheduling** - Critical tasks execute first
-2. **Worker pool** - Concurrent execution with configurable workers
-3. **Timeout handling** - Tasks cancelled if too slow
-4. **Metrics tracking** - Observability into scheduler performance
-5. **Graceful shutdown** - Clean termination without losing work
-
-Perfect for background job processing, API rate limiting, and distributed task queues!

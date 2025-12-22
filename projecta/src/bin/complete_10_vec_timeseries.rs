@@ -302,8 +302,14 @@ pub struct WindowStats {
 
 impl MultiWindowAnalyzer {
     pub fn new(window_sizes: Vec<usize>) -> Self {
-        let windows = window_sizes.iter().map(|&s| IncrementalWindow::new(s)).collect();
-        Self { windows, window_sizes }
+        let windows = window_sizes
+            .iter()
+            .map(|&s| IncrementalWindow::new(s))
+            .collect();
+        Self {
+            windows,
+            window_sizes,
+        }
     }
 
     pub fn push(&mut self, value: f64) {
@@ -376,7 +382,10 @@ impl AnomalyDetector {
 
     pub fn push(&mut self, value: f64, timestamp: usize) -> Option<Anomaly> {
         self.analyzer.push(value);
-        if let Some(last_stats) = self.analyzer.get_stats(self.analyzer.window_count().saturating_sub(1)) {
+        if let Some(last_stats) = self
+            .analyzer
+            .get_stats(self.analyzer.window_count().saturating_sub(1))
+        {
             if let (Some(mean), Some(std_dev)) = (last_stats.average, last_stats.std_dev) {
                 if std_dev > 0.0 {
                     let z = (value - mean) / std_dev;

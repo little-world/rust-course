@@ -1320,11 +1320,7 @@ where
     }
 
     pub fn cleanup_range(&mut self, until: u64) {
-        let expired: Vec<u64> = self
-            .expiry
-            .range(..=until)
-            .map(|(&time, _)| time)
-            .collect();
+        let expired: Vec<u64> = self.expiry.range(..=until).map(|(&time, _)| time).collect();
         for time in expired {
             if let Some(keys) = self.expiry.remove(&time) {
                 for key in keys {
@@ -1583,7 +1579,10 @@ impl CacheBenchmarks {
         }
         let multi_time = start.elapsed();
 
-        println!("Single-tier: {:?}, Multi-tier: {:?}", single_time, multi_time);
+        println!(
+            "Single-tier: {:?}, Multi-tier: {:?}",
+            single_time, multi_time
+        );
     }
 }
 
@@ -1751,10 +1750,8 @@ mod tests {
         let cache = LruCache::new(2);
         let mut wtc = WriteThroughCache::new(cache, store);
         wtc.put("k".to_string(), 5);
-        assert_eq!(
-            mirror.load(&"k".to_string()),
-            Some(5)
-        );
+        assert_eq!(mirror.load(&"k".to_string()), Some(5));
     }
 }
+
 ```

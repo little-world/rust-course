@@ -86,11 +86,13 @@ impl<T: Ord, Order: HeapOrder> PriorityQueue<T, Order> {
             let right = Self::right_child(i);
             let mut swap_with = i;
 
-            if left < self.items.len() && Order::should_swap(&self.items[swap_with], &self.items[left])
+            if left < self.items.len()
+                && Order::should_swap(&self.items[swap_with], &self.items[left])
             {
                 swap_with = left;
             }
-            if right < self.items.len() && Order::should_swap(&self.items[swap_with], &self.items[right])
+            if right < self.items.len()
+                && Order::should_swap(&self.items[swap_with], &self.items[right])
             {
                 swap_with = right;
             }
@@ -383,9 +385,18 @@ mod tests {
         }
 
         let mut jobs: PriorityQueue<Job, MaxHeap> = PriorityQueue::new();
-        jobs.push(Job { priority: 5, name: "Medium".into() });
-        jobs.push(Job { priority: 10, name: "High".into() });
-        jobs.push(Job { priority: 1, name: "Low".into() });
+        jobs.push(Job {
+            priority: 5,
+            name: "Medium".into(),
+        });
+        jobs.push(Job {
+            priority: 10,
+            name: "High".into(),
+        });
+        jobs.push(Job {
+            priority: 1,
+            name: "Low".into(),
+        });
 
         assert_eq!(jobs.pop().unwrap().priority, 10);
         assert_eq!(jobs.pop().unwrap().priority, 5);
@@ -644,10 +655,32 @@ mod tests {
 
     #[test]
     fn test_task_by_priority() {
-        let mut tasks: PriorityQueue<ByField<Task, fn(&Task) -> u8>, MinHeap> = PriorityQueue::new();
-        tasks.push(ByField::new(Task { name: "Low".into(), priority: 1, deadline: 100 }, |t: &Task| t.priority));
-        tasks.push(ByField::new(Task { name: "High".into(), priority: 10, deadline: 50 }, |t: &Task| t.priority));
-        tasks.push(ByField::new(Task { name: "Medium".into(), priority: 5, deadline: 75 }, |t: &Task| t.priority));
+        let mut tasks: PriorityQueue<ByField<Task, fn(&Task) -> u8>, MinHeap> =
+            PriorityQueue::new();
+        tasks.push(ByField::new(
+            Task {
+                name: "Low".into(),
+                priority: 1,
+                deadline: 100,
+            },
+            |t: &Task| t.priority,
+        ));
+        tasks.push(ByField::new(
+            Task {
+                name: "High".into(),
+                priority: 10,
+                deadline: 50,
+            },
+            |t: &Task| t.priority,
+        ));
+        tasks.push(ByField::new(
+            Task {
+                name: "Medium".into(),
+                priority: 5,
+                deadline: 75,
+            },
+            |t: &Task| t.priority,
+        ));
 
         assert_eq!(tasks.pop().unwrap().item.priority, 1);
         assert_eq!(tasks.pop().unwrap().item.priority, 5);
@@ -656,10 +689,32 @@ mod tests {
 
     #[test]
     fn test_task_by_deadline() {
-        let mut tasks: PriorityQueue<ByField<Task, fn(&Task) -> u64>, MinHeap> = PriorityQueue::new();
-        tasks.push(ByField::new(Task { name: "Later".into(), priority: 10, deadline: 200 }, |t: &Task| t.deadline));
-        tasks.push(ByField::new(Task { name: "Soon".into(), priority: 1, deadline: 50 }, |t: &Task| t.deadline));
-        tasks.push(ByField::new(Task { name: "Middle".into(), priority: 5, deadline: 100 }, |t: &Task| t.deadline));
+        let mut tasks: PriorityQueue<ByField<Task, fn(&Task) -> u64>, MinHeap> =
+            PriorityQueue::new();
+        tasks.push(ByField::new(
+            Task {
+                name: "Later".into(),
+                priority: 10,
+                deadline: 200,
+            },
+            |t: &Task| t.deadline,
+        ));
+        tasks.push(ByField::new(
+            Task {
+                name: "Soon".into(),
+                priority: 1,
+                deadline: 50,
+            },
+            |t: &Task| t.deadline,
+        ));
+        tasks.push(ByField::new(
+            Task {
+                name: "Middle".into(),
+                priority: 5,
+                deadline: 100,
+            },
+            |t: &Task| t.deadline,
+        ));
 
         assert_eq!(tasks.pop().unwrap().item.deadline, 50);
         assert_eq!(tasks.pop().unwrap().item.deadline, 100);
@@ -676,7 +731,10 @@ mod tests {
 
         impl Ord for Event {
             fn cmp(&self, other: &Self) -> Ordering {
-                other.severity.cmp(&self.severity).then(self.timestamp.cmp(&other.timestamp))
+                other
+                    .severity
+                    .cmp(&self.severity)
+                    .then(self.timestamp.cmp(&other.timestamp))
             }
         }
 
@@ -687,10 +745,22 @@ mod tests {
         }
 
         let mut events: PriorityQueue<Event, MinHeap> = PriorityQueue::new();
-        events.push(Event { severity: 5, timestamp: 100 });
-        events.push(Event { severity: 10, timestamp: 50 });
-        events.push(Event { severity: 10, timestamp: 75 });
-        events.push(Event { severity: 3, timestamp: 25 });
+        events.push(Event {
+            severity: 5,
+            timestamp: 100,
+        });
+        events.push(Event {
+            severity: 10,
+            timestamp: 50,
+        });
+        events.push(Event {
+            severity: 10,
+            timestamp: 75,
+        });
+        events.push(Event {
+            severity: 3,
+            timestamp: 25,
+        });
 
         let e1 = events.pop().unwrap();
         assert_eq!((e1.severity, e1.timestamp), (10, 50));
@@ -705,9 +775,21 @@ mod tests {
     #[test]
     fn test_reverse_with_custom_type() {
         let mut tasks: PriorityQueue<Reverse<Task>, MinHeap> = PriorityQueue::new();
-        tasks.push(Reverse(Task { name: "A".into(), priority: 1, deadline: 100 }));
-        tasks.push(Reverse(Task { name: "Z".into(), priority: 1, deadline: 100 }));
-        tasks.push(Reverse(Task { name: "M".into(), priority: 1, deadline: 100 }));
+        tasks.push(Reverse(Task {
+            name: "A".into(),
+            priority: 1,
+            deadline: 100,
+        }));
+        tasks.push(Reverse(Task {
+            name: "Z".into(),
+            priority: 1,
+            deadline: 100,
+        }));
+        tasks.push(Reverse(Task {
+            name: "M".into(),
+            priority: 1,
+            deadline: 100,
+        }));
 
         assert_eq!(tasks.pop().unwrap().0.name, "Z");
         assert_eq!(tasks.pop().unwrap().0.name, "M");
@@ -723,13 +805,22 @@ mod tests {
 
     #[test]
     fn test_chained_wrappers() {
-        let mut pq: PriorityQueue<Reverse<ByField<Task, fn(&Task) -> u8>>, MinHeap> = PriorityQueue::new();
+        let mut pq: PriorityQueue<Reverse<ByField<Task, fn(&Task) -> u8>>, MinHeap> =
+            PriorityQueue::new();
         pq.push(Reverse(ByField::new(
-            Task { name: "Low".into(), priority: 1, deadline: 100 },
+            Task {
+                name: "Low".into(),
+                priority: 1,
+                deadline: 100,
+            },
             |t: &Task| t.priority,
         )));
         pq.push(Reverse(ByField::new(
-            Task { name: "High".into(), priority: 10, deadline: 50 },
+            Task {
+                name: "High".into(),
+                priority: 10,
+                deadline: 50,
+            },
             |t: &Task| t.priority,
         )));
 

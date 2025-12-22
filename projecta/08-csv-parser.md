@@ -1505,8 +1505,6 @@ mod tests {
 
 ### Complete Working Example
 
-Here's a complete, production-ready CSV transformer implementation:
-
 ```rust
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -2439,17 +2437,4 @@ mod tests {
     }
 }
 ```
-
-This complete example demonstrates:
-- **Part 1**: Robust CSV parsing with quote handling
-- **Part 2**: Memory-efficient streaming file iteration
-- **Part 3**: Type-safe column extraction with validation
-- **Part 4**: Streaming aggregations without loading data
-- **Examples**: Real-world CSV processing workflows
-- **Tests**: Validation of parsing and aggregation correctness
-
-The implementation shows how iterator patterns enable processing arbitrarily large CSV files with constant memory usage while maintaining type safety and composability.
-
----
-
 

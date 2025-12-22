@@ -3280,10 +3280,3 @@ id,name,email,age,country
 
 ```
 
-This project demonstrates advanced Vec/slice techniques:
-- **VecDeque** for efficient sliding windows
-- **Incremental algorithms** (500x speedup)
-- **Monotonic deques** for O(1) min/max
-- **Quickselect** for O(n) median
-- **Multi-window** single-pass processing
-- **Real-time anomaly detection**

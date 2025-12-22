@@ -996,17 +996,3 @@ mod tests {
 }
 ```
 
-### Testing Strategies
-
-1. **Unit Tests**: Test each stage independently
-2. **Integration Tests**: Test complete pipeline end-to-end
-3. **Concurrency Tests**: Verify thread safety with ThreadSanitizer
-4. **Performance Tests**: Benchmark throughput scaling
-5. **Stress Tests**: 1M+ messages, verify no message loss
-6. **Shutdown Tests**: Verify graceful termination
-
----
-
-This project comprehensively demonstrates message-passing concurrency using channels, from basic MPSC patterns through multi-stage pipelines, backpressure, graceful shutdown, error handling, and performance benchmarks comparing channels vs shared state.
-
----

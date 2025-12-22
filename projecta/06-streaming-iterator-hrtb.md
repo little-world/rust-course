@@ -1587,54 +1587,6 @@ mod tests {
 
 ---
 
-## Summary
-
-You've built a **complete streaming iterator library** with:
-
-1. **Basic StreamingIterator Trait with GATs** - `type Item<'a>` for self-borrowing items
-2. **Window Iterator** - Overlapping slices with zero-copy
-3. **Higher-Ranked Trait Bounds** - `for<'a>` for lifetime polymorphism
-4. **GroupBy Iterator with Variance** - Demonstrating lifetime covariance
-5. **Performance Comparison** - 10-100x faster than allocating iterators
-
-**Key Patterns Learned**:
-- **GATs (Generic Associated Types)**: `type Item<'a> where Self: 'a`
-- **HRTB**: `for<'a> FnMut(I::Item<'a>)` for lifetime polymorphism
-- **Self-borrowing**: Items that borrow from the iterator
-- **Lifetime variance**: Covariant vs invariant positions
-- **Zero-copy iteration**: Avoiding allocation in hot paths
-- **Trade-offs**: When to use streaming vs standard iterators
-
-**Performance Characteristics**:
-- **Zero-copy**: 1-2ns per item (pointer arithmetic only)
-- **Allocating**: 50-100ns per item (malloc + memcpy)
-- **10-100x faster** for large items or datasets
-- **Memory**: No heap allocation, better cache locality
-- **Real-world**: Essential for high-performance streaming data
-
-**Real-World Applications**:
-- Log file parsing (zero-copy line processing)
-- Network packet inspection (borrowing packet headers)
-- Database cursors (streaming result sets)
-- Compression/decompression (buffer windowing)
-- Video/audio streaming (frame borrowing)
-
-**When to Use Streaming Iterators**:
-- ✅ Large files or datasets
-- ✅ Performance-critical code
-- ✅ Zero-copy requirements
-- ✅ Sliding window algorithms
-- ❌ Need to collect into Vec/HashMap
-- ❌ Items are small (copy is cheap)
-- ❌ Need to hold multiple items
-
-**Next Steps**:
-- Implement more adapters (map, filter for StreamingIterator)
-- Add async streaming iterators (AsyncStreamingIterator)
-- Build real parser using streaming iteration
-- Compare with `streaming-iterator` crate
-- Explore LendingIterator (alternative name)
-
 ## Complete Working Example
 
 ```rust

@@ -2891,10 +2891,3 @@ fn main() {}
 - ❌ **No ordering needed**: Use HashSet
 - ❌ **Complex queries**: Use database
 
-**Key insights**:
-1. **O(log n) is almost O(1)**: For n=1B, log n ≈ 30 (negligible)
-2. **Sorted data enables algorithms**: Range, prefix, merge
-3. **Cache locality matters more for small n**: SortedVec wins <1K
-4. **Binary search is everywhere**: Databases, file systems, kernels
-
----

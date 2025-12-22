@@ -1978,9 +1978,7 @@ mod tests {
     }
 }
 ```
-
 ---
-
 
 ### Complete Working Example
 
@@ -2998,17 +2996,3 @@ mod tests {
 }
 
 ```
-
-Here's a complete, production-ready configuration validator:
-
-This complete example demonstrates:
-- **Part 1**: Rich error types with thiserror
-- **Part 2**: Parsing with location preservation
-- **Part 3**: Error collection without fail-fast
-- **Part 4**: Typo suggestions with Levenshtein distance
-- **Part 5**: Schema-based validation with builder pattern
-- **Part 6**: Beautiful error formatting with colors
-- **Examples**: Real-world validation workflows
-- **Tests**: Comprehensive validation of all components
-
-The implementation shows how proper error handling transforms configuration validation from a frustrating chore into a helpful, guided experience.

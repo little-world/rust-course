@@ -1952,8 +1952,6 @@ pub async fn crawl_with_shutdown(
 
 ## Complete Working Example
 
-Here's a full implementation demonstrating all milestones:
-
 ```rust
 // Cargo.toml dependencies:
 // [dependencies]
@@ -2561,14 +2559,5 @@ async fn main() {
 - ❌ CPU-bound workloads (use threads/rayon)
 - ❌ Simple one-off scripts (blocking is fine)
 
-**Production lessons**:
-1. **Always use timeouts**: Prevents hanging forever
-2. **Limit concurrency**: 10-50 is sweet spot for most sites
-3. **Exponential backoff**: Essential for 99.9% success
-4. **Per-domain rate limiting**: Prevents bans, enables sustained scraping
-5. **Graceful shutdown**: Save hours of work
-6. **Progress tracking**: Visibility into scraper health
-
----
 
 

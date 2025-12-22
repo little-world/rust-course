@@ -218,12 +218,14 @@ fn handle_version(version: HttpVersion) {
 ```
 
 **Exhaustiveness principles:**
+
 1. **Avoid wildcards in application code**: Forces you to handle new variants
 2. **Use non_exhaustive for public library enums**: Allows adding variants without breaking changes
 3. **Leverage compiler errors**: Let the compiler tell you what you forgot to handle
 4. **Prefer match over if-let for complex enums**: Makes missing cases obvious
 5. **Group similar cases carefully**: Don't hide distinct behavior behind wildcards
-## Pattern 3: `if let`, `while let`, and `let-else`
+
+### Pattern 3: `if let`, `while let`, and `let-else`
 
 **Problem**: A full `match` expression can be verbose if you only care about one or two cases. Nested `if-let` statements for a sequence of validations can lead to a "pyramid of doom" that is hard to read.
 
@@ -310,7 +312,8 @@ fn drain_queue(queue: &mut VecDeque<String>) {
 3. **Let-else for early returns**: Cleaner than if-let with nested code
 4. **While-let for iterators**: Natural for consuming data structures
 5. **If-let chains for validation sequences**: Replaces nested if-let
-## Pattern 4: Enum-Driven Architecture
+
+
 ## Pattern 4: State Machines with Type-State Pattern
 
 **Problem**: In many architectures, business logic is scattered across different services or classes. Adding a new operation can require hunting through the codebase to make updates.

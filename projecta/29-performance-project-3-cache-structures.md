@@ -14,71 +14,99 @@ Your data structure library should support:
 
 ## Why Cache-Aware Structures Matter
 
-### The Memory Hierarchy
+Modern computer systems are defined by a complex **memory hierarchy**. While CPUs have become incredibly fast, the speed of accessing main memory (RAM) has not kept pace. This growing "CPU-memory gap" makes efficient cache utilization paramount for high-performance applications.
 
-**The Performance Gap**:
+### 1. The Critical Role of the Memory Hierarchy
+
+The memory hierarchy is a tiered system designed to provide the CPU with data as quickly as possible. Data is moved between these tiers based on locality principles (temporal and spatial).
+
+**The Performance Gap Quantified**:
+The penalty for missing a cache and going to a lower level can be enormous.
+
 ```
-Operation           Latency      Relative Cost
-L1 cache hit        0.5ns        1x
-L2 cache hit        7ns          14x
-L3 cache hit        20ns         40x
-RAM access          100ns        200x
-Cache miss (RAM)    ~200ns       400x
+Operation           Latency      Relative Cost (to L1)    Impact
+L1 cache hit        0.5ns        1x                       CPU register speed
+L2 cache hit        ~7ns         ~14x                     Minor stall
+L3 cache hit        ~20ns        ~40x                     Noticeable stall
+RAM access          ~100ns       ~200x                    Major stall, pipeline flush
+Disk (SSD)          ~100,000ns   ~200,000x                Application unresponsive
 ```
 
-**Impact Example**:
+**Impact Example**: Accessing data randomly can quickly turn a sub-millisecond operation into a hundreds-of-milliseconds nightmare.
+
 ```rust
-// Sequential access (cache-friendly)
+// Sequential access (cache-friendly - data is contiguous, few cache misses)
 let mut sum = 0;
 for i in 0..1_000_000 {
-    sum += array[i];  // Each access: ~1ns (cache hit)
+    sum += array[i];  // Each access: ~1ns (L1/L2 cache hit)
 }
-// Total: ~1ms
+// Total: ~1ms - CPU spends most time computing, not waiting
 
-// Random access (cache-unfriendly)
+// Random access (cache-unfriendly - data is scattered, many cache misses)
 let mut sum = 0;
-for i in random_indices {
-    sum += array[i];  // Each access: ~200ns (cache miss)
+for i in random_indices { // indices are random, so array[i] jumps around memory
+    sum += array[i];  // Each access: ~200ns (RAM access due to cache miss)
 }
-// Total: ~200ms
+// Total: ~200ms - CPU spends most time waiting for data from RAM
 
-200x slower due to cache misses!
+// The same computation can be 200x slower purely due to memory access patterns!
 ```
 
-### Standard Library Limitations
+### 2. CPU Architecture and Pipelining
 
-**HashMap Issues**:
+Modern CPUs use deep pipelines and speculative execution. A **cache miss** often means the CPU has to **stall** its pipeline, discard speculative work, and wait for data from slower memory. This is incredibly wasteful. Cache-aware design helps:
+*   **Reduce pipeline stalls**: CPU has data when it needs it.
+*   **Improve branch prediction**: Fewer random jumps, more predictable instruction flow.
+*   **Utilize SIMD**: Contiguous data is essential for Single Instruction Multiple Data (SIMD) operations.
+
+### 3. Cache Coherence and Concurrency
+
+In multi-core systems, each CPU core has its own private L1/L2 caches.
+*   **Cache Coherence Protocols (e.g., MESI)**: These protocols ensure all cores see a consistent view of memory. However, modifying shared data (even implicitly) can lead to:
+    *   **Cache line invalidations**: One core modifies a cache line, invalidating it in others, forcing them to refetch from L3 or RAM.
+    *   **False Sharing**: Two independent variables in different threads map to the same cache line. Modifying one causes constant invalidation of the other, leading to performance degradation.
+Cache-aware structures can reduce false sharing by ensuring data frequently accessed together is placed on the same cache line, or data accessed independently is on different lines.
+
+### 4. Overcoming Standard Library Limitations
+
+While Rust's standard library data structures are robust and generally efficient, they are designed for broad utility, not extreme cache optimization.
+
+**`std::collections::HashMap` Issues**:
 ```rust
 use std::collections::HashMap;
 
-// std HashMap uses separate chaining (linked list)
-// Each entry is separately allocated
-// Pointer chasing = many cache misses
+// std HashMap typically uses separate chaining (linked lists for collisions)
+// Each entry in the linked list can be separately allocated on the heap.
+// This leads to "pointer chasing" where each step might be a cache miss.
 
 let mut map = HashMap::new();
 for i in 0..1000 {
     map.insert(i, i * 2);
 }
 
-// Lookup: follow hash → bucket → linked list → compare keys
-// Multiple cache misses per lookup!
+// A lookup involves: hash → bucket → (potentially) iterate linked list.
+// Following pointers from RAM to RAM to find elements means many expensive cache misses!
 ```
 
-**Vec Limitations**:
+**`std::vec::Vec` Limitations**:
 ```rust
-// Vec is already cache-friendly for sequential access
-// But: no prefetching hints
-// No cache-line alignment
-// Grows by 2x (sometimes wastes memory)
+// Vec is highly cache-friendly for sequential access due to contiguous storage.
+// However, advanced optimizations are still possible:
+// - No explicit prefetching hints: Manual prefetching can further reduce latency.
+// - No guaranteed cache-line alignment: Custom allocators can ensure data starts on a cache line boundary.
+// - Growth strategy: While usually good, a fixed small buffer (SmallVec) can eliminate allocations entirely for small collections.
 ```
 
-### Custom vs Standard
+### 5. Quantifiable Performance Gains
 
-| Structure | std Performance | Custom (Cache-Optimized) | Speedup |
-|-----------|----------------|--------------------------|---------|
-| Vector sequential | Baseline | +10-20% with prefetch | 1.1-1.2x |
-| HashMap lookup | Baseline | +2-5x with open addressing | 2-5x |
-| PriorityQueue | Baseline | +30-50% with d-ary heap | 1.3-1.5x |
+By understanding and designing for the memory hierarchy, custom data structures can yield significant, measurable speedups:
+
+| Structure         | vs. `std` (Typical)             | Best For                  | Key Technique                                      |
+|-------------------|---------------------------------|---------------------------|----------------------------------------------------|
+| `CacheVec`        | +10-20% sequential iteration    | Predictable sequential read | Manual prefetching, cache-line alignment           |
+| `CacheHashMap`    | +2-5x lookups                   | Read-heavy, small keys    | Open addressing, contiguous storage                |
+| `SmallVec`        | +5-10x for small collections    | Short-lived, < ~32 elements | Stack allocation (zero-cost creation/destruction)  |
+| `CachePriorityQueue` | +30-50% push/pop               | High-throughput priority ops | D-ary heap, improved cache locality                |
 
 ## Use Cases
 

@@ -1017,16 +1017,4 @@ fn main() {
 }
 ```
 
-### Testing Strategies
 
-1. **Unit Tests**: Test each operation independently
-2. **Priority Tests**: Verify ordering is correct
-3. **Simulation Tests**: Test deadline adherence
-4. **Performance Tests**: Benchmark vs sorting
-5. **Stress Tests**: 100K+ tasks
-
----
-
-This project comprehensively demonstrates BinaryHeap for priority queues, from basic scheduling through deadline awareness, preemption, and multi-level feedback queues, with complete benchmarks validating performance improvements.
-
----

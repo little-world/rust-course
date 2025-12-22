@@ -28,7 +28,16 @@ html-escape = "0.2.13"
 walkdir = "2.5.0"
 dashmap = "5.5"
 sha2 = "0.10"
+filetime = "0.2"
+glob = "0.3"
 rustc-hash = "1.1"
+crossbeam = "0.8"
+scraper = "0.18"
+url = "2.5"
+bincode = "1.3"
+uuid = { version = "1.6", features = ["v4"] }
+image = "0.25.9"
+num_cpus = "1.17.0"
 
 [dev-dependencies]
 tempfile = "3.12"
@@ -85,3 +94,98 @@ path = "projecta/src/bin/complete_12_hashmap_cache.rs"
 [[bin]]
 name = "complete_12_collections_autocomplete"
 path = "projecta/src/bin/complete_13_collections_autocomplete.rs"
+
+[[bin]]
+name = "complete_13_collections_queue"
+path = "projecta/src/bin/complete_13_collections_queue.rs"
+
+[[bin]]
+name = "complete_13_collections_scheduling"
+path = "projecta/src/bin/complete_13_collections_scheduling.rs"
+
+[[bin]]
+name = "complete_14_image_processor"
+path = "projecta/src/bin/complete_14_image_processor.rs"
+
+[[bin]]
+name = "complete_14_patterns"
+path = "projecta/src/bin/complete_14_prod_cons.rs"
+
+[[bin]]
+name = "complete_14_share_counter"
+path = "projecta/src/bin/complete_14_share_counter.rs"
+
+[[bin]]
+name = "complete_15_webscraper"
+path = "projecta/src/bin/complete_15_webscraper.rs"
+
+[[bin]]
+name = "complete_15_task_scheduler"
+path = "projecta/src/bin/complete_15_task_scheduler.rs"
+
+[[bin]]
+name = "complete_15_image-processing"
+path = "projecta/src/bin/complete_15_image-processing.rs"
+
+[[bin]]
+name = "complete_16_atomic_metrics"
+path = "projecta/src/bin/complete_16_atomic_metrics.rs"
+
+
+[[bin]]
+name = "complete_16_atomic_treiber_stack"
+path = "projecta/src/bin/complete_16_atomic_treiber_stack.rs"
+
+[[bin]]
+name = "complete_16_atomic_ring_buffer"
+path = "projecta/src/bin/complete_16_atomic_ring_buffer.rs"
+
+[[bin]]
+name = "complete_17_parallel_map_reduce"
+path = "projecta/src/bin/complete_17_parallel_map_reduce.rs"
+
+[[bin]]
+name = "complete_18_pointers_rcdom"
+path = "projecta/src/bin/complete_18_pointers_rcdom.rs"
+
+[[bin]]
+name = "complete_18_pointers_objectpool"
+path = "projecta/src/bin/complete_18_pointers_objectpool.rs"
+
+[[bin]]
+name = "complete_17_parallel_kafka"
+path = "projecta/src/bin/complete_17_parallel_kafka.rs"
+
+[[bin]]
+name = "complete_19_cpu_optimization"
+path = "projecta/src/bin/complete_19_cpu_optimization.rs"
+
+[[bin]]
+name = "complete_18_smart_object_pool"
+path = "projecta/src/bin/complete_18_pointer_object_pool.rs"
+
+[[bin]]
+name = "complete_18_pointer_cow"
+path = "projecta/src/bin/complete_18_pointer_cow.rs"
+
+[[bin]]
+name = "complete_20_rsync"
+path = "projecta/src/bin/complete_20_rsync.rs"
+
+[[bin]]
+name = "complete_20_version_control"
+path = "projecta/src/bin/complete_20_version_control.rs"
+
+[[bin]]
+name = "complete_20_build_system"
+path = "projecta/src/bin/complete_20_build_system.rs"
+
+[[bin]]
+name = "complete_23_macros_query_builder"
+path = "projecta/src/bin/complete_23_macros_query_builder.rs"
+
+
+
+[[bin]]
+name = "complete_24_spring_framework"
+path = "projecta/src/bin/complete_24_spring_framework.rs"

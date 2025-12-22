@@ -2056,18 +2056,6 @@ mod tests {
 
 ---
 
-### Testing Strategies
-
-1. **Unit Tests**: Test each component (retry, circuit breaker, rate limiter) in isolation
-2. **Integration Tests**: Use `wiremock` for realistic HTTP testing
-3. **Chaos Testing**: Randomly fail requests to test resilience
-4. **Performance Tests**: Measure concurrent vs sequential performance
-5. **Load Tests**: Test with 1000+ URLs
-6. **Timeout Tests**: Verify all operations have bounded time
-7. **Resource Tests**: Monitor memory and connection usage
-
----
-
 ### Complete Working Example
 
 ```rust

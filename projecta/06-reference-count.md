@@ -1162,34 +1162,6 @@ mod tests {
 }
 ```
 
-
-### Testing Strategies
-
-1. **Reference Counting Tests**:
-    - Verify counts increment/decrement correctly
-    - Test that memory is freed when count reaches zero
-    - Use drop detectors to verify cleanup
-
-2. **Weak Reference Tests**:
-    - Test upgrade succeeds while data alive
-    - Test upgrade fails after data dropped
-    - Verify weak refs don't keep data alive
-    - Test breaking reference cycles
-
-3. **Interior Mutability Tests**:
-    - Test multiple immutable borrows work
-    - Test mutable borrow is exclusive
-    - Verify panics on borrow violations
-    - Test Rc<RefCell<T>> combination
-
-4. **Memory Safety**:
-    - Use Miri to detect undefined behavior
-    - Test with AddressSanitizer
-    - Verify no use-after-free
-    - Test thread safety boundaries
-
----
-
 ### Complete Working Example
 
 ```rust
@@ -1203,7 +1175,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 // ============================================================================
-// Part 1: Basic Reference Counting (MyRc<T>)
+// Milestone 1: Basic Reference Counting (MyRc<T>)
 // ============================================================================
 
 struct RcInner<T> {
@@ -1308,7 +1280,7 @@ impl<T> Drop for MyRc<T> {
 }
 
 // ============================================================================
-// Part 2: Weak References (MyWeak<T>)
+// Milestone 2: Weak References (MyWeak<T>)
 // ============================================================================
 
 pub struct MyWeak<T> {
@@ -1370,7 +1342,7 @@ impl<T> Drop for MyWeak<T> {
 }
 
 // ============================================================================
-// Part 3: Interior Mutability (MyRefCell<T>)
+// Milestone 3: Interior Mutability (MyRefCell<T>)
 // ============================================================================
 
 pub struct MyRefCell<T> {
@@ -1475,7 +1447,7 @@ unsafe impl<T: Send> Send for MyRefCell<T> {}
 fn main() {
     println!("=== Reference-Counted Smart Pointer ===\n");
 
-    // Part 1: Basic Reference Counting
+    // Milestone 1: Basic Reference Counting
     println!("--- Part 1: Basic Reference Counting ---");
     {
         let rc1 = MyRc::new(42);
@@ -1490,7 +1462,7 @@ fn main() {
     }
     println!();
 
-    // Part 2: Weak References
+    // Milestone 2: Weak References
     println!("--- Part 2: Weak References ---");
     {
         let strong = MyRc::new(String::from("data"));
@@ -1511,7 +1483,7 @@ fn main() {
     }
     println!();
 
-    // Part 3: Breaking Reference Cycles
+    // Milestone 3: Breaking Reference Cycles
     println!("--- Part 3: Breaking Cycles with Weak ---");
     {
         struct Node {
@@ -1547,7 +1519,7 @@ fn main() {
     }
     println!();
 
-    // Part 4: Rc<RefCell<T>> Pattern
+    // Milestone 4: Rc<RefCell<T>> Pattern
     println!("--- Part 4: Rc<RefCell<T>> Pattern ---");
     {
         let data = MyRc::new(MyRefCell::new(vec![1, 2, 3]));
@@ -1564,7 +1536,7 @@ fn main() {
     }
     println!();
 
-    // Part 5: RefCell Borrow Checking
+    // Milestone 5: RefCell Borrow Checking
     println!("--- Part 5: RefCell Borrow Checking ---");
     {
         let cell = MyRefCell::new(100);
@@ -1596,7 +1568,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    // Part 1: MyRc Tests
+    // Milestone 1: MyRc Tests
     #[test]
     fn test_rc_basic() {
         let rc = MyRc::new(42);
@@ -1639,7 +1611,7 @@ mod tests {
         assert_eq!(MyRc::strong_count(&rc1), 1);
     }
 
-    // Part 2: MyWeak Tests
+    // Milestone 2: MyWeak Tests
     #[test]
     fn test_weak_upgrade() {
         let strong = MyRc::new(42);
@@ -1694,7 +1666,7 @@ mod tests {
         assert_eq!(*weak3.upgrade().unwrap(), 42);
     }
 
-    // Part 3: MyRefCell Tests
+    // Milestone 3: MyRefCell Tests
     #[test]
     fn test_refcell_borrow() {
         let cell = MyRefCell::new(42);
@@ -1862,11 +1834,3 @@ mod tests {
 }
 
 ```
-This complete example demonstrates:
-- **Part 1**: Custom `Rc<T>` with reference counting
-- **Part 2**: `Weak<T>` references to break cycles
-- **Part 3**: `RefCell<T>` for interior mutability
-- **Examples**: Real-world patterns like parent-child relationships
-- **Tests**: Comprehensive verification of behavior
-
-The implementation teaches fundamental concepts of memory management, ownership, and the runtime vs compile-time safety trade-offs in Rust.
