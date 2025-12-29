@@ -3076,5 +3076,4 @@ This quick reference captures the patterns you'll use daily in production Rust d
 
 Keep this appendix close as you write code. The patterns become muscle memory through repetition, but having a concise reference accelerates learning and prevents subtle mistakes. When you encounter unfamiliar territory, use these examples as starting points and refer back to the detailed chapters for deeper understanding.
 
-The Rust ecosystem thrives on shared conventions. By following these patterns, your code integrates seamlessly with libraries, tools, and the broader community. Write code that feels native to Rust, and the language's guarantees will work with you, not against you.
 

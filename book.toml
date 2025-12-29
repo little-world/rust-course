@@ -1,22 +1,24 @@
 [book]
 authors = ["littleworld"]
 language = "en"
-src = "projecta"
-title = "Rust Workbook Patterns"
+src = "src"
+title = "Rust Patterns"
 
 
 
 
 [output.html]
-# this turns on MathJax support so $…$ and $$…$$ are rendered
+# this turns on MathJax support so $…$ and $$…$$ are rendered[output.html.search]
+limit-results = 15
+toc-depth = 2
 mathjax-support = true
 additional-css = ["theme/css/print.css"]
 
 
-[output.pdf]
-additional-css = ["src/pdf-style.css"]
-scale = 0.8
-generate-document-outline = true
-
-page-break = false  # If supported by your version
-
+#[output.pdf]
+#additional-css = ["src/pdf-style.css"]
+#scale = 0.8
+#generate-document-outline = true
+#
+#page-break = false  # If supported by your version
+#

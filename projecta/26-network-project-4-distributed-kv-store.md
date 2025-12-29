@@ -2918,62 +2918,1115 @@ impl KvClient {
 Below is a simplified but functional distributed key-value store with replication and leader election:
 
 ```rust
-// See full implementation in previous milestones combined
-// This example demonstrates the key components:
+use std::collections::HashMap;
+use std::io;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, RwLock};
+use tokio::time::{interval, sleep};
+
+//================================================
+// Milestone 1: In-Memory KV Store (TCP Protocol)
+//================================================
+
+struct KvStore {
+    data: Arc<RwLock<HashMap<String, String>>>,
+}
+
+#[derive(Debug, Clone)]
+enum Command {
+    Get { key: String },
+    Set { key: String, value: String },
+    Delete { key: String },
+}
+
+enum Response {
+    Ok,
+    Value { data: String },
+    NotFound,
+    Error { msg: String },
+}
+
+impl KvStore {
+    fn new() -> Self {
+        KvStore {
+            data: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    async fn get(&self, key: &str) -> Option<String> {
+        let data = self.data.read().await;
+        data.get(key).cloned()
+    }
+
+    async fn set(&self, key: String, value: String) {
+        let mut data = self.data.write().await;
+        data.insert(key, value);
+    }
+
+    async fn delete(&self, key: &str) -> bool {
+        let mut data = self.data.write().await;
+        data.remove(key).is_some()
+    }
+}
+
+impl Response {
+    fn to_string(&self) -> String {
+        match self {
+            Response::Ok => "OK\n".to_string(),
+            Response::Value { data } => format!("VALUE {}\n", data),
+            Response::NotFound => "NOT_FOUND\n".to_string(),
+            Response::Error { msg } => format!("ERROR {}\n", msg),
+        }
+    }
+}
+
+fn parse_command(line: &str) -> Result<Command, String> {
+    let parts: Vec<&str> = line.trim().splitn(3, ' ').collect();
+
+    match parts.as_slice() {
+        ["GET", key] => Ok(Command::Get {
+            key: key.to_string(),
+        }),
+        ["SET", key, value] => Ok(Command::Set {
+            key: key.to_string(),
+            value: value.to_string(),
+        }),
+        ["DELETE", key] => Ok(Command::Delete {
+            key: key.to_string(),
+        }),
+        _ => Err("Invalid command".to_string()),
+    }
+}
+
+async fn run_kv_server(addr: &str) -> tokio::io::Result<()> {
+    let store = Arc::new(KvStore::new());
+    let listener = TcpListener::bind(addr).await?;
+
+    println!("KV store listening on {}", addr);
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let store = store.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_client(stream, store).await {
+                eprintln!("Client {} error: {}", addr, e);
+            }
+        });
+    }
+}
+
+async fn handle_client(stream: TcpStream, store: Arc<KvStore>) -> tokio::io::Result<()> {
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+
+        let bytes_read = reader.read_line(&mut line).await?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let command = match parse_command(&line) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                writer
+                    .write_all(Response::Error { msg: e }.to_string().as_bytes())
+                    .await?;
+                continue;
+            }
+        };
+
+        let response = match command {
+            Command::Get { key } => {
+                if let Some(value) = store.get(&key).await {
+                    Response::Value { data: value }
+                } else {
+                    Response::NotFound
+                }
+            }
+            Command::Set { key, value } => {
+                store.set(key, value).await;
+                Response::Ok
+            }
+            Command::Delete { key } => {
+                if store.delete(&key).await {
+                    Response::Ok
+                } else {
+                    Response::NotFound
+                }
+            }
+        };
+
+        writer.write_all(response.to_string().as_bytes()).await?;
+    }
+
+    Ok(())
+}
+
+//================================================
+// Milestone 2: Persistence with Write-Ahead Log (WAL)
+//================================================
+
+#[derive(Debug, Clone)]
+struct WalEntry {
+    command: Command,
+    timestamp: u64,
+}
+
+struct WriteAheadLog {
+    file: File,
+    path: PathBuf,
+}
+
+impl WriteAheadLog {
+    async fn new(path: PathBuf) -> io::Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .read(true)
+            .open(&path)
+            .await?;
+
+        Ok(WriteAheadLog { file, path })
+    }
+
+    async fn append(&mut self, entry: &WalEntry) -> io::Result<()> {
+        let line = match &entry.command {
+            Command::Set { key, value } => format!("SET {} {}\n", key, value),
+            Command::Delete { key } => format!("DELETE {}\n", key),
+            Command::Get { .. } => return Ok(()),
+        };
+
+        self.file.write_all(line.as_bytes()).await?;
+        self.file.sync_all().await?;
+
+        Ok(())
+    }
+
+    async fn replay(&self) -> io::Result<Vec<WalEntry>> {
+        let mut file = File::open(&self.path).await?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).await?;
+
+        let mut entries = Vec::new();
+        for (idx, line) in contents.lines().enumerate() {
+            if let Ok(command) = parse_command(line) {
+                entries.push(WalEntry {
+                    command,
+                    timestamp: idx as u64,
+                });
+            }
+        }
+
+        Ok(entries)
+    }
+}
+
+struct KvStoreWithWal {
+    data: Arc<RwLock<HashMap<String, String>>>,
+    wal: Arc<RwLock<WriteAheadLog>>,
+}
+
+impl KvStoreWithWal {
+    async fn new_with_wal(wal_path: PathBuf) -> io::Result<Self> {
+        let wal = WriteAheadLog::new(wal_path).await?;
+
+        let entries = wal.replay().await?;
+
+        let mut data = HashMap::new();
+        for entry in entries {
+            match entry.command {
+                Command::Set { key, value } => {
+                    data.insert(key, value);
+                }
+                Command::Delete { key } => {
+                    data.remove(&key);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(KvStoreWithWal {
+            data: Arc::new(RwLock::new(data)),
+            wal: Arc::new(RwLock::new(wal)),
+        })
+    }
+
+    async fn get(&self, key: &str) -> Option<String> {
+        let data = self.data.read().await;
+        data.get(key).cloned()
+    }
+
+    async fn set_durable(&self, key: String, value: String) -> io::Result<()> {
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Set {
+                key: key.clone(),
+                value: value.clone(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        self.data.write().await.insert(key, value);
+
+        Ok(())
+    }
+
+    async fn delete_durable(&self, key: &str) -> io::Result<bool> {
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Delete {
+                key: key.to_string(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        let existed = self.data.write().await.remove(key).is_some();
+        Ok(existed)
+    }
+}
+
+//================================================
+// Milestone 3: Async Replication (Master-Replica)
+//================================================
+
+struct ReplicatedKvStore {
+    data: Arc<RwLock<HashMap<String, String>>>,
+    wal: Arc<RwLock<WriteAheadLog>>,
+    replicas: Vec<String>,
+}
+
+impl ReplicatedKvStore {
+    async fn new_replicated(wal_path: PathBuf, replicas: Vec<String>) -> io::Result<Self> {
+        let wal = WriteAheadLog::new(wal_path).await?;
+        let entries = wal.replay().await?;
+
+        let mut data = HashMap::new();
+        for entry in entries {
+            match entry.command {
+                Command::Set { key, value } => {
+                    data.insert(key, value);
+                }
+                Command::Delete { key } => {
+                    data.remove(&key);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(ReplicatedKvStore {
+            data: Arc::new(RwLock::new(data)),
+            wal: Arc::new(RwLock::new(wal)),
+            replicas,
+        })
+    }
+
+    async fn get(&self, key: &str) -> Option<String> {
+        self.data.read().await.get(key).cloned()
+    }
+
+    async fn set_replicated(&self, key: String, value: String) -> io::Result<()> {
+        // Write to WAL
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Set {
+                key: key.clone(),
+                value: value.clone(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        // Update in-memory
+        self.data.write().await.insert(key.clone(), value.clone());
+
+        // Async replicate (fire and forget)
+        let replicas = self.replicas.clone();
+        tokio::spawn(async move {
+            for replica in replicas {
+                if let Ok(mut stream) = TcpStream::connect(&replica).await {
+                    let cmd = format!("REPLICATE SET {} {}\n", key, value);
+                    let _ = stream.write_all(cmd.as_bytes()).await;
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn delete_replicated(&self, key: &str) -> io::Result<bool> {
+        // Write to WAL
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Delete {
+                key: key.to_string(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        // Update in-memory
+        let existed = self.data.write().await.remove(key).is_some();
+
+        // Async replicate
+        let replicas = self.replicas.clone();
+        let key = key.to_string();
+        tokio::spawn(async move {
+            for replica in replicas {
+                if let Ok(mut stream) = TcpStream::connect(&replica).await {
+                    let cmd = format!("REPLICATE DELETE {}\n", key);
+                    let _ = stream.write_all(cmd.as_bytes()).await;
+                }
+            }
+        });
+
+        Ok(existed)
+    }
+}
+
+//================================================
+// Milestone 4: Synchronous Replication with Quorum Writes
+//================================================
+
+struct QuorumKvStore {
+    data: Arc<RwLock<HashMap<String, String>>>,
+    wal: Arc<RwLock<WriteAheadLog>>,
+    replicas: Vec<String>,
+    write_quorum: usize,
+}
+
+impl QuorumKvStore {
+    async fn new_quorum(
+        wal_path: PathBuf,
+        replicas: Vec<String>,
+        write_quorum: usize,
+    ) -> io::Result<Self> {
+        let wal = WriteAheadLog::new(wal_path).await?;
+        let entries = wal.replay().await?;
+
+        let mut data = HashMap::new();
+        for entry in entries {
+            match entry.command {
+                Command::Set { key, value } => {
+                    data.insert(key, value);
+                }
+                Command::Delete { key } => {
+                    data.remove(&key);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(QuorumKvStore {
+            data: Arc::new(RwLock::new(data)),
+            wal: Arc::new(RwLock::new(wal)),
+            replicas,
+            write_quorum,
+        })
+    }
+
+    async fn get(&self, key: &str) -> Option<String> {
+        self.data.read().await.get(key).cloned()
+    }
+
+    async fn set_quorum(&self, key: String, value: String) -> io::Result<()> {
+        // Write to WAL
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Set {
+                key: key.clone(),
+                value: value.clone(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        // Update in-memory
+        self.data.write().await.insert(key.clone(), value.clone());
+
+        // Synchronous replication with quorum
+        let (tx, mut rx) = mpsc::channel(self.replicas.len());
+
+        for replica in &self.replicas {
+            let replica = replica.clone();
+            let key = key.clone();
+            let value = value.clone();
+            let tx = tx.clone();
+
+            tokio::spawn(async move {
+                let result = async {
+                    let mut stream = TcpStream::connect(&replica).await?;
+                    let cmd = format!("REPLICATE SET {} {}\n", key, value);
+                    stream.write_all(cmd.as_bytes()).await?;
+
+                    // Wait for ACK
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).await?;
+                    let response = String::from_utf8_lossy(&buf[..n]);
+
+                    if response.contains("OK") {
+                        Ok(())
+                    } else {
+                        Err(io::Error::new(io::ErrorKind::Other, "Replica NACK"))
+                    }
+                }
+                .await;
+
+                let _ = tx.send(result).await;
+            });
+        }
+
+        drop(tx);
+
+        // Wait for quorum
+        let mut acks = 1; // Master itself counts
+        while let Some(result) = rx.recv().await {
+            if result.is_ok() {
+                acks += 1;
+                if acks >= self.write_quorum {
+                    return Ok(());
+                }
+            }
+        }
+
+        if acks >= self.write_quorum {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to reach quorum: {} < {}", acks, self.write_quorum),
+            ))
+        }
+    }
+
+    async fn delete_quorum(&self, key: &str) -> io::Result<bool> {
+        // Write to WAL
+        let mut wal = self.wal.write().await;
+        wal.append(&WalEntry {
+            command: Command::Delete {
+                key: key.to_string(),
+            },
+            timestamp: 0,
+        })
+        .await?;
+        drop(wal);
+
+        // Update in-memory
+        let existed = self.data.write().await.remove(key).is_some();
+
+        // Synchronous replication with quorum
+        let (tx, mut rx) = mpsc::channel(self.replicas.len());
+
+        for replica in &self.replicas {
+            let replica = replica.clone();
+            let key = key.to_string();
+            let tx = tx.clone();
+
+            tokio::spawn(async move {
+                let result = async {
+                    let mut stream = TcpStream::connect(&replica).await?;
+                    let cmd = format!("REPLICATE DELETE {}\n", key);
+                    stream.write_all(cmd.as_bytes()).await?;
+
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).await?;
+                    let response = String::from_utf8_lossy(&buf[..n]);
+
+                    if response.contains("OK") {
+                        Ok(())
+                    } else {
+                        Err(io::Error::new(io::ErrorKind::Other, "Replica NACK"))
+                    }
+                }
+                .await;
+
+                let _ = tx.send(result).await;
+            });
+        }
+
+        drop(tx);
+
+        let mut acks = 1;
+        while let Some(result) = rx.recv().await {
+            if result.is_ok() {
+                acks += 1;
+                if acks >= self.write_quorum {
+                    return Ok(existed);
+                }
+            }
+        }
+
+        if acks >= self.write_quorum {
+            Ok(existed)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to reach quorum: {} < {}", acks, self.write_quorum),
+            ))
+        }
+    }
+}
+
+//================================================
+// Milestone 5: Leader Election (Simplified Raft)
+//================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NodeRole {
+    Follower,
+    Candidate,
+    Leader,
+}
+
+struct RaftNode {
+    data: Arc<RwLock<HashMap<String, String>>>,
+    role: Arc<RwLock<NodeRole>>,
+    term: Arc<RwLock<u64>>,
+    voted_for: Arc<RwLock<Option<String>>>,
+    peers: Vec<String>,
+    node_id: String,
+}
+
+impl RaftNode {
+    fn new(node_id: String, peers: Vec<String>) -> Self {
+        RaftNode {
+            data: Arc::new(RwLock::new(HashMap::new())),
+            role: Arc::new(RwLock::new(NodeRole::Follower)),
+            term: Arc::new(RwLock::new(0)),
+            voted_for: Arc::new(RwLock::new(None)),
+            peers,
+            node_id,
+        }
+    }
+
+    async fn start_election(&self) -> bool {
+        // Become candidate
+        *self.role.write().await = NodeRole::Candidate;
+        let mut current_term = self.term.write().await;
+        *current_term += 1;
+        let term = *current_term;
+        drop(current_term);
+
+        // Vote for self
+        *self.voted_for.write().await = Some(self.node_id.clone());
+        let mut votes = 1;
+
+        // If no peers, we have majority
+        if self.peers.is_empty() {
+            *self.role.write().await = NodeRole::Leader;
+            return true;
+        }
+
+        // Request votes from peers
+        let (tx, mut rx) = mpsc::channel(self.peers.len());
+
+        for peer in &self.peers {
+            let peer = peer.clone();
+            let node_id = self.node_id.clone();
+            let tx = tx.clone();
+
+            tokio::spawn(async move {
+                let vote_granted = async {
+                    let mut stream = TcpStream::connect(&peer).await.ok()?;
+                    let request = format!("VOTE_REQUEST {} {}\n", node_id, term);
+                    stream.write_all(request.as_bytes()).await.ok()?;
+
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).await.ok()?;
+                    let response = String::from_utf8_lossy(&buf[..n]);
+
+                    if response.contains("VOTE_GRANTED") {
+                        Some(true)
+                    } else {
+                        Some(false)
+                    }
+                }
+                .await;
+
+                let _ = tx.send(vote_granted.unwrap_or(false)).await;
+            });
+        }
+
+        drop(tx);
+
+        // Count votes
+        let majority = (self.peers.len() + 1) / 2 + 1;
+
+        while let Some(vote) = rx.recv().await {
+            if vote {
+                votes += 1;
+                if votes >= majority {
+                    *self.role.write().await = NodeRole::Leader;
+                    return true;
+                }
+            }
+        }
+
+        votes >= majority
+    }
+
+    async fn is_leader(&self) -> bool {
+        *self.role.read().await == NodeRole::Leader
+    }
+
+    async fn send_heartbeat(&self) {
+        let term = *self.term.read().await;
+
+        for peer in &self.peers {
+            let peer = peer.clone();
+            let node_id = self.node_id.clone();
+
+            tokio::spawn(async move {
+                if let Ok(mut stream) = TcpStream::connect(&peer).await {
+                    let heartbeat = format!("HEARTBEAT {} {}\n", node_id, term);
+                    let _ = stream.write_all(heartbeat.as_bytes()).await;
+                }
+            });
+        }
+    }
+
+    async fn get(&self, key: &str) -> Option<String> {
+        self.data.read().await.get(key).cloned()
+    }
+
+    async fn set(&self, key: String, value: String) -> Result<(), String> {
+        if !self.is_leader().await {
+            return Err("Not leader".to_string());
+        }
+
+        self.data.write().await.insert(key, value);
+        Ok(())
+    }
+}
+
+async fn run_raft_node(node: Arc<RaftNode>) {
+    let heartbeat_interval = Duration::from_secs(1);
+    let election_timeout = Duration::from_secs(5);
+
+    tokio::spawn({
+        let node = node.clone();
+        async move {
+            let mut heartbeat_timer = interval(heartbeat_interval);
+            loop {
+                heartbeat_timer.tick().await;
+                if node.is_leader().await {
+                    node.send_heartbeat().await;
+                }
+            }
+        }
+    });
+
+    tokio::spawn({
+        let node = node.clone();
+        async move {
+            sleep(election_timeout).await;
+            if !node.is_leader().await {
+                node.start_election().await;
+            }
+        }
+    });
+}
+
+//================================================
+// Milestone 6: Client Connection Pool and Smart Routing
+//================================================
+
+struct ConnectionPool {
+    addr: String,
+    pool: Arc<RwLock<Vec<TcpStream>>>,
+    max_size: usize,
+}
+
+impl ConnectionPool {
+    fn new(addr: String, max_size: usize) -> Self {
+        ConnectionPool {
+            addr,
+            pool: Arc::new(RwLock::new(Vec::new())),
+            max_size,
+        }
+    }
+
+    async fn acquire(&self) -> io::Result<TcpStream> {
+        let mut pool = self.pool.write().await;
+
+        if let Some(stream) = pool.pop() {
+            Ok(stream)
+        } else {
+            TcpStream::connect(&self.addr).await
+        }
+    }
+
+    async fn release(&self, stream: TcpStream) {
+        let mut pool = self.pool.write().await;
+        if pool.len() < self.max_size {
+            pool.push(stream);
+        }
+    }
+}
+
+struct SmartKvClient {
+    pools: HashMap<String, ConnectionPool>,
+    leader: Arc<RwLock<Option<String>>>,
+    replicas: Vec<String>,
+}
+
+impl SmartKvClient {
+    fn new(servers: Vec<String>) -> Self {
+        let mut pools = HashMap::new();
+        for server in &servers {
+            pools.insert(server.clone(), ConnectionPool::new(server.clone(), 10));
+        }
+
+        SmartKvClient {
+            pools,
+            leader: Arc::new(RwLock::new(None)),
+            replicas: servers,
+        }
+    }
+
+    async fn discover_leader(&self) -> Option<String> {
+        for server in &self.replicas {
+            if let Ok(mut stream) = TcpStream::connect(server).await {
+                if stream.write_all(b"WHO_IS_LEADER\n").await.is_ok() {
+                    let mut buf = [0u8; 1024];
+                    if let Ok(n) = stream.read(&mut buf).await {
+                        let response = String::from_utf8_lossy(&buf[..n]);
+                        if let Some(leader) = response.strip_prefix("LEADER ") {
+                            return Some(leader.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    async fn get(&self, key: &str) -> io::Result<Option<String>> {
+        // Pick random replica for read
+        use rand::seq::SliceRandom;
+        let replica = self
+            .replicas
+            .choose(&mut rand::thread_rng())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No replicas"))?;
+
+        let pool = self
+            .pools
+            .get(replica)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Pool not found"))?;
+
+        let mut stream = pool.acquire().await?;
+        stream
+            .write_all(format!("GET {}\n", key).as_bytes())
+            .await?;
+
+        let mut buf = [0u8; 1024];
+        let n = stream.read(&mut buf).await?;
+        let response = String::from_utf8_lossy(&buf[..n]);
+
+        pool.release(stream).await;
+
+        if let Some(value) = response.strip_prefix("VALUE ") {
+            Ok(Some(value.trim().to_string()))
+        } else if response.contains("NOT_FOUND") {
+            Ok(None)
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "Invalid response"))
+        }
+    }
+
+    async fn set(&self, key: String, value: String) -> io::Result<()> {
+        loop {
+            // Get or discover leader
+            let leader = {
+                let cached = self.leader.read().await;
+                if let Some(l) = cached.as_ref() {
+                    Some(l.clone())
+                } else {
+                    None
+                }
+            };
+
+            let leader = match leader {
+                Some(l) => l,
+                None => {
+                    if let Some(l) = self.discover_leader().await {
+                        *self.leader.write().await = Some(l.clone());
+                        l
+                    } else {
+                        return Err(io::Error::new(io::ErrorKind::NotFound, "No leader"));
+                    }
+                }
+            };
+
+            let pool = self
+                .pools
+                .get(&leader)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Pool not found"))?;
+
+            let mut stream = pool.acquire().await?;
+            stream
+                .write_all(format!("SET {} {}\n", key, value).as_bytes())
+                .await?;
+
+            let mut buf = [0u8; 1024];
+            let n = stream.read(&mut buf).await?;
+            let response = String::from_utf8_lossy(&buf[..n]);
+
+            pool.release(stream).await;
+
+            if response.contains("OK") {
+                return Ok(());
+            } else if response.contains("NOT_LEADER") {
+                // Invalidate cached leader and retry
+                *self.leader.write().await = None;
+                continue;
+            } else {
+                return Err(io::Error::new(io::ErrorKind::Other, "Write failed"));
+            }
+        }
+    }
+}
+
+//================================================
+// Tests
+//================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use tokio::time::sleep;
+
+    // Milestone 1 Tests
+    #[tokio::test]
+    async fn test_set_and_get() {
+        let store = KvStore::new();
+        store.set("name".to_string(), "Alice".to_string()).await;
+        let value = store.get("name").await;
+        assert_eq!(value, Some("Alice".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent() {
+        let store = KvStore::new();
+        let value = store.get("missing").await;
+        assert_eq!(value, None);
+    }
+
+    #[tokio::test]
+    async fn test_delete() {
+        let store = KvStore::new();
+        store.set("temp".to_string(), "value".to_string()).await;
+        assert!(store.delete("temp").await);
+        assert_eq!(store.get("temp").await, None);
+    }
+
+    #[tokio::test]
+    async fn test_overwrite() {
+        let store = KvStore::new();
+        store.set("key".to_string(), "v1".to_string()).await;
+        store.set("key".to_string(), "v2".to_string()).await;
+        assert_eq!(store.get("key").await, Some("v2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_get() {
+        let cmd = parse_command("GET mykey").unwrap();
+        assert!(matches!(cmd, Command::Get { key } if key == "mykey"));
+    }
+
+    #[test]
+    fn test_parse_set() {
+        let cmd = parse_command("SET mykey myvalue").unwrap();
+        assert!(matches!(cmd, Command::Set { key, value }
+            if key == "mykey" && value == "myvalue"));
+    }
+
+    #[test]
+    fn test_parse_set_with_spaces() {
+        let cmd = parse_command("SET mykey hello world").unwrap();
+        assert!(matches!(cmd, Command::Set { key, value }
+            if key == "mykey" && value == "hello world"));
+    }
+
+    // Milestone 2 Tests
+    #[tokio::test]
+    async fn test_wal_append_and_replay() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("test.wal");
+
+        {
+            let mut wal = WriteAheadLog::new(wal_path.clone()).await.unwrap();
+
+            wal.append(&WalEntry {
+                command: Command::Set {
+                    key: "key1".to_string(),
+                    value: "value1".to_string(),
+                },
+                timestamp: 1,
+            })
+            .await
+            .unwrap();
+
+            wal.append(&WalEntry {
+                command: Command::Set {
+                    key: "key2".to_string(),
+                    value: "value2".to_string(),
+                },
+                timestamp: 2,
+            })
+            .await
+            .unwrap();
+        }
+
+        let wal = WriteAheadLog::new(wal_path).await.unwrap();
+        let entries = wal.replay().await.unwrap();
+
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_persistence_across_restart() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("store.wal");
+
+        {
+            let store = KvStoreWithWal::new_with_wal(wal_path.clone())
+                .await
+                .unwrap();
+            store
+                .set_durable("name".to_string(), "Alice".to_string())
+                .await
+                .unwrap();
+            store
+                .set_durable("age".to_string(), "30".to_string())
+                .await
+                .unwrap();
+        }
+
+        {
+            let store = KvStoreWithWal::new_with_wal(wal_path).await.unwrap();
+            assert_eq!(store.get("name").await, Some("Alice".to_string()));
+            assert_eq!(store.get("age").await, Some("30".to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_persistence() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("delete.wal");
+
+        {
+            let store = KvStoreWithWal::new_with_wal(wal_path.clone())
+                .await
+                .unwrap();
+            store
+                .set_durable("temp".to_string(), "value".to_string())
+                .await
+                .unwrap();
+            store.delete_durable("temp").await.unwrap();
+        }
+
+        {
+            let store = KvStoreWithWal::new_with_wal(wal_path).await.unwrap();
+            assert_eq!(store.get("temp").await, None);
+        }
+    }
+
+    // Milestone 3 Tests
+    #[tokio::test]
+    async fn test_replicated_store_creation() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("replicated.wal");
+        let replicas = vec!["127.0.0.1:9401".to_string()];
+
+        let store = ReplicatedKvStore::new_replicated(wal_path, replicas)
+            .await
+            .unwrap();
+        assert!(store.get("nonexistent").await.is_none());
+    }
+
+    // Milestone 4 Tests
+    #[tokio::test]
+    async fn test_quorum_store_creation() {
+        let dir = tempdir().unwrap();
+        let wal_path = dir.path().join("quorum.wal");
+        let replicas = vec!["127.0.0.1:9501".to_string(), "127.0.0.1:9502".to_string()];
+
+        let store = QuorumKvStore::new_quorum(wal_path, replicas, 2)
+            .await
+            .unwrap();
+        assert!(store.get("nonexistent").await.is_none());
+    }
+
+    // Milestone 5 Tests
+    #[tokio::test]
+    async fn test_raft_node_creation() {
+        let peers = vec!["127.0.0.1:9601".to_string()];
+        let node = RaftNode::new("node1".to_string(), peers);
+        assert!(!node.is_leader().await);
+    }
+
+    #[tokio::test]
+    async fn test_raft_node_election() {
+        let peers = vec![];
+        let node = RaftNode::new("node1".to_string(), peers);
+
+        // With no peers, should become leader
+        let elected = node.start_election().await;
+        assert!(elected);
+        assert!(node.is_leader().await);
+    }
+
+    // Milestone 6 Tests
+    #[tokio::test]
+    async fn test_connection_pool() {
+        let pool = ConnectionPool::new("127.0.0.1:9999".to_string(), 5);
+        // Pool operations would require a running server
+        assert_eq!(pool.max_size, 5);
+    }
+
+    #[tokio::test]
+    async fn test_smart_client_creation() {
+        let servers = vec!["127.0.0.1:9701".to_string()];
+        let client = SmartKvClient::new(servers.clone());
+        assert_eq!(client.replicas.len(), 1);
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    // Start 3-node cluster
-    let node1 = Arc::new(KvStore::new_with_id("node1".to_string()));
-    let node2 = Arc::new(KvStore::new_with_id("node2".to_string()));
-    let node3 = Arc::new(KvStore::new_with_id("node3".to_string()));
+    println!("Distributed Key-Value Store - All Milestones");
+    println!("=============================================");
+    println!("Run with `cargo test --bin complete_26_network_kv_store` to test all milestones");
+    println!("\nMilestones implemented:");
+    println!("  1. In-Memory KV Store (TCP Protocol)");
+    println!("  2. Persistence with Write-Ahead Log (WAL)");
+    println!("  3. Async Replication (Master-Replica)");
+    println!("  4. Synchronous Replication with Quorum Writes");
+    println!("  5. Leader Election (Simplified Raft)");
+    println!("  6. Client Connection Pool and Smart Routing");
 
-    // Configure as cluster
-    node1.add_peer("127.0.0.1:6380".to_string()).await;
-    node1.add_peer("127.0.0.1:6381".to_string()).await;
-
-    // Start servers
-    tokio::spawn(run_server("127.0.0.1:6379", node1.clone()));
-    tokio::spawn(run_server("127.0.0.1:6380", node2.clone()));
-    tokio::spawn(run_server("127.0.0.1:6381", node3.clone()));
-
-    // Start leader election
-    tokio::spawn(node1.run_election_timeout());
-    tokio::spawn(node2.run_election_timeout());
-    tokio::spawn(node3.run_election_timeout());
-
-    // Client usage
-    let client = KvClient::new(vec![
-        "127.0.0.1:6379".to_string(),
-        "127.0.0.1:6380".to_string(),
-        "127.0.0.1:6381".to_string(),
-    ]);
-
-    // Writes go to leader, reads distributed
-    client.set("user:1".to_string(), "Alice".to_string()).await.unwrap();
-    let value = client.get("user:1").await.unwrap();
-    println!("Value: {:?}", value);
+    if let Err(e) = run_kv_server("127.0.0.1:6379").await {
+        eprintln!("Server error: {}", e);
+    }
 }
+
 ```
 
----
-
-## Summary
-
-**What You Built**: A production-grade distributed key-value store with persistence, replication, consistency, and automatic failover.
-
-**Key Concepts Mastered**:
-- **TCP client-server patterns**: Custom protocols, async networking
-- **Write-Ahead Logging**: Durability and crash recovery
-- **Replication**: Async (performance) vs Sync quorum (consistency)
-- **Distributed consensus**: Leader election (simplified Raft)
-- **Client patterns**: Connection pooling, smart routing, automatic failover
-
-**Performance Journey**:
-- **Milestone 1**: 50K writes/sec (memory-only)
-- **Milestone 2**: 10K writes/sec (WAL durability cost)
-- **Milestone 3**: 30K writes/sec (async replication)
-- **Milestone 4**: 15K writes/sec (quorum writes for consistency)
-- **Milestone 6**: 10K req/sec per client (connection pooling)
-
-**Real-World Applications**: This architecture is the foundation of Redis, etcd, Consul, and every distributed database.

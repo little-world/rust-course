@@ -391,17 +391,7 @@ fn concurrent_request_counter() {
 }
 ```
 
-## Summary
-
-This chapter covered essential HashMap and HashSet patterns: 
-
-1.  **Entry API**: Efficient single-lookup operations (or_insert, and_modify)
-2.  **Custom Hash**: Case-insensitive keys, composite keys, spatial hashing, floating-point keys
-3.  **Capacity Optimization**: Pre-allocation, load factor management, memory efficiency
-4.  **Alternative Maps**: BTreeMap for ordering, FxHashMap for speed
-5.  **Concurrent Maps**: DashMap for high-performance multi-threaded access
-
-**Key Takeaways**:
+## Key Takeaways**:
 -   Use Entry API to avoid double lookups
 -   Pre-allocate capacity when size is known
 -   Choose the right map type for your use case

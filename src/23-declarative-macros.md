@@ -1,5 +1,5 @@
 # Declarative Macros
-This chapter covers declarative macros (macro_rules!)—pattern matching on syntax to generate code at compile-time. Macros enable variadic arguments, DSLs, and zero-cost abstractions impossible with functions. Pattern match input syntax, expand to template code.
+This chapter covers declarative macros (macro_rules!); pattern matching on syntax to generate code at compile-time. Macros enable variadic arguments, DSLs, and zero-cost abstractions impossible with functions. Pattern match input syntax, expand to template code.
 
 
 

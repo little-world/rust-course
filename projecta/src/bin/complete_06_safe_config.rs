@@ -152,12 +152,7 @@ struct ServerConfig {
 
 impl ServerConfig {
     /// Creates a new ServerConfig from validated newtypes
-    fn new(
-        host: Hostname,
-        port: Port,
-        timeout: Timeout,
-        max_connections: MaxConnections,
-    ) -> Self {
+    fn new(host: Hostname, port: Port, timeout: Timeout, max_connections: MaxConnections) -> Self {
         ServerConfig {
             host,
             port,
@@ -309,15 +304,15 @@ fn main() {
 
     // Example 2: Using builder with defaults
     println!("Example 2: Using defaults");
-    let config2 = ServerConfig::builder()
-        .host("localhost")
-        .build()
-        .unwrap();
+    let config2 = ServerConfig::builder().host("localhost").build().unwrap();
 
     println!("Config with defaults: {:?}", config2);
     println!("  Default port: {}", *config2.port);
     println!("  Default timeout: {:?}", config2.timeout.as_duration());
-    println!("  Default max_connections: {}", config2.max_connections.get());
+    println!(
+        "  Default max_connections: {}",
+        config2.max_connections.get()
+    );
     println!();
 
     // Example 3: Handling validation errors

@@ -286,9 +286,15 @@ mod milestone_4 {
                 misses: Cell::new(0),
             }
         }
-        fn record_hit(&self) { self.hits.set(self.hits.get() + 1); }
-        fn record_miss(&self) { self.misses.set(self.misses.get() + 1); }
-        fn get_stats(&self) -> (usize, usize) { (self.hits.get(), self.misses.get()) }
+        fn record_hit(&self) {
+            self.hits.set(self.hits.get() + 1);
+        }
+        fn record_miss(&self) {
+            self.misses.set(self.misses.get() + 1);
+        }
+        fn get_stats(&self) -> (usize, usize) {
+            (self.hits.get(), self.misses.get())
+        }
     }
 
     struct LRUCache<K, V> {
@@ -352,8 +358,12 @@ mod milestone_4 {
             order.push_back(key);
         }
 
-        fn len(&self) -> usize { self.data.borrow().len() }
-        fn stats(&self) -> (usize, usize) { self.stats.get_stats() }
+        fn len(&self) -> usize {
+            self.data.borrow().len()
+        }
+        fn stats(&self) -> (usize, usize) {
+            self.stats.get_stats()
+        }
         fn clear(&self) {
             self.data.borrow_mut().clear();
             self.order.borrow_mut().clear();
@@ -416,10 +426,17 @@ mod milestone_5 {
                 misses: AtomicUsize::new(0),
             }
         }
-        fn record_hit(&self) { self.hits.fetch_add(1, Ordering::Relaxed); }
-        fn record_miss(&self) { self.misses.fetch_add(1, Ordering::Relaxed); }
+        fn record_hit(&self) {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+        }
+        fn record_miss(&self) {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+        }
         fn get_stats(&self) -> (usize, usize) {
-            (self.hits.load(Ordering::Relaxed), self.misses.load(Ordering::Relaxed))
+            (
+                self.hits.load(Ordering::Relaxed),
+                self.misses.load(Ordering::Relaxed),
+            )
         }
     }
 

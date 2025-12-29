@@ -1,5 +1,5 @@
 # Serialization Patterns
-This chapter covers serialization patterns using serde—converting Rust types to/from JSON, binary formats, config files. Serde provides zero-cost abstraction: types separated from formats, derive macros generate optimal code, switch formats by changing one line.
+This chapter covers serialization patterns using serde; converting Rust types to/from JSON, binary formats, config files. Serde provides zero-cost abstraction: types separated from formats, derive macros generate optimal code, switch formats by changing one line.
 
 
 

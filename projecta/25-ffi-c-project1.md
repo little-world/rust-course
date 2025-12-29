@@ -571,3 +571,300 @@ Set `DYLD_LIBRARY_PATH` (macOS) or `LD_LIBRARY_PATH` (Linux) if loading from non
 ### Testing Hints
 - Compare with Python’s `sorted(list(a))` for correctness over random arrays.
 - Use `pytest -q` and run multiple seeds; time runs with `timeit` vs. NumPy for bigger arrays.
+
+
+## Complete Working Example
+```rust
+//! complete_25_ffi_c.rs
+//! 
+//! End-to-end implementation for the “FFI with C qsort/bsearch” project.
+//! Each milestone from the workbook is represented in order, with the
+//! requested functionality and tests.
+
+#![allow(clippy::missing_safety_doc)]
+
+use core::cmp::Ordering;
+use core::ffi::c_void;
+
+extern "C" {
+    fn qsort(
+        base: *mut c_void,
+        nmemb: usize,
+        size: usize,
+        compar: extern "C" fn(*const c_void, *const c_void) -> i32,
+    );
+
+    fn bsearch(
+        key: *const c_void,
+        base: *const c_void,
+        nmemb: usize,
+        size: usize,
+        compar: extern "C" fn(*const c_void, *const c_void) -> i32,
+    ) -> *mut c_void;
+}
+
+//============================================================
+// Milestone 1: Baseline Sorting in Pure Rust
+//============================================================
+
+pub fn baseline_sort<T: Ord>(v: &mut [T]) {
+    v.sort_unstable();
+}
+
+pub fn baseline_sort_by<T, F>(v: &mut [T], cmp: F)
+where
+    F: FnMut(&T, &T) -> Ordering,
+{
+    v.sort_unstable_by(cmp);
+}
+
+//============================================================
+// Milestone 2: Minimal qsort via unsafe FFI
+//============================================================
+
+pub unsafe fn qsort_raw(
+    data: *mut c_void,
+    len: usize,
+    elem_size: usize,
+    cmp: extern "C" fn(*const c_void, *const c_void) -> i32,
+) {
+    assert!(elem_size > 0, "qsort cannot operate on ZSTs");
+    if len <= 1 {
+        return;
+    }
+    qsort(data, len, elem_size, cmp);
+}
+
+//============================================================
+// Milestone 3: Safe qsort wrapper for slices
+//============================================================
+
+pub fn qsort_slice<T: Copy>(
+    v: &mut [T],
+    cmp_typed: extern "C" fn(*const T, *const T) -> i32,
+) {
+    if v.len() <= 1 {
+        return;
+    }
+    let elem_size = core::mem::size_of::<T>();
+    assert!(elem_size > 0, "qsort does not support zero-sized types");
+    let cmp = unsafe {
+        core::mem::transmute::<
+            extern "C" fn(*const T, *const T) -> i32,
+            extern "C" fn(*const c_void, *const c_void) -> i32,
+        >(cmp_typed)
+    };
+    let ptr = v.as_mut_ptr() as *mut c_void;
+    unsafe { qsort_raw(ptr, v.len(), elem_size, cmp) };
+}
+
+//============================================================
+// Milestone 4: bsearch wrapper returning Option<usize>
+//============================================================
+
+pub fn bsearch_slice<T>(
+    v: &[T],
+    key: &T,
+    cmp_typed: extern "C" fn(*const T, *const T) -> i32,
+) -> Option<usize> {
+    if v.is_empty() {
+        return None;
+    }
+    let elem_size = core::mem::size_of::<T>();
+    assert!(elem_size > 0, "bsearch does not support zero-sized types");
+    let cmp = unsafe {
+        core::mem::transmute::<
+            extern "C" fn(*const T, *const T) -> i32,
+            extern "C" fn(*const c_void, *const c_void) -> i32,
+        >(cmp_typed)
+    };
+    let base = v.as_ptr() as *const c_void;
+    let key_ptr = key as *const T as *const c_void;
+    let raw = unsafe { bsearch(key_ptr, base, v.len(), elem_size, cmp) };
+    if raw.is_null() {
+        None
+    } else {
+        let offset = (raw as usize) - (base as usize);
+        Some(offset / elem_size)
+    }
+}
+
+//============================================================
+// Milestone 5: Robustness and Performance
+//============================================================
+
+pub unsafe fn qsort_slice_unchecked<T: Copy>(
+    ptr: *mut T,
+    len: usize,
+    cmp_typed: extern "C" fn(*const T, *const T) -> i32,
+) {
+    if len <= 1 {
+        return;
+    }
+    let elem_size = core::mem::size_of::<T>();
+    debug_assert!(elem_size > 0, "qsort cannot operate on ZSTs");
+    let cmp = core::mem::transmute::<
+        extern "C" fn(*const T, *const T) -> i32,
+        extern "C" fn(*const c_void, *const c_void) -> i32,
+    >(cmp_typed);
+    qsort_raw(ptr as *mut c_void, len, elem_size, cmp);
+}
+
+extern "C" fn cmp_i32(a: *const i32, b: *const i32) -> i32 {
+    let (a, b) = unsafe { (&*a, &*b) };
+    match a.cmp(b) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
+    }
+}
+
+//============================================================
+// Milestone 6: Demonstration / Discussion Entry Point
+//============================================================
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Pair {
+    pub a: i32,
+    pub b: i32,
+}
+
+extern "C" fn cmp_pair(a: *const Pair, b: *const Pair) -> i32 {
+    let (a, b) = unsafe { (&*a, &*b) };
+    match a.a.cmp(&b.a) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
+    }
+}
+
+fn main() {
+    let mut numbers = vec![5, 1, 4, 2, 3];
+    baseline_sort(&mut numbers);
+    println!("Baseline sort: {numbers:?}");
+
+    let mut pairs = vec![
+        Pair { a: 3, b: 9 },
+        Pair { a: 1, b: 7 },
+        Pair { a: 2, b: 5 },
+    ];
+    qsort_slice(&mut pairs, cmp_pair);
+    println!("FFI qsort (by a): {pairs:?}");
+
+    let key = Pair { a: 2, b: 0 };
+    if let Some(ix) = bsearch_slice(&pairs, &key, cmp_pair) {
+        println!("bsearch located {:?} at index {}", key, ix);
+    }
+}
+
+//============================================================
+// Milestone 7: Python-friendly C ABI functions
+//============================================================
+
+#[no_mangle]
+pub extern "C" fn qsort_i32(ptr: *mut i32, len: usize) {
+    if ptr.is_null() {
+        return;
+    }
+    let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+    qsort_slice(slice, cmp_i32);
+}
+
+#[no_mangle]
+pub extern "C" fn bsearch_i32(ptr: *const i32, len: usize, key: i32) -> isize {
+    if ptr.is_null() {
+        return -1;
+    }
+    let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+    match bsearch_slice(slice, &key, cmp_i32) {
+        Some(ix) => ix as isize,
+        None => -1,
+    }
+}
+
+//============================================================
+// Tests
+//============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn baseline_sorts_numbers() {
+        let mut v = vec![5, 1, 4, 2, 3];
+        baseline_sort(&mut v);
+        assert_eq!(v, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn baseline_sort_by_custom_order() {
+        let mut v = vec![5, 1, 4, 2, 3];
+        baseline_sort_by(&mut v, |a, b| b.cmp(a));
+        assert_eq!(v, [5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn qsort_slice_sorts_pairs() {
+        let mut v = vec![
+            Pair { a: 2, b: 9 },
+            Pair { a: 1, b: 7 },
+            Pair { a: 3, b: 5 },
+        ];
+        qsort_slice(&mut v, cmp_pair);
+        assert_eq!(v.iter().map(|p| p.a).collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn bsearch_finds_element() {
+        let v = [1, 2, 3, 4, 5];
+        assert_eq!(bsearch_slice(&v, &3, cmp_i32), Some(2));
+        assert_eq!(bsearch_slice(&v, &42, cmp_i32), None);
+    }
+
+    #[test]
+    fn ffi_qsort_matches_baseline_random() {
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+
+        let mut rng = StdRng::seed_from_u64(0xfeed_face);
+        for _ in 0..64 {
+            let len = rng.gen_range(0..32);
+            let mut data: Vec<i32> = (0..len).map(|_| rng.gen_range(-100..100)).collect();
+            let mut expected = data.clone();
+            baseline_sort(&mut expected);
+            qsort_slice(&mut data, cmp_i32);
+            assert_eq!(data, expected);
+        }
+    }
+
+    #[test]
+    fn qsort_slice_unchecked_sorts() {
+        let mut v = vec![9, 4, 7, 1, 3];
+        unsafe { qsort_slice_unchecked(v.as_mut_ptr(), v.len(), cmp_i32) };
+        assert_eq!(v, [1, 3, 4, 7, 9]);
+    }
+
+    #[test]
+    #[should_panic(expected = "qsort does not support zero-sized types")]
+    fn qsort_slice_rejects_zst() {
+        #[derive(Copy, Clone)]
+        struct Z;
+        extern "C" fn cmp_z(_: *const Z, _: *const Z) -> i32 {
+            0
+        }
+        let mut data = [Z, Z];
+        qsort_slice(&mut data, cmp_z);
+    }
+
+    #[test]
+    fn python_wrappers_operate_in_place() {
+        let mut data = vec![5, 1, 4, 2, 3];
+        qsort_i32(data.as_mut_ptr(), data.len());
+        assert_eq!(data, [1, 2, 3, 4, 5]);
+        assert_eq!(bsearch_i32(data.as_ptr(), data.len(), 3), 2);
+        assert_eq!(bsearch_i32(data.as_ptr(), data.len(), 99), -1);
+    }
+}
+```

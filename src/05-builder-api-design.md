@@ -7,7 +7,7 @@ This chapter explores several powerful API design patterns in Rust:
 - **Generic Parameters**: Employing `Into`/`AsRef` for flexible function arguments.
 - **`#[must_use]` attribute**: To prevent accidental misuse of important return values.
 
----
+
 
 ## Pattern 1: Builder Pattern Variations
 

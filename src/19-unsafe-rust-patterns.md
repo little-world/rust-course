@@ -1,5 +1,5 @@
 # Unsafe Rust Patterns
-Unsafe Rust is not a separate language—it's a escape hatch that allows you to tell the compiler "I know what I'm doing, trust me on this." While Rust's safety guarantees are powerful, they can't express every valid program. Low-level systems programming, hardware interaction, foreign function interfaces, and certain performance optimizations require operations that the compiler cannot verify as safe.
+Unsafe Rust is not a separate language. It's a escape hatch that allows you to tell the compiler "I know what I'm doing, trust me on this." While Rust's safety guarantees are powerful, they can not express every valid program. Low-level systems programming, hardware interaction, foreign function interfaces, and certain performance optimizations require operations that the compiler cannot verify as safe.
 
 The `unsafe` keyword doesn't disable Rust's safety checks; it expands what you're allowed to do. You're still protected from type confusion, use-after-free in safe code surrounding your unsafe blocks, and many other pitfalls. What `unsafe` enables are five specific superpowers that the compiler cannot verify automatically:
 
@@ -11,11 +11,6 @@ The `unsafe` keyword doesn't disable Rust's safety checks; it expands what you'r
 
 This chapter explores patterns for using unsafe code responsibly. The goal is not to avoid unsafe code—that would be impossible for low-level libraries—but to **build safe abstractions over unsafe foundations**. Every unsafe block should be surrounded by safe APIs that enforce invariants, document preconditions, and prevent misuse.
 
-Understanding unsafe Rust is crucial for:
-- **Systems programming**: Operating systems, device drivers, embedded systems
-- **Performance-critical code**: Zero-copy operations, custom allocators, SIMD
-- **FFI (Foreign Function Interface)**: Calling C libraries, exposing Rust to other languages
-- **Advanced data structures**: Intrusive lists, lock-free algorithms, graph structures
 
 The patterns we'll explore show how to:
 - Manipulate raw pointers safely while maintaining invariants
@@ -24,7 +19,7 @@ The patterns we'll explore show how to:
 - Use transmute sparingly and correctly
 - Build safe APIs that encapsulate unsafe internals
 
-**The golden rule**: Unsafe code is not about being unsafe—it's about maintaining safety invariants that the compiler cannot verify. Every unsafe block should have a comment explaining why it's correct. If you can't explain why it's safe, it probably isn't.
+**The golden rule**: Unsafe code is not about being unsafe. It's about maintaining safety invariants that the compiler cannot verify. Every unsafe block should have a comment explaining why it's correct. If you can't explain why it's safe, it probably isn't.
 
 
 ## Pattern 1: Raw Pointer Manipulation
@@ -1675,7 +1670,7 @@ fn safe_transmute_example() {
 
 ### Summary
 
-Unsafe Rust is not about being reckless—it's about taking responsibility for safety properties the compiler cannot verify. Every unsafe block is a promise: "I have verified these invariants hold."
+Unsafe Rust is not about being reckless—it's about taking responsibility for safety properties the compiler cannot verify.
 
 **Key principles**:
 1. **Minimize scope**: Keep unsafe blocks small and localized
@@ -1695,7 +1690,5 @@ Unsafe Rust is not about being reckless—it's about taking responsibility for s
 - For micro-optimizations without measurements
 - When safe abstractions exist (use them!)
 - If you can't explain why it's safe (it probably isn't)
-
-Unsafe Rust gives you the power to build anything—operating systems, databases, game engines, embedded systems. With that power comes responsibility. Document your assumptions, test thoroughly, and always ask: "Is there a safe way to do this?" If not, make your unsafe code correct enough that others can build safe abstractions on top.
 
 The standard library is proof this works: millions of lines of safe Rust code rely on carefully crafted unsafe foundations. Your unsafe code can achieve the same reliability with discipline and care.

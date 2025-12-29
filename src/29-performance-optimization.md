@@ -1235,36 +1235,6 @@ This chapter covered performance optimization patterns for maximizing Rust code 
 4. Verify with benchmarks (did it actually help?)
 5. Repeat for next hotspot
 
-**Common Optimizations**:
-```rust
-// Pre-allocate capacity
-let mut vec = Vec::with_capacity(1000);  // vs Vec::new()
-
-// Reuse buffers
-buffer.clear();  // vs let mut buffer = String::new()
-
-// SmallVec for small collections
-let small: SmallVec<[i32; 4]> = SmallVec::new();  // Stack if ≤4 elements
-
-// Cow for conditional cloning
-fn process(s: &str) -> Cow<str> {
-    if needs_change { Cow::Owned(modified) } else { Cow::Borrowed(s) }
-}
-
-// Struct-of-arrays
-struct Particles {
-    x: Vec<f32>, y: Vec<f32>, z: Vec<f32>  // vs Vec<Particle>
-}
-
-// Iterator chains (zero-cost)
-items.iter().filter(|x| x.is_valid()).map(|x| x.process()).collect()
-
-// Compiler optimizations in Cargo.toml
-[profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-```
 
 **Profiling Commands**:
 ```bash

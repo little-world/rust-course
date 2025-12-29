@@ -1,5 +1,5 @@
 # Async I/O Patterns
-This chapter explores async I/O patterns using Tokio—handling thousands of concurrent connections, buffered streams, backpressure, connection pooling, and timeouts. Async I/O allows one thread to manage thousands of operations by yielding when blocked, solving the C10K problem.
+This chapter explores async I/O patterns using Tokio. Handling thousands of concurrent connections, buffered streams, backpressure, connection pooling, and timeouts. Async I/O allows one thread to manage thousands of operations by yielding when blocked, solving the C10K problem.
 
 
 ## Pattern 1: Tokio File and Network I/O

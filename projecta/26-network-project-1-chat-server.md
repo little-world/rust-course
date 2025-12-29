@@ -2505,17 +2505,14 @@ async fn handle_websocket_with_keepalive(
 Below is a fully functional multi-protocol chat server with all 6 milestones integrated:
 
 ```rust
-// Cargo.toml
-// [dependencies]
-// tokio = { version = "1", features = ["full"] }
-// axum = "0.7"
-// futures-util = "0.3"
-// tokio-util = "0.7"
-
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpListener as StdTcpListener, TcpStream as StdTcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
 use axum::{
     extract::{ws::WebSocket, ws::WebSocketUpgrade, State},
     response::IntoResponse,
@@ -2523,13 +2520,167 @@ use axum::{
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
-use tokio::time::{interval, Duration};
+use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
-// ============= Data Structures =============
+//================================================
+// Milestone 1: Simple Echo Server (Synchronous, Single-Threaded)
+//================================================
+
+fn run_echo_server(addr: &str) -> io::Result<()> {
+    let listener = StdTcpListener::bind(addr)?;
+    println!("Echo server listening on {}", addr);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let peer = stream.peer_addr()?;
+                println!("New client: {}", peer);
+
+                if let Err(e) = handle_client_sync(stream) {
+                    eprintln!("Error handling client: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Connection failed: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_client_sync(stream: StdTcpStream) -> io::Result<()> {
+    let reader = BufReader::new(&stream);
+    let mut writer = &stream;
+
+    for line_result in reader.lines() {
+        let line = line_result?;
+        if line.is_empty() {
+            continue;
+        }
+        writer.write_all(line.as_bytes())?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+    }
+
+    Ok(())
+}
+
+//================================================
+// Milestone 2: Multi-Threaded Echo Server
+//================================================
+
+fn run_threaded_echo_server(addr: &str) -> io::Result<()> {
+    let listener = StdTcpListener::bind(addr)?;
+    println!("Multi-threaded echo server listening on {}", addr);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let peer = stream.peer_addr()?;
+                println!("New client: {}", peer);
+
+                thread::spawn(move || {
+                    if let Err(e) = handle_client_sync(stream) {
+                        eprintln!("Error with {}: {}", peer, e);
+                    }
+                });
+            }
+            Err(e) => {
+                eprintln!("Connection failed: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+//================================================
+// Milestone 3: Async TCP Chat with Broadcast
+//================================================
+
+async fn run_chat_server(addr: &str) -> tokio::io::Result<()> {
+    let (tx, _rx) = broadcast::channel(100);
+    let listener = TcpListener::bind(addr).await?;
+
+    println!("Chat server listening on {}", addr);
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        println!("Client connected: {}", addr);
+
+        let tx = tx.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_chat_client(stream, tx, addr).await {
+                eprintln!("Error with {}: {}", addr, e);
+            }
+        });
+    }
+}
+
+async fn handle_chat_client(
+    stream: TcpStream,
+    tx: broadcast::Sender<String>,
+    addr: SocketAddr,
+) -> tokio::io::Result<()> {
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = TokioBufReader::new(reader);
+    let mut rx = tx.subscribe();
+
+    let tx_clone = tx.clone();
+    let addr_clone = addr;
+    let mut read_task = tokio::spawn(async move {
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let msg = format!("[{}] {}", addr_clone, line.trim());
+                    tx_clone.send(msg).ok();
+                }
+                Err(e) => {
+                    eprintln!("Read error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    let mut write_task = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    if writer.write_all(msg.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if writer.write_all(b"\n").await.is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        Ok::<_, tokio::io::Error>(())
+    });
+
+    tokio::select! {
+        _ = &mut read_task => write_task.abort(),
+        _ = &mut write_task => read_task.abort(),
+    }
+
+    println!("Client disconnected: {}", addr);
+    Ok(())
+}
+
+//================================================
+// Milestone 4: Room-Based Architecture
+//================================================
 
 struct ChatServer {
     rooms: Arc<RwLock<HashMap<String, Room>>>,
@@ -2540,13 +2691,6 @@ struct Room {
     users: HashSet<SocketAddr>,
 }
 
-struct Metrics {
-    active_connections: AtomicUsize,
-    total_messages: AtomicUsize,
-}
-
-// ============= ChatServer Implementation =============
-
 impl ChatServer {
     fn new() -> Self {
         ChatServer {
@@ -2554,23 +2698,31 @@ impl ChatServer {
         }
     }
 
-    async fn join_room(&self, room_id: String, user: SocketAddr) -> broadcast::Receiver<String> {
+    async fn join_room(
+        &self,
+        room_id: String,
+        user: SocketAddr,
+    ) -> broadcast::Receiver<String> {
         let mut rooms = self.rooms.write().await;
-        let room = rooms.entry(room_id).or_insert_with(|| {
+
+        let room = rooms.entry(room_id.clone()).or_insert_with(|| {
             let (tx, _) = broadcast::channel(100);
             Room {
                 tx,
                 users: HashSet::new(),
             }
         });
+
         room.users.insert(user);
         room.tx.subscribe()
     }
 
     async fn leave_room(&self, room_id: &str, user: &SocketAddr) {
         let mut rooms = self.rooms.write().await;
+
         if let Some(room) = rooms.get_mut(room_id) {
             room.users.remove(user);
+
             if room.users.is_empty() {
                 rooms.remove(room_id);
             }
@@ -2589,13 +2741,264 @@ impl ChatServer {
     }
 }
 
-// ============= Metrics Implementation =============
+async fn run_room_chat_server(addr: &str) -> tokio::io::Result<()> {
+    let server = Arc::new(ChatServer::new());
+    let listener = TcpListener::bind(addr).await?;
+    println!("Room-based chat server listening on {}", addr);
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let server = server.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_room_client(stream, server, addr).await {
+                eprintln!("Error with {}: {}", addr, e);
+            }
+        });
+    }
+}
+
+async fn handle_room_client(
+    stream: TcpStream,
+    server: Arc<ChatServer>,
+    addr: SocketAddr,
+) -> tokio::io::Result<()> {
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = TokioBufReader::new(reader);
+    let mut line = String::new();
+
+    let mut current_room: Option<(String, broadcast::Receiver<String>)> = None;
+
+    writer.write_all(b"Welcome! Commands: JOIN <room>, LEAVE, LIST\n").await?;
+
+    loop {
+        line.clear();
+
+        tokio::select! {
+            result = reader.read_line(&mut line) => {
+                match result {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim();
+
+                        if trimmed.starts_with("JOIN ") {
+                            let room_name = trimmed[5..].trim().to_string();
+                            if let Some((old_room, _)) = &current_room {
+                                server.leave_room(old_room, &addr).await;
+                            }
+                            let rx = server.join_room(room_name.clone(), addr).await;
+                            current_room = Some((room_name.clone(), rx));
+                            writer.write_all(format!("Joined room: {}\n", room_name).as_bytes()).await?;
+                        } else if trimmed == "LEAVE" {
+                            if let Some((room_id, _)) = current_room.take() {
+                                server.leave_room(&room_id, &addr).await;
+                                writer.write_all(b"Left room\n").await?;
+                            } else {
+                                writer.write_all(b"Not in a room\n").await?;
+                            }
+                        } else if trimmed == "LIST" {
+                            let rooms = server.list_rooms().await;
+                            let list = if rooms.is_empty() {
+                                "No rooms available\n".to_string()
+                            } else {
+                                format!("Rooms: {}\n", rooms.join(", "))
+                            };
+                            writer.write_all(list.as_bytes()).await?;
+                        } else {
+                            if let Some((room_id, _)) = &current_room {
+                                let msg = format!("[{}] {}", addr, trimmed);
+                                server.broadcast_to_room(room_id, msg).await;
+                            } else {
+                                writer.write_all(b"Join a room first!\n").await?;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Read error: {}", e);
+                        break;
+                    }
+                }
+            }
+
+            msg = async {
+                match &mut current_room {
+                    Some((_, rx)) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Ok(msg) = msg {
+                    writer.write_all(msg.as_bytes()).await?;
+                    writer.write_all(b"\n").await?;
+                }
+            }
+        }
+    }
+
+    if let Some((room_id, _)) = current_room {
+        server.leave_room(&room_id, &addr).await;
+    }
+
+    Ok(())
+}
+
+//================================================
+// Milestone 5: WebSocket Support (Multi-Protocol)
+//================================================
+
+async fn run_multiprotocol_server(
+    tcp_addr: &str,
+    http_addr: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let server = Arc::new(ChatServer::new());
+
+    let tcp_server = server.clone();
+    let tcp_addr = tcp_addr.to_string();
+    tokio::spawn(async move {
+        run_tcp_server(&tcp_addr, tcp_server).await
+    });
+
+    run_http_server(http_addr, server).await?;
+
+    Ok(())
+}
+
+async fn run_tcp_server(
+    addr: &str,
+    server: Arc<ChatServer>,
+) -> tokio::io::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    println!("TCP chat server listening on {}", addr);
+
+    loop {
+        let (stream, addr) = listener.accept().await?;
+        let server = server.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_room_client(stream, server, addr).await {
+                eprintln!("TCP client error: {}", e);
+            }
+        });
+    }
+}
+
+async fn run_http_server(
+    addr: &str,
+    server: Arc<ChatServer>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = Router::new()
+        .route("/ws", get(websocket_handler))
+        .with_state(server);
+
+    println!("HTTP/WebSocket server listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(server): State<Arc<ChatServer>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_websocket_client(socket, server))
+}
+
+async fn handle_websocket_client(socket: WebSocket, server: Arc<ChatServer>) {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let addr: SocketAddr = format!("0.0.0.0:{}", 10000 + id).parse().unwrap();
+
+    let (mut sender, mut receiver) = socket.split();
+
+    let mut current_room: Option<(String, broadcast::Receiver<String>)> = None;
+
+    let _ = sender
+        .send(axum::extract::ws::Message::Text(
+            "Welcome! Commands: JOIN <room>, LEAVE, LIST".to_string(),
+        ))
+        .await;
+
+    loop {
+        tokio::select! {
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        let trimmed = text.trim();
+
+                        if trimmed.starts_with("JOIN ") {
+                            let room_name = trimmed[5..].trim().to_string();
+                            if let Some((old_room, _)) = &current_room {
+                                server.leave_room(old_room, &addr).await;
+                            }
+                            let rx = server.join_room(room_name.clone(), addr).await;
+                            current_room = Some((room_name.clone(), rx));
+                            let _ = sender.send(axum::extract::ws::Message::Text(
+                                format!("Joined room: {}", room_name)
+                            )).await;
+                        } else if trimmed == "LIST" {
+                            let rooms = server.list_rooms().await;
+                            let list = if rooms.is_empty() {
+                                "No rooms available".to_string()
+                            } else {
+                                format!("Rooms: {}", rooms.join(", "))
+                            };
+                            let _ = sender.send(axum::extract::ws::Message::Text(list)).await;
+                        } else if trimmed == "LEAVE" {
+                            if let Some((room_id, _)) = current_room.take() {
+                                server.leave_room(&room_id, &addr).await;
+                                let _ = sender.send(axum::extract::ws::Message::Text(
+                                    "Left room".to_string()
+                                )).await;
+                            }
+                        } else {
+                            if let Some((room_id, _)) = &current_room {
+                                let msg = format!("[WS-{}] {}", id, trimmed);
+                                server.broadcast_to_room(room_id, msg).await;
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            msg = async {
+                match &mut current_room {
+                    Some((_, rx)) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Ok(msg) = msg {
+                    let _ = sender.send(axum::extract::ws::Message::Text(msg)).await;
+                }
+            }
+        }
+    }
+
+    if let Some((room_id, _)) = current_room {
+        server.leave_room(&room_id, &addr).await;
+    }
+}
+
+//================================================
+// Milestone 6: Production Features
+//================================================
+
+struct Metrics {
+    active_connections: AtomicUsize,
+    total_messages: AtomicUsize,
+    active_rooms: AtomicUsize,
+}
 
 impl Metrics {
     fn new() -> Self {
         Metrics {
             active_connections: AtomicUsize::new(0),
             total_messages: AtomicUsize::new(0),
+            active_rooms: AtomicUsize::new(0),
         }
     }
 
@@ -2613,63 +3016,38 @@ impl Metrics {
 
     fn format_prometheus(&self) -> String {
         format!(
-            "active_connections {}\ntotal_messages {}\n",
+            "active_connections {}\ntotal_messages {}\nactive_rooms {}\n",
             self.active_connections.load(Ordering::Relaxed),
             self.total_messages.load(Ordering::Relaxed),
+            self.active_rooms.load(Ordering::Relaxed),
         )
     }
 }
 
-// ============= Main Entry Point =============
-
-#[tokio::main]
-async fn main() {
-    let token = CancellationToken::new();
-    let token_clone = token.clone();
-
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
-        println!("Shutdown signal received");
-        token_clone.cancel();
-    });
-
-    if let Err(e) = run_server("127.0.0.1:8080", "127.0.0.1:3000", token).await {
-        eprintln!("Server error: {}", e);
-    }
-
-    println!("Server stopped");
-}
-
-// ============= Server Startup =============
-
-async fn run_server(
+async fn run_production_server_with_token(
     tcp_addr: &str,
     http_addr: &str,
-    shutdown: CancellationToken,
+    shutdown_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = Arc::new(ChatServer::new());
     let metrics = Arc::new(Metrics::new());
 
-    // TCP server
     let tcp_server = server.clone();
     let tcp_metrics = metrics.clone();
-    let tcp_shutdown = shutdown.clone();
+    let tcp_token = shutdown_token.clone();
     let tcp_addr = tcp_addr.to_string();
+
     tokio::spawn(async move {
-        run_tcp_server(&tcp_addr, tcp_server, tcp_metrics, tcp_shutdown)
+        run_tcp_server_with_shutdown(&tcp_addr, tcp_server, tcp_metrics, tcp_token)
             .await
-            .ok();
     });
 
-    // HTTP server
-    run_http_server(http_addr, server, metrics, shutdown).await?;
+    run_http_server_with_metrics(http_addr, server, metrics, shutdown_token).await?;
 
     Ok(())
 }
 
-// ============= TCP Server =============
-
-async fn run_tcp_server(
+async fn run_tcp_server_with_shutdown(
     addr: &str,
     server: Arc<ChatServer>,
     metrics: Arc<Metrics>,
@@ -2681,14 +3059,23 @@ async fn run_tcp_server(
     loop {
         tokio::select! {
             result = listener.accept() => {
-                if let Ok((stream, addr)) = result {
-                    metrics.connection_opened();
-                    let server = server.clone();
-                    let metrics = metrics.clone();
-                    tokio::spawn(async move {
-                        handle_tcp_client(stream, server, addr, metrics.clone()).await.ok();
-                        metrics.connection_closed();
-                    });
+                match result {
+                    Ok((stream, addr)) => {
+                        metrics.connection_opened();
+
+                        let server = server.clone();
+                        let metrics = metrics.clone();
+
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_room_client_with_metrics(
+                                stream, server, addr, metrics.clone()
+                            ).await {
+                                eprintln!("Client error: {}", e);
+                            }
+                            metrics.connection_closed();
+                        });
+                    }
+                    Err(e) => eprintln!("Accept error: {}", e),
                 }
             }
             _ = shutdown.cancelled() => {
@@ -2701,54 +3088,64 @@ async fn run_tcp_server(
     Ok(())
 }
 
-async fn handle_tcp_client(
+async fn handle_room_client_with_metrics(
     stream: TcpStream,
     server: Arc<ChatServer>,
     addr: SocketAddr,
     metrics: Arc<Metrics>,
 ) -> tokio::io::Result<()> {
     let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
+    let mut reader = TokioBufReader::new(reader);
     let mut line = String::new();
+
     let mut current_room: Option<(String, broadcast::Receiver<String>)> = None;
 
     writer.write_all(b"Welcome! Commands: JOIN <room>, LEAVE, LIST\n").await?;
 
     loop {
+        line.clear();
+
         tokio::select! {
             result = reader.read_line(&mut line) => {
                 match result {
                     Ok(0) => break,
                     Ok(_) => {
                         let trimmed = line.trim();
+
                         if trimmed.starts_with("JOIN ") {
-                            let room = trimmed.strip_prefix("JOIN ").unwrap().to_string();
+                            let room_name = trimmed[5..].trim().to_string();
                             if let Some((old_room, _)) = &current_room {
                                 server.leave_room(old_room, &addr).await;
                             }
-                            let rx = server.join_room(room.clone(), addr).await;
-                            current_room = Some((room.clone(), rx));
-                            writer.write_all(format!("Joined {}\n", room).as_bytes()).await?;
+                            let rx = server.join_room(room_name.clone(), addr).await;
+                            current_room = Some((room_name.clone(), rx));
+                            writer.write_all(format!("Joined room: {}\n", room_name).as_bytes()).await?;
                         } else if trimmed == "LEAVE" {
-                            if let Some((room, _)) = current_room.take() {
-                                server.leave_room(&room, &addr).await;
+                            if let Some((room_id, _)) = current_room.take() {
+                                server.leave_room(&room_id, &addr).await;
                                 writer.write_all(b"Left room\n").await?;
                             }
                         } else if trimmed == "LIST" {
                             let rooms = server.list_rooms().await;
-                            writer.write_all(format!("Rooms: {:?}\n", rooms).as_bytes()).await?;
-                        } else if let Some((room, _)) = &current_room {
-                            let msg = format!("[{}] {}", addr, trimmed);
-                            server.broadcast_to_room(room, msg).await;
-                            metrics.message_sent();
+                            let list = format!("Rooms: {}\n", rooms.join(", "));
+                            writer.write_all(list.as_bytes()).await?;
                         } else {
-                            writer.write_all(b"Join a room first\n").await?;
+                            if let Some((room_id, _)) = &current_room {
+                                let msg = format!("[{}] {}", addr, trimmed);
+                                server.broadcast_to_room(room_id, msg).await;
+                                metrics.message_sent();
+                            } else {
+                                writer.write_all(b"Join a room first!\n").await?;
+                            }
                         }
-                        line.clear();
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        eprintln!("Read error: {}", e);
+                        break;
+                    }
                 }
             }
+
             msg = async {
                 match &mut current_room {
                     Some((_, rx)) => rx.recv().await,
@@ -2763,51 +3160,62 @@ async fn handle_tcp_client(
         }
     }
 
-    if let Some((room, _)) = current_room {
-        server.leave_room(&room, &addr).await;
+    if let Some((room_id, _)) = current_room {
+        server.leave_room(&room_id, &addr).await;
     }
 
     Ok(())
 }
 
-// ============= HTTP Server =============
-
-async fn run_http_server(
+async fn run_http_server_with_metrics(
     addr: &str,
     server: Arc<ChatServer>,
     metrics: Arc<Metrics>,
     shutdown: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
-        .route("/health", get(|| async { "OK" }))
+        .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
-        .route("/ws", get(ws_handler))
+        .route("/ws", get(websocket_handler_with_keepalive))
         .with_state((server, metrics));
 
     println!("HTTP server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
     axum::serve(listener, app)
-        .with_graceful_shutdown(async move { shutdown.cancelled().await })
+        .with_graceful_shutdown(async move {
+            shutdown.cancelled().await;
+        })
         .await?;
 
     Ok(())
 }
 
-async fn metrics_handler(State((_, metrics)): State<(Arc<ChatServer>, Arc<Metrics>)>) -> String {
+async fn health_handler() -> &'static str {
+    "OK"
+}
+
+async fn metrics_handler(
+    State((_, metrics)): State<(Arc<ChatServer>, Arc<Metrics>)>,
+) -> String {
     metrics.format_prometheus()
 }
 
-async fn ws_handler(
+async fn websocket_handler_with_keepalive(
     ws: WebSocketUpgrade,
     State((server, metrics)): State<(Arc<ChatServer>, Arc<Metrics>)>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws_client(socket, server, metrics))
+    ws.on_upgrade(move |socket| {
+        handle_websocket_with_keepalive(socket, server, metrics)
+    })
 }
 
-// ============= WebSocket Client =============
-
-async fn handle_ws_client(socket: WebSocket, server: Arc<ChatServer>, metrics: Arc<Metrics>) {
+async fn handle_websocket_with_keepalive(
+    socket: WebSocket,
+    server: Arc<ChatServer>,
+    metrics: Arc<Metrics>,
+) {
     metrics.connection_opened();
 
     static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
@@ -2815,46 +3223,68 @@ async fn handle_ws_client(socket: WebSocket, server: Arc<ChatServer>, metrics: A
     let addr: SocketAddr = format!("0.0.0.0:{}", 10000 + id).parse().unwrap();
 
     let (mut sender, mut receiver) = socket.split();
+
+    let mut ping_interval = interval(Duration::from_secs(30));
     let mut current_room: Option<(String, broadcast::Receiver<String>)> = None;
 
-    // Ping task
-    let mut ping_interval = interval(Duration::from_secs(30));
-    let ping_task = tokio::spawn(async move {
-        loop {
-            ping_interval.tick().await;
-            if sender
-                .send(axum::extract::ws::Message::Ping(vec![]))
-                .await
-                .is_err()
-            {
-                break;
-            }
-        }
-    });
+    let _ = sender
+        .send(axum::extract::ws::Message::Text(
+            "Welcome! Commands: JOIN <room>, LEAVE, LIST".to_string(),
+        ))
+        .await;
 
     loop {
         tokio::select! {
+            _ = ping_interval.tick() => {
+                if sender.send(axum::extract::ws::Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
+
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
                         let trimmed = text.trim();
+
                         if trimmed.starts_with("JOIN ") {
-                            let room = trimmed.strip_prefix("JOIN ").unwrap().to_string();
-                            if let Some((old, _)) = &current_room {
-                                server.leave_room(old, &addr).await;
+                            let room_name = trimmed[5..].trim().to_string();
+                            if let Some((old_room, _)) = &current_room {
+                                server.leave_room(old_room, &addr).await;
                             }
-                            let rx = server.join_room(room.clone(), addr).await;
-                            current_room = Some((room, rx));
-                        } else if let Some((room, _)) = &current_room {
-                            let msg = format!("[WS-{}] {}", id, trimmed);
-                            server.broadcast_to_room(room, msg).await;
-                            metrics.message_sent();
+                            let rx = server.join_room(room_name.clone(), addr).await;
+                            current_room = Some((room_name.clone(), rx));
+                            let _ = sender.send(axum::extract::ws::Message::Text(
+                                format!("Joined room: {}", room_name)
+                            )).await;
+                        } else if trimmed == "LIST" {
+                            let rooms = server.list_rooms().await;
+                            let list = format!("Rooms: {}", rooms.join(", "));
+                            let _ = sender.send(axum::extract::ws::Message::Text(list)).await;
+                        } else if trimmed == "LEAVE" {
+                            if let Some((room_id, _)) = current_room.take() {
+                                server.leave_room(&room_id, &addr).await;
+                                let _ = sender.send(axum::extract::ws::Message::Text(
+                                    "Left room".to_string()
+                                )).await;
+                            }
+                        } else {
+                            if let Some((room_id, _)) = &current_room {
+                                let msg = format!("[WS-{}] {}", id, trimmed);
+                                server.broadcast_to_room(room_id, msg).await;
+                                metrics.message_sent();
+                            }
                         }
                     }
-                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => break,
+                    Some(Ok(axum::extract::ws::Message::Pong(_))) => {
+                        // Received pong response
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => {
+                        break;
+                    }
                     _ => {}
                 }
             }
+
             msg = async {
                 match &mut current_room {
                     Some((_, rx)) => rx.recv().await,
@@ -2862,59 +3292,191 @@ async fn handle_ws_client(socket: WebSocket, server: Arc<ChatServer>, metrics: A
                 }
             } => {
                 if let Ok(msg) = msg {
-                    // Send via temporary sender reference (ping_task owns the sender)
-                    // In production, split ping and message sending properly
+                    let _ = sender.send(axum::extract::ws::Message::Text(msg)).await;
                 }
             }
         }
     }
 
-    ping_task.abort();
-    if let Some((room, _)) = current_room {
-        server.leave_room(&room, &addr).await;
+    if let Some((room_id, _)) = current_room {
+        server.leave_room(&room_id, &addr).await;
     }
+
     metrics.connection_closed();
 }
+
+//================================================
+// Tests
+//================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use tokio::time::sleep;
+
+    // Milestone 1 Tests
+    #[test]
+    fn test_echo_single_message() {
+        thread::spawn(|| {
+            run_echo_server("127.0.0.1:9001").unwrap();
+        });
+        thread::sleep(Duration::from_millis(100));
+
+        let mut stream = StdTcpStream::connect("127.0.0.1:9001").unwrap();
+        stream.write_all(b"Hello\n").unwrap();
+        stream.flush().unwrap();
+
+        // Give server time to process and respond
+        thread::sleep(Duration::from_millis(50));
+
+        let mut buf = [0u8; 1024];
+        let n = stream.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"Hello\n");
+    }
+
+    // Milestone 2 Tests
+    #[test]
+    fn test_concurrent_clients() {
+        thread::spawn(|| {
+            run_threaded_echo_server("127.0.0.1:9004").unwrap();
+        });
+        thread::sleep(Duration::from_millis(100));
+
+        let mut clients: Vec<StdTcpStream> = (0..3)
+            .map(|_| StdTcpStream::connect("127.0.0.1:9004").unwrap())
+            .collect();
+
+        for (i, client) in clients.iter_mut().enumerate() {
+            let msg = format!("Client {}\n", i);
+            client.write_all(msg.as_bytes()).unwrap();
+
+            let mut reader = BufReader::new(&*client);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(line, msg);
+        }
+    }
+
+    // Milestone 3 Tests
+    #[tokio::test]
+    async fn test_broadcast_chat() {
+        tokio::spawn(async {
+            run_chat_server("127.0.0.1:9007").await.unwrap();
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let mut client1 = TcpStream::connect("127.0.0.1:9007").await.unwrap();
+        let mut client2 = TcpStream::connect("127.0.0.1:9007").await.unwrap();
+
+        sleep(Duration::from_millis(50)).await;
+
+        client1.write_all(b"Hello from client1\n").await.unwrap();
+
+        let mut reader2 = TokioBufReader::new(&mut client2);
+        let mut line = String::new();
+        reader2.read_line(&mut line).await.unwrap();
+        assert!(line.contains("Hello from client1"));
+    }
+
+    // Milestone 4 Tests
+    #[tokio::test]
+    async fn test_room_isolation() {
+        let server = ChatServer::new();
+
+        let addr1 = "127.0.0.1:1111".parse().unwrap();
+        let addr2 = "127.0.0.1:2222".parse().unwrap();
+
+        let mut rx1 = server.join_room("general".to_string(), addr1).await;
+        let mut rx2 = server.join_room("gaming".to_string(), addr2).await;
+
+        let rooms = server.rooms.read().await;
+        let general = rooms.get("general").unwrap();
+
+        general.tx.send("Hello general".to_string()).ok();
+
+        assert_eq!(rx1.try_recv().unwrap(), "Hello general");
+        assert!(rx2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_leave_room_cleanup() {
+        let server = ChatServer::new();
+        let addr = "127.0.0.1:4444".parse().unwrap();
+
+        server.join_room("temp".to_string(), addr).await;
+        assert_eq!(server.list_rooms().await.len(), 1);
+
+        server.leave_room("temp", &addr).await;
+        assert_eq!(server.list_rooms().await.len(), 0);
+    }
+
+    // Milestone 6 Tests
+    #[test]
+    fn test_metrics_initialization() {
+        let metrics = Metrics::new();
+        assert_eq!(metrics.active_connections.load(Ordering::Relaxed), 0);
+        assert_eq!(metrics.total_messages.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_metrics_operations() {
+        let metrics = Metrics::new();
+
+        metrics.connection_opened();
+        assert_eq!(metrics.active_connections.load(Ordering::Relaxed), 1);
+
+        metrics.message_sent();
+        assert_eq!(metrics.total_messages.load(Ordering::Relaxed), 1);
+
+        metrics.connection_closed();
+        assert_eq!(metrics.active_connections.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_prometheus_format() {
+        let metrics = Metrics::new();
+        metrics.connection_opened();
+        metrics.message_sent();
+
+        let output = metrics.format_prometheus();
+        assert!(output.contains("active_connections 1"));
+        assert!(output.contains("total_messages 1"));
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    println!("Multi-Protocol Chat Server - All Milestones");
+    println!("===========================================");
+    println!("Run with `cargo test --bin complete_26_network_chat_server` to test all milestones");
+    println!("\nTo run production server with all features:");
+    println!("  TCP server on 127.0.0.1:8080");
+    println!("  HTTP/WebSocket server on 127.0.0.1:3000");
+    println!("  Health check: http://127.0.0.1:3000/health");
+    println!("  Metrics: http://127.0.0.1:3000/metrics");
+    println!("  WebSocket: ws://127.0.0.1:3000/ws");
+
+    let token = CancellationToken::new();
+    let token_clone = token.clone();
+
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        println!("\nShutdown signal received");
+        token_clone.cancel();
+    });
+
+    if let Err(e) = run_production_server_with_token(
+        "127.0.0.1:8080",
+        "127.0.0.1:3000",
+        token,
+    )
+    .await
+    {
+        eprintln!("Server error: {}", e);
+    }
+
+    println!("Server stopped gracefully");
+}
+
 ```
-
-**Usage**:
-```bash
-# Terminal 1: Start server
-cargo run
-
-# Terminal 2: TCP client
-nc localhost 8080
-JOIN general
-Hello from TCP
-
-# Terminal 3: WebSocket client (browser console)
-const ws = new WebSocket('ws://localhost:3000/ws');
-ws.onmessage = e => console.log(e.data);
-ws.send('JOIN general');
-ws.send('Hello from WebSocket');
-
-# Terminal 4: Check metrics
-curl http://localhost:3000/metrics
-curl http://localhost:3000/health
-```
-
----
-
-## Summary
-
-**What You Built**: A production-ready multi-protocol chat server supporting TCP and WebSocket clients with room isolation, metrics, and graceful shutdown.
-
-**Key Concepts Mastered**:
-- **Async I/O**: tokio tasks vs OS threads (1000x memory efficiency)
-- **Broadcast patterns**: tokio::sync::broadcast for pub/sub
-- **Multi-protocol**: Same backend serving TCP and WebSocket
-- **State management**: Arc<RwLock<T>> for shared state
-- **Production features**: Metrics, health checks, graceful shutdown, keepalive
-
-**Performance**:
-- **Milestone 1**: 1 client (single-threaded)
-- **Milestone 2**: 1,000 clients (thread-per-connection)
-- **Milestone 3**: 100,000+ clients (async tasks)
-- **Milestone 6**: Production-ready with observability
-
-**Real-World Applications**: This architecture powers Discord, Slack, gaming chat, trading platforms, and any real-time messaging system.

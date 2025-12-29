@@ -42,7 +42,10 @@ impl<'data, T> Iter<'data, T> {
 
 impl<'data, T> StreamingIterator for Iter<'data, T> {
     /// Each call to next() returns &'a T where 'a is the lifetime of that call
-    type Item<'a> = &'a T where Self: 'a;
+    type Item<'a>
+        = &'a T
+    where
+        Self: 'a;
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         if self.position < self.data.len() {
@@ -85,7 +88,10 @@ impl<'data, T> Windows<'data, T> {
 
 impl<'data, T> StreamingIterator for Windows<'data, T> {
     /// Yields slices borrowing from the data
-    type Item<'a> = &'a [T] where Self: 'a;
+    type Item<'a>
+        = &'a [T]
+    where
+        Self: 'a;
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         if self.position + self.window_size <= self.data.len() {
@@ -125,7 +131,11 @@ pub struct StepBy<I> {
 
 impl<I: StreamingIterator> StreamingIterator for StepBy<I> {
     /// Forward the Item type from the inner iterator
-    type Item<'a> = I::Item<'a> where Self: 'a, I: 'a;
+    type Item<'a>
+        = I::Item<'a>
+    where
+        Self: 'a,
+        I: 'a;
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         // On first call, just return the item
@@ -248,7 +258,10 @@ impl<'data, T> GroupBy<'data, T> {
 }
 
 impl<'data, T: PartialEq> StreamingIterator for GroupBy<'data, T> {
-    type Item<'a> = &'a [T] where Self: 'a;
+    type Item<'a>
+        = &'a [T]
+    where
+        Self: 'a;
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         if self.position >= self.data.len() {
@@ -336,7 +349,10 @@ pub fn benchmark_windows(data_size: usize, window_size: usize, iterations: usize
     let allocating_time = start.elapsed();
 
     println!("\n=== Benchmark Results ===");
-    println!("Data size: {}, Window: {}, Iterations: {}", data_size, window_size, iterations);
+    println!(
+        "Data size: {}, Window: {}, Iterations: {}",
+        data_size, window_size, iterations
+    );
     println!("Streaming:   {:?}", streaming_time);
     println!("Allocating:  {:?}", allocating_time);
     println!(
@@ -665,7 +681,7 @@ mod tests {
         let mut streaming = windows(&data, 10);
         let slice_ref_size = if let Some(window) = streaming.next() {
             // This measures the fat pointer (&[i32]) on the stack
-            size_of_val(&window)  // Size of the reference itself
+            size_of_val(&window) // Size of the reference itself
         } else {
             0
         };

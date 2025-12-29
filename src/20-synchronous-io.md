@@ -1,5 +1,5 @@
 # Synchronous I/O
-This chapter covers Rust's synchronous I/O patterns—blocking operations that pause threads until complete. Unlike async I/O (Chapter 17), synchronous I/O is simpler, easier to debug, and sufficient for most programs. CLI tools, build scripts, and even high-performance servers with thread pools rely on these patterns.
+This chapter covers Rust's synchronous I/O patterns—blocking operations that pause threads until complete. Unlike async I/O (the next chapter), synchronous I/O is simpler, easier to debug, and sufficient for most programs. CLI tools, build scripts, and even high-performance servers with thread pools rely on these patterns.
 
 
 ## Pattern 1: Basic File Operations

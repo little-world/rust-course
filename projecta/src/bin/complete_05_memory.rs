@@ -1,8 +1,7 @@
-
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
 use std::ptr;
+use std::sync::{Arc, Mutex};
 
 //==============================================================================
 // Part 1: Raw Memory Pool
@@ -49,9 +48,7 @@ impl MemoryPool {
 
     /// Deallocates a block, returning it to the pool
     pub fn deallocate(&mut self, ptr: *mut u8) {
-        let offset = unsafe {
-            ptr.offset_from(self.memory.as_ptr())
-        } as usize;
+        let offset = unsafe { ptr.offset_from(self.memory.as_ptr()) } as usize;
 
         assert!(offset % self.block_size == 0, "Invalid pointer alignment");
         let index = offset / self.block_size;
@@ -325,15 +322,19 @@ fn main() {
         let mut pool = TypedPool::<Resource>::new(3);
 
         {
-            let r1 = pool.allocate(Resource {
-                id: 1,
-                data: vec![1, 2, 3],
-            }).unwrap();
+            let r1 = pool
+                .allocate(Resource {
+                    id: 1,
+                    data: vec![1, 2, 3],
+                })
+                .unwrap();
 
-            let r2 = pool.allocate(Resource {
-                id: 2,
-                data: vec![4, 5, 6],
-            }).unwrap();
+            let r2 = pool
+                .allocate(Resource {
+                    id: 2,
+                    data: vec![4, 5, 6],
+                })
+                .unwrap();
 
             println!("Resource 1: {:?}", *r1);
             println!("Resource 2: {:?}", *r2);
@@ -584,4 +585,3 @@ mod tests {
         assert_eq!(&*block, "thread-safe");
     }
 }
-

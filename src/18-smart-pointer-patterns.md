@@ -1,7 +1,5 @@
 # Smart Pointer Patterns
-This chapter explores smart pointer patterns in Rust, covering heap allocation with Box, reference counting with Rc/Arc, preventing memory leaks with Weak references, implementing custom smart pointers, intrusive data structures, and optimization techniques. We'll cover practical, production-ready examples for managing complex ownership scenarios.
-
-
+This chapter explores smart pointer patterns in Rust, covering heap allocation with Box, reference counting with Rc/Arc, preventing memory leaks with Weak references, implementing custom smart pointers, intrusive data structures, and optimization techniques.
 
 ## Pattern 1: Box, Rc, Arc Usage Patterns
 

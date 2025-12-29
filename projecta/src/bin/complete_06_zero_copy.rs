@@ -7,7 +7,10 @@ pub struct ParserContext<'ctx> {
 
 impl<'ctx> ParserContext<'ctx> {
     pub fn new(keywords: &'ctx [&'ctx str], operators: &'ctx [char]) -> Self {
-        Self { keywords, operators }
+        Self {
+            keywords,
+            operators,
+        }
     }
 
     pub fn is_keyword(&self, word: &str) -> bool {
@@ -53,12 +56,18 @@ pub struct Parser<'input, 'ctx> {
 
 impl<'input, 'ctx> Parser<'input, 'ctx> {
     pub fn new(input: &'input str, context: &'ctx ParserContext<'ctx>) -> Self {
-        Self { input, position: 0, context }
+        Self {
+            input,
+            position: 0,
+            context,
+        }
     }
 
     // Helper to skip whitespace
     fn skip_whitespace(&mut self) {
-        while self.position < self.input.len() && self.input.as_bytes()[self.position].is_ascii_whitespace() {
+        while self.position < self.input.len()
+            && self.input.as_bytes()[self.position].is_ascii_whitespace()
+        {
             self.position += 1;
         }
     }
@@ -90,23 +99,42 @@ impl<'input, 'ctx> Parser<'input, 'ctx> {
         }
 
         // Handle numbers
-        if current_char.is_ascii_digit() || (current_char == '-' && self.input.as_bytes().get(start + 1).map_or(false, |&c| (c as char).is_ascii_digit())) {
+        if current_char.is_ascii_digit()
+            || (current_char == '-'
+                && self
+                    .input
+                    .as_bytes()
+                    .get(start + 1)
+                    .map_or(false, |&c| (c as char).is_ascii_digit()))
+        {
             let mut end = start;
             // Check for hexadecimal prefix
-            if current_char == '0' && self.input.as_bytes().get(start + 1).map_or(false, |&c| (c == b'x' || c == b'X')) {
+            if current_char == '0'
+                && self
+                    .input
+                    .as_bytes()
+                    .get(start + 1)
+                    .map_or(false, |&c| (c == b'x' || c == b'X'))
+            {
                 end += 2; // Skip "0x" or "0X"
-                while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_hexdigit() {
+                while end < self.input.len()
+                    && (self.input.as_bytes()[end] as char).is_ascii_hexdigit()
+                {
                     end += 1;
                 }
             } else {
                 // Decimal or integer part
-                while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_digit() {
+                while end < self.input.len()
+                    && (self.input.as_bytes()[end] as char).is_ascii_digit()
+                {
                     end += 1;
                 }
                 // Fractional part
-                if end < self.input.len() && self.input.as_bytes()[end] == b'.'{ 
+                if end < self.input.len() && self.input.as_bytes()[end] == b'.' {
                     end += 1;
-                    while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_digit() {
+                    while end < self.input.len()
+                        && (self.input.as_bytes()[end] as char).is_ascii_digit()
+                    {
                         end += 1;
                     }
                 }
@@ -210,7 +238,8 @@ impl<'input, 'ctx> Parser<'input, 'ctx> {
         self.filter_map(|token| match token {
             Token::Identifier(s) => Some(s),
             _ => None,
-        }).collect()
+        })
+        .collect()
     }
 
     // Check if keyword exists in input
@@ -223,7 +252,8 @@ impl<'input, 'ctx> Parser<'input, 'ctx> {
 
     // Count tokens of a specific type
     pub fn count_numbers(&mut self) -> usize {
-        self.filter(|token| matches!(token, Token::Number(_))).count()
+        self.filter(|token| matches!(token, Token::Number(_)))
+            .count()
     }
 
     // Collect all identifier/number pairs
@@ -286,7 +316,9 @@ impl AllocatingParser {
 
     // Helper to skip whitespace
     fn skip_whitespace(&mut self) {
-        while self.position < self.input.len() && self.input.as_bytes()[self.position].is_ascii_whitespace() {
+        while self.position < self.input.len()
+            && self.input.as_bytes()[self.position].is_ascii_whitespace()
+        {
             self.position += 1;
         }
     }
@@ -317,20 +349,39 @@ impl AllocatingParser {
         }
 
         // Handle numbers
-        if current_char.is_ascii_digit() || (current_char == '-' && self.input.as_bytes().get(start + 1).map_or(false, |&c| (c as char).is_ascii_digit())) {
+        if current_char.is_ascii_digit()
+            || (current_char == '-'
+                && self
+                    .input
+                    .as_bytes()
+                    .get(start + 1)
+                    .map_or(false, |&c| (c as char).is_ascii_digit()))
+        {
             let mut end = start;
-            if current_char == '0' && self.input.as_bytes().get(start + 1).map_or(false, |&c| (c == b'x' || c == b'X')) {
+            if current_char == '0'
+                && self
+                    .input
+                    .as_bytes()
+                    .get(start + 1)
+                    .map_or(false, |&c| (c == b'x' || c == b'X'))
+            {
                 end += 2;
-                while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_hexdigit() {
+                while end < self.input.len()
+                    && (self.input.as_bytes()[end] as char).is_ascii_hexdigit()
+                {
                     end += 1;
                 }
             } else {
-                while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_digit() {
+                while end < self.input.len()
+                    && (self.input.as_bytes()[end] as char).is_ascii_digit()
+                {
                     end += 1;
                 }
-                if end < self.input.len() && self.input.as_bytes()[end] == b'.'{ 
+                if end < self.input.len() && self.input.as_bytes()[end] == b'.' {
                     end += 1;
-                    while end < self.input.len() && (self.input.as_bytes()[end] as char).is_ascii_digit() {
+                    while end < self.input.len()
+                        && (self.input.as_bytes()[end] as char).is_ascii_digit()
+                    {
                         end += 1;
                     }
                 }
@@ -395,7 +446,10 @@ pub fn benchmark_parsers(input: &str, iterations: usize) {
     println!("Zero-copy Parser Time: {:?}", zero_copy_time);
     println!("Allocating Parser Time: {:?}", allocating_time);
     if zero_copy_time.as_nanos() > 0 {
-        println!("Speedup: {:.2}x", allocating_time.as_secs_f64() / zero_copy_time.as_secs_f64());
+        println!(
+            "Speedup: {:.2}x",
+            allocating_time.as_secs_f64() / zero_copy_time.as_secs_f64()
+        );
     }
 }
 
@@ -403,7 +457,6 @@ pub fn benchmark_parsers(input: &str, iterations: usize) {
 pub fn parse_csv_line<'a>(line: &'a str) -> Vec<&'a str> {
     line.split(',').map(|s| s.trim()).collect()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -625,7 +678,6 @@ mod tests {
         assert!(context.is_operator('+'));
         assert!(!context.is_operator('*'));
     }
-
 
     #[test]
     fn test_next_keyword_token() {

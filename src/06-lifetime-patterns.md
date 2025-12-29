@@ -722,6 +722,8 @@ let long: &'static str = "hello";
 let short: &str = long; // OK: 'static is subtype of shorter
 ```
 
+
+### Summary
 **When to Use What**:
 - Elision: Most function signatures (let compiler infer)
 - Explicit 'a: Multiple references, unclear relationships

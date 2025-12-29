@@ -2,16 +2,7 @@
 
 Vectors and slices are the workhorses of Rust data processing. `Vec<T>` provides dynamic, heap-allocated arrays with amortized O(1) append operations, while slices (`&[T]`, `&mut [T]`) provide views into contiguous sequences without ownership. Understanding how to efficiently manipulate these types is essential for writing high-performance Rust code.
 
-This chapter explores advanced patterns for working with vectors and slices that experienced programmers can leverage to build efficient systems. The key insight is that careful capacity management, zero-copy operations, and algorithmic choices can dramatically impact performance—often by orders of magnitude.
-
-The patterns we'll explore include:
-- Capacity management to minimize allocations and optimize amortization
-- Slice algorithms for searching, sorting, and partitioning
-- Chunking and windowing patterns for batch processing
-- Zero-copy slicing techniques to avoid unnecessary allocations
-- SIMD operations for data-parallel computation
-
-
+ The key insight is that careful capacity management, zero-copy operations, and algorithmic choices can dramatically impact performance—often by orders of magnitude.
 
 ## Pattern 1: Capacity Management and Amortization
 
@@ -1345,4 +1336,3 @@ Vectors and slices are fundamental to Rust data processing. By mastering capacit
 - Implement manual SIMD without profiling first
 - Forget to handle remainders in chunked operations
 
-Vector and slice manipulation is about understanding trade-offs: allocation cost vs memory usage, stable vs unstable sorting, copying vs borrowing. Master these patterns to build efficient, idiomatic Rust systems that maximize performance while preserving safety.

@@ -339,7 +339,10 @@ fn main() {
     // Test pointer equality separately
     let s1_ptr = interner.intern("test") as *const str;
     let s2_ptr = interner.intern("test") as *const str;
-    println!("  Same string returns same pointer: {}", std::ptr::eq(s1_ptr, s2_ptr));
+    println!(
+        "  Same string returns same pointer: {}",
+        std::ptr::eq(s1_ptr, s2_ptr)
+    );
 
     // Milestone 3: Cow-based API
     println!("\n--- Milestone 3: Cow-based API ---");
@@ -394,7 +397,10 @@ fn main() {
     let sym4 = sym_interner.intern("alpha");
     println!("New symbol for 'alpha': {:?}", sym4);
     println!("  Same index: {}", sym1.index == sym4.index);
-    println!("  Different generation: {}", sym1.generation != sym4.generation);
+    println!(
+        "  Different generation: {}",
+        sym1.generation != sym4.generation
+    );
 
     // Milestone 6: Performance Comparison
     println!("\n--- Milestone 6: Performance Comparison ---");
@@ -458,10 +464,7 @@ mod tests {
     fn test_escape_complex() {
         let result = maybe_escape_html("<script>alert('&')</script>");
         assert!(matches!(result, Cow::Owned(_)));
-        assert_eq!(
-            result,
-            "&lt;script&gt;alert('&amp;')&lt;/script&gt;"
-        );
+        assert_eq!(result, "&lt;script&gt;alert('&amp;')&lt;/script&gt;");
     }
 
     // Milestone 2 Tests

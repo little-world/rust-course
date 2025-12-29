@@ -1013,19 +1013,337 @@ Expected output shows 5-50x speedup depending on operation complexity.
 
 ---
 
-## Advanced Topics: NumPy Integration
-
-For projects processing numerical data, integrate with NumPy using the `numpy` crate:
+## Complete Working Example
 
 ```rust
-use numpy::{PyArray1, PyReadonlyArray1, ToPyArray};
+//! complete_25_ffi_python.rs
+//!
+//! Implements the milestone-by-milestone PyO3 bridge from the workbook.
+
+use pyo3::create_exception;
+use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList, PyModule};
+use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+
+create_exception!(text_processor, EmptyAnalyzerError, PyException);
+create_exception!(text_processor, InvalidDocumentError, PyException);
+
+//============================================================
+// Milestone 1: Project Setup and Basic Module
+//============================================================
 
 #[pyfunction]
-fn process_array(py: Python, arr: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-    let input = arr.as_slice().unwrap();
-    let output: Vec<f64> = input.iter().map(|x| x * 2.0).collect();
-    output.to_pyarray(py).to_owned()
+fn hello(name: &str) -> String {
+    format!("Hello, {}!", name)
 }
-```
 
-This enables zero-copy operations on NumPy arrays from Python.
+//============================================================
+// Milestone 2-6: TextAnalyzer class with callbacks, stats, async work
+//============================================================
+
+#[pyclass]
+struct TextAnalyzer {
+    documents: Mutex<Vec<String>>,
+    word_count: Mutex<usize>,
+    callback: Mutex<Option<Py<PyAny>>>,
+}
+
+#[pymethods]
+impl TextAnalyzer {
+    #[new]
+    fn new() -> Self {
+        TextAnalyzer {
+            documents: Mutex::new(Vec::new()),
+            word_count: Mutex::new(0),
+            callback: Mutex::new(None),
+        }
+    }
+
+    fn add_document(&self, py: Python, text: &str) -> PyResult<()> {
+        if text.trim().is_empty() {
+            return Err(InvalidDocumentError::new_err("Document cannot be empty"));
+        }
+        let words = text.split_whitespace().count();
+        self.documents.lock().unwrap().push(text.to_string());
+        *self.word_count.lock().unwrap() += words;
+
+        if let Some(cb) = self.callback.lock().unwrap().as_ref() {
+            let details = PyDict::new(py);
+            details.set_item("text", text)?;
+            details.set_item("word_count", words)?;
+            details.set_item("total_documents", self.document_count())?;
+            cb.call1(py, (details,))?;
+        }
+
+        Ok(())
+    }
+
+    fn total_words(&self) -> usize {
+        *self.word_count.lock().unwrap()
+    }
+
+    fn document_count(&self) -> usize {
+        self.documents.lock().unwrap().len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "TextAnalyzer(documents={}, words={})",
+            self.document_count(),
+            self.total_words()
+        )
+    }
+
+    fn get_statistics(&self, py: Python) -> PyResult<PyObject> {
+        let dict = PyDict::new(py);
+        dict.set_item("total_words", self.total_words())?;
+        dict.set_item("document_count", self.document_count())?;
+
+        let mut unique = HashSet::new();
+        for doc in self.documents.lock().unwrap().iter() {
+            for word in doc.split_whitespace() {
+                unique.insert(word.to_lowercase());
+            }
+        }
+        dict.set_item("unique_words", unique.len())?;
+
+        Ok(dict.into())
+    }
+
+    fn get_documents(&self) -> Vec<String> {
+        self.documents.lock().unwrap().clone()
+    }
+
+    fn word_frequency(&self, py: Python) -> PyResult<PyObject> {
+        let mut freq: HashMap<String, usize> = HashMap::new();
+        for doc in self.documents.lock().unwrap().iter() {
+            for word in doc.split_whitespace() {
+                *freq.entry(word.to_lowercase()).or_insert(0) += 1;
+            }
+        }
+
+        let dict = PyDict::new(py);
+        for (word, count) in freq {
+            dict.set_item(word, count)?;
+        }
+
+        Ok(dict.into())
+    }
+
+    fn set_callback(&self, callback: PyObject) {
+        *self.callback.lock().unwrap() = Some(callback.into());
+    }
+
+    fn clear_callback(&self) {
+        *self.callback.lock().unwrap() = None;
+    }
+
+    fn analyze_sentiment(&self, py: Python) -> PyResult<f64> {
+        if self.documents.lock().unwrap().is_empty() {
+            return Err(EmptyAnalyzerError::new_err(
+                "Cannot analyze sentiment of empty analyzer",
+            ));
+        }
+
+        let documents = self.documents.lock().unwrap().clone();
+        let score = py.allow_threads(|| {
+            let mut total = 0.0;
+            for doc in &documents {
+                for word in doc.split_whitespace() {
+                    total += compute_word_sentiment(word);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            total / documents.len().max(1) as f64
+        });
+
+        Ok(score)
+    }
+}
+
+fn compute_word_sentiment(word: &str) -> f64 {
+    match word.to_lowercase().as_str() {
+        "good" | "great" | "excellent" => 1.0,
+        "bad" | "terrible" | "awful" => -1.0,
+        _ => 0.0,
+    }
+}
+
+//============================================================
+// Milestone 7: Type stubs helper
+//============================================================
+
+const TEXT_PROCESSOR_STUB: &str = r#"from typing import Callable, Dict, List, Any
+
+class TextAnalyzer:
+    def __init__(self) -> None: ...
+    def add_document(self, text: str) -> None: ...
+    def total_words(self) -> int: ...
+    def document_count(self) -> int: ...
+    def get_statistics(self) -> Dict[str, int]: ...
+    def get_documents(self) -> List[str]: ...
+    def word_frequency(self) -> Dict[str, int]: ...
+    def set_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None: ...
+    def clear_callback(self) -> None: ...
+    def analyze_sentiment(self) -> float: ...
+
+class EmptyAnalyzerError(Exception): ...
+class InvalidDocumentError(Exception): ...
+
+def hello(name: str) -> str: ...
+"#;
+
+#[pyfunction]
+fn type_stub() -> &'static str {
+    TEXT_PROCESSOR_STUB
+}
+
+//============================================================
+// Module definition
+//============================================================
+
+#[pymodule]
+fn text_processor(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(hello, m)?)?;
+    m.add_function(wrap_pyfunction!(type_stub, m)?)?;
+    m.add_class::<TextAnalyzer>()?;
+    m.add("EmptyAnalyzerError", m.py().get_type::<EmptyAnalyzerError>())?;
+    m.add("InvalidDocumentError", m.py().get_type::<InvalidDocumentError>())?;
+    Ok(())
+}
+
+fn main() {
+    println!("{}", hello("Pythonistas"));
+    Python::attach(|py| {
+        let analyzer = TextAnalyzer::new();
+        analyzer.add_document(py, "hello world good vibes").unwrap();
+        let stats = analyzer.get_statistics(py).unwrap();
+        let stats = stats.downcast_bound::<PyDict>(py).unwrap();
+        let doc_count: usize = stats
+            .get_item("document_count")
+            .unwrap()
+            .and_then(|value| value.extract().ok())
+            .unwrap_or(0);
+        let total_words: usize = stats
+            .get_item("total_words")
+            .unwrap()
+            .and_then(|value| value.extract().ok())
+            .unwrap_or(0);
+        println!(
+            "Stats -> documents: {doc_count}, total_words: {total_words}"
+        );
+        println!("Stub preview:\n{}", TEXT_PROCESSOR_STUB);
+    });
+}
+
+//============================================================
+// Tests
+//============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hello_greets() {
+        assert_eq!(hello("World"), "Hello, World!");
+    }
+
+    #[test]
+    fn analyzer_tracks_counts() {
+        Python::attach(|py| {
+            let analyzer = TextAnalyzer::new();
+            analyzer.add_document(py, "hello world").unwrap();
+            analyzer.add_document(py, "foo bar baz").unwrap();
+            assert_eq!(analyzer.document_count(), 2);
+            assert_eq!(analyzer.total_words(), 5);
+
+            let stats = analyzer.get_statistics(py).unwrap();
+            let stats = stats.downcast_bound::<PyDict>(py).unwrap();
+            let total_words_obj = stats.get_item("total_words").unwrap().unwrap();
+            let unique_words_obj = stats.get_item("unique_words").unwrap().unwrap();
+            let total_words: usize = total_words_obj.extract().unwrap();
+            let unique_words: usize = unique_words_obj.extract().unwrap();
+            assert_eq!(total_words, 5);
+            assert_eq!(unique_words, 5);
+        });
+    }
+
+    #[test]
+    fn frequency_and_documents() {
+        Python::attach(|py| {
+            let analyzer = TextAnalyzer::new();
+            analyzer.add_document(py, "hello world hello").unwrap();
+            let docs = analyzer.get_documents();
+            assert_eq!(docs.len(), 1);
+            let freq = analyzer.word_frequency(py).unwrap();
+            let freq = freq.cast_bound::<PyDict>(py).unwrap();
+            let hello_count_obj = freq.get_item("hello").unwrap().unwrap();
+            let world_count_obj = freq.get_item("world").unwrap().unwrap();
+            let hello_count: usize = hello_count_obj.extract().unwrap();
+            let world_count: usize = world_count_obj.extract().unwrap();
+            assert_eq!(hello_count, 2);
+            assert_eq!(world_count, 1);
+        });
+    }
+
+    #[test]
+    fn callback_is_invoked() {
+        Python::attach(|py| {
+            let analyzer = TextAnalyzer::new();
+            let events = PyList::empty(py);
+            let locals = PyDict::new(py);
+            locals.set_item("events", &events).unwrap();
+            py.run(
+                c"def on_document(info):\n    events.append(info)",
+                Some(&locals),
+                Some(&locals),
+            )
+            .unwrap();
+
+            let callback = locals.get_item("on_document").unwrap().unwrap().unbind();
+            analyzer.set_callback(callback);
+            analyzer.add_document(py, "test doc data").unwrap();
+
+            assert_eq!(events.len(), 1);
+            let entry = events.get_item(0).unwrap();
+            assert_eq!(
+                entry.get_item("word_count").unwrap().extract::<usize>().unwrap(),
+                3
+            );
+            analyzer.clear_callback();
+        });
+    }
+
+    #[test]
+    fn analyze_sentiment_errors() {
+        Python::attach(|py| {
+            let analyzer = TextAnalyzer::new();
+            let err = analyzer.analyze_sentiment(py).unwrap_err();
+            assert!(err.is_instance_of::<EmptyAnalyzerError>(py));
+
+            let err = analyzer.add_document(py, "").unwrap_err();
+            assert!(err.is_instance_of::<InvalidDocumentError>(py));
+        });
+    }
+
+    #[test]
+    fn analyze_sentiment_scores() {
+        Python::attach(|py| {
+            let analyzer = TextAnalyzer::new();
+            analyzer.add_document(py, "good good good").unwrap();
+            analyzer.add_document(py, "bad bad").unwrap();
+            let score = analyzer.analyze_sentiment(py).unwrap();
+            assert!(score > 0.0);
+        });
+    }
+
+    #[test]
+    fn stub_contains_class() {
+        assert!(type_stub().contains("class TextAnalyzer"));
+    }
+}
+
+```

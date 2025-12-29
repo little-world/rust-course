@@ -2791,7 +2791,6 @@ This chapter covered advanced collection types:
 **Performance Guidelines**:
 - VecDeque: O(1) amortized for push/pop at ends
 - BinaryHeap: O(log n) insert/remove, O(1) peek
-
 - Trie: O(m) operations where m = key length
 - Lock-free: No blocking, better scalability under contention
 

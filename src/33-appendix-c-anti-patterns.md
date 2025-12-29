@@ -34,7 +34,7 @@
 
 Anti-patterns are common solutions to recurring problems that initially seem reasonable but ultimately create more issues than they solve. Unlike design patterns, which represent best practices, anti-patterns represent pitfalls—seductive shortcuts that lead to bugs, performance degradation, or unmaintainable code.
 
-In Rust, anti-patterns often emerge when developers apply patterns from other languages without adapting to Rust's ownership model, or when they fight the compiler rather than understanding what it's trying to prevent. The borrow checker is not your enemy—it's preventing real bugs. When code feels like a battle against the type system, you're usually approaching the problem incorrectly.
+In Rust, anti-patterns often emerge when developers apply patterns from other languages without adapting to Rust's ownership model, or when they fight the compiler rather than understanding what it's trying to prevent. The borrow checker is not your enemy—it's preventing real-time bugs. When code feels like a battle against the type system, you're usually approaching the problem incorrectly.
 
 This catalog identifies common anti-patterns in four categories:
 

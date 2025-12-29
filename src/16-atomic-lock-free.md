@@ -1,7 +1,6 @@
 # Atomic Operations & Lock-Free Programming
-- Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits.
-A stalled or slow thread cannot prevent others from making progress.
-Ideal for real-time or latency-critical applications. 
+- Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits. A stalled or slow thread cannot prevent others from making progress.
+
 
 1. Lock-free operations never block    
    Example: In an audio processing thread, blocking even briefly can cause audible glitches.
@@ -9,7 +8,7 @@ Ideal for real-time or latency-critical applications.
 
 - Locks guarantee nothing under contention—threads can starve.
 
-2. Lock-free structures guarantee ystem-wide progress:     
+2. Lock-free structures guarantee system-wide progress:     
    Lock-free: at least one thread always makes progress.    
    Wait-free: every thread makes progress within a bounded time.
 
@@ -2475,14 +2474,6 @@ fn main() {
     println!("Completed: {}", once.is_completed());
 }
 ```
-
-**Advanced Patterns**:
-- **Striped counter**: Reduce contention by spreading across multiple atomics
-- **Backoff**: Exponential delay on contention
-- **Atomic min/max**: Track extremes lock-free
-- **Once flag**: One-time initialization
-- **Swap chain**: Atomic value replacement
-
 ---
 
 ### Summary

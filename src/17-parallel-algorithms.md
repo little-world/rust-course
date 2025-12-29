@@ -1,7 +1,5 @@
 # Parallel Algorithms
-This chapter explores parallel algorithm patterns using Rust's ecosystem, focusing on data parallelism with Rayon, work partitioning strategies, parallel reduction patterns, pipeline parallelism, and SIMD vectorization. We'll cover practical, production-ready examples for maximizing CPU utilization.
-
-
+This chapter explores parallel patterns using Rust's ecosystem, focusing on data parallelism with Rayon, work partitioning strategies, parallel reduction patterns, pipeline parallelism, and SIMD vectorization. We'll cover practical, production-ready examples for maximizing CPU utilization.
 
 ## Pattern 1: Rayon Patterns
 

@@ -333,7 +333,8 @@ pub trait Container<T> {
 
 // Implement for Stack
 impl<T, const N: usize> Container<T> for Stack<T, N> {
-    type Iter<'a> = StackIter<'a, T, N>
+    type Iter<'a>
+        = StackIter<'a, T, N>
     where
         T: 'a;
 
@@ -551,10 +552,7 @@ fn main() {
 
     // Milestone 5: Builder Pattern
     println!("\n--- Milestone 5: Builder Pattern ---");
-    let built_stack: Stack<i32, 5> = ContainerBuilder::new()
-        .with_default(42)
-        .ready()
-        .build();
+    let built_stack: Stack<i32, 5> = ContainerBuilder::new().with_default(42).ready().build();
     println!("Built stack with default (42): {:?}", built_stack);
 
     let custom_stack: Stack<i32, 5> = ContainerBuilder::new()
@@ -861,7 +859,10 @@ mod tests {
             T: std::ops::Add<Output = T> + Default + Copy,
             C: Container<T>,
         {
-            container.iter().copied().fold(T::default(), |acc, x| acc + x)
+            container
+                .iter()
+                .copied()
+                .fold(T::default(), |acc, x| acc + x)
         }
 
         let mut stack: Stack<i32, 5> = Stack::new();

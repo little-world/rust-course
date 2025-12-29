@@ -1,8 +1,6 @@
 # Error Handling Architecture
+ Unlike exceptions in languages like Java or Python, Rust uses explicit return types (`Result<T, E>`) to force handling of errors at compile time. This approach eliminates entire classes of bugs: forgotten error checks, unexpected exception propagation, and unclear error boundaries.
 
-Error handling is one of Rust's most carefully designed features. Unlike exceptions in languages like Java or Python, Rust uses explicit return types (`Result<T, E>`) to force handling of errors at compile time. This approach eliminates entire classes of bugs: forgotten error checks, unexpected exception propagation, and unclear error boundaries.
-
-For programmers, mastering Rust's error handling means understanding not just the mechanics of `Result` and `Option`, but the architectural patterns for designing error types that are ergonomic, composable, and performant. This chapter covers error handling from the ground up: from simple library functions to complex distributed systems with rich error context.
 
 The key insight is that error handling in Rust is not just about reporting failures—it's about encoding your program's error domain in the type system, making impossible states unrepresentable, and providing excellent diagnostics when things go wrong.
 
@@ -1114,35 +1112,6 @@ fn specific_errors() -> Result<i32, ParseError2> {
 | `panic!` | Programmer errors | Impossible to ignore | Cannot recover |
 | `thiserror` | Custom errors | Reduces boilerplate | Compile-time cost |
 
-### Quick Reference
-
-```rust
-// Propagation
-let x = may_fail()?;                   // Early return on error
-let x = may_fail().context("msg")?;   // Add context
-
-// Conversion
-let x: Result<T, E2> = result.map_err(|e| convert(e));
-
-// Recovery
-let x = may_fail().unwrap_or(default);
-let x = may_fail().unwrap_or_else(|| compute_default());
-
-// Inspection
-if let Err(e) = result {
-    if e.kind() == ErrorKind::NotFound { /* ... */ }
-}
-
-// Chaining
-result
-    .and_then(|x| process(x))
-    .or_else(|e| recover(e))
-
-// Async
-let result = timeout(duration, async_op).await?;
-let results = try_join_all(futures).await?;
-```
-
 ### Key Takeaways
 
 1. **Libraries: specific errors, applications: opaque errors**
@@ -1155,6 +1124,4 @@ let results = try_join_all(futures).await?;
 8. **Profile error handling overhead (usually negligible)**
 9. **Use thiserror for custom errors, anyhow for applications**
 10. **Document error conditions in function signatures**
-
-Rust's error handling transforms errors from exceptional control flow to explicit, type-safe values. This approach makes error handling more verbose but dramatically more reliable, forcing you to consider every failure mode at compile time.
 

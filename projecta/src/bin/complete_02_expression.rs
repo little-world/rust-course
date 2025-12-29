@@ -504,13 +504,16 @@ fn benchmark_box() -> std::time::Duration {
     start.elapsed()
 }
 
-
 fn benchmark_bulk_deallocation() {
     const ITERATIONS: usize = 10_000;
-    const TREE_DEPTH: usize = 10;  // 2^10 - 1 = 2047 nodes per tree
+    const TREE_DEPTH: usize = 10; // 2^10 - 1 = 2047 nodes per tree
 
     println!("\n=== Bulk Deallocation Benchmark ===");
-    println!("Building {} trees with {} nodes each\n", ITERATIONS, (1 << (TREE_DEPTH + 1)) - 1);
+    println!(
+        "Building {} trees with {} nodes each\n",
+        ITERATIONS,
+        (1 << (TREE_DEPTH + 1)) - 1
+    );
 
     // Box version: must free each node individually
     let start = Instant::now();
@@ -519,10 +522,7 @@ fn benchmark_bulk_deallocation() {
             if depth == 0 {
                 BoxExprBuilder::literal(1)
             } else {
-                BoxExprBuilder::add(
-                    build_box_tree(depth - 1),
-                    build_box_tree(depth - 1),
-                )
+                BoxExprBuilder::add(build_box_tree(depth - 1), build_box_tree(depth - 1))
             }
         }
         let tree = build_box_tree(TREE_DEPTH);
@@ -538,10 +538,7 @@ fn benchmark_bulk_deallocation() {
     for _ in 0..ITERATIONS {
         let builder = ExprBuilder::new(&arena);
 
-        fn build_arena_tree<'a>(
-            builder: &ExprBuilder<'a>,
-            depth: usize
-        ) -> &'a Expr<'a> {
+        fn build_arena_tree<'a>(builder: &ExprBuilder<'a>, depth: usize) -> &'a Expr<'a> {
             if depth == 0 {
                 builder.literal(1)
             } else {
@@ -558,8 +555,15 @@ fn benchmark_bulk_deallocation() {
     }
     let arena_reuse_time = start.elapsed();
 
-    println!("Box (alloc + {} deallocations/tree): {:?}", (1 << (TREE_DEPTH + 1)) - 1, box_time);
-    println!("Arena (reused, O(1) reset):          {:?}", arena_reuse_time);
+    println!(
+        "Box (alloc + {} deallocations/tree): {:?}",
+        (1 << (TREE_DEPTH + 1)) - 1,
+        box_time
+    );
+    println!(
+        "Arena (reused, O(1) reset):          {:?}",
+        arena_reuse_time
+    );
 
     if arena_reuse_time.as_nanos() > 0 {
         let speedup = box_time.as_nanos() as f64 / arena_reuse_time.as_nanos() as f64;
@@ -726,10 +730,7 @@ mod tests {
 
     #[test]
     fn test_box_expr_addition() {
-        let expr = BoxExprBuilder::add(
-            BoxExprBuilder::literal(10),
-            BoxExprBuilder::literal(5),
-        );
+        let expr = BoxExprBuilder::add(BoxExprBuilder::literal(10), BoxExprBuilder::literal(5));
         assert_eq!(expr.eval(), Ok(15));
     }
 
@@ -775,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_arena_alloc_string() {
-        let arena = Arena::new_with_capacity( 4* 1024);
+        let arena = Arena::new_with_capacity(4 * 1024);
         let s = arena.alloc(String::from("hello"));
         assert_eq!(s, "hello");
     }

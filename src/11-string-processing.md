@@ -2,7 +2,7 @@
 
 Strings in Rust are more complex than in many languages due to UTF-8 encoding guarantees, ownership semantics, and platform interoperability requirements. `String` is a heap-allocated, growable UTF-8 string, while `&str` is an immutable view into UTF-8 data. Understanding the type system, encoding rules, and zero-copy techniques is essential for writing efficient text processing code.
 
-This chapter explores patterns for working with strings that experienced Rust programmers use to build high-performance systems. The key insight is that string type selection, allocation strategy, and understanding UTF-8's variable-length encoding dramatically impact both correctness and performance.
+ The key insight is that string type selection, allocation strategy, and understanding UTF-8's variable-length encoding dramatically impact both correctness and performance.
 
 
 
@@ -2477,29 +2477,6 @@ fn main() {
 - Search: Boyer-Moore for interactive (large alphabet), KMP for guaranteed (small alphabet)
 - Comparison: intern if comparing same strings repeatedly
 
-**Common Patterns**:
-```rust
-// Type selection
-fn process(s: &str) { }  // Most flexible parameter
-let owned = s.to_string();  // Convert &str -> String
-let cow = if needs_change { Cow::Owned(modified) } else { Cow::Borrowed(s) };
-
-// Zero-copy parsing
-for line in text.lines() {  // No allocation
-    for field in line.split(',') {  // No allocation
-        process(field);
-    }
-}
-
-// Safe UTF-8 handling
-for (i, ch) in s.char_indices() {  // i is valid boundary
-    let slice = &s[i..];  // Safe
-}
-
-// Builder with capacity
-let mut s = String::with_capacity(estimated_size);
-s.push_str("content");  // O(1) until capacity exhausted
-```
 
 **Safety Notes**:
 - Never index strings with byte positions without checking char boundaries

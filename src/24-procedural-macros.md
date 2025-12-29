@@ -1,7 +1,6 @@
 # Procedural Macros
 This chapter covers procedural macros—full Rust functions that manipulate TokenStreams. Three types: derive (#[derive(Trait)]), attribute (#[my_attr]), function-like (sql!). Must be separate crate. Use syn to parse, quote to generate. Powers serde, tokio, clap ecosystem.
 
- **Setup**
 
 Procedural macros require separate crate with `proc-macro = true`:
 
@@ -1422,14 +1421,3 @@ This chapter covered procedural macros:
 - eprintln! in macro for debug output
 - Test incrementally—start simple
 - Check syn docs for AST structure
-
-**Setup Requirements**:
-```toml
-[lib]
-proc-macro = true
-
-[dependencies]
-syn = { version = "2", features = ["full"] }
-quote = "1"
-proc_macro2 = "1"
-```

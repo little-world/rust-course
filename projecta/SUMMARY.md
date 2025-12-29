@@ -70,9 +70,7 @@
 [network-udp-game-server](26-network-project-3-udp-game-server.md)
 [network-distributed-kv-store](26-network-project-4-distributed-kv-store.md)
 [network-collaborative-editor](26-network-project-6-collaborative-editor.md)
-[database-task-queue](27-database-project-1-task-queue.md)
-[database-blog-api](27-database-project-2-blog-api.md)
-[database-multi-tenant](27-database-project-3-multi-tenant-saas.md)
+
 [testing-coverage](28-testing-project-1-coverage-analyzer.md)
 [testing-mutation](28-testing-project-2-mutation-testing.md)
 [testing-property](28-testing-project-3-property-test-generator.md)
