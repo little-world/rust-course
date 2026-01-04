@@ -56,7 +56,7 @@ match ch {
 
 **Use Cases**: Numeric classification (temperature ranges, HTTP status codes, port numbers), token parsing (keywords, operators, literals), request routing (method + path combinations), user categorization (age/premium/activity), validation with capture (valid ranges that you need to use).
 
-### Example 1: Range Matching
+### Example: Range Matching
 
 Range patterns provide a concise way to match against a range of values, which is far more readable than a long chain of `if-else` statements.
 
@@ -75,7 +75,7 @@ fn classify_temperature(temp: i32) -> &'static str {
 }
 ```
 
-### Example 2: Guards for Complex Conditions
+### Example: Guards for Complex Conditions
 
 Match guards (`if ...`) allow you to add arbitrary boolean expressions to a pattern. This is useful when the condition for a match is more complex than a simple value comparison.
 
@@ -94,7 +94,7 @@ fn process_request(status: u16, body: &str) -> Result<Response, Error> {
 }
 ```
 
-### Example 3: `@` Bindings to Capture and Test
+### Example: `@` Bindings to Capture and Test
 
 The `@` symbol lets you bind a value to a variable while simultaneously testing it against a more complex pattern. This avoids the need to re-bind the variable inside the match arm.
 
@@ -112,7 +112,7 @@ fn validate_port(port: u16) -> Result<Port, ValidationError> {
 }
 ```
 
-### Example 4: Nested Destructuring
+### Example: Nested Destructuring
 
 Pattern matching allows you to "look inside" nested data structures, binding to only the fields you care about and ignoring the rest with `..`.
 
@@ -151,7 +151,7 @@ fn contains_origin(shape: &Shape) -> bool {
 -   Command parsers that must handle every possible command.
 -   API error types, ensuring that callers handle all possible failure modes.
 
-### Example 1: Exhaustive Matching for Safety
+### Example: Exhaustive Matching for Safety
 
 If we add a new variant to `RequestState`, the `state_duration` function will no longer compile until the new variant is handled in the `match` expression. This prevents us from forgetting to update critical logic.
 
@@ -175,7 +175,7 @@ fn state_duration(state: &RequestState, now: u64) -> Option<u64> {
 }
 ```
 
-### Example 2: Match Ergonomics
+### Example: Match Ergonomics
 
 Rust's match ergonomics automatically handle references for you in most cases, reducing visual noise. When you match on a `&Option<String>`, the inner value is automatically a `&String`, not a `String`.
 
@@ -189,7 +189,7 @@ fn process_option(opt: &Option<String>) {
 }
 ```
 
-### Example 3: The `#[non_exhaustive]` Attribute
+### Example: The `#[non_exhaustive]` Attribute
 
 For public libraries, you may want to add new enum variants without it being a breaking change for your users. The `#[non_exhaustive]` attribute tells the compiler that this enum may have more variants in the future, forcing users to include a wildcard (`_`) arm in their `match` expressions.
 
@@ -233,7 +233,7 @@ fn handle_version(version: HttpVersion) {
 -   Processing items from a queue or stream until it is empty.
 -   Navigating nested `Option` or `Result` types.
 
-### Example 1: `if let` and `if let` chains
+### Example: `if let` and `if let` chains
 
 An `if let` chain can replace nested `if let` statements, making validation logic much flatter and easier to read.
 
@@ -264,7 +264,7 @@ fn handle_request(req: &Request) {
 }
 ```
 
-### Example 2: `let-else` for Early Returns
+### Example: `let-else` for Early Returns
 
 `let-else` is perfect for guard clauses at the beginning of a function. It allows you to destructure a value and `return` or `break` if the pattern doesn't match.
 
@@ -285,7 +285,7 @@ fn get_user_id(request: &Request) -> Result<u64, Error> {
 }
 ```
 
-### Example 3: `while let` for Iteration
+### Example: `while let` for Iteration
 
 `while let` is the idiomatic way to loop as long as a pattern continues to match. It's often used to process items from an iterator or a queue.
 
@@ -322,7 +322,7 @@ fn drain_queue(queue: &mut VecDeque<String>) {
 -   Message-passing systems, like actor models or service buses.
 -   Defining explicit, type-safe API response structures.
 
-### Example 1: Command Pattern with Enums
+### Example: Command Pattern with Enums
 
 Instead of an object-oriented command pattern, you can define all possible operations as variants of a single `Command` enum. A central `execute` method then dispatches on the variant.
 
@@ -344,7 +344,7 @@ fn execute_command(command: Command) {
 }
 ```
 
-### Example 2: Event Sourcing with Enums
+### Example: Event Sourcing with Enums
 
 In an event-sourcing system, state is rebuilt by applying a series of events. Using an enum for events ensures that every event is a well-defined, typed structure, and that your state aggregates can handle all of them.
 

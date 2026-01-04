@@ -19,7 +19,7 @@ The Entry API is the most idiomatic and efficient way to handle complex conditio
     -   **Building Adjacency Lists**: Constructing graph data structures by adding edges between nodes.
     -   **Default Value Initialization**: Ensuring a key has a default value before modifying it.
 
-### Example 1: Word Frequency Counter
+### Example: Word Frequency Counter
 
 The classic use case for the Entry API is counting word frequencies. The `.or_insert(0)` method gets the current count for a word or inserts `0` if the word is new. We can then increment the count in place.
 
@@ -42,7 +42,7 @@ fn word_frequency_counter() {
 }
 ```
 
-### Example 2: Grouping Items by Key
+### Example: Grouping Items by Key
 
 The Entry API is perfect for grouping items from a list into a `HashMap` where keys are a property of the item and values are a `Vec` of items sharing that property. `.or_insert_with(Vec::new)` is used here to lazily create a new vector only when a new key is encountered.
 
@@ -78,7 +78,7 @@ fn group_sales_by_category() {
 }
 ```
 
-### Example 3: Implementing an LRU Cache
+### Example: Implementing an LRU Cache
 
 The Entry API can be used to implement more complex data structures like a Least Recently Used (LRU) cache. Here, we use `Entry::Occupied` and `Entry::Vacant` to handle the logic for existing and new cache entries separately.
 
@@ -140,7 +140,7 @@ By default, `HashMap` uses a secure but slower hashing algorithm (SipHash) and r
     -   **Composite Keys**: Using a struct with multiple fields as a single key.
     -   **Floating-Point Keys**: For spatial indexing or scientific computing, typically by wrapping floats to handle `NaN` and rounding for approximate equality.
 
-### Example 1: Case-Insensitive String Keys
+### Example: Case-Insensitive String Keys
 
 To make a `HashMap` treat string keys as case-insensitive, we can create a newtype wrapper around `String`. We then implement `PartialEq` to compare strings case-insensitively and `Hash` to hash their lowercase versions.
 
@@ -179,7 +179,7 @@ fn case_insensitive_headers() {
 }
 ```
 
-### Example 2: Faster Hashing with FxHashMap
+### Example: Faster Hashing with FxHashMap
 
 For performance-critical code paths where the keys are trusted (not controlled by a potential attacker), you can replace the standard `HashMap` with `FxHashMap` from the `rustc-hash` crate. It uses a much faster, non-cryptographic hash function.
 
@@ -226,7 +226,7 @@ Failing to manage `HashMap` capacity can lead to poor performance due to repeate
     -   **High-Frequency Trading / Real-Time Systems**: Any system where latency spikes are unacceptable must carefully manage capacity to avoid resizes.
     -   **Memory-Constrained Environments**: Any application where memory usage is a primary concern.
 
-### Example 1: Pre-allocating for Batch Processing
+### Example: Pre-allocating for Batch Processing
 
 When you know roughly how many items you're going to insert, using `HashMap::with_capacity` can dramatically speed up insertion by avoiding repeated resizing and re-hashing.
 
@@ -255,7 +255,7 @@ fn batch_processing_with_capacity() {
 }
 ```
 
-### Example 2: Shrinking to Reclaim Memory
+### Example: Shrinking to Reclaim Memory
 
 For a long-lived `HashMap` that is populated once and then mostly read from, you can call `shrink_to_fit()` after population to release any excess memory capacity.
 
@@ -297,7 +297,7 @@ fn shrinking_to_fit() {
         -   **LRU Caches**: `IndexMap` is often a great choice for LRU caches as it naturally tracks insertion order.
         -   **Remembering User Choices**: Displaying items in the order a user added them.
 
-### Example 1: BTreeMap for Ordered Operations
+### Example: BTreeMap for Ordered Operations
 
 `BTreeMap` keeps its keys sorted. This makes it ideal for use cases that require ordered iteration or range queries, like a leaderboard or time-series data.
 
@@ -325,7 +325,7 @@ fn leaderboard() {
 }
 ```
 
-### Example 2: IndexMap for Insertion Order Preservation
+### Example: IndexMap for Insertion Order Preservation
 
 `IndexMap` is a drop-in replacement for `HashMap` that remembers the order in which keys were inserted. This is useful for creating ordered JSON objects or any other scenario where order matters.
 

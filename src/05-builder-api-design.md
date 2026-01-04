@@ -25,7 +25,7 @@ The Builder pattern provides a flexible and readable way to construct complex ob
     -   Constructing complex UI components or application configuration objects.
     -   Creating test data with varying parameters.
 
-### Example 1: Basic Consuming Builder
+### Example: Basic Consuming Builder
 
 This is the most common builder variant. Each setter method consumes the builder (`takes self`) and returns a new one, allowing for method chaining. The final `.build()` call consumes the builder and returns the constructed object. This ensures the builder cannot be accidentally reused.
 
@@ -114,7 +114,7 @@ let request = Request::builder("https://api.example.com")
 println!("{:#?}", request);
 ```
 
-### Example 2: Builder with Runtime Validation
+### Example: Builder with Runtime Validation
 
 When some fields are required, the builder can store them as `Option<T>` and the `.build()` method can return a `Result`. This moves validation from compile time to a single runtime check, ensuring no required fields are missed.
 
@@ -178,7 +178,7 @@ assert!(db_fail.is_err());
 println!("{}", db_fail.unwrap_err());
 ```
 
-### Example 3: Non-Consuming (Mutable) Builder
+### Example: Non-Consuming (Mutable) Builder
 
 For builders that you might want to reuse or incrementally build, methods can take a mutable reference (`&mut self`). This allows calling methods multiple times and creating multiple objects from the same builder instance.
 
@@ -266,7 +266,7 @@ The Typestate pattern encodes the state of an object into the type system itself
     -   Builder patterns that require fields to be set in a specific order (see Example 2).
     -   Resource lifecycle management (`Acquired` -> `Released`).
 
-### Example 1: Typestate for a Connection
+### Example: Typestate for a Connection
 
 This example models a connection that can be `Disconnected` or `Connected`. Methods like `send` are only available on a `Connection<Connected>`, which the compiler enforces.
 
@@ -334,7 +334,7 @@ match conn.connect("127.0.0.1:8080") {
 }
 ```
 
-### Example 2: Typestate Builder for Compile-Time Validation
+### Example: Typestate Builder for Compile-Time Validation
 
 The typestate pattern can be combined with a builder to enforce that required fields are set *at compile time*. The `.build()` method is only made available on the final state type, after all required setters have been called.
 

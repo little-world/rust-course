@@ -17,7 +17,7 @@ The key insight is that error handling in Rust is not just about reporting failu
 -   Systems with complex or domain-specific errors, such as network protocols, database clients, or parsers.
 -   Any situation where an error is an expected part of the program's control flow.
 
-### Example 1: A Simple Custom Error Enum
+### Example: A Simple Custom Error Enum
 
 This shows a basic error enum for a parsing function. Each variant represents a specific reason the parsing could fail.
 
@@ -59,7 +59,7 @@ fn load_and_parse_number(path: &str) -> Result<i32, DataError> {
 }
 ```
 
-### Example 3: `#[non_exhaustive]` for Library Stability
+### Example: `#[non_exhaustive]` for Library Stability
 
 When publishing a library, you may want to add new error variants in the future without it being a breaking change. The `#[non_exhaustive]` attribute tells users of your library that they must include a wildcard `_` arm in their match statements, ensuring their code won't break if you add a new variant.
 
@@ -88,7 +88,7 @@ pub enum ApiError {
 -   Any situation where you care more about the error *message* and *context* than the specific error *type*.
 -   Prototyping and writing examples where detailed error handling is not the main focus.
 
-### Example 1: Using `anyhow::Result` and `context`
+### Example: Using `anyhow::Result` and `context`
 
 This function shows how `anyhow` can be used to handle errors from different libraries (`std::fs` and `serde_json`) and add context to them.
 

@@ -79,7 +79,7 @@ Build a regular expression engine that:
 
 ## Visual Examples
 
-### Example 1: Email Pattern
+### Example: Email Pattern
 ```
 Pattern: [a-z]+@[a-z]+\.[a-z]+
 Breakdown:
@@ -96,7 +96,7 @@ Matches:
   ✗ @example.com      (no username)
 ```
 
-### Example 2: Phone Number
+### Example: Phone Number
 ```
 Pattern: \d{3}-\d{3}-\d{4}
 Breakdown:
@@ -112,7 +112,7 @@ Matches:
   ✗ 12-345-6789       (wrong format)
 ```
 
-### Example 3: Wildcard Matching
+### Example: Wildcard Matching
 ```
 Pattern: h.llo
 Breakdown:
@@ -127,7 +127,7 @@ Matches:
   ✗ hllo     (. must match something)
 ```
 
-### Example 4: Quantifiers
+### Example: Quantifiers
 ```
 Pattern: ab*c
 Breakdown:
@@ -149,7 +149,7 @@ Matches:
   ✓ abbc
 ```
 
-### Example 5: Character Classes
+### Example: Character Classes
 ```
 Pattern: [aeiou]
 Matches: Any single vowel

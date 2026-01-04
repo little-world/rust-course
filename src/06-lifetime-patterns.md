@@ -16,7 +16,7 @@ This chapter explores essential lifetime patterns in Rust, covering how the comp
 -   Functions that return a reference derived from one of its inputs.
 -   Methods on structs that return references to the struct's data.
 
-### Example 1: Why Lifetimes Exist
+### Example: Why Lifetimes Exist
 
 In languages like C, it's easy to accidentally return a pointer to memory that has been deallocated, leading to crashes.
 
@@ -30,7 +30,7 @@ char* get_string() {
 ```
 
 The function returns a pointer to stack memory that's immediately deallocated. Using this pointer is undefined behavior. Lifetimes prevent this entire class of bugs:
-### Example 3: Lifetime Elision Rules
+### Example: Lifetime Elision Rules
 ```rust
 // This Rust code will not compile.
 // fn get_string() -> &str {
@@ -42,7 +42,7 @@ The function returns a pointer to stack memory that's immediately deallocated. U
 The compiler sees that the returned reference doesn't outlive the function and rejects the code. Lifetimes encode "how long is this reference valid?" in the type system.
 
 When a function takes multiple references and returns one, you must explicitly tell the compiler how the lifetimes are related. Here, `'a` ensures that the returned reference is valid for as long as the shorter of the two input references.
-### Example 2: Basic Lifetime Annotation
+### Example: Basic Lifetime Annotation
 
 When a function takes multiple references and returns one, you must explicitly tell the compiler how the lifetimes are related. Here, `'a` ensures that the returned reference is valid for as long as the shorter of the two input references.
 
@@ -64,7 +64,7 @@ fn example() {
     println!("Longest: {}", result);
 }
 ```
-### Example 3: Lifetime Elision Rules
+### Example: Lifetime Elision Rules
 To avoid boilerplate, the compiler applies three rules to infer lifetimes automatically. You only need to write annotations when these rules are not sufficient.
 
 - **Rule 1**: Each elided lifetime in a function's parameters gets its own distinct lifetime parameter.
@@ -91,7 +91,7 @@ impl<'a> MyString<'a> {
 }
 ```
 
-### Example 4: The `'static` Lifetime
+### Example: The `'static` Lifetime
 
 The `'static` lifetime indicates that a reference is valid for the entire duration of the program. String literals are the most common example. Be cautious with `'static`, as it is rarely what you need for function inputs or outputs unless you are dealing with truly global data.
 
@@ -116,7 +116,7 @@ const STATIC_STRING: &'static str = "This is also a static string.";
 -   Generic functions that work with borrowed data.
 -   Traits that involve references in their method signatures or associated types.
 
-### Example 1: Lifetime Bound on a Generic Struct
+### Example: Lifetime Bound on a Generic Struct
 
 A struct containing a generic type with a reference needs a lifetime bound. Here, `T: 'a` ensures that whatever type `T` is, it does not contain any references that live for a shorter time than `'a`.
 
@@ -128,7 +128,7 @@ struct Wrapper<'a, T: 'a> {
 }
 ```
 
-### Example 2: `where` Clauses for Complex Bounds
+### Example: `where` Clauses for Complex Bounds
 
 For complex combinations of lifetime and trait bounds, a `where` clause can make the function signature much more readable.
 
@@ -164,7 +164,7 @@ trait Parser {
 -   Functions that accept callbacks or event handlers.
 -   Parser combinator libraries.
 
-### Example 1: A Function Accepting a Lifetime-Generic Closure
+### Example: A Function Accepting a Lifetime-Generic Closure
 
 The `call_on_hello` function creates a local string and calls a closure on a reference to it. The closure must be able to handle this local, temporary lifetime. The `for<'a>` bound ensures this.
 
@@ -183,7 +183,7 @@ let print_it = |s: &str| println!("{}", s);
 call_on_hello(print_it);
 ```
 
-### Example 2: Trait with a Higher-Ranked Method
+### Example: Trait with a Higher-Ranked Method
 
 You can use HRTBs in traits to define methods that are generic over lifetimes. This is common in "streaming iterator" or "lending iterator" patterns.
 
@@ -215,7 +215,7 @@ impl Processor for Trimmer {
 -   Generators and other coroutines.
 -   Intrusive data structures like linked lists where nodes are embedded within other objects.
 
-### Example 1: The Problem with Self-Reference
+### Example: The Problem with Self-Reference
 
 This code demonstrates why safe Rust disallows self-referential structs. You cannot create a reference to a field before the struct is fully constructed and moved into its final memory location.
 
@@ -228,7 +228,7 @@ This code demonstrates why safe Rust disallows self-referential structs. You can
 // }
 ```
 
-### Example 2: A Safe Alternative Using Indices
+### Example: A Safe Alternative Using Indices
 
 Instead of direct references, you can use indices into a collection. This avoids the self-reference problem because indices remain valid even if the collection is moved.
 
@@ -244,7 +244,7 @@ struct Graph {
 }
 ```
 
-### Example 3: A Pinned, Self-Referential Struct (Unsafe)
+### Example: A Pinned, Self-Referential Struct (Unsafe)
 
 This example shows how `Pin` and `unsafe` can be used to create a truly self-referential struct. This is an advanced technique and should be used with great care.
 

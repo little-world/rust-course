@@ -16,7 +16,7 @@ Strings in Rust are more complex than in many languages due to UTF-8 encoding gu
 
 **Use Cases**: `String` for building strings dynamically, returning from functions, storing in collections. `&str` for function parameters, parsing, zero-copy operations. `Cow<str>` for normalization, escaping, sanitization where input is often already valid. `OsString` for file paths, environment variables, FFI with OS APIs. `Path` for cross-platform path manipulation with extension extraction, parent directory operations.
 
-### Example 1: String - Owned and Growable
+### Example: String - Owned and Growable
 
 `String` is a heap-allocated, growable UTF-8 string that owns its data. Use it when you need to build strings dynamically or return strings from functions.
 
@@ -33,7 +33,7 @@ fn string_example() {
 }
 ```
 
-### Example 2: &str - Borrowed String Slice
+### Example: &str - Borrowed String Slice
 
 `&str` is an immutable view into UTF-8 data without ownership. It's the most flexible type for function parameters since `String` automatically derefs to `&str`.
 
@@ -48,7 +48,7 @@ fn str_slice_example(s: &str) {
 }
 ```
 
-### Example 3: Cow - Clone on Write
+### Example: Cow - Clone on Write
 
 `Cow<str>` enables conditional allocation: borrow when possible, allocate only when modification is needed. This eliminates unnecessary allocations in common cases.
 
@@ -64,7 +64,7 @@ fn cow_example<'a>(data: &'a str, uppercase: bool) -> Cow<'a, str> {
 }
 ```
 
-### Example 4: OsString/OsStr - Platform-Native Strings
+### Example: OsString/OsStr - Platform-Native Strings
 
 Operating systems don't guarantee UTF-8. `OsString` and `OsStr` handle platform-specific encodings (UTF-16 on Windows, bytes on Unix) safely.
 
@@ -85,7 +85,7 @@ fn os_string_example() {
 }
 ```
 
-### Example 5: Path/PathBuf - Cross-Platform File Paths
+### Example: Path/PathBuf - Cross-Platform File Paths
 
 `Path` and `PathBuf` wrap `OsStr`/`OsString` with path-specific operations and handle platform differences in path separators automatically.
 
@@ -110,7 +110,7 @@ fn path_example() {
 }
 ```
 
-### Example 6: Type Conversions
+### Example: Type Conversions
 
 Understanding how to convert between string types is essential for working effectively with Rust's string ecosystem.
 
@@ -172,7 +172,7 @@ The string type hierarchy reflects a fundamental trade-off in systems programmin
 **Use Cases**: HTML/XML generation (builders with tag methods, indentation), SQL query construction (type-safe builder preventing injection), log formatting (structured message building), template rendering (placeholder substitution), configuration file generation, protocol message assembly.
 
 
-### Example 1: Basic StringBuilder with Capacity Pre-allocation
+### Example: Basic StringBuilder with Capacity Pre-allocation
 
 A simple string builder that pre-allocates capacity and provides method chaining for fluent APIs. The `build()` method consumes the builder to transfer ownership without copying.
 
@@ -221,7 +221,7 @@ impl StringBuilder {
 }
 ```
 
-### Example 2: Domain-Specific HTML Builder
+### Example: Domain-Specific HTML Builder
 
 An HTML builder wraps StringBuilder with domain-specific methods for tag handling and automatic indentation, making HTML generation both safe and ergonomic.
 
@@ -271,7 +271,7 @@ impl HtmlBuilder {
 }
 ```
 
-### Example 3: Using the Builders
+### Example: Using the Builders
 
 Demonstrating the fluent API style enabled by method chaining with `&mut self` returns.
 
@@ -330,7 +330,7 @@ Without pre-allocation, `String` uses an exponential growth strategy (doubling c
 
 **Use Cases**: CSV/TSV parsing (split by delimiter, process fields), log analysis (pattern matching on lines), configuration file parsing (key=value splitting), protocol parsing (header extraction), text search (finding substrings without copying), streaming data processing (process-then-discard pattern).
 
-### Example 1: Zero-Copy Line Parser
+### Example: Zero-Copy Line Parser
 
 A parser that returns iterators over string slices without allocating. Each operation borrows from the original data, making parsing extremely efficient.
 
@@ -361,7 +361,7 @@ impl<'a> LineParser<'a> {
 }
 ```
 
-### Example 2: Zero-Allocation CSV Parser
+### Example: Zero-Allocation CSV Parser
 
 A CSV parser that returns slices into the original data rather than allocating strings for each field. Ideal for streaming or one-pass processing.
 
@@ -395,7 +395,7 @@ impl<'a> CsvParser<'a> {
 }
 ```
 
-### Example 3: String View with UTF-8 Boundary Checking
+### Example: String View with UTF-8 Boundary Checking
 
 A safe string view that validates UTF-8 character boundaries before slicing, preventing panics from invalid slices.
 
@@ -430,7 +430,7 @@ impl<'a> StringView<'a> {
 }
 ```
 
-### Example 4: Using Zero-Copy Parsers
+### Example: Using Zero-Copy Parsers
 
 Demonstrating how to use zero-copy parsing techniques for efficient text processing without unnecessary allocations.
 
@@ -489,7 +489,7 @@ The `split()` iterator maintains state (current position) and advances through t
 
 **Use Cases**: HTML escaping (only allocate if <>&"' present), whitespace normalization (only if multiple spaces found), case conversion (only if mixed case), prefix/suffix stripping (only if present), path canonicalization, validation with optional sanitization.
 
-### Example 1: Normalize Whitespace with Cow
+### Example: Normalize Whitespace with Cow
 
 A two-phase algorithm: first check if normalization is needed, then only allocate if multiple consecutive spaces are found.
 
@@ -536,7 +536,7 @@ fn normalize_whitespace(s: &str) -> Cow<str> {
 }
 ```
 
-### Example 2: Conditional HTML Escaping
+### Example: Conditional HTML Escaping
 
 Check if any special characters exist before allocating. Most strings don't need escaping, so this fast-path check saves allocations.
 
@@ -565,7 +565,7 @@ fn escape_html(s: &str) -> Cow<str> {
 }
 ```
 
-### Example 3: Strip Prefix/Suffix Without Allocation
+### Example: Strip Prefix/Suffix Without Allocation
 
 Only allocate a new string if prefix or suffix actually exists. Otherwise return the original slice.
 
@@ -592,7 +592,7 @@ fn strip_affixes<'a>(s: &'a str, prefix: &str, suffix: &str) -> Cow<'a, str> {
 }
 ```
 
-### Example 4: Conditional Case Normalization
+### Example: Conditional Case Normalization
 
 Check if the string is already lowercase before allocating for conversion. Avoids unnecessary work for already-normalized input.
 
@@ -608,7 +608,7 @@ fn to_lowercase_if_needed(s: &str) -> Cow<str> {
 }
 ```
 
-### Example 5: Using Cow Functions
+### Example: Using Cow Functions
 
 Demonstrating how Cow eliminates allocations when input is already in the desired format.
 
@@ -671,7 +671,7 @@ For high-frequency operations where the input is often already in the desired fo
 
 **Use Cases**: File I/O from unknown encodings, network protocol parsing, FFI with C strings, data recovery tools, text editors (proper cursor movement), terminal emulators (width calculation), web servers (sanitizing input), internationalization (proper truncation/reversal).
 
-### Example 1: Lossy UTF-8 Validation
+### Example: Lossy UTF-8 Validation
 
 For handling potentially invalid data, `from_utf8_lossy` replaces invalid byte sequences with the replacement character (�). This is useful for recovery and logging.
 
@@ -681,7 +681,7 @@ fn validate_utf8_lossy(data: &[u8]) -> String {
 }
 ```
 
-### Example 2: Strict UTF-8 Validation
+### Example: Strict UTF-8 Validation
 
 When you need to know if data is valid UTF-8, use `from_utf8` which returns an error for invalid sequences.
 
@@ -691,7 +691,7 @@ fn validate_utf8_strict(data: &[u8]) -> Result<&str, std::str::Utf8Error> {
 }
 ```
 
-### Example 3: Custom UTF-8 Validator
+### Example: Custom UTF-8 Validator
 
 A comprehensive UTF-8 validator that detects overlong encodings and provides detailed error positions. This demonstrates the complete UTF-8 validation algorithm.
 
@@ -823,7 +823,7 @@ struct Utf8Error {
 
 ```
 
-### Example 4: Using UTF-8 Validators
+### Example: Using UTF-8 Validators
 
 Demonstrating validation strategies for different scenarios: strict validation, lossy conversion, and detailed error reporting.
 
@@ -897,7 +897,7 @@ The validator implements a state machine that processes bytes sequentially:
 
 **Use Cases**: Text editors (cursor movement across graphemes), terminal output (width calculation for alignment), string truncation (safe at grapheme boundaries), text reversal (preserve composed characters), search/replace (whole grapheme), length display (user-perceived count not bytes), internationalization.
 
-### Example 1: Three Levels of String Iteration
+### Example: Three Levels of String Iteration
 
 Demonstrating the difference between bytes, characters (code points), and grapheme clusters—each serves different purposes.
 
@@ -935,7 +935,7 @@ fn analyze_string(s: &str) {
 }
 ```
 
-### Example 2: Display Width Calculation
+### Example: Display Width Calculation
 
 Implements East Asian Width rules for terminal alignment. CJK characters and fullwidth forms occupy two columns.
 
@@ -957,7 +957,7 @@ fn display_width(s: &str) -> usize {
 }
 ```
 
-### Example 3: Safe String Truncation
+### Example: Safe String Truncation
 
 Truncating at character boundaries prevents corrupting multi-byte UTF-8 sequences. Uses `char_indices()` to find safe cut points.
 
@@ -970,7 +970,7 @@ fn truncate_at_char(s: &str, max_chars: usize) -> &str {
 }
 ```
 
-### Example 4: Grapheme-Aware Truncation
+### Example: Grapheme-Aware Truncation
 
 For user-facing text, truncate at grapheme cluster boundaries to avoid breaking composed characters or emoji sequences.
 
@@ -985,7 +985,7 @@ fn truncate_at_grapheme(s: &str, max_graphemes: usize) -> &str {
 }
 ```
 
-### Example 5: Reversing While Preserving Graphemes
+### Example: Reversing While Preserving Graphemes
 
 String reversal that keeps grapheme clusters intact—essential for text editors and international text processing.
 
@@ -997,7 +997,7 @@ fn reverse_graphemes(s: &str) -> String {
 }
 ```
 
-### Example 6: Using Character Iteration Techniques
+### Example: Using Character Iteration Techniques
 
 Demonstrating different iteration levels on ASCII, multi-byte characters, complex emoji, and CJK text.
 

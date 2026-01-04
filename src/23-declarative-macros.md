@@ -713,7 +713,7 @@ fn sql_dsl_example() {
 ```
 
 
-### Example 2: Configuration DSL
+### Example: Configuration DSL
 
 Create a structured configuration syntax that parses at compile time.
 
@@ -826,7 +826,7 @@ fn html_dsl_example() {
 ```
 
 
-### Example 3: State Machine DSL
+### Example: State Machine DSL
 
 Define state machines declaratively, compiling to efficient match-based transitions.
 

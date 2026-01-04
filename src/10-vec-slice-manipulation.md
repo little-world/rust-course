@@ -14,7 +14,7 @@ Vectors and slices are the workhorses of Rust data processing. `Vec<T>` provides
 
 **Use Cases**: Batch processing (pre-allocate for batch size), collecting query results (reserve based on estimated count), temporary buffers in loops (reuse with clear), building large datasets (with_capacity), long-lived lookup tables (shrink_to_fit after construction).
 
-### Example 1: Pre-allocate When Size is Known
+### Example: Pre-allocate When Size is Known
 
 When you know how many elements you'll add to a vector, pre-allocating with `with_capacity` eliminates all reallocations during construction. This is the single most impactful optimization for vector building.
 
@@ -28,7 +28,7 @@ fn process_batch(items: &[Item]) -> Vec<ProcessedItem> {
 }
 ```
 
-### Example 2: Reserve Before Iterative Construction
+### Example: Reserve Before Iterative Construction
 
 When building vectors from multiple sources, estimate the total size upfront and reserve space once. This avoids multiple reallocations as the vector grows.
 
@@ -53,7 +53,7 @@ fn build_result_set(queries: &[Query]) -> Vec<Result> {
 }
 ```
 
-### Example 3: Reuse Vectors to Avoid Allocation
+### Example: Reuse Vectors to Avoid Allocation
 
 In loops where you build temporary vectors repeatedly, reuse a single buffer by calling `clear()` between iterations. This retains the allocated capacity and eliminates allocation overhead entirely.
 
@@ -77,7 +77,7 @@ fn batch_processor(batches: &[Batch]) -> Vec<Vec<Output>> {
 }
 ```
 
-### Example 4: Track Amortized Growth
+### Example: Track Amortized Growth
 
 Monitoring allocation patterns helps identify performance problems. This wrapper tracks how many reallocations occur during vector growth, revealing whether pre-allocation is needed.
 
@@ -111,7 +111,7 @@ impl<T> GrowableBuffer<T> {
 }
 ```
 
-### Example 5: Shrink Long-Lived Data Structures
+### Example: Shrink Long-Lived Data Structures
 
 When a vector is over-allocated and will remain in memory for a long time, use `shrink_to_fit` to reclaim the excess capacity. This is particularly important for lookup tables and cached data.
 
@@ -130,7 +130,7 @@ fn build_lookup_table(entries: &[Entry]) -> Vec<IndexEntry> {
 }
 ```
 
-### Example 6: Use Iterator Size Hints
+### Example: Use Iterator Size Hints
 
 When collecting from iterators, leverage the `size_hint` to pre-allocate optimal capacity. This is especially useful when the iterator provides accurate bounds.
 
@@ -150,7 +150,7 @@ fn collect_filtered(items: impl Iterator<Item = i32>) -> Vec<i32> {
 }
 ```
 
-### Example 7: Batch Insertion with Extend
+### Example: Batch Insertion with Extend
 
 When merging multiple vectors into one, calculate the total size upfront and reserve all needed space at once. This prevents reallocations during the merge operation.
 
@@ -165,7 +165,7 @@ fn merge_results(target: &mut Vec<String>, sources: &[Vec<String>]) {
 }
 ```
 
-### Example 8: Building Large Datasets Efficiently
+### Example: Building Large Datasets Efficiently
 
 For datasets where you know the exact size, pre-allocation ensures zero reallocations during construction. The assertion at the end verifies that no reallocation occurred.
 
@@ -203,7 +203,7 @@ fn generate_dataset(n: usize) -> Vec<DataPoint> {
 
 **Use Cases**: Database query optimization (binary search on sorted indices), statistics computation (median, percentiles with select_nth), data deduplication (sort + dedup), priority queues (partition by priority), cyclic buffers (rotate operations), filtering with memory constraints (retain vs filter+collect).
 
-### Example 1: Binary Search on Sorted Data
+### Example: Binary Search on Sorted Data
 
 Binary search provides O(log N) lookup on sorted slices, dramatically faster than linear search for large datasets. The slice must be sorted by the search key for correct results.
 
@@ -217,7 +217,7 @@ fn find_user_by_id(users: &[User], id: u64) -> Option<&User> {
 
 ```
 
-### Example 2: Partition Point for Range Queries
+### Example: Partition Point for Range Queries
 
 `partition_point` finds the index where a predicate transitions from true to false, enabling efficient range queries on sorted data. This is particularly useful for database-style queries.
 
@@ -229,7 +229,7 @@ fn find_range(sorted: &[i32], min: i32, max: i32) -> &[i32] {
 }
 ```
 
-### Example 3: Partition by Predicate
+### Example: Partition by Predicate
 
 Partitioning separates elements based on a condition without allocating a new vector. This returns mutable references to both the matching and non-matching segments.
 
@@ -240,7 +240,7 @@ fn separate_valid_invalid(items: &mut [Item]) -> (&mut [Item], &mut [Item]) {
 }
 ```
 
-### Example 4: Custom Sorting with Comparators
+### Example: Custom Sorting with Comparators
 
 Complex sorting criteria can be expressed with `sort_by`, chaining multiple comparisons. This example sorts by priority (descending) with timestamp as a tiebreaker (ascending).
 
@@ -254,7 +254,7 @@ fn sort_by_priority(tasks: &mut [Task]) {
 }
 ```
 
-### Example 5: Unstable Sort for Performance
+### Example: Unstable Sort for Performance
 
 When the relative order of equal elements doesn't matter, `sort_unstable` runs significantly faster than stable sort. This is ideal for primitive types and performance-critical code.
 
@@ -265,7 +265,7 @@ fn sort_large_dataset(data: &mut [f64]) {
 }
 ```
 
-### Example 6: Finding Median and Top-K Elements
+### Example: Finding Median and Top-K Elements
 
 `select_nth_unstable` performs partial sorting in O(N) time, making it perfect for finding medians, percentiles, and top-K elements without sorting the entire array.
 
@@ -282,7 +282,7 @@ fn top_k_elements(values: &mut [i32], k: usize) -> &[i32] {
 }
 ```
 
-### Example 7: Efficient Cyclic Rotation
+### Example: Efficient Cyclic Rotation
 
 `rotate_left` and `rotate_right` perform cyclic shifts efficiently without temporary buffers. This is essential for ring buffers and circular data structures.
 
@@ -292,7 +292,7 @@ fn rotate_buffer(buffer: &mut [u8], offset: usize) {
 }
 ```
 
-### Example 8: Deduplication on Sorted Data
+### Example: Deduplication on Sorted Data
 
 For removing duplicates, sort first then call `dedup`. This is O(N log N) for the sort plus O(N) for dedup, much faster than checking each element against all others.
 
@@ -303,7 +303,7 @@ fn unique_sorted(items: &mut Vec<i32>) {
 }
 ```
 
-### Example 9: In-Place Filtering with Retain
+### Example: In-Place Filtering with Retain
 
 `retain` removes elements that don't match a predicate without allocating a new vector. This is more efficient than `filter().collect()` when you want to modify in place.
 
@@ -313,7 +313,7 @@ fn remove_invalid(items: &mut Vec<Item>) {
 }
 ```
 
-### Example 10: Reverse Operations
+### Example: Reverse Operations
 
 Reversing slices in-place is O(N/2) swaps. Combined with chunking, you can reverse segments of data efficiently.
 
@@ -325,7 +325,7 @@ fn reverse_segments(data: &mut [u8], segment_size: usize) {
 }
 ```
 
-### Example 11: Filling Slices
+### Example: Filling Slices
 
 `fill` sets all elements to a value, while `fill_with` uses a closure to generate values. This is useful for initialization and resetting buffers.
 
@@ -344,7 +344,7 @@ fn initialize_with_indices(buffer: &mut [usize]) {
 }
 ```
 
-### Example 12: Swapping Slice Ranges
+### Example: Swapping Slice Ranges
 
 `swap_with_slice` exchanges the contents of two mutable slices in place without allocation. This is useful for data rearrangement and buffer management.
 
@@ -357,7 +357,7 @@ fn swap_halves(data: &mut [u8]) {
 }
 ```
 
-### Example 13: Pattern Matching with Starts/Ends
+### Example: Pattern Matching with Starts/Ends
 
 Checking for prefixes and suffixes is a common pattern in protocol parsing and file format detection.
 
@@ -368,7 +368,7 @@ fn has_magic_header(data: &[u8]) -> bool {
 }
 ```
 
-### Example 14: Finding Subsequences
+### Example: Finding Subsequences
 
 Searching for a pattern within a slice can be done efficiently using windows combined with position finding.
 
@@ -396,7 +396,7 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 **Use Cases**: Batch processing (database inserts, API requests), signal processing (moving averages, FFT windows), image processing (tile-based operations), parallel computation (divide work across threads), network packet assembly (fixed-size frames), time-series analysis (rolling statistics).
 
-### Example 1: Fixed-Size Chunking
+### Example: Fixed-Size Chunking
 
 `chunks` divides a slice into non-overlapping segments of a specified size. The last chunk may be smaller if the slice length isn't evenly divisible.
 
@@ -409,7 +409,7 @@ fn process_in_batches(data: &[u8], batch_size: usize) -> Vec<ProcessedBatch> {
 
 ```
 
-### Example 2: Mutable Chunks for In-Place Transformation
+### Example: Mutable Chunks for In-Place Transformation
 
 `chunks_mut` provides mutable access to each chunk, enabling in-place transformations without copying data. This is ideal for batch normalization and similar operations.
 
@@ -426,7 +426,7 @@ fn normalize_batches(data: &mut [f64], batch_size: usize) {
 }
 ```
 
-### Example 3: Exact Chunks with Remainder Handling
+### Example: Exact Chunks with Remainder Handling
 
 `as_chunks` splits a slice into fixed-size arrays with compile-time size checking, returning both the aligned chunks and the remainder. This is essential for SIMD-optimized code.
 
@@ -446,7 +446,7 @@ fn process_with_remainder(data: &[u8], chunk_size: usize) {
 }
 ```
 
-### Example 4: Sliding Windows for Moving Averages
+### Example: Sliding Windows for Moving Averages
 
 `windows` creates overlapping views of the slice, perfect for computing rolling statistics without allocating intermediate buffers.
 
@@ -461,7 +461,7 @@ fn moving_average(values: &[f64], window_size: usize) -> Vec<f64> {
 }
 ```
 
-### Example 5: Pairwise Operations
+### Example: Pairwise Operations
 
 Windows of size 2 enable efficient computation of differences, ratios, or other pairwise operations between adjacent elements.
 
@@ -473,7 +473,7 @@ fn compute_deltas(values: &[i32]) -> Vec<i32> {
 }
 ```
 
-### Example 6: Pattern Matching in Overlapping Windows
+### Example: Pattern Matching in Overlapping Windows
 
 Windows combined with filtering enable detection of consecutive sequences or patterns spanning multiple elements.
 
@@ -492,7 +492,7 @@ fn find_consecutive_sequences(data: &[i32], target: i32) -> Vec<usize> {
 }
 ```
 
-### Example 7: Parallel Processing with Chunks
+### Example: Parallel Processing with Chunks
 
 Chunking naturally partitions work for parallel processing. Each thread processes one chunk independently.
 
@@ -514,7 +514,7 @@ fn parallel_sum(data: &[i64]) -> i64 {
 }
 ```
 
-### Example 8: Reverse Chunking
+### Example: Reverse Chunking
 
 `rchunks` processes chunks from the end of the slice backward, useful for parsing formats where metadata appears at the end.
 
@@ -526,7 +526,7 @@ fn process_backwards(data: &[u8], chunk_size: usize) {
 }
 ```
 
-### Example 9: Exact Chunks vs Regular Chunks
+### Example: Exact Chunks vs Regular Chunks
 
 `chunks_exact` guarantees all chunks (except the explicit remainder) have the exact size, simplifying algorithms that require uniform blocks.
 
@@ -549,7 +549,7 @@ fn encode_blocks(data: &[u8], block_size: usize) -> Vec<EncodedBlock> {
 }
 ```
 
-### Example 10: Strided Access with Step By
+### Example: Strided Access with Step By
 
 Combining iteration with `step_by` enables sampling every Nth element, useful for downsampling data.
 
@@ -562,7 +562,7 @@ fn sample_every_nth(data: &[f64], n: usize) -> Vec<f64> {
 }
 ```
 
-### Example 11: Splitting into Equal Parts
+### Example: Splitting into Equal Parts
 
 Dividing data into N roughly equal parts is common for load balancing across workers.
 
@@ -573,7 +573,7 @@ fn split_into_n_parts(data: &[u8], n: usize) -> Vec<&[u8]> {
 }
 ```
 
-### Example 12: Signal Processing with Overlapping Windows
+### Example: Signal Processing with Overlapping Windows
 
 Advanced windowing combines `step_by` for hop size with manual slicing for overlapping FFT windows in spectrograms.
 
@@ -610,7 +610,7 @@ fn compute_spectrogram(signal: &[f32], window_size: usize, hop_size: usize) -> V
 
 **Use Cases**: CSV/JSON parsing (return field slices), network protocol parsers (split packets into views), text processing (split without allocation), binary format parsing (frame headers/payloads), configuration file parsing, streaming data processors.
 
-### Example 1: Return Slices Instead of Cloning
+### Example: Return Slices Instead of Cloning
 
 By returning borrowed slices instead of owned strings, CSV parsing avoids allocating memory for every field, dramatically improving performance.
 
@@ -638,7 +638,7 @@ fn find_field<'a>(record: &'a [u8], field_index: usize) -> &'a [u8] {
 
 ```
 
-### Example 2: Split Without Allocation
+### Example: Split Without Allocation
 
 The `split` iterator creates string slices on the fly without allocating a vector until `collect` is called. Each slice references the original string.
 
@@ -650,7 +650,7 @@ fn parse_csv_line(line: &str) -> Vec<&str> {
 }
 ```
 
-### Example 3: Multiple Slices from One Allocation
+### Example: Multiple Slices from One Allocation
 
 A struct can hold multiple slices all pointing into a single backing buffer, enabling zero-copy frame parsing for network protocols.
 
@@ -676,7 +676,7 @@ impl<'a> Frame<'a> {
 }
 ```
 
-### Example 4: Split At for Header/Body Separation
+### Example: Split At for Header/Body Separation
 
 `split_at` divides a slice at a specific index, creating two non-overlapping views perfect for fixed-size header parsing.
 
@@ -689,7 +689,7 @@ fn process_header_and_body(data: &[u8]) -> Result<(Header, Vec<Item>), Error> {
 }
 ```
 
-### Example 5: Copy-on-Write with Cow
+### Example: Copy-on-Write with Cow
 
 `Cow` (Clone on Write) enables APIs that only allocate when modification is needed, borrowing otherwise. Perfect for conditional string encoding fixes.
 
@@ -707,7 +707,7 @@ fn decode_field(field: &[u8]) -> Cow<str> {
 }
 ```
 
-### Example 6: Split First and Last for Protocol Parsing
+### Example: Split First and Last for Protocol Parsing
 
 `split_first` and `split_last` extract single elements while returning a slice of the remainder, ideal for version bytes and checksums.
 
@@ -723,7 +723,7 @@ fn parse_packet(data: &[u8]) -> Result<Packet, ParseError> {
 }
 ```
 
-### Example 7: Iterating Without Collecting
+### Example: Iterating Without Collecting
 
 When the final result doesn't need individual slices, process them in the iterator pipeline without allocating a vector.
 
@@ -735,7 +735,7 @@ fn sum_valid_numbers(data: &str) -> i32 {
 }
 ```
 
-### Example 8: Slicing During Iteration
+### Example: Slicing During Iteration
 
 Manual range-based slicing combined with iteration enables custom chunk processing without the constraints of fixed-size chunks.
 
@@ -751,7 +751,7 @@ fn process_blocks(data: &[u8], block_size: usize) -> Vec<BlockResult> {
 }
 ```
 
-### Example 9: Grouping by Delimiter
+### Example: Grouping by Delimiter
 
 Manual delimiter-based splitting provides more control than the built-in `split` method, useful for binary data or custom delimiters.
 
@@ -775,7 +775,7 @@ fn group_by_delimiter(data: &[u8], delimiter: u8) -> Vec<&[u8]> {
 }
 ```
 
-### Example 10: In-Place Mutable Operations
+### Example: In-Place Mutable Operations
 
 Mutable slices enable in-place transformations like byte swapping without any allocation.
 
@@ -787,7 +787,7 @@ fn swap_bytes_in_place(data: &mut [u8]) {
 }
 ```
 
-### Example 11: Complete Zero-Copy HTTP Parser
+### Example: Complete Zero-Copy HTTP Parser
 
 This comprehensive example shows how an entire HTTP request parser can work with zero allocations, storing only slices into the original buffer.
 
@@ -845,7 +845,7 @@ impl<'a> HttpRequest<'a> {
 
 **Use Cases**: Image/video processing (filters, transformations), audio processing (effects, encoding), numerical computing (matrix operations, scientific simulations), compression algorithms, checksums and hashing, database query execution, machine learning inference.
 
-### Example 1: Manual SIMD-Friendly Chunking
+### Example: Manual SIMD-Friendly Chunking
 
 Processing data in fixed-size chunks enables the compiler to auto-vectorize, and provides a clear structure for manual SIMD optimization.
 
@@ -872,7 +872,7 @@ fn sum_bytes(data: &[u8]) -> u64 {
 
 ```
 
-### Example 2: Aligned Data Structures
+### Example: Aligned Data Structures
 
 Proper memory alignment is crucial for SIMD performance. Using `#[repr(align(N))]` ensures data is aligned for vector instructions.
 
@@ -888,7 +888,7 @@ fn process_aligned(data: &[AlignedBuffer]) -> Vec<f32> {
 }
 ```
 
-### Example 3: Portable SIMD with std::simd
+### Example: Portable SIMD with std::simd
 
 Rust's portable SIMD (nightly) provides safe, cross-platform vector operations that compile to optimal CPU instructions.
 
@@ -921,7 +921,7 @@ fn add_vectors_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 }
 ```
 
-### Example 4: SIMD Search Operations
+### Example: SIMD Search Operations
 
 Searching through large buffers can benefit from SIMD parallelism by checking multiple elements simultaneously.
 
@@ -944,7 +944,7 @@ fn find_byte_simd(haystack: &[u8], needle: u8) -> Option<usize> {
 }
 ```
 
-### Example 5: SIMD Reduction Operations
+### Example: SIMD Reduction Operations
 
 Reduction operations like sum benefit from SIMD by accumulating multiple lanes in parallel before the final reduction.
 
@@ -967,7 +967,7 @@ fn sum_f32_vectorized(data: &[f32]) -> f32 {
 }
 ```
 
-### Example 6: Combining Parallelism with SIMD
+### Example: Combining Parallelism with SIMD
 
 Rayon's parallel iterators combined with SIMD operations enable multi-core data parallelism for maximum throughput.
 
@@ -985,7 +985,7 @@ fn parallel_simd_transform(data: &mut [f32]) {
 }
 ```
 
-### Example 7: Auto-Vectorization
+### Example: Auto-Vectorization
 
 Simple loops are often auto-vectorized by the compiler. Writing clear, simple code can be as fast as manual SIMD.
 
@@ -998,7 +998,7 @@ fn scale_values(data: &mut [f32], scale: f32) {
 }
 ```
 
-### Example 8: Dot Product with Chunking
+### Example: Dot Product with Chunking
 
 Dot products are fundamental linear algebra operations that benefit significantly from SIMD processing.
 
@@ -1025,7 +1025,7 @@ fn dot_product_chunks(a: &[f32], b: &[f32]) -> f32 {
 }
 ```
 
-### Example 9: Image Processing Pipeline
+### Example: Image Processing Pipeline
 
 Converting RGB to grayscale is embarrassingly parallel and benefits from SIMD processing of pixel data.
 
@@ -1046,7 +1046,7 @@ fn grayscale_simd(rgb_data: &[u8], output: &mut [u8]) {
 }
 ```
 
-### Example 10: SIMD-Friendly Data Layouts
+### Example: SIMD-Friendly Data Layouts
 
 Structure-of-arrays layout is more SIMD-friendly than array-of-structures for vector operations.
 
@@ -1087,7 +1087,7 @@ fn normalize_vectors(vectors: &mut [Vec3]) {
 
 **Use Cases**: In-place vector compaction, gap buffer implementations, sorting implementations with pivot splitting, parallel processing with split_at_mut, memory-efficient filtering, zero-copy type conversions (e.g., &[u8] to &[u32]), efficient element removal patterns.
 
-### Example 1: In-Place Vector Compaction
+### Example: In-Place Vector Compaction
 
 Compacting a vector by removing unwanted elements without allocation uses a two-pointer technique with swap operations.
 
@@ -1109,7 +1109,7 @@ fn compact_vector(vec: &mut Vec<Item>) {
 
 ```
 
-### Example 2: Extracting Elements with Drain
+### Example: Extracting Elements with Drain
 
 Draining elements that match a predicate into a separate vector while preserving the original's capacity.
 
@@ -1130,7 +1130,7 @@ fn extract_matching(vec: &mut Vec<Item>, predicate: impl Fn(&Item) -> bool) -> V
 }
 ```
 
-### Example 3: Splice for Range Replacement
+### Example: Splice for Range Replacement
 
 `splice` removes a range and replaces it with new elements in a single operation, more efficient than separate remove and insert.
 
@@ -1140,7 +1140,7 @@ fn replace_range(vec: &mut Vec<i32>, start: usize, end: usize, replacement: &[i3
 }
 ```
 
-### Example 4: Efficient Mid-Vector Insertion
+### Example: Efficient Mid-Vector Insertion
 
 `split_off` divides a vector at an index, enabling efficient insertion without shifting all elements twice.
 
@@ -1152,7 +1152,7 @@ fn insert_slice_at(vec: &mut Vec<u8>, index: usize, data: &[u8]) {
 }
 ```
 
-### Example 5: Sliding Window Maximum with Deque
+### Example: Sliding Window Maximum with Deque
 
 VecDeque enables efficient double-ended operations crucial for algorithms like sliding window maximum.
 
@@ -1185,7 +1185,7 @@ fn sliding_window_max(values: &[i32], window_size: usize) -> Vec<i32> {
 }
 ```
 
-### Example 6: Circular Buffer Implementation
+### Example: Circular Buffer Implementation
 
 Circular buffers use modular arithmetic to wrap indices, providing efficient fixed-size queues without shifting elements.
 
@@ -1228,7 +1228,7 @@ impl<T: Default + Clone> CircularBuffer<T> {
 }
 ```
 
-### Example 7: Copy-Free Slice Swapping
+### Example: Copy-Free Slice Swapping
 
 `std::mem::swap` enables efficient element-wise swapping between two mutable slices without temporary storage.
 
@@ -1242,7 +1242,7 @@ fn interleave_slices(a: &mut [u8], b: &mut [u8]) {
 }
 ```
 
-### Example 8: Self-Referential Duplication
+### Example: Self-Referential Duplication
 
 `extend_from_within` copies a range from within the vector and appends it, useful for repeating patterns.
 
@@ -1252,7 +1252,7 @@ fn duplicate_segment(vec: &mut Vec<u8>, start: usize, end: usize) {
 }
 ```
 
-### Example 9: Binary Partitioning
+### Example: Binary Partitioning
 
 Lomuto partition scheme efficiently separates elements based on a predicate, foundational for quicksort and selection algorithms.
 
@@ -1274,7 +1274,7 @@ fn partition_by_sign(values: &mut [i32]) -> usize {
 }
 ```
 
-### Example 10: Three-Way Partitioning
+### Example: Three-Way Partitioning
 
 Dutch National Flag algorithm partitions into three regions (less than, equal to, greater than) in a single pass.
 

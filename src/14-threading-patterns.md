@@ -18,7 +18,7 @@ This pattern is the foundation of multi-threaded programming in Rust. It covers 
     -   **Concurrent I/O**: Handling multiple network requests or file operations simultaneously.
     -   **Responsive UI**: Offloading long-running tasks from the main UI thread to keep an application responsive.
 
-### Example 1: Spawning a Thread with Owned Data
+### Example: Spawning a Thread with Owned Data
 
 To move data into a thread, use a `move` closure. This transfers ownership of the `data` vector from the parent thread to the new thread. The parent can no longer access it, preventing data races. `thread::spawn` returns a `JoinHandle`, which we use to wait for the thread to finish and get its result.
 
@@ -44,7 +44,7 @@ fn spawn_with_owned_data() {
 }
 ```
 
-### Example 2: Parallel Computations with Multiple Threads
+### Example: Parallel Computations with Multiple Threads
 
 You can spawn multiple threads to perform different computations in parallel. If they need to work on the same initial data, you must clone it to give each thread its own owned copy.
 
@@ -75,7 +75,7 @@ fn parallel_computations() {
 }
 ```
 
-### Example 3: Handling Errors and Panics in Threads
+### Example: Handling Errors and Panics in Threads
 
 The `join()` method returns a `Result`. An `Err` indicates the thread panicked. If the thread completes successfully, its own return value might also be a `Result`, so you often need to handle a nested `Result`.
 
@@ -100,7 +100,7 @@ fn thread_with_error_handling() {
 }
 ```
 
-### Example 4: Naming Threads for Better Debugging
+### Example: Naming Threads for Better Debugging
 
 For easier debugging, especially when you have many threads, you can give them names using the `thread::Builder`. The thread name will appear in panic messages and profiling tools.
 
@@ -132,7 +132,7 @@ fn named_threads() {
 }
 ```
 
-### Example 5: Parallel File Processing
+### Example: Parallel File Processing
 
 A real-world example of using threads to process multiple files in parallel. Each thread receives a file path, processes the file, and returns a result structure.
 
@@ -186,7 +186,7 @@ fn process_files_parallel(paths: Vec<PathBuf>) -> Vec<ProcessResult> {
 }
 ```
 
-### Example 6: Borrowing Stack Data with Scoped Threads
+### Example: Borrowing Stack Data with Scoped Threads
 
 A regular `thread::spawn` requires the closure to have a `'static` lifetime, meaning it cannot borrow data from the parent thread's stack. `thread::scope` solves this by guaranteeing that all threads spawned within the scope will finish before the scope ends, making it safe to borrow.
 
@@ -232,7 +232,7 @@ Spawning a new thread for every small task is inefficient. Thread pools and work
     -   **Recursive Algorithms**: Parallelizing divide-and-conquer algorithms like quicksort or tree traversals.
     -   **Batch Processing**: Running a large number of independent jobs, such as image encoding or data analysis tasks.
 
-### Example 1: Data Parallelism with Rayon
+### Example: Data Parallelism with Rayon
 
 Rayon is the de-facto standard for data parallelism in Rust. It provides a `par_iter()` method that turns a sequential iterator into a parallel one, automatically distributing the work across a work-stealing thread pool.
 
@@ -263,7 +263,7 @@ fn parallel_map_reduce_with_rayon() {
 }
 ```
 
-### Example 2: Parallel Sorting with Rayon
+### Example: Parallel Sorting with Rayon
 
 Rayon also provides parallel implementations of common algorithms, like sorting. For large datasets, `par_sort()` can be significantly faster than the standard sequential sort.
 
@@ -282,7 +282,7 @@ fn parallel_sorting_with_rayon() {
 }
 ```
 
-### Example 3: Real-World - Parallel Image Processing
+### Example: Real-World - Parallel Image Processing
 
 Rayon is perfect for tasks like image processing, where the same operation can be applied to millions of pixels independently. This example shows how to apply filters to an image in parallel.
 
@@ -325,7 +325,7 @@ This pattern focuses on communication between threads by sending messages throug
     -   **Actor Systems**: A concurrency model where independent "actors" communicate with each other exclusively by sending messages.
     -   **Background Workers**: Offloading tasks like sending emails, logging, or processing analytics to a pool of workers that receive jobs via a channel.
 
-### Example 1: Basic Producer-Consumer with MPSC Channel
+### Example: Basic Producer-Consumer with MPSC Channel
 
 `std::sync::mpsc` provides a "Multiple Producer, Single Consumer" channel. Here, one producer thread sends data to a single consumer thread.
 
@@ -353,7 +353,7 @@ fn basic_mpsc_channel() {
 }
 ```
 
-### Example 2: Multiple Producers
+### Example: Multiple Producers
 
 The transmitter (`tx`) can be cloned to allow multiple threads to send messages to the same receiver.
 
@@ -385,7 +385,7 @@ fn multiple_producers() {
 }
 ```
 
-### Example 3: Crossbeam Bounded Channel for Backpressure
+### Example: Crossbeam Bounded Channel for Backpressure
 
 The `crossbeam` crate offers more powerful channels. A "bounded" channel has a fixed capacity. If a fast producer tries to send to a full channel, it will block until a slow consumer makes space. This is called backpressure.
 
@@ -418,7 +418,7 @@ fn bounded_channel_backpressure() {
 }
 ```
 
-### Example 4: The Actor Pattern
+### Example: The Actor Pattern
 
 The actor model is a concurrency pattern where "actors" are isolated entities that communicate exclusively through messages. This example implements a simple actor that maintains an internal state.
 
@@ -501,7 +501,7 @@ While message passing is preferred, sometimes you need multiple threads to acces
     -   **Global State/Configuration**: Application-wide configuration that needs to be read by many threads and occasionally updated.
     -   **Metrics and Counters**: Collecting metrics (like request counts) from multiple threads into a single shared data structure.
 
-### Example 1: Shared Counter with `Arc<Mutex<T>>`
+### Example: Shared Counter with `Arc<Mutex<T>>`
 
 This is the "Hello, World!" of shared state concurrency. Multiple threads increment a shared counter, using a `Mutex` to ensure that the increments don't interfere with each other.
 
@@ -535,7 +535,7 @@ fn shared_counter() {
 }
 ```
 
-### Example 2: Read-Heavy Workloads with `RwLock`
+### Example: Read-Heavy Workloads with `RwLock`
 
 An `RwLock` is ideal when data is read frequently but written to infrequently. It allows unlimited concurrent readers but only a single writer.
 
@@ -594,7 +594,7 @@ Barriers and Condvars are lower-level primitives used to coordinate the timing o
     -   **Parallel Testing**: Using a `Barrier` to start multiple threads simultaneously to test for race conditions under high contention.
     -   **Phased Algorithms**: Any algorithm where work is divided into distinct, sequential phases that can be executed in parallel within each phase.
 
-### Example 1: `Barrier` for Phased Computation
+### Example: `Barrier` for Phased Computation
 
 A `Barrier` is used to synchronize multiple threads at a specific point. All threads must reach the barrier before any of them can proceed.
 
@@ -628,7 +628,7 @@ fn barrier_for_phased_work() {
 }
 ```
 
-### Example 2: `Condvar` for a Bounded Queue
+### Example: `Condvar` for a Bounded Queue
 
 This example shows how to use a `Condvar` and a `Mutex` to build a thread-safe bounded queue. Producers wait if the queue is full, and consumers wait if it's empty.
 
