@@ -1,4 +1,4 @@
-# Appendix A: Comprehensive Standard Library Reference
+# Appendix A: Standard Libraries
 **Sections:**
 
 - [Type Conversion Cheatsheet](#type-conversion-cheatsheet)

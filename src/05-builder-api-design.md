@@ -74,13 +74,17 @@ impl RequestBuilder {
         }
     }
 
-    // Each method takes `self` and returns `self` to enable chaining.
+    // Each method takes `self` and returns `self` for chaining.
     pub fn method(mut self, method: impl Into<String>) -> Self {
         self.method = method.into();
         self
     }
 
-    pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn header(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.headers.push((key.into(), value.into()));
         self
     }
@@ -90,7 +94,7 @@ impl RequestBuilder {
         self
     }
     
-    // The `build` method consumes the builder and creates the final object.
+    // The `build` method consumes builder, creates final object.
     pub fn build(self) -> Request {
         Request {
             url: self.url,
@@ -103,15 +107,13 @@ impl RequestBuilder {
         }
     }
 }
-
-// The call site is now fluent, readable, and self-documenting.
+// Usage: The builder API is fluent, readable, and self-documenting.
+// Each method call clearly expresses intent without positional argument ambiguity.
 let request = Request::builder("https://api.example.com")
     .method("POST")
     .header("Authorization", "Bearer token")
     .body("{\"data\": \"value\"}")
     .build();
-
-println!("{:#?}", request);
 ```
 
 ### Example: Builder with Runtime Validation
@@ -153,7 +155,7 @@ impl DatabaseBuilder {
         self
     }
 
-    // `build` returns a `Result` to enforce that required fields were set.
+    // `build` returns `Result` to enforce required fields.
     pub fn build(self) -> Result<Database, String> {
         let host = self.host.ok_or("host is required")?;
         let port = self.port.ok_or("port is required")?;
@@ -198,7 +200,11 @@ pub struct EmailBuilder {
 
 impl EmailBuilder {
     pub fn new() -> Self {
-        EmailBuilder { to: Vec::new(), subject: String::new(), body: String::new() }
+        EmailBuilder {
+            to: Vec::new(),
+            subject: String::new(),
+            body: String::new(),
+        }
     }
 
     // Methods take `&mut self` and return `&mut Self` for chaining.
@@ -207,7 +213,10 @@ impl EmailBuilder {
         self
     }
 
-    pub fn subject(&mut self, subject: impl Into<String>) -> &mut Self {
+    pub fn subject(
+        &mut self,
+        subject: impl Into<String>,
+    ) -> &mut Self {
         self.subject = subject.into();
         self
     }
@@ -233,18 +242,14 @@ impl EmailBuilder {
     }
 }
 
+// Usage: Mutable builders can be reused by calling clear() between builds.
+// This avoids reallocating the builder when creating multiple similar objects.
 let mut builder = EmailBuilder::new();
-
-// Build the first email.
-builder.to("a@example.com").subject("First").body("This is the first email.");
+builder.to("a@example.com").subject("First").body("Hello");
 let email1 = builder.build();
-println!("Built email 1: {:#?}", email1);
-
-// Reuse the builder for a second email after clearing it.
 builder.clear();
-builder.to("b@example.com").subject("Second").body("This is the second email.");
+builder.to("b@example.com").subject("Second").body("World");
 let email2 = builder.build();
-println!("Built email 2: {:#?}", email2);
 ```
 
 ---
@@ -257,7 +262,6 @@ The Typestate pattern encodes the state of an object into the type system itself
 
 -   **Solution**: Represent each state with a distinct type. State transitions are functions that consume an object in one state and return a new object in another state.
 
--   **Why it matters**: This pattern makes invalid states and transitions impossible to represent in code. It moves state machine validation from runtime to compile time, leveraging Rust's type system to create safer, self-documenting APIs.
 
 -   **Use cases**:
     -   Database connections (`Unauthenticated` -> `Authenticated`).
@@ -293,7 +297,10 @@ impl Connection<Disconnected> {
         Connection { stream: None, _state: PhantomData }
     }
 
-    fn connect(self, addr: &str) -> io::Result<Connection<Connected>> {
+    fn connect(
+        self,
+        addr: &str,
+    ) -> io::Result<Connection<Connected>> {
         let stream = TcpStream::connect(addr)?;
         println!("Connected to {}", addr);
         Ok(Connection { stream: Some(stream), _state: PhantomData })
@@ -303,7 +310,8 @@ impl Connection<Disconnected> {
 // In the `Connected` state, we can send data.
 impl Connection<Connected> {
     fn send(&mut self, data: &[u8]) -> io::Result<()> {
-        let stream = self.stream.as_mut().expect("Stream must exist in Connected state");
+        let stream = self.stream.as_mut()
+            .expect("Stream must exist in Connected state");
         stream.write_all(data)?;
         println!("Sent data: {}", String::from_utf8_lossy(data));
         Ok(())
@@ -317,21 +325,13 @@ impl Connection<Connected> {
         Connection { stream: None, _state: PhantomData }
     }
 }
-
-// The compiler enforces correct usage.
-let conn = Connection::new();
-// conn.send(b"hello"); // COMPILE ERROR: `send` is not a member of `Connection<Disconnected>`
-
-match conn.connect("127.0.0.1:8080") {
-    Ok(mut connected_conn) => {
-        connected_conn.send(b"hello from typestate!").unwrap();
-        let _disconnected_conn = connected_conn.close();
-        // connected_conn.send(b"world"); // COMPILE ERROR: value used here after move
-    }
-    Err(e) => {
-        println!("Failed to connect: {}", e);
-    }
-}
+// Usage: The compiler enforces valid state transitions at compile time.
+// conn.send() is only available on Connection<Connected>, not Connection<Disconnected>.
+let conn = Connection::new(); // Disconnected state
+// conn.send(b"hello"); // ERROR: no method `send` on Disconnected
+let mut connected = conn.connect("127.0.0.1:8080")?; // Connected state
+connected.send(b"hello")?; // OK: send() available here
+let _closed = connected.close(); // Back to Disconnected
 ```
 
 ### Example: Typestate Builder for Compile-Time Validation
@@ -365,43 +365,60 @@ struct UserBuilder<NameState, EmailState> {
 // Initial state: no name, no email.
 impl Default for UserBuilder<NoName, NoEmail> {
     fn default() -> Self {
-        UserBuilder { name: None, email: None, _name_state: PhantomData, _email_state: PhantomData }
-    }
-}
-
-// Methods transition the builder to a new state by returning a new type.
-impl<E> UserBuilder<NoName, E> {
-    fn name(self, name: impl Into<String>) -> UserBuilder<HasName, E> {
-        UserBuilder { name: Some(name.into()), email: self.email, _name_state: PhantomData, _email_state: PhantomData }
-    }
-}
-
-impl<N> UserBuilder<N, NoEmail> {
-    fn email(self, email: impl Into<String>) -> UserBuilder<N, HasEmail> {
-        UserBuilder { name: self.name, email: Some(email.into()), _name_state: PhantomData, _email_state: PhantomData }
-    }
-}
-
-// The `build` method is only available in the `HasName, HasEmail` state.
-impl UserBuilder<HasName, HasEmail> {
-    fn build(self) -> User {
-        User { 
-            name: self.name.expect("Name is guaranteed by typestate"),
-            email: self.email.expect("Email is guaranteed by typestate")
+        UserBuilder {
+            name: None,
+            email: None,
+            _name_state: PhantomData,
+            _email_state: PhantomData,
         }
     }
 }
 
-// The compiler enforces the builder logic.
+// Methods transition builder to new state by returning new type.
+impl<E> UserBuilder<NoName, E> {
+    fn name(
+        self,
+        name: impl Into<String>,
+    ) -> UserBuilder<HasName, E> {
+        UserBuilder {
+            name: Some(name.into()),
+            email: self.email,
+            _name_state: PhantomData,
+            _email_state: PhantomData,
+        }
+    }
+}
+
+impl<N> UserBuilder<N, NoEmail> {
+    fn email(
+        self,
+        email: impl Into<String>,
+    ) -> UserBuilder<N, HasEmail> {
+        UserBuilder {
+            name: self.name,
+            email: Some(email.into()),
+            _name_state: PhantomData,
+            _email_state: PhantomData,
+        }
+    }
+}
+
+// `build` only available in `HasName, HasEmail` state.
+impl UserBuilder<HasName, HasEmail> {
+    fn build(self) -> User {
+        User {
+            name: self.name.expect("guaranteed by typestate"),
+            email: self.email.expect("guaranteed by typestate"),
+        }
+    }
+}
+// Usage: build() is only available after both name() and email() are called.
+// Missing either produces a compile error, not a runtime error.
 let user = UserBuilder::default()
     .name("Alice")
     .email("alice@example.com")
-    .build();
-println!("Successfully built user: {:?}", user);
-
-// The following line would fail to compile because `.build()` is not available.
-// The error message is clear: "no method named `build` found for struct `UserBuilder<HasName, NoEmail>`"
-// let incomplete_user = UserBuilder::default().name("Bob").build();
+    .build(); // OK: both required fields set
+// UserBuilder::default().name("Bob").build(); // ERROR: no method `build`
 ```
 
 ---
@@ -413,8 +430,6 @@ This attribute signals that a function's return value is important and should no
 -   **Problem**: Functions that return a `Result` or `Option` can have their return value silently ignored, leading to unhandled errors or logic bugs. Some types, like builders or transaction guards, are useless unless a final method (`.build()`, `.commit()`) is called.
 
 -   **Solution**: Apply the `#[must_use]` attribute to functions or types. This instructs the compiler to generate a warning if a returned value of that type is not "used" in some way (e.g., assigned to a variable, passed to another function, or having a method called on it).
-
--   **Why it matters**: `#[must_use]` makes APIs safer by default. It prevents entire classes of bugs caused by silently ignoring errors or failing to complete a required workflow.
 
 -   **Use cases**:
     -   `Result` and `Option` types are the canonical examples.
@@ -430,7 +445,7 @@ The standard library widely uses `#[must_use]`, for example on `Result` and `Opt
 ```rust
 // Applying `#[must_use]` to a function's return value.
 // A custom message explains why it's important.
-#[must_use = "this `Result` may be an error, which should be handled"]
+#[must_use = "this Result may be an error to handle"]
 pub fn connect_to_db() -> Result<(), &'static str> {
     Err("Failed to connect")
 }
@@ -445,22 +460,9 @@ impl ConnectionBuilder {
     pub fn build(self) {}
 }
 
-fn main() {
-    // If you call these functions without using their return values, you'll get a warning.
-    
-    // connect_to_db(); 
-    // WARNING: unused `Result` that must be used
-    
-    // ConnectionBuilder::new(); 
-    // WARNING: unused `ConnectionBuilder` that must be used
-
-    // Correct usage:
-    if let Err(e) = connect_to_db() {
-        println!("Error: {}", e);
-    }
-
-    let builder = ConnectionBuilder::new();
-    builder.build();
-    println!("Builder was used correctly.");
-}
+// Usage: The compiler warns if #[must_use] return values are ignored.
+// connect_to_db(); // WARNING: unused Result that must be used
+// ConnectionBuilder::new(); // WARNING: unused builder
+if let Err(e) = connect_to_db() { println!("Error: {}", e); }
+ConnectionBuilder::new().build(); // Correct: return value is used
 ```

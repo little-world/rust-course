@@ -1,4 +1,4 @@
-# Atomic Operations & Lock-Free Programming
+# Lock-Free Programming
 - Locks can block threads. When a thread tries to acquire a lock that's held, it *stops* and waits. A stalled or slow thread cannot prevent others from making progress.
 
 

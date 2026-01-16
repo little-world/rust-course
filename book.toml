@@ -15,10 +15,6 @@ mathjax-support = true
 additional-css = ["theme/css/print.css"]
 
 
-#[output.pdf]
-#additional-css = ["src/pdf-style.css"]
-#scale = 0.8
-#generate-document-outline = true
-#
-#page-break = false  # If supported by your version
-#
+[output.pdf]
+
+

@@ -1,3 +1,4 @@
+[](introduction.md)
 # Part I: Core Language Mechanics
 - [memory-ownership-patterns](01-memory-ownership-patterns.md)
 - [struct-enum-patterns](02-struct-enum-patterns.md)
@@ -5,8 +6,10 @@
 - [04-generics-polymorphism.md](04-generics-polymorphism.md)
 - [builder-api-design](05-builder-api-design.md)
 - [lifetime-patterns](06-lifetime-patterns.md)
+- [functional-programming](04-functional-programming-patterns.md)
 - [pattern-matching-destructuring](07-pattern-matching-destructuring.md)
 - [iterator-patterns-combinators](08-iterator-patterns-combinators.md)
+- [reference-binding](18-reference-iterator-patterns.md)
 - [error-handling-architecture](09-error-handling-architecture.md)
 # Part II: Collections & Data Structures
 - [vec-slice-manipulation](10-vec-slice-manipulation.md)
@@ -20,6 +23,7 @@
 - [parallel-algorithms](17-parallel-algorithms.md)
 # Part IV: Smart Pointers & Memory
 - [smart-pointer-patterns](18-smart-pointer-patterns.md)
+- [reference-patterns](18-reference-iterator-patterns.md)
 - [unsafe-rust-patterns](19-unsafe-rust-patterns.md)
 # Part V: I/O & Serialization
 - [synchronous-io](20-synchronous-io.md)

@@ -21,7 +21,7 @@ Iterators are providing a unified interface for processing sequences of data. Un
 
 ### Example: A Basic Custom Iterator
 
-This `Counter` struct demonstrates the simplest form of a custom iterator. It iterates from 0 up to a maximum value.
+This `Counter` struct demonstrates the simplest form of a custom iterator. It holds mutable state (`current`) that advances each time `next()` is called. Returning `None` signals the end of iteration, allowing the iterator to be used with all standard adapters.
 
 ```rust
 struct Counter {
@@ -50,7 +50,7 @@ assert_eq!(sum, 10); // 0 + 1 + 2 + 3 + 4
 
 ### Example: Implementing `IntoIterator`
 
-To make a custom collection work with `for` loops, you need to implement `IntoIterator`. Here, we implement it for a `RingBuffer` for owned, borrowed, and mutably borrowed iteration.
+To make a custom collection work with `for` loops, you need to implement `IntoIterator`. The trait has two associated types: `Item` (what you yield) and `IntoIter` (the iterator type). Implementing it for `&T` and `&mut T` as well enables `for item in &collection` syntax.
 
 ```rust
 struct RingBuffer<T> {
@@ -78,7 +78,7 @@ impl<'a, T> IntoIterator for &'a RingBuffer<T> {
 
 ### Example: An Infinite Iterator
 
-Iterators can represent infinite sequences because they are lazy. This `Fibonacci` iterator will produce numbers forever until the sequence overflows or is stopped by an adapter like `.take()`.
+Iterators can represent infinite sequences because they are lazy—no values are computed until requested. This `Fibonacci` iterator produces numbers indefinitely until overflow or until stopped by an adapter like `.take()`. Using `checked_add` returns `None` on overflow, gracefully terminating the sequence.
 
 ```rust
 struct Fibonacci {
@@ -91,7 +91,7 @@ impl Iterator for Fibonacci {
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.current;
-        // Use `checked_add` to handle potential overflow gracefully.
+        // Use `checked_add` to handle overflow gracefully.
         let new_next = self.current.checked_add(self.next)?;
         self.current = self.next;
         self.next = new_next;
@@ -100,7 +100,8 @@ impl Iterator for Fibonacci {
 }
 
 // We can take the first 10 Fibonacci numbers.
-let fibs: Vec<_> = Fibonacci { current: 0, next: 1 }.take(10).collect();
+let fib = Fibonacci { current: 0, next: 1 };
+let fibs: Vec<_> = fib.take(10).collect();
 assert_eq!(fibs, vec![0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);
 ```
 
@@ -127,7 +128,7 @@ assert_eq!(fibs, vec![0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);
 
 ### Example: Chaining Adapters without Intermediate Collections
 
-This function processes a slice of numbers by filtering positive numbers, squaring them, filtering again, and finally summing the result. No intermediate `Vec` is created.
+This function processes a slice of numbers by filtering, mapping, filtering again, and summing—all in a single pass. No intermediate `Vec` is created because each adapter wraps the previous one without allocating. The compiler often optimizes such chains into a single loop.
 
 ```rust
 fn process_numbers(input: &[i32]) -> i32 {
@@ -142,25 +143,25 @@ fn process_numbers(input: &[i32]) -> i32 {
 
 ### Example: Using `windows` for Sliding Window
 
-The `.windows()` method creates an iterator that yields overlapping slices of the original data. This is a zero-allocation way to implement sliding window algorithms.
+The `.windows()` method creates an iterator that yields overlapping slices of the original data. Each slice is a view into the original array, so no copying occurs during iteration. This is ideal for implementing moving averages, convolutions, or any algorithm that examines consecutive elements.
 
 ```rust
 fn moving_average(data: &[f64], window_size: usize) -> Vec<f64> {
     data.windows(window_size)
-        .map(|window| window.iter().sum::<f64>() / window_size as f64)
+        .map(|w| w.iter().sum::<f64>() / window_size as f64)
         .collect()
 }
 ```
 
 ### Example: `fold` for Custom Reductions
 
-Instead of creating a new collection just to count items, `fold` can be used to perform custom aggregations in a single pass with no allocations.
+Instead of creating a new collection just to count items, `fold` performs custom aggregations in a single pass. It takes an initial accumulator and a closure that combines each element with the running total. This is more flexible than specialized methods like `sum()` or `count()`.
 
 ```rust
 fn count_long_strings(strings: &[&str]) -> usize {
     strings
         .iter()
-        .fold(0, |count, &s| if s.len() > 10 { count + 1 } else { count })
+        .fold(0, |n, &s| if s.len() > 10 { n + 1 } else { n })
 }
 ```
 
@@ -189,7 +190,7 @@ fn count_long_strings(strings: &[&str]) -> usize {
 
 ### Example: Complex filtering and transformation pipeline
 
-This iterator chain filters log lines twice and folds the remainder into a per-level counter without building temporary collections.
+This iterator chain filters log entries by level and timestamp, then groups results by level. Multiple filters chain together without creating intermediate vectors. The final `fold` accumulates counts into a `HashMap` in a single pass.
 
 ```rust
 use std::collections::HashMap;
@@ -203,7 +204,7 @@ struct LogEntry {
 
 fn analyze_logs(logs: &[LogEntry]) -> HashMap<String, usize> {
     logs.iter()
-        .filter(|entry| entry.level == "ERROR" || entry.level == "WARN")
+        .filter(|e| e.level == "ERROR" || e.level == "WARN")
         .filter(|entry| entry.timestamp > 1_000_000)
         .map(|entry| &entry.level)
         .fold(HashMap::new(), |mut map, level| {
@@ -215,10 +216,13 @@ fn analyze_logs(logs: &[LogEntry]) -> HashMap<String, usize> {
 
 ### Example: Chunking with stateful iteration
 
-`from_fn` keeps the stateful `Vec` and drains `chunk_size` elements at a time, yielding batches lazily.
+`std::iter::from_fn` creates an iterator from a closure, perfect for stateful generation. Here the closure captures a `Vec` and drains `chunk_size` elements each call. This yields batches lazily without requiring a custom iterator struct.
 
 ```rust
-fn process_in_chunks<T>(items: Vec<T>, chunk_size: usize) -> impl Iterator<Item = Vec<T>> {
+fn process_in_chunks<T>(
+    items: Vec<T>,
+    chunk_size: usize,
+) -> impl Iterator<Item = Vec<T>> {
     let mut items = items;
     std::iter::from_fn(move || {
         if items.is_empty() {
@@ -233,7 +237,7 @@ fn process_in_chunks<T>(items: Vec<T>, chunk_size: usize) -> impl Iterator<Item 
 
 ### Example: Interleaving iterators
 
-This custom iterator alternates between two inputs while remaining lazy and falling back to whichever still has data.
+This custom iterator alternates between two input iterators, yielding one element from each in turn. When one iterator is exhausted, it falls back to the other until both are empty. The `use_a` flag tracks which source to pull from next.
 
 ```rust
 struct Interleave<I, J> {
@@ -260,7 +264,10 @@ where
     }
 }
 
-fn interleave<I, J>(a: I, b: J) -> Interleave<I::IntoIter, J::IntoIter>
+fn interleave<I, J>(
+    a: I,
+    b: J,
+) -> Interleave<I::IntoIter, J::IntoIter>
 where
     I: IntoIterator,
     J: IntoIterator<Item = I::Item>,
@@ -275,18 +282,22 @@ where
 
 ### Example: Cartesian product
 
-`flat_map` composes the nested iteration so every pair of elements from the two slices is produced without intermediate vectors.
+`flat_map` composes nested iteration, producing every pair of elements from two slices. The outer closure captures `b` and the inner `map` pairs each `x` with every `y`. No intermediate vectors are created—pairs are generated lazily on demand.
 
 ```rust
-fn cartesian_product<T: Clone>(a: &[T], b: &[T]) -> impl Iterator<Item = (T, T)> + '_ {
-    a.iter()
-        .flat_map(move |x| b.iter().map(move |y| (x.clone(), y.clone())))
+fn cartesian_product<T: Clone>(
+    a: &[T],
+    b: &[T],
+) -> impl Iterator<Item = (T, T)> + '_ {
+    a.iter().flat_map(move |x| {
+        b.iter().map(move |y| (x.clone(), y.clone()))
+    })
 }
 ```
 
 ### Example: Group by key
 
-One pass and a `HashMap` are enough to accumulate elements into key buckets defined by any closure.
+A single pass with `fold` and a `HashMap` groups elements by an arbitrary key function. The `or_default()` method ensures each key starts with an empty vector. This is a common pattern for bucketing data without multiple iterations.
 
 ```rust
 use std::collections::HashMap;
@@ -297,7 +308,7 @@ where
     F: Fn(&V) -> K,
 {
     items.into_iter().fold(HashMap::new(), |mut map, item| {
-        map.entry(key_fn(&item)).or_insert_with(Vec::new).push(item);
+        map.entry(key_fn(&item)).or_default().push(item);
         map
     })
 }
@@ -305,7 +316,7 @@ where
 
 ### Example: Scan for cumulative operations
 
-`.scan` threads mutable state to emit a running total as each value is consumed.
+`.scan()` threads mutable state through an iterator, emitting transformed values along the way. Unlike `fold`, which produces a single final result, `scan` yields intermediate results. This is perfect for running totals, prefix sums, or any stateful transformation.
 
 ```rust
 fn cumulative_sum(numbers: &[i32]) -> Vec<i32> {
@@ -321,11 +332,15 @@ fn cumulative_sum(numbers: &[i32]) -> Vec<i32> {
 
 ### Example: Take while and skip while for prefix/suffix operations
 
-Two iterator adapters split a slice of lines at the first blank row, yielding header and body views without copying.
+`take_while` yields elements until the predicate returns false, then stops. `skip_while` discards elements until the predicate returns false, then yields the rest. Combining them splits data at a boundary without copying—useful for parsing headers from bodies.
 
 ```rust
-fn extract_header_body(lines: &[String]) -> (Vec<&String>, Vec<&String>) {
-    let header: Vec<_> = lines.iter().take_while(|line| !line.is_empty()).collect();
+fn extract_header_body(
+    lines: &[String],
+) -> (Vec<&String>, Vec<&String>) {
+    let header: Vec<_> = lines.iter()
+        .take_while(|line| !line.is_empty())
+        .collect();
     let body: Vec<_> = lines
         .iter()
         .skip_while(|line| !line.is_empty())
@@ -337,7 +352,7 @@ fn extract_header_body(lines: &[String]) -> (Vec<&String>, Vec<&String>) {
 
 ### Example: Peekable for lookahead
 
-Wrapping `chars()` in `peekable()` enables a tokenizer that can inspect the next character before deciding how to advance.
+Wrapping an iterator in `.peekable()` lets you inspect the next element without consuming it. This is essential for parsers and tokenizers that need lookahead to decide how to proceed. The `peek()` method returns `Option<&Item>` while `next()` advances normally.
 
 ```rust
 fn parse_tokens(input: &str) -> Vec<Token> {
@@ -396,13 +411,16 @@ enum Token {
 
 ### Example: Line-by-line file processing
 
-`BufReader::lines` streams through a file lazily, letting you filter and count matches without loading the whole file.
+`BufReader::lines` streams through a file lazily, letting you filter and count matches without loading the whole file. Each line is read on demand, so memory usage stays constant regardless of file size. The `filter_map(Result::ok)` idiom silently skips lines that fail to decode, keeping the pipeline clean.
 
 ```rust
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-fn count_lines_matching(path: &str, pattern: &str) -> std::io::Result<usize> {
+fn count_lines_matching(
+    path: &str,
+    pattern: &str,
+) -> std::io::Result<usize> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -416,7 +434,7 @@ fn count_lines_matching(path: &str, pattern: &str) -> std::io::Result<usize> {
 
 ### Example: Streaming average calculation
 
-A lightweight accumulator keeps just the sum and count so you can compute an average in one pass over any iterator.
+A lightweight accumulator keeps just the sum and count so you can compute an average in one pass over any iterator. This approach requires O(1) memory regardless of input size, making it suitable for unbounded streams. The `Option` return handles the edge case of an empty sequence cleanly.
 
 ```rust
 struct StreamingAverage {
@@ -443,7 +461,9 @@ impl StreamingAverage {
     }
 }
 
-fn compute_streaming_average(numbers: impl Iterator<Item = f64>) -> Option<f64> {
+fn compute_streaming_average(
+    numbers: impl Iterator<Item = f64>,
+) -> Option<f64> {
     let mut avg = StreamingAverage::new();
     for num in numbers {
         avg.add(num);
@@ -454,13 +474,16 @@ fn compute_streaming_average(numbers: impl Iterator<Item = f64>) -> Option<f64> 
 
 ### Example: Top-K elements without sorting
 
-A `BinaryHeap` tracks just the best `k` candidates, avoiding a full sort regardless of input size.
+A `BinaryHeap` tracks just the best `k` candidates, avoiding a full sort regardless of input size. Using `Reverse` wraps the heap as a min-heap so the smallest of the top-k is always on top for efficient comparison. This O(n log k) algorithm is dramatically faster than O(n log n) sorting when k is small relative to n.
 
 ```rust
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-fn top_k<T: Ord>(iter: impl Iterator<Item = T>, k: usize) -> Vec<T> {
+fn top_k<T: Ord>(
+    iter: impl Iterator<Item = T>,
+    k: usize,
+) -> Vec<T> {
     let mut heap = BinaryHeap::new();
 
     for item in iter {
@@ -480,18 +503,20 @@ fn top_k<T: Ord>(iter: impl Iterator<Item = T>, k: usize) -> Vec<T> {
 
 ### Example: Sliding window statistics
 
-A reusable `SlidingWindow` struct with a `VecDeque` tracks the latest `window_size` values and emits sums as it slides forward.
+A reusable `SlidingWindow` struct with a `VecDeque` tracks the latest `window_size` values and emits sums as it slides forward. When the window is full, `push` removes the oldest element and returns it so the caller can update running aggregates incrementally. This amortized O(1) per-element approach is far more efficient than recomputing statistics from scratch each time.
 
 ```rust
+use std::collections::VecDeque;
+
 struct SlidingWindow<T> {
-    window: std::collections::VecDeque<T>,
+    window: VecDeque<T>,
     capacity: usize,
 }
 
 impl<T> SlidingWindow<T> {
     fn new(capacity: usize) -> Self {
         SlidingWindow {
-            window: std::collections::VecDeque::with_capacity(capacity),
+            window: VecDeque::with_capacity(capacity),
             capacity,
         }
     }
@@ -541,12 +566,14 @@ fn sliding_window_sum(
 
 ### Example: Streaming deduplication
 
-A `HashSet` remembers which values have been seen so duplicates are filtered out lazily as the iterator advances.
+A `HashSet` remembers which values have been seen so duplicates are filtered out lazily as the iterator advances. The `insert` method returns `true` only if the item was new, making it a perfect predicate for `filter`. Memory grows only with the number of unique elements, not total elements processed.
 
 ```rust
 use std::collections::HashSet;
 
-fn deduplicate_stream<T>(iter: impl Iterator<Item = T>) -> impl Iterator<Item = T>
+fn deduplicate_stream<T>(
+    iter: impl Iterator<Item = T>,
+) -> impl Iterator<Item = T>
 where
     T: Eq + std::hash::Hash + Clone,
 {
@@ -557,7 +584,7 @@ where
 
 ### Example: Rate limiting iterator
 
-`RateLimited` wraps any iterator and sleeps as needed so successive items are yielded no faster than the configured interval.
+`RateLimited` wraps any iterator and sleeps as needed so successive items are yielded no faster than the configured interval. By tracking `last_yield` with an `Instant`, the adapter calculates exactly how long to wait before returning the next item. This is useful for throttling API calls, pacing network requests, or implementing backpressure.
 
 ```rust
 use std::time::{Duration, Instant};
@@ -598,7 +625,7 @@ impl<I: Iterator> Iterator for RateLimited<I> {
 
 ### Example: Buffered batch processing
 
-Accumulate elements in a buffer and flush them to a callback once `batch_size` is reached, reducing per-item overhead.
+Accumulate elements in a buffer and flush them to a callback once `batch_size` is reached, reducing per-item overhead. The `std::mem::replace` trick swaps in an empty buffer while yielding the full one, avoiding unnecessary allocations. A final flush handles any remaining items that didn't fill a complete batch.
 
 ```rust
 fn process_in_batches<T, F>(
@@ -628,7 +655,7 @@ fn process_in_batches<T, F>(
 
 ### Example: Streaming merge of sorted iterators
 
-Two ordered inputs are merged into a new iterator by manually peeking at the next value from each source.
+Two ordered inputs are merged into a new iterator by manually peeking at the next value from each source. The `from_fn` closure compares buffered values from `a_next` and `b_next`, always yielding the smaller one. This produces a single sorted stream in O(n + m) time without requiring additional memory for sorting.
 
 ```rust
 fn merge_sorted<T: Ord>(
@@ -667,12 +694,14 @@ fn merge_sorted<T: Ord>(
 
 ### Example: CSV parsing with streaming
 
-Each CSV line is read, split, and trimmed on the fly so no intermediate representation is needed.
+Each CSV line is read, split, and trimmed on the fly so no intermediate representation is needed. The `filter_map(Result::ok)` handles I/O errors gracefully by skipping problematic lines. This lazy approach keeps memory usage proportional to line length, not file size.
 
 ```rust
 use std::io::BufRead;
 
-fn parse_csv_stream(reader: impl BufRead) -> impl Iterator<Item = Vec<String>> {
+fn parse_csv_stream(
+    reader: impl BufRead,
+) -> impl Iterator<Item = Vec<String>> {
     reader.lines().filter_map(Result::ok).map(|line| {
         line.split(',')
             .map(|s| s.trim().to_string())
@@ -683,14 +712,16 @@ fn parse_csv_stream(reader: impl BufRead) -> impl Iterator<Item = Vec<String>> {
 
 ### Example: Lazy transformation chain
 
-This pipeline reads a file lazily, normalizes each line, and folds it into a frequency map without ever materializing the whole dataset.
+This pipeline reads a file lazily, normalizes each line, and folds it into a frequency map without ever materializing the whole dataset. The `flat_map` step splits lines into words, allowing the pipeline to process tokens one at a time. All transformations chain together so only one line is in memory at any moment.
 
 ```rust
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
+fn process_large_file(
+    path: &str,
+) -> std::io::Result<Vec<(String, usize)>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
@@ -731,7 +762,7 @@ fn process_large_file(path: &str) -> std::io::Result<Vec<(String, usize)>> {
 
 ### Example: Basic Parallel Iteration
 
-By changing `.iter()` to `.par_iter()`, this function becomes a parallel operation. Rayon handles all the complexity of threading and data distribution.
+By changing `.iter()` to `.par_iter()`, this function becomes a parallel operation. Rayon handles all the complexity of threading, work distribution, and result aggregation automatically. The performance scales nearly linearly with CPU cores for data-parallel operations like this sum-of-squares.
 
 ```rust
 use rayon::prelude::*;
@@ -747,7 +778,7 @@ fn parallel_sum_of_squares(numbers: &[i64]) -> i64 {
 
 ### Example: Parallel sort
 
-`par_sort_unstable` drops into Rayon’s divide-and-conquer sorter so large vectors are sorted across all cores.
+`par_sort_unstable` drops into Rayon's divide-and-conquer sorter so large vectors are sorted across all cores. The "unstable" variant doesn't preserve order of equal elements but is significantly faster. For millions of elements, parallel sorting can be 3-4x faster than sequential sorting.
 
 ```rust
 use rayon::prelude::*;
@@ -760,12 +791,15 @@ fn parallel_sort(mut data: Vec<i32>) -> Vec<i32> {
 
 ### Example: Parallel chunked processing
 
-`par_chunks` divides the slice evenly and lets Rayon process each chunk independently before collecting the results.
+`par_chunks` divides the slice evenly and lets Rayon process each chunk independently before collecting the results. Each chunk is processed by a separate thread, improving cache locality compared to interleaved access. This pattern is ideal when the per-element work is small and batching reduces overhead.
 
 ```rust
 use rayon::prelude::*;
 
-fn parallel_chunk_processing(data: &[u8], chunk_size: usize) -> Vec<u32> {
+fn parallel_chunk_processing(
+    data: &[u8],
+    chunk_size: usize,
+) -> Vec<u32> {
     data.par_chunks(chunk_size)
         .map(|chunk| chunk.iter().map(|&b| b as u32).sum())
         .collect()
@@ -774,7 +808,7 @@ fn parallel_chunk_processing(data: &[u8], chunk_size: usize) -> Vec<u32> {
 
 ### Example: Parallel file processing
 
-Each path is read and counted concurrently so filesystem-bound workloads keep all cores busy.
+Each path is read and counted concurrently so filesystem-bound workloads keep all cores busy. The `par_iter` on paths distributes file reads across threads, overlapping I/O wait times with computation. Results are collected in order, preserving the mapping between input paths and output counts.
 
 ```rust
 use rayon::prelude::*;
@@ -793,19 +827,22 @@ fn parallel_process_files(paths: &[String]) -> Vec<usize> {
 
 ### Example: Parallel find (early exit)
 
-`position_any` searches in parallel and returns as soon as any worker hits the desired value.
+`position_any` searches in parallel and returns as soon as any worker hits the desired value. Unlike sequential search which must check elements in order, parallel search can find matches anywhere in the slice first. Note that if multiple matches exist, this returns an arbitrary match, not necessarily the first one.
 
 ```rust
 use rayon::prelude::*;
 
-fn parallel_find_first(numbers: &[i32], target: i32) -> Option<usize> {
+fn parallel_find_first(
+    numbers: &[i32],
+    target: i32,
+) -> Option<usize> {
     numbers.par_iter().position_any(|&x| x == target)
 }
 ```
 
 ### Example: Parallel fold with combiner
 
-Map each line to a count in parallel, then use Rayon’s `sum` combiner to aggregate in a thread-safe way.
+Map each line to a count in parallel, then use Rayon's `sum` combiner to aggregate in a thread-safe way. Each thread processes a portion of lines independently, computing local counts without synchronization. The final `sum()` efficiently combines partial results using Rayon's parallel reduction.
 
 ```rust
 use rayon::prelude::*;
@@ -820,7 +857,7 @@ fn parallel_word_count(lines: &[String]) -> usize {
 
 ### Example: Parallel partition
 
-`partition` splits even and odd numbers in one pass using `into_par_iter` for ownership and parallelism.
+`partition` splits even and odd numbers in one pass using `into_par_iter` for ownership and parallelism. Elements are moved into the appropriate output vector based on the predicate, with no copying needed. Both output vectors are built concurrently, making this faster than sequential partition for large datasets.
 
 ```rust
 use rayon::prelude::*;
@@ -832,12 +869,15 @@ fn parallel_partition(numbers: Vec<i32>) -> (Vec<i32>, Vec<i32>) {
 
 ### Example: Parallel nested iteration with `flat_map`
 
-Precompute the columns of `b` and use `par_iter` to multiply each row independently for cache-friendly matrix multiplication.
+Precompute the columns of `b` and use `par_iter` to multiply each row independently for cache-friendly matrix multiplication. Transposing `b` into `b_cols` ensures that column access is contiguous in memory, dramatically improving cache performance. Each output row is computed by a separate thread with no shared mutable state.
 
 ```rust
 use rayon::prelude::*;
 
-fn parallel_matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
+fn parallel_matrix_multiply(
+    a: &[Vec<f64>],
+    b: &[Vec<f64>],
+) -> Vec<Vec<f64>> {
     let b_cols: Vec<Vec<f64>> = (0..b[0].len())
         .map(|col| b.iter().map(|row| row[col]).collect())
         .collect();
@@ -846,7 +886,9 @@ fn parallel_matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
         .map(|row| {
             b_cols
                 .iter()
-                .map(|col| row.iter().zip(col.iter()).map(|(a, b)| a * b).sum())
+                .map(|col| {
+                    row.iter().zip(col).map(|(a, b)| a * b).sum()
+                })
                 .collect()
         })
         .collect()
@@ -855,7 +897,7 @@ fn parallel_matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
 
 ### Example: Parallel bridge for converting sequential to parallel
 
-`par_bridge` consumes a standard iterator (here, an MPSC receiver) and fans it into Rayon workers.
+`par_bridge` consumes a standard iterator (here, an MPSC receiver) and fans it into Rayon workers. This is useful when you have an inherently sequential source (channels, network streams) but want parallel processing. The bridge buffers items and distributes them across worker threads dynamically.
 
 ```rust
 use rayon::prelude::*;
@@ -870,14 +912,17 @@ fn parallel_bridge_example() {
         }
     });
 
-    let sum: i32 = receiver.into_iter().par_bridge().map(|x| x * x).sum();
+    let sum: i32 = receiver.into_iter()
+        .par_bridge()
+        .map(|x| x * x)
+        .sum();
     println!("Sum: {}", sum);
 }
 ```
 
 ### Example: Controlling parallelism with scope
 
-`rayon::scope` lets you spawn child tasks over disjoint slices while borrowing data safely.
+`rayon::scope` lets you spawn child tasks over disjoint slices while borrowing data safely. The `split_at_mut` ensures each spawn has exclusive access to its portion, satisfying Rust's borrowing rules. All spawned tasks complete before `scope` returns, guaranteeing the data is fully processed.
 
 ```rust
 fn parallel_with_scope(data: &mut [i32]) {
@@ -902,7 +947,7 @@ fn parallel_with_scope(data: &mut [i32]) {
 
 ### Example: Parallel map-reduce pattern
 
-`fold` builds per-thread hash maps that `reduce` later merges, avoiding contention while counting words.
+`fold` builds per-thread hash maps that `reduce` later merges, avoiding contention while counting words. Each thread maintains its own local `HashMap`, eliminating the need for locks or atomic operations during accumulation. The `reduce` phase merges these partial maps in a tree structure for efficient parallel combination.
 
 ```rust
 use rayon::prelude::*;
@@ -933,7 +978,7 @@ fn parallel_map_reduce(data: &[String]) -> HashMap<String, usize> {
 
 ### Example: Parallel pipeline with multiple stages
 
-Chaining `map`, `filter`, and another `map` on a `par_iter` builds a streaming parallel pipeline.
+Chaining `map`, `filter`, and another `map` on a `par_iter` builds a streaming parallel pipeline. Unlike sequential iteration, all stages can execute concurrently on different chunks of data. Rayon fuses these operations so each element passes through all stages on the same thread, minimizing synchronization.
 
 ```rust
 use rayon::prelude::*;
@@ -949,7 +994,7 @@ fn parallel_pipeline(data: &[i32]) -> Vec<i32> {
 
 ### Example: Custom parallel iterator
 
-A bespoke range type can later implement Rayon traits to expose fine-grained control over splitting behavior.
+A bespoke range type can later implement Rayon traits to expose fine-grained control over splitting behavior. By implementing `ParallelIterator` and `IndexedParallelIterator`, you define how your type splits work across threads. This is useful for custom data structures where standard splitting heuristics don't apply.
 
 ```rust
 struct ParallelRange {
@@ -966,7 +1011,7 @@ impl ParallelRange {
 
 ### Example: Joining parallel computations
 
-`rayon::join` runs two closures concurrently and returns both results, ideal for independent aggregations.
+`rayon::join` runs two closures concurrently and returns both results, ideal for independent aggregations. Both computations execute in parallel, with the calling thread participating in one of them. This is more efficient than spawning separate tasks when you have exactly two independent operations to perform.
 
 ```rust
 use rayon::prelude::*;

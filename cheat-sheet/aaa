@@ -1,0 +1,50 @@
+#[derive(Clone, Debug, PartialEq)]
+struct User { id: i32, name: String, email: String }
+#[derive(Debug)]
+struct Error;
+fn generate_id() -> i32 { 1 }
+
+// Mock implementations for testing
+use std::cell::RefCell;
+
+struct MockDb { users: RefCell<Vec<User>> }
+struct MockEmail { sent: RefCell<Vec<String>> }
+
+impl Database for MockDb {
+    fn get_user(&self, id: i32) -> Option<User> {
+        self.users.borrow().iter()
+            .find(|u| u.id == id).cloned()
+    }
+    fn save_user(&self, user: &User) -> Result<(), Error> {
+        self.users.borrow_mut().push(user.clone());
+        Ok(())
+    }
+}
+
+impl EmailService for MockEmail {
+    fn send_email(
+        &self, to: &str, _: &str, _: &str
+    ) -> Result<(), Error> {
+        self.sent.borrow_mut().push(to.to_string());
+        Ok(())
+    }
+}
+
+#[test]
+fn test_dependency_injection() {
+    let db = MockDb { users: RefCell::new(vec![]) };
+    let email = MockEmail { sent: RefCell::new(vec![]) };
+    let service = UserService::new(db, email);
+
+    // Register user
+    let user = service.register_user("Alice", "a@b.com");
+    assert!(user.is_ok());
+    assert_eq!(user.unwrap().name, "Alice");
+
+    // Verify mock db received user
+    let saved = service.database.get_user(1);
+    assert!(saved.is_some());
+
+    // Verify mock email was sent
+    assert_eq!(service.email.sent.borrow().len(), 1);
+}

@@ -16,7 +16,7 @@ Vectors and slices are the workhorses of Rust data processing. `Vec<T>` provides
 
 ### Example: Pre-allocate When Size is Known
 
-When you know how many elements you'll add to a vector, pre-allocating with `with_capacity` eliminates all reallocations during construction. This is the single most impactful optimization for vector building.
+When you know how many elements you'll add to a vector, pre-allocating with `with_capacity` eliminates all reallocations during construction. This is the single most impactful optimization for vector building. The resulting vector has exactly the capacity needed, so no memory is wasted and no copying occurs during the loop.
 
 ```rust
 fn process_batch(items: &[Item]) -> Vec<ProcessedItem> {
@@ -30,7 +30,7 @@ fn process_batch(items: &[Item]) -> Vec<ProcessedItem> {
 
 ### Example: Reserve Before Iterative Construction
 
-When building vectors from multiple sources, estimate the total size upfront and reserve space once. This avoids multiple reallocations as the vector grows.
+When building vectors from multiple sources, estimate the total size upfront and reserve space once. This avoids multiple reallocations as the vector grows. Even rough estimates provide significant benefits—over-estimating slightly is better than triggering repeated reallocations.
 
 ```rust
 fn build_result_set(queries: &[Query]) -> Vec<Result> {
@@ -55,7 +55,7 @@ fn build_result_set(queries: &[Query]) -> Vec<Result> {
 
 ### Example: Reuse Vectors to Avoid Allocation
 
-In loops where you build temporary vectors repeatedly, reuse a single buffer by calling `clear()` between iterations. This retains the allocated capacity and eliminates allocation overhead entirely.
+In loops where you build temporary vectors repeatedly, reuse a single buffer by calling `clear()` between iterations. This retains the allocated capacity and eliminates allocation overhead entirely. After the first iteration, subsequent iterations have zero allocation cost regardless of batch size.
 
 ```rust
 fn batch_processor(batches: &[Batch]) -> Vec<Vec<Output>> {
@@ -79,7 +79,7 @@ fn batch_processor(batches: &[Batch]) -> Vec<Vec<Output>> {
 
 ### Example: Track Amortized Growth
 
-Monitoring allocation patterns helps identify performance problems. This wrapper tracks how many reallocations occur during vector growth, revealing whether pre-allocation is needed.
+Monitoring allocation patterns helps identify performance problems. This wrapper tracks how many reallocations occur during vector growth, revealing whether pre-allocation is needed. Use this diagnostic tool in development to find hot paths that would benefit from `with_capacity`.
 
 ```rust
 struct GrowableBuffer<T> {
@@ -113,11 +113,12 @@ impl<T> GrowableBuffer<T> {
 
 ### Example: Shrink Long-Lived Data Structures
 
-When a vector is over-allocated and will remain in memory for a long time, use `shrink_to_fit` to reclaim the excess capacity. This is particularly important for lookup tables and cached data.
+When a vector is over-allocated and will remain in memory for a long time, use `shrink_to_fit` to reclaim the excess capacity. This is particularly important for lookup tables and cached data. Avoid calling this on vectors that will grow again soon, as it would trigger another reallocation.
 
 ```rust
 fn build_lookup_table(entries: &[Entry]) -> Vec<IndexEntry> {
-    let mut table = Vec::with_capacity(entries.len() * 2); // Over-estimate
+    // Over-estimate capacity
+    let mut table = Vec::with_capacity(entries.len() * 2);
 
     for entry in entries {
         if entry.should_index() {
@@ -132,11 +133,11 @@ fn build_lookup_table(entries: &[Entry]) -> Vec<IndexEntry> {
 
 ### Example: Use Iterator Size Hints
 
-When collecting from iterators, leverage the `size_hint` to pre-allocate optimal capacity. This is especially useful when the iterator provides accurate bounds.
+When collecting from iterators, leverage the `size_hint` to pre-allocate optimal capacity. This is especially useful when the iterator provides accurate bounds. The standard library's `collect()` already uses size hints, but manual handling gives you more control for custom scenarios.
 
 ```rust
 fn collect_filtered(items: impl Iterator<Item = i32>) -> Vec<i32> {
-    // When collecting from iterators, size_hint can optimize allocation
+    // size_hint can optimize allocation
     let (lower, upper) = items.size_hint();
 
     let mut result = if let Some(upper) = upper {
@@ -152,10 +153,13 @@ fn collect_filtered(items: impl Iterator<Item = i32>) -> Vec<i32> {
 
 ### Example: Batch Insertion with Extend
 
-When merging multiple vectors into one, calculate the total size upfront and reserve all needed space at once. This prevents reallocations during the merge operation.
+When merging multiple vectors into one, calculate the total size upfront and reserve all needed space at once. This prevents reallocations during the merge operation. Using `extend_from_slice` is also more efficient than repeated `push` calls due to better optimization opportunities.
 
 ```rust
-fn merge_results(target: &mut Vec<String>, sources: &[Vec<String>]) {
+fn merge_results(
+    target: &mut Vec<String>,
+    sources: &[Vec<String>],
+) {
     let total: usize = sources.iter().map(|v| v.len()).sum();
     target.reserve(total);
 
@@ -167,7 +171,7 @@ fn merge_results(target: &mut Vec<String>, sources: &[Vec<String>]) {
 
 ### Example: Building Large Datasets Efficiently
 
-For datasets where you know the exact size, pre-allocation ensures zero reallocations during construction. The assertion at the end verifies that no reallocation occurred.
+For datasets where you know the exact size, pre-allocation ensures zero reallocations during construction. The assertion at the end verifies that no reallocation occurred. This pattern is essential for generating test data or initializing large lookup tables.
 
 ```rust
 fn generate_dataset(n: usize) -> Vec<DataPoint> {
@@ -181,7 +185,7 @@ fn generate_dataset(n: usize) -> Vec<DataPoint> {
         });
     }
 
-    assert_eq!(data.len(), data.capacity()); // No reallocation occurred
+    assert_eq!(data.len(), data.capacity()); // No realloc
     data
 }
 ```
@@ -205,7 +209,7 @@ fn generate_dataset(n: usize) -> Vec<DataPoint> {
 
 ### Example: Binary Search on Sorted Data
 
-Binary search provides O(log N) lookup on sorted slices, dramatically faster than linear search for large datasets. The slice must be sorted by the search key for correct results.
+Binary search provides O(log N) lookup on sorted slices, dramatically faster than linear search for large datasets. The slice must be sorted by the search key for correct results. Using `binary_search_by_key` extracts the comparison key from complex structs, avoiding manual comparator logic.
 
 ```rust
 fn find_user_by_id(users: &[User], id: u64) -> Option<&User> {
@@ -219,7 +223,7 @@ fn find_user_by_id(users: &[User], id: u64) -> Option<&User> {
 
 ### Example: Partition Point for Range Queries
 
-`partition_point` finds the index where a predicate transitions from true to false, enabling efficient range queries on sorted data. This is particularly useful for database-style queries.
+`partition_point` finds the index where a predicate transitions from true to false, enabling efficient range queries on sorted data. This is particularly useful for database-style queries. Combining two partition points yields both bounds of a range in O(log N) time.
 
 ```rust
 fn find_range(sorted: &[i32], min: i32, max: i32) -> &[i32] {
@@ -231,18 +235,21 @@ fn find_range(sorted: &[i32], min: i32, max: i32) -> &[i32] {
 
 ### Example: Partition by Predicate
 
-Partitioning separates elements based on a condition without allocating a new vector. This returns mutable references to both the matching and non-matching segments.
+Partitioning separates elements based on a condition without allocating a new vector. This returns mutable references to both the matching and non-matching segments. Note that partitioning requires the slice to already be partitioned—use `partition_point` to find the split index.
 
 ```rust
-fn separate_valid_invalid(items: &mut [Item]) -> (&mut [Item], &mut [Item]) {
-    let pivot = items.iter().partition_point(|item| item.is_valid());
+fn separate_valid_invalid(
+    items: &mut [Item],
+) -> (&mut [Item], &mut [Item]) {
+    let pivot = items.iter()
+        .partition_point(|item| item.is_valid());
     items.split_at_mut(pivot)
 }
 ```
 
 ### Example: Custom Sorting with Comparators
 
-Complex sorting criteria can be expressed with `sort_by`, chaining multiple comparisons. This example sorts by priority (descending) with timestamp as a tiebreaker (ascending).
+Complex sorting criteria can be expressed with `sort_by`, chaining multiple comparisons. This example sorts by priority (descending) with timestamp as a tiebreaker (ascending). The `then_with` combinator chains comparisons, only evaluating the next level when the previous returns `Equal`.
 
 ```rust
 fn sort_by_priority(tasks: &mut [Task]) {
@@ -256,7 +263,7 @@ fn sort_by_priority(tasks: &mut [Task]) {
 
 ### Example: Unstable Sort for Performance
 
-When the relative order of equal elements doesn't matter, `sort_unstable` runs significantly faster than stable sort. This is ideal for primitive types and performance-critical code.
+When the relative order of equal elements doesn't matter, `sort_unstable` runs significantly faster than stable sort. This is ideal for primitive types and performance-critical code. The unstable variant uses pattern-defeating quicksort, which is faster and uses less memory than the stable merge sort.
 
 ```rust
 fn sort_large_dataset(data: &mut [f64]) {
@@ -267,7 +274,7 @@ fn sort_large_dataset(data: &mut [f64]) {
 
 ### Example: Finding Median and Top-K Elements
 
-`select_nth_unstable` performs partial sorting in O(N) time, making it perfect for finding medians, percentiles, and top-K elements without sorting the entire array.
+`select_nth_unstable` performs partial sorting in O(N) time, making it perfect for finding medians, percentiles, and top-K elements without sorting the entire array. It rearranges elements so all smaller values are before the Nth element and all larger values are after. This is based on the quickselect algorithm, which avoids the full O(N log N) cost of sorting.
 
 ```rust
 fn find_median(values: &mut [f64]) -> f64 {
@@ -277,14 +284,15 @@ fn find_median(values: &mut [f64]) -> f64 {
 }
 
 fn top_k_elements(values: &mut [i32], k: usize) -> &[i32] {
-    let (_, _, right) = values.select_nth_unstable(values.len() - k);
+    let idx = values.len() - k;
+    let (_, _, right) = values.select_nth_unstable(idx);
     right
 }
 ```
 
 ### Example: Efficient Cyclic Rotation
 
-`rotate_left` and `rotate_right` perform cyclic shifts efficiently without temporary buffers. This is essential for ring buffers and circular data structures.
+`rotate_left` and `rotate_right` perform cyclic shifts efficiently without temporary buffers. This is essential for ring buffers and circular data structures. The implementation uses a clever three-reverse algorithm that achieves O(N) time complexity with O(1) extra space.
 
 ```rust
 fn rotate_buffer(buffer: &mut [u8], offset: usize) {
@@ -294,7 +302,7 @@ fn rotate_buffer(buffer: &mut [u8], offset: usize) {
 
 ### Example: Deduplication on Sorted Data
 
-For removing duplicates, sort first then call `dedup`. This is O(N log N) for the sort plus O(N) for dedup, much faster than checking each element against all others.
+For removing duplicates, sort first then call `dedup`. This is O(N log N) for the sort plus O(N) for dedup, much faster than checking each element against all others. The `dedup` method only removes consecutive duplicates, which is why sorting must come first.
 
 ```rust
 fn unique_sorted(items: &mut Vec<i32>) {
@@ -305,7 +313,7 @@ fn unique_sorted(items: &mut Vec<i32>) {
 
 ### Example: In-Place Filtering with Retain
 
-`retain` removes elements that don't match a predicate without allocating a new vector. This is more efficient than `filter().collect()` when you want to modify in place.
+`retain` removes elements that don't match a predicate without allocating a new vector. This is more efficient than `filter().collect()` when you want to modify in place. Elements are shifted down to fill gaps, maintaining relative order of retained elements.
 
 ```rust
 fn remove_invalid(items: &mut Vec<Item>) {
@@ -315,7 +323,7 @@ fn remove_invalid(items: &mut Vec<Item>) {
 
 ### Example: Reverse Operations
 
-Reversing slices in-place is O(N/2) swaps. Combined with chunking, you can reverse segments of data efficiently.
+Reversing slices in-place is O(N/2) swaps. Combined with chunking, you can reverse segments of data efficiently. This pattern is useful for endianness conversion or processing data that arrives in reverse order.
 
 ```rust
 fn reverse_segments(data: &mut [u8], segment_size: usize) {
@@ -327,7 +335,7 @@ fn reverse_segments(data: &mut [u8], segment_size: usize) {
 
 ### Example: Filling Slices
 
-`fill` sets all elements to a value, while `fill_with` uses a closure to generate values. This is useful for initialization and resetting buffers.
+`fill` sets all elements to a value, while `fill_with` uses a closure to generate values. This is useful for initialization and resetting buffers. The closure variant is called once per element, enabling patterns like incrementing counters or generating random values.
 
 ```rust
 fn initialize_buffer(buffer: &mut [u8], pattern: u8) {
@@ -346,7 +354,7 @@ fn initialize_with_indices(buffer: &mut [usize]) {
 
 ### Example: Swapping Slice Ranges
 
-`swap_with_slice` exchanges the contents of two mutable slices in place without allocation. This is useful for data rearrangement and buffer management.
+`swap_with_slice` exchanges the contents of two mutable slices in place without allocation. This is useful for data rearrangement and buffer management. The slices must be the same length, which is why `min_len` is computed for the unequal-half case.
 
 ```rust
 fn swap_halves(data: &mut [u8]) {
@@ -359,7 +367,7 @@ fn swap_halves(data: &mut [u8]) {
 
 ### Example: Pattern Matching with Starts/Ends
 
-Checking for prefixes and suffixes is a common pattern in protocol parsing and file format detection.
+Checking for prefixes and suffixes is a common pattern in protocol parsing and file format detection. These methods are optimized to compare only the necessary bytes, not the entire slice. Magic number detection often combines this with constant patterns defined at compile time.
 
 ```rust
 fn has_magic_header(data: &[u8]) -> bool {
@@ -370,7 +378,7 @@ fn has_magic_header(data: &[u8]) -> bool {
 
 ### Example: Finding Subsequences
 
-Searching for a pattern within a slice can be done efficiently using windows combined with position finding.
+Searching for a pattern within a slice can be done efficiently using windows combined with position finding. The `windows` iterator creates overlapping views of the slice, each the size of the needle. This is O(N * M) in the worst case, where N is haystack length and M is needle length.
 
 ```rust
 fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -398,10 +406,13 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 ### Example: Fixed-Size Chunking
 
-`chunks` divides a slice into non-overlapping segments of a specified size. The last chunk may be smaller if the slice length isn't evenly divisible.
+`chunks` divides a slice into non-overlapping segments of a specified size. The last chunk may be smaller if the slice length isn't evenly divisible. This is the foundation for batch processing patterns where work is divided into manageable pieces.
 
 ```rust
-fn process_in_batches(data: &[u8], batch_size: usize) -> Vec<ProcessedBatch> {
+fn process_in_batches(
+    data: &[u8],
+    batch_size: usize,
+) -> Vec<ProcessedBatch> {
     data.chunks(batch_size)
         .map(|chunk| process_batch(chunk))
         .collect()
@@ -411,7 +422,7 @@ fn process_in_batches(data: &[u8], batch_size: usize) -> Vec<ProcessedBatch> {
 
 ### Example: Mutable Chunks for In-Place Transformation
 
-`chunks_mut` provides mutable access to each chunk, enabling in-place transformations without copying data. This is ideal for batch normalization and similar operations.
+`chunks_mut` provides mutable access to each chunk, enabling in-place transformations without copying data. This is ideal for batch normalization and similar operations. Each chunk is processed independently, which naturally enables parallel processing patterns.
 
 ```rust
 fn normalize_batches(data: &mut [f64], batch_size: usize) {
@@ -428,7 +439,7 @@ fn normalize_batches(data: &mut [f64], batch_size: usize) {
 
 ### Example: Exact Chunks with Remainder Handling
 
-`as_chunks` splits a slice into fixed-size arrays with compile-time size checking, returning both the aligned chunks and the remainder. This is essential for SIMD-optimized code.
+`as_chunks` splits a slice into fixed-size arrays with compile-time size checking, returning both the aligned chunks and the remainder. This is essential for SIMD-optimized code. The const generic parameter ensures chunk size is known at compile time, enabling better optimization.
 
 ```rust
 fn process_with_remainder(data: &[u8], chunk_size: usize) {
@@ -448,7 +459,7 @@ fn process_with_remainder(data: &[u8], chunk_size: usize) {
 
 ### Example: Sliding Windows for Moving Averages
 
-`windows` creates overlapping views of the slice, perfect for computing rolling statistics without allocating intermediate buffers.
+`windows` creates overlapping views of the slice, perfect for computing rolling statistics without allocating intermediate buffers. Unlike chunks, each window overlaps with the previous one, sharing all but one element. The output has `len - window_size + 1` elements for an input of length `len`.
 
 ```rust
 fn moving_average(values: &[f64], window_size: usize) -> Vec<f64> {
@@ -463,7 +474,7 @@ fn moving_average(values: &[f64], window_size: usize) -> Vec<f64> {
 
 ### Example: Pairwise Operations
 
-Windows of size 2 enable efficient computation of differences, ratios, or other pairwise operations between adjacent elements.
+Windows of size 2 enable efficient computation of differences, ratios, or other pairwise operations between adjacent elements. This is the standard pattern for computing derivatives, growth rates, or detecting changes. The result has one fewer element than the input since each output requires two inputs.
 
 ```rust
 fn compute_deltas(values: &[i32]) -> Vec<i32> {
@@ -475,10 +486,13 @@ fn compute_deltas(values: &[i32]) -> Vec<i32> {
 
 ### Example: Pattern Matching in Overlapping Windows
 
-Windows combined with filtering enable detection of consecutive sequences or patterns spanning multiple elements.
+Windows combined with filtering enable detection of consecutive sequences or patterns spanning multiple elements. The `enumerate` method tracks the starting index of each matching window. This pattern is essential for anomaly detection in time series data.
 
 ```rust
-fn find_consecutive_sequences(data: &[i32], target: i32) -> Vec<usize> {
+fn find_consecutive_sequences(
+    data: &[i32],
+    target: i32,
+) -> Vec<usize> {
     data.windows(3)
         .enumerate()
         .filter_map(|(i, window)| {
@@ -494,7 +508,7 @@ fn find_consecutive_sequences(data: &[i32], target: i32) -> Vec<usize> {
 
 ### Example: Parallel Processing with Chunks
 
-Chunking naturally partitions work for parallel processing. Each thread processes one chunk independently.
+Chunking naturally partitions work for parallel processing. Each thread processes one chunk independently. The chunk size is calculated to distribute work evenly across available CPU cores, maximizing parallelism.
 
 ```rust
 fn parallel_sum(data: &[i64]) -> i64 {
@@ -516,7 +530,7 @@ fn parallel_sum(data: &[i64]) -> i64 {
 
 ### Example: Reverse Chunking
 
-`rchunks` processes chunks from the end of the slice backward, useful for parsing formats where metadata appears at the end.
+`rchunks` processes chunks from the end of the slice backward, useful for parsing formats where metadata appears at the end. The first chunk produced may be smaller than the requested size if the length isn't evenly divisible. This mirrors `chunks` but in reverse order.
 
 ```rust
 fn process_backwards(data: &[u8], chunk_size: usize) {
@@ -528,10 +542,13 @@ fn process_backwards(data: &[u8], chunk_size: usize) {
 
 ### Example: Exact Chunks vs Regular Chunks
 
-`chunks_exact` guarantees all chunks (except the explicit remainder) have the exact size, simplifying algorithms that require uniform blocks.
+`chunks_exact` guarantees all chunks (except the explicit remainder) have the exact size, simplifying algorithms that require uniform blocks. Unlike `chunks`, the remainder isn't included in the iteration—you must access it separately via `remainder()`. This is cleaner when full-size blocks and partial blocks need different handling.
 
 ```rust
-fn encode_blocks(data: &[u8], block_size: usize) -> Vec<EncodedBlock> {
+fn encode_blocks(
+    data: &[u8],
+    block_size: usize,
+) -> Vec<EncodedBlock> {
     let mut encoded = Vec::new();
 
     // Process full blocks
@@ -551,7 +568,7 @@ fn encode_blocks(data: &[u8], block_size: usize) -> Vec<EncodedBlock> {
 
 ### Example: Strided Access with Step By
 
-Combining iteration with `step_by` enables sampling every Nth element, useful for downsampling data.
+Combining iteration with `step_by` enables sampling every Nth element, useful for downsampling data. This is memory-efficient since it creates no intermediate collections—elements are skipped lazily. The result contains approximately `len / n` elements.
 
 ```rust
 fn sample_every_nth(data: &[f64], n: usize) -> Vec<f64> {
@@ -564,7 +581,7 @@ fn sample_every_nth(data: &[f64], n: usize) -> Vec<f64> {
 
 ### Example: Splitting into Equal Parts
 
-Dividing data into N roughly equal parts is common for load balancing across workers.
+Dividing data into N roughly equal parts is common for load balancing across workers. The ceiling division formula ensures no data is lost when the length isn't evenly divisible. Some parts may have one more element than others, but the difference is at most one.
 
 ```rust
 fn split_into_n_parts(data: &[u8], n: usize) -> Vec<&[u8]> {
@@ -575,10 +592,14 @@ fn split_into_n_parts(data: &[u8], n: usize) -> Vec<&[u8]> {
 
 ### Example: Signal Processing with Overlapping Windows
 
-Advanced windowing combines `step_by` for hop size with manual slicing for overlapping FFT windows in spectrograms.
+Advanced windowing combines `step_by` for hop size with manual slicing for overlapping FFT windows in spectrograms. The hop size determines overlap—a hop of `window_size / 2` gives 50% overlap between consecutive windows. This is the standard approach for Short-Time Fourier Transform (STFT) analysis.
 
 ```rust
-fn compute_spectrogram(signal: &[f32], window_size: usize, hop_size: usize) -> Vec<Vec<f32>> {
+fn compute_spectrogram(
+    signal: &[f32],
+    window_size: usize,
+    hop_size: usize,
+) -> Vec<Vec<f32>> {
     let mut result = Vec::new();
 
     for i in (0..signal.len()).step_by(hop_size) {
@@ -612,10 +633,13 @@ fn compute_spectrogram(signal: &[f32], window_size: usize, hop_size: usize) -> V
 
 ### Example: Return Slices Instead of Cloning
 
-By returning borrowed slices instead of owned strings, CSV parsing avoids allocating memory for every field, dramatically improving performance.
+By returning borrowed slices instead of owned strings, CSV parsing avoids allocating memory for every field, dramatically improving performance. The lifetime `'a` ties the returned slice to the input, ensuring the reference remains valid. This pattern can reduce memory allocation by 10-100x in parsing-heavy workloads.
 
 ```rust
-fn find_field<'a>(record: &'a [u8], field_index: usize) -> &'a [u8] {
+fn find_field<'a>(
+    record: &'a [u8],
+    field_index: usize,
+) -> &'a [u8] {
     let mut start = 0;
     let mut current_field = 0;
 
@@ -640,7 +664,7 @@ fn find_field<'a>(record: &'a [u8], field_index: usize) -> &'a [u8] {
 
 ### Example: Split Without Allocation
 
-The `split` iterator creates string slices on the fly without allocating a vector until `collect` is called. Each slice references the original string.
+The `split` iterator creates string slices on the fly without allocating a vector until `collect` is called. Each slice references the original string. The `trim()` call also returns a slice, not a new allocation, making the entire pipeline allocation-free until `collect`.
 
 ```rust
 fn parse_csv_line(line: &str) -> Vec<&str> {
@@ -652,7 +676,7 @@ fn parse_csv_line(line: &str) -> Vec<&str> {
 
 ### Example: Multiple Slices from One Allocation
 
-A struct can hold multiple slices all pointing into a single backing buffer, enabling zero-copy frame parsing for network protocols.
+A struct can hold multiple slices all pointing into a single backing buffer, enabling zero-copy frame parsing for network protocols. The lifetime parameter `'a` ensures all slices remain valid as long as the struct exists. This is the foundation of high-performance packet parsers used in network stacks.
 
 ```rust
 struct Frame<'a> {
@@ -678,10 +702,12 @@ impl<'a> Frame<'a> {
 
 ### Example: Split At for Header/Body Separation
 
-`split_at` divides a slice at a specific index, creating two non-overlapping views perfect for fixed-size header parsing.
+`split_at` divides a slice at a specific index, creating two non-overlapping views perfect for fixed-size header parsing. The operation is O(1) since it just creates two fat pointers—no data is copied. This is the idiomatic way to separate fixed-size headers from variable-length payloads.
 
 ```rust
-fn process_header_and_body(data: &[u8]) -> Result<(Header, Vec<Item>), Error> {
+fn process_header_and_body(
+    data: &[u8],
+) -> Result<(Header, Vec<Item>), Error> {
     let (header_bytes, body) = data.split_at(HEADER_SIZE);
     let header = parse_header(header_bytes)?;
     let items = parse_body(body)?;
@@ -691,7 +717,7 @@ fn process_header_and_body(data: &[u8]) -> Result<(Header, Vec<Item>), Error> {
 
 ### Example: Copy-on-Write with Cow
 
-`Cow` (Clone on Write) enables APIs that only allocate when modification is needed, borrowing otherwise. Perfect for conditional string encoding fixes.
+`Cow` (Clone on Write) enables APIs that only allocate when modification is needed, borrowing otherwise. Perfect for conditional string encoding fixes. When the data is already valid UTF-8, `Cow::Borrowed` holds a reference without allocation; only malformed data triggers the `Cow::Owned` path.
 
 ```rust
 use std::borrow::Cow;
@@ -709,7 +735,7 @@ fn decode_field(field: &[u8]) -> Cow<str> {
 
 ### Example: Split First and Last for Protocol Parsing
 
-`split_first` and `split_last` extract single elements while returning a slice of the remainder, ideal for version bytes and checksums.
+`split_first` and `split_last` extract single elements while returning a slice of the remainder, ideal for version bytes and checksums. Both methods return `Option` to handle empty slices gracefully. Chaining these operations parses fixed-format protocols without manual index arithmetic.
 
 ```rust
 fn parse_packet(data: &[u8]) -> Result<Packet, ParseError> {
@@ -725,7 +751,7 @@ fn parse_packet(data: &[u8]) -> Result<Packet, ParseError> {
 
 ### Example: Iterating Without Collecting
 
-When the final result doesn't need individual slices, process them in the iterator pipeline without allocating a vector.
+When the final result doesn't need individual slices, process them in the iterator pipeline without allocating a vector. The `filter_map` handles parsing failures gracefully by filtering out invalid entries. The final `sum()` consumes the iterator directly without intermediate storage.
 
 ```rust
 fn sum_valid_numbers(data: &str) -> i32 {
@@ -737,10 +763,13 @@ fn sum_valid_numbers(data: &str) -> i32 {
 
 ### Example: Slicing During Iteration
 
-Manual range-based slicing combined with iteration enables custom chunk processing without the constraints of fixed-size chunks.
+Manual range-based slicing combined with iteration enables custom chunk processing without the constraints of fixed-size chunks. The `step_by` iterator generates starting indices, while `.min()` handles the last partial block. This pattern offers more control than `chunks` for variable-size blocks.
 
 ```rust
-fn process_blocks(data: &[u8], block_size: usize) -> Vec<BlockResult> {
+fn process_blocks(
+    data: &[u8],
+    block_size: usize,
+) -> Vec<BlockResult> {
     (0..data.len())
         .step_by(block_size)
         .map(|i| {
@@ -753,7 +782,7 @@ fn process_blocks(data: &[u8], block_size: usize) -> Vec<BlockResult> {
 
 ### Example: Grouping by Delimiter
 
-Manual delimiter-based splitting provides more control than the built-in `split` method, useful for binary data or custom delimiters.
+Manual delimiter-based splitting provides more control than the built-in `split` method, useful for binary data or custom delimiters. This implementation handles the final segment that doesn't end with a delimiter. Unlike `split`, this works with `&[u8]` directly, avoiding UTF-8 validation overhead.
 
 ```rust
 fn group_by_delimiter(data: &[u8], delimiter: u8) -> Vec<&[u8]> {
@@ -777,7 +806,7 @@ fn group_by_delimiter(data: &[u8], delimiter: u8) -> Vec<&[u8]> {
 
 ### Example: In-Place Mutable Operations
 
-Mutable slices enable in-place transformations like byte swapping without any allocation.
+Mutable slices enable in-place transformations like byte swapping without any allocation. The `chunks_exact_mut` ensures each chunk has exactly 2 elements for the swap. This pattern is common in endianness conversion and data format transformations.
 
 ```rust
 fn swap_bytes_in_place(data: &mut [u8]) {
@@ -789,7 +818,7 @@ fn swap_bytes_in_place(data: &mut [u8]) {
 
 ### Example: Complete Zero-Copy HTTP Parser
 
-This comprehensive example shows how an entire HTTP request parser can work with zero allocations, storing only slices into the original buffer.
+This comprehensive example shows how an entire HTTP request parser can work with zero allocations, storing only slices into the original buffer. The struct fields are all references tied to the input buffer's lifetime. Only the headers `Vec` allocates, but its contents are still slices into the original data.
 
 ```rust
 struct HttpRequest<'a> {
@@ -847,7 +876,7 @@ impl<'a> HttpRequest<'a> {
 
 ### Example: Manual SIMD-Friendly Chunking
 
-Processing data in fixed-size chunks enables the compiler to auto-vectorize, and provides a clear structure for manual SIMD optimization.
+Processing data in fixed-size chunks enables the compiler to auto-vectorize, and provides a clear structure for manual SIMD optimization. The inner loop over a fixed-size array is especially optimization-friendly since the bounds are compile-time constants. Always handle the remainder separately to avoid bounds-check overhead in the hot path.
 
 ```rust
 fn sum_bytes(data: &[u8]) -> u64 {
@@ -874,7 +903,7 @@ fn sum_bytes(data: &[u8]) -> u64 {
 
 ### Example: Aligned Data Structures
 
-Proper memory alignment is crucial for SIMD performance. Using `#[repr(align(N))]` ensures data is aligned for vector instructions.
+Proper memory alignment is crucial for SIMD performance. Using `#[repr(align(N))]` ensures data is aligned for vector instructions. Misaligned loads can be 2-10x slower on some architectures, making alignment essential for peak throughput.
 
 ```rust
 #[repr(align(32))]
@@ -890,7 +919,7 @@ fn process_aligned(data: &[AlignedBuffer]) -> Vec<f32> {
 
 ### Example: Portable SIMD with std::simd
 
-Rust's portable SIMD (nightly) provides safe, cross-platform vector operations that compile to optimal CPU instructions.
+Rust's portable SIMD (nightly) provides safe, cross-platform vector operations that compile to optimal CPU instructions. The `f32x4` type represents a vector of 4 floats that can be added in a single instruction. This code compiles to SSE/AVX on x86, NEON on ARM, or falls back to scalar on unsupported platforms.
 
 ```rust
 #[cfg(feature = "portable_simd")]
@@ -900,7 +929,7 @@ fn add_vectors_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
     let lanes = 4;
     let (a_chunks, a_remainder) = a.as_chunks::<4>();
     let (b_chunks, b_remainder) = b.as_chunks::<4>();
-    let (result_chunks, result_remainder) = result.as_chunks_mut::<4>();
+    let (result_chunks, result_rem) = result.as_chunks_mut::<4>();
 
     // SIMD processing
     for ((a_chunk, b_chunk), result_chunk) in
@@ -923,7 +952,7 @@ fn add_vectors_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 
 ### Example: SIMD Search Operations
 
-Searching through large buffers can benefit from SIMD parallelism by checking multiple elements simultaneously.
+Searching through large buffers can benefit from SIMD parallelism by checking multiple elements simultaneously. This example demonstrates the chunking pattern that enables SIMD optimization. Real SIMD search uses vector comparison instructions that check 16-32 bytes per instruction.
 
 ```rust
 fn find_byte_simd(haystack: &[u8], needle: u8) -> Option<usize> {
@@ -946,7 +975,7 @@ fn find_byte_simd(haystack: &[u8], needle: u8) -> Option<usize> {
 
 ### Example: SIMD Reduction Operations
 
-Reduction operations like sum benefit from SIMD by accumulating multiple lanes in parallel before the final reduction.
+Reduction operations like sum benefit from SIMD by accumulating multiple lanes in parallel before the final reduction. Using multiple accumulators (one per SIMD lane) exploits instruction-level parallelism. The final horizontal sum across lanes adds negligible overhead compared to the speedup.
 
 ```rust
 fn sum_f32_vectorized(data: &[f32]) -> f32 {
@@ -969,7 +998,7 @@ fn sum_f32_vectorized(data: &[f32]) -> f32 {
 
 ### Example: Combining Parallelism with SIMD
 
-Rayon's parallel iterators combined with SIMD operations enable multi-core data parallelism for maximum throughput.
+Rayon's parallel iterators combined with SIMD operations enable multi-core data parallelism for maximum throughput. Each thread processes a chunk while SIMD accelerates the per-element computation within each chunk. This two-level parallelism can achieve near-theoretical peak performance on modern hardware.
 
 ```rust
 #[cfg(feature = "rayon")]
@@ -987,7 +1016,7 @@ fn parallel_simd_transform(data: &mut [f32]) {
 
 ### Example: Auto-Vectorization
 
-Simple loops are often auto-vectorized by the compiler. Writing clear, simple code can be as fast as manual SIMD.
+Simple loops are often auto-vectorized by the compiler. Writing clear, simple code can be as fast as manual SIMD. Compiling with `-C opt-level=3` and `-C target-cpu=native` enables the compiler to use the best available vector instructions.
 
 ```rust
 fn scale_values(data: &mut [f32], scale: f32) {
@@ -1000,7 +1029,7 @@ fn scale_values(data: &mut [f32], scale: f32) {
 
 ### Example: Dot Product with Chunking
 
-Dot products are fundamental linear algebra operations that benefit significantly from SIMD processing.
+Dot products are fundamental linear algebra operations that benefit significantly from SIMD processing. Processing 4 multiplications per iteration matches common SIMD register widths. The accumulator pattern minimizes memory traffic by keeping intermediate results in registers.
 
 ```rust
 fn dot_product_chunks(a: &[f32], b: &[f32]) -> f32 {
@@ -1027,7 +1056,7 @@ fn dot_product_chunks(a: &[f32], b: &[f32]) -> f32 {
 
 ### Example: Image Processing Pipeline
 
-Converting RGB to grayscale is embarrassingly parallel and benefits from SIMD processing of pixel data.
+Converting RGB to grayscale is embarrassingly parallel and benefits from SIMD processing of pixel data. The luminance formula weights green most heavily to match human perception. Using integer math with a right-shift avoids expensive floating-point division.
 
 ```rust
 fn grayscale_simd(rgb_data: &[u8], output: &mut [u8]) {
@@ -1048,7 +1077,7 @@ fn grayscale_simd(rgb_data: &[u8], output: &mut [u8]) {
 
 ### Example: SIMD-Friendly Data Layouts
 
-Structure-of-arrays layout is more SIMD-friendly than array-of-structures for vector operations.
+Structure-of-arrays layout is more SIMD-friendly than array-of-structures for vector operations. When processing many vectors, separating x/y/z into contiguous arrays allows SIMD to load 4-8 components at once. The `#[repr(C)]` ensures predictable memory layout for interop and optimization.
 
 ```rust
 #[repr(C)]
@@ -1089,7 +1118,7 @@ fn normalize_vectors(vectors: &mut [Vec3]) {
 
 ### Example: In-Place Vector Compaction
 
-Compacting a vector by removing unwanted elements without allocation uses a two-pointer technique with swap operations.
+Compacting a vector by removing unwanted elements without allocation uses a two-pointer technique with swap operations. The `write_index` tracks where to place the next kept element, while `read_index` scans through all elements. This is O(N) time regardless of how many elements are removed.
 
 ```rust
 fn compact_vector(vec: &mut Vec<Item>) {
@@ -1111,10 +1140,13 @@ fn compact_vector(vec: &mut Vec<Item>) {
 
 ### Example: Extracting Elements with Drain
 
-Draining elements that match a predicate into a separate vector while preserving the original's capacity.
+Draining elements that match a predicate into a separate vector while preserving the original's capacity. The `remove` operation shifts subsequent elements, so we don't increment `i` when removing. This is O(N²) worst case; for better performance, use the swap-to-end technique.
 
 ```rust
-fn extract_matching(vec: &mut Vec<Item>, predicate: impl Fn(&Item) -> bool) -> Vec<Item> {
+fn extract_matching(
+    vec: &mut Vec<Item>,
+    predicate: impl Fn(&Item) -> bool,
+) -> Vec<Item> {
     let mut extracted = Vec::new();
     let mut i = 0;
 
@@ -1132,17 +1164,22 @@ fn extract_matching(vec: &mut Vec<Item>, predicate: impl Fn(&Item) -> bool) -> V
 
 ### Example: Splice for Range Replacement
 
-`splice` removes a range and replaces it with new elements in a single operation, more efficient than separate remove and insert.
+`splice` removes a range and replaces it with new elements in a single operation, more efficient than separate remove and insert. The replacement can be a different size than the removed range—the vector automatically grows or shrinks. The returned iterator yields the removed elements if you need them.
 
 ```rust
-fn replace_range(vec: &mut Vec<i32>, start: usize, end: usize, replacement: &[i32]) {
+fn replace_range(
+    vec: &mut Vec<i32>,
+    start: usize,
+    end: usize,
+    replacement: &[i32],
+) {
     vec.splice(start..end, replacement.iter().copied());
 }
 ```
 
 ### Example: Efficient Mid-Vector Insertion
 
-`split_off` divides a vector at an index, enabling efficient insertion without shifting all elements twice.
+`split_off` divides a vector at an index, enabling efficient insertion without shifting all elements twice. The tail is moved to a new vector, the data is appended, then the tail is appended back. This is more efficient than repeated `insert` calls when adding many elements.
 
 ```rust
 fn insert_slice_at(vec: &mut Vec<u8>, index: usize, data: &[u8]) {
@@ -1154,29 +1191,30 @@ fn insert_slice_at(vec: &mut Vec<u8>, index: usize, data: &[u8]) {
 
 ### Example: Sliding Window Maximum with Deque
 
-VecDeque enables efficient double-ended operations crucial for algorithms like sliding window maximum.
+VecDeque enables efficient double-ended operations crucial for algorithms like sliding window maximum. The deque stores indices in decreasing order of their values, so the front is always the maximum. This achieves O(N) total time complexity for finding maximum in all sliding windows.
 
 ```rust
 use std::collections::VecDeque;
 
-fn sliding_window_max(values: &[i32], window_size: usize) -> Vec<i32> {
+fn sliding_window_max(values: &[i32], win_size: usize) -> Vec<i32> {
     let mut result = Vec::new();
     let mut deque = VecDeque::new();
 
     for (i, &value) in values.iter().enumerate() {
         // Remove elements outside window
-        while deque.front().map_or(false, |&idx| idx <= i.saturating_sub(window_size)) {
+        let min_idx = i.saturating_sub(win_size);
+        while deque.front().map_or(false, |&idx| idx <= min_idx) {
             deque.pop_front();
         }
 
         // Remove smaller elements from back
-        while deque.back().map_or(false, |&idx| values[idx] < value) {
+        while deque.back().map_or(false, |&i| values[i] < value) {
             deque.pop_back();
         }
 
         deque.push_back(i);
 
-        if i >= window_size - 1 {
+        if i >= win_size - 1 {
             result.push(values[*deque.front().unwrap()]);
         }
     }
@@ -1187,7 +1225,7 @@ fn sliding_window_max(values: &[i32], window_size: usize) -> Vec<i32> {
 
 ### Example: Circular Buffer Implementation
 
-Circular buffers use modular arithmetic to wrap indices, providing efficient fixed-size queues without shifting elements.
+Circular buffers use modular arithmetic to wrap indices, providing efficient fixed-size queues without shifting elements. When full, new elements overwrite the oldest, automatically advancing the head. The `as_slices` method returns two slices representing the logical contiguous view.
 
 ```rust
 struct CircularBuffer<T> {
@@ -1230,7 +1268,7 @@ impl<T: Default + Clone> CircularBuffer<T> {
 
 ### Example: Copy-Free Slice Swapping
 
-`std::mem::swap` enables efficient element-wise swapping between two mutable slices without temporary storage.
+`std::mem::swap` enables efficient element-wise swapping between two mutable slices without temporary storage. The zip iterator pairs corresponding elements from both slices for simultaneous access. This is useful for interleaving data or implementing in-place transposition.
 
 ```rust
 fn interleave_slices(a: &mut [u8], b: &mut [u8]) {
@@ -1244,7 +1282,7 @@ fn interleave_slices(a: &mut [u8], b: &mut [u8]) {
 
 ### Example: Self-Referential Duplication
 
-`extend_from_within` copies a range from within the vector and appends it, useful for repeating patterns.
+`extend_from_within` copies a range from within the vector and appends it, useful for repeating patterns. Unlike manual copying, this handles the growing vector safely even when source and destination overlap. This is efficient for run-length encoding decompression or pattern replication.
 
 ```rust
 fn duplicate_segment(vec: &mut Vec<u8>, start: usize, end: usize) {
@@ -1254,7 +1292,7 @@ fn duplicate_segment(vec: &mut Vec<u8>, start: usize, end: usize) {
 
 ### Example: Binary Partitioning
 
-Lomuto partition scheme efficiently separates elements based on a predicate, foundational for quicksort and selection algorithms.
+Lomuto partition scheme efficiently separates elements based on a predicate, foundational for quicksort and selection algorithms. Non-negative elements accumulate at the front while negative elements are swapped to the back. The returned index is the first position of the "right" partition.
 
 ```rust
 fn partition_by_sign(values: &mut [i32]) -> usize {
@@ -1276,10 +1314,13 @@ fn partition_by_sign(values: &mut [i32]) -> usize {
 
 ### Example: Three-Way Partitioning
 
-Dutch National Flag algorithm partitions into three regions (less than, equal to, greater than) in a single pass.
+Dutch National Flag algorithm partitions into three regions (less than, equal to, greater than) in a single pass. This is optimal for arrays with many duplicate values, as used in three-way quicksort. The returned tuple marks the boundaries between the three regions.
 
 ```rust
-fn partition_three_way(values: &mut [i32], pivot: i32) -> (usize, usize) {
+fn partition_three_way(
+    values: &mut [i32],
+    pivot: i32,
+) -> (usize, usize) {
     let mut low = 0;
     let mut mid = 0;
     let mut high = values.len();

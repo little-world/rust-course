@@ -7,6 +7,8 @@ Pattern matching enables you to write clear and efficient code for handling comp
 
 ### Pattern Matching Basics
 
+This reference shows the core pattern syntax available in Rust's `match` expressions. Patterns can match literals, destructure tuples and structs, bind variables, use guards for conditions, and handle references. These building blocks combine to create expressive, type-safe control flow.
+
 ```rust
 // Basic patterns
 match value {
@@ -58,7 +60,7 @@ match ch {
 
 ### Example: Range Matching
 
-Range patterns provide a concise way to match against a range of values, which is far more readable than a long chain of `if-else` statements.
+Range patterns provide a concise way to match against a range of values, which is far more readable than a long chain of `if-else` statements. The `..=` syntax creates an inclusive range, while `..` creates an exclusive range. You can use constants like `i32::MIN` and `i32::MAX` to cover the full numeric range without gaps.
 
 ```rust
 fn classify_temperature(temp: i32) -> &'static str {
@@ -77,17 +79,20 @@ fn classify_temperature(temp: i32) -> &'static str {
 
 ### Example: Guards for Complex Conditions
 
-Match guards (`if ...`) allow you to add arbitrary boolean expressions to a pattern. This is useful when the condition for a match is more complex than a simple value comparison.
+Match guards (`if ...`) allow you to add arbitrary boolean expressions to a pattern. This is useful when the condition for a match is more complex than a simple value comparison. Guards are checked after the pattern matches, so you can reference variables bound by the pattern in the guard expression.
 
 ```rust
 struct Response;
 struct Error;
 
-fn process_request(status: u16, body: &str) -> Result<Response, Error> {
+fn process_request(
+    status: u16,
+    body: &str,
+) -> Result<Response, Error> {
     match (status, body.len()) {
-        (200, len) if len > 0 => Ok(Response), // Guard checks the length
-        (200, _) => Err(Error), // Handles 200 but with empty body
-        (status @ 400..=499, _) => Err(Error), // Bind status and match range
+        (200, len) if len > 0 => Ok(Response), // Guard checks len
+        (200, _) => Err(Error), // 200 with empty body
+        (status @ 400..=499, _) => Err(Error), // Bind and match
         (status @ 500..=599, _) => Err(Error),
         _ => Err(Error),
     }
@@ -96,7 +101,7 @@ fn process_request(status: u16, body: &str) -> Result<Response, Error> {
 
 ### Example: `@` Bindings to Capture and Test
 
-The `@` symbol lets you bind a value to a variable while simultaneously testing it against a more complex pattern. This avoids the need to re-bind the variable inside the match arm.
+The `@` symbol lets you bind a value to a variable while simultaneously testing it against a more complex pattern. This avoids the need to re-bind the variable inside the match arm. The syntax `name @ pattern` binds `name` to the entire matched value while ensuring it matches `pattern`.
 
 ```rust
 enum Port { WellKnown(u16), Registered(u16), Dynamic(u16) }
@@ -104,7 +109,7 @@ struct ValidationError;
 
 fn validate_port(port: u16) -> Result<Port, ValidationError> {
     match port {
-        p @ 1..=1023 => Ok(Port::WellKnown(p)), // Bind to `p` and test range
+        p @ 1..=1023 => Ok(Port::WellKnown(p)), // Bind and test
         p @ 1024..=49151 => Ok(Port::Registered(p)),
         p @ 49152..=65535 => Ok(Port::Dynamic(p)),
         0 => Err(ValidationError),
@@ -114,7 +119,7 @@ fn validate_port(port: u16) -> Result<Port, ValidationError> {
 
 ### Example: Nested Destructuring
 
-Pattern matching allows you to "look inside" nested data structures, binding to only the fields you care about and ignoring the rest with `..`.
+Pattern matching allows you to "look inside" nested data structures, binding to only the fields you care about and ignoring the rest with `..`. You can destructure multiple levels deep in a single pattern—matching an enum variant and its struct fields simultaneously. Guards can reference any variables bound during destructuring, enabling complex conditional logic.
 
 ```rust
 struct Point { x: i32, y: i32 }
@@ -153,7 +158,7 @@ fn contains_origin(shape: &Shape) -> bool {
 
 ### Example: Exhaustive Matching for Safety
 
-If we add a new variant to `RequestState`, the `state_duration` function will no longer compile until the new variant is handled in the `match` expression. This prevents us from forgetting to update critical logic.
+If we add a new variant to `RequestState`, the `state_duration` function will no longer compile until the new variant is handled in the `match` expression. This prevents us from forgetting to update critical logic. The compiler error message will list exactly which variants are missing, making refactoring safe and straightforward.
 
 ```rust
 enum RequestState {
@@ -166,10 +171,12 @@ enum RequestState {
 fn state_duration(state: &RequestState, now: u64) -> Option<u64> {
     match state {
         RequestState::Pending => None,
-        RequestState::InProgress { started_at } => Some(now - started_at),
+        RequestState::InProgress { started_at } => {
+            Some(now - started_at)
+        }
         RequestState::Completed { .. } => None,
         RequestState::Failed { .. } => None,
-        // If a new variant, e.g., `Throttled`, were added to `RequestState`,
+        // If a new variant were added to `RequestState`,
         // this match would produce a compile-time error.
     }
 }
@@ -177,7 +184,7 @@ fn state_duration(state: &RequestState, now: u64) -> Option<u64> {
 
 ### Example: Match Ergonomics
 
-Rust's match ergonomics automatically handle references for you in most cases, reducing visual noise. When you match on a `&Option<String>`, the inner value is automatically a `&String`, not a `String`.
+Rust's match ergonomics automatically handle references for you in most cases, reducing visual noise. When you match on a `&Option<String>`, the inner value is automatically a `&String`, not a `String`. This "default binding mode" propagates through nested patterns, so you rarely need explicit `ref` or `&` in patterns.
 
 ```rust
 fn process_option(opt: &Option<String>) {
@@ -191,7 +198,7 @@ fn process_option(opt: &Option<String>) {
 
 ### Example: The `#[non_exhaustive]` Attribute
 
-For public libraries, you may want to add new enum variants without it being a breaking change for your users. The `#[non_exhaustive]` attribute tells the compiler that this enum may have more variants in the future, forcing users to include a wildcard (`_`) arm in their `match` expressions.
+For public libraries, you may want to add new enum variants without it being a breaking change for your users. The `#[non_exhaustive]` attribute tells the compiler that this enum may have more variants in the future, forcing users to include a wildcard (`_`) arm in their `match` expressions. Within the defining crate, the enum is still treated as exhaustive—the restriction only applies to external users.
 
 ```rust
 #[non_exhaustive]
@@ -205,7 +212,7 @@ fn handle_version(version: HttpVersion) {
     match version {
         HttpVersion::Http11 => println!("Using HTTP/1.1"),
         HttpVersion::Http2 => println!("Using HTTP/2"),
-        // This is required. If the library adds `Http3`, this code won't break.
+        // Required. If library adds `Http3`, this won't break.
         _ => println!("Using an unknown future version"),
     }
 }
@@ -235,14 +242,16 @@ fn handle_version(version: HttpVersion) {
 
 ### Example: `if let` and `if let` chains
 
-An `if let` chain can replace nested `if let` statements, making validation logic much flatter and easier to read.
+An `if let` chain can replace nested `if let` statements, making validation logic much flatter and easier to read. The `&&` syntax (stabilized in Rust 1.65) lets you combine multiple pattern matches and boolean conditions in a single expression. 
 
 ```rust
 struct Claims;
 struct Token;
 struct Request { authorization: Option<String> }
 fn parse_token(auth: &str) -> Result<Token, ()> { Ok(Token) }
-fn validate_token(token: &Token) -> Result<Claims, ()> { Ok(Claims) }
+fn validate_token(token: &Token) -> Result<Claims, ()> {
+    Ok(Claims)
+}
 
 fn handle_request(req: &Request) {
     // Before if-let chains, this would be nested.
@@ -266,7 +275,7 @@ fn handle_request(req: &Request) {
 
 ### Example: `let-else` for Early Returns
 
-`let-else` is perfect for guard clauses at the beginning of a function. It allows you to destructure a value and `return` or `break` if the pattern doesn't match.
+`let-else` is perfect for guard clauses at the beginning of a function. It allows you to destructure a value and `return` or `break` if the pattern doesn't match. The else block must diverge (return, break, continue, or panic), ensuring the bound variables are always valid in the code that follows.
 
 ```rust
 struct Claims { user_id: u64 }
@@ -287,7 +296,7 @@ fn get_user_id(request: &Request) -> Result<u64, Error> {
 
 ### Example: `while let` for Iteration
 
-`while let` is the idiomatic way to loop as long as a pattern continues to match. It's often used to process items from an iterator or a queue.
+`while let` is the idiomatic way to loop as long as a pattern continues to match. It's often used to process items from an iterator or a queue. The loop terminates as soon as the pattern fails to match, making it perfect for draining collections or consuming streams.
 
 ```rust
 use std::collections::VecDeque;
@@ -324,7 +333,7 @@ fn drain_queue(queue: &mut VecDeque<String>) {
 
 ### Example: Command Pattern with Enums
 
-Instead of an object-oriented command pattern, you can define all possible operations as variants of a single `Command` enum. A central `execute` method then dispatches on the variant.
+Instead of an object-oriented command pattern, you can define all possible operations as variants of a single `Command` enum. A central `execute` method then dispatches on the variant. When you add a new command variant, the compiler forces you to handle it everywhere commands are matched.
 
 ```rust
 enum Command {
@@ -335,7 +344,7 @@ enum Command {
 fn execute_command(command: Command) {
     match command {
         Command::CreateUser { username, email } => {
-            println!("Creating user {} with email {}", username, email);
+            println!("Creating user {username} ({email})");
         }
         Command::DeleteUser { user_id } => {
             println!("Deleting user {}", user_id);
@@ -346,7 +355,7 @@ fn execute_command(command: Command) {
 
 ### Example: Event Sourcing with Enums
 
-In an event-sourcing system, state is rebuilt by applying a series of events. Using an enum for events ensures that every event is a well-defined, typed structure, and that your state aggregates can handle all of them.
+In an event-sourcing system, state is rebuilt by applying a series of events. Using an enum for events ensures that every event is a well-defined, typed structure, and that your state aggregates can handle all of them. The exhaustive match in `apply` guarantees that new event types are properly incorporated into state reconstruction.
 
 ```rust
 // All possible events in the system are defined here.
@@ -364,7 +373,11 @@ struct User {
 impl User {
     // A user's state is built by applying events in order.
     fn from_events(events: &[UserEvent]) -> Self {
-        let mut user = User { id: 0, username: "".into(), is_verified: false };
+        let mut user = User {
+            id: 0,
+            username: "".into(),
+            is_verified: false,
+        };
         for event in events {
             user.apply(event);
         }

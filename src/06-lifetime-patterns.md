@@ -30,7 +30,10 @@ char* get_string() {
 ```
 
 The function returns a pointer to stack memory that's immediately deallocated. Using this pointer is undefined behavior. Lifetimes prevent this entire class of bugs:
-### Example: Lifetime Elision Rules
+### Example: Rust Prevents Dangling References
+
+Rust's lifetime system catches dangling reference errors at compile time. When you try to return a reference to a local variable, the compiler sees that the data will be dropped when the function ends. This compile-time check eliminates use-after-free bugs that plague C and C++ programs.
+
 ```rust
 // This Rust code will not compile.
 // fn get_string() -> &str {
@@ -73,7 +76,7 @@ To avoid boilerplate, the compiler applies three rules to infer lifetimes automa
 
 ```rust
 // Elision Rule 2 applies here.
-// The compiler infers that the output lifetime is the same as the input lifetime.
+// Compiler infers output lifetime equals input lifetime.
 fn first_word(s: &str) -> &str {
     s.split_whitespace().next().unwrap_or(s)
 }
@@ -96,7 +99,7 @@ impl<'a> MyString<'a> {
 The `'static` lifetime indicates that a reference is valid for the entire duration of the program. String literals are the most common example. Be cautious with `'static`, as it is rarely what you need for function inputs or outputs unless you are dealing with truly global data.
 
 ```rust
-// `s` is a reference to data that is hardcoded into the program's binary.
+// `s` references data hardcoded into the program's binary.
 let s: &'static str = "I have a static lifetime.";
 
 // You can also create static data with `const`.
@@ -135,7 +138,7 @@ For complex combinations of lifetime and trait bounds, a `where` clause can make
 ```rust
 fn process_and_debug<'a, T>(items: &'a [T])
 where
-    T: std::fmt::Debug + 'a, // T must be debug-printable and outlive 'a
+    T: std::fmt::Debug + 'a, // T must outlive 'a
 {
     for item in items {
         println!("Item: {:?}", item);
@@ -169,16 +172,16 @@ trait Parser {
 The `call_on_hello` function creates a local string and calls a closure on a reference to it. The closure must be able to handle this local, temporary lifetime. The `for<'a>` bound ensures this.
 
 ```rust
-// The HRTB `for<'a> Fn(&'a str)` ensures `f` works for any lifetime.
+// HRTB `for<'a> Fn(&'a str)` ensures `f` works for any lifetime.
 fn call_on_hello<F>(f: F)
 where
     F: for<'a> Fn(&'a str),
 {
     let s = String::from("hello");
-    f(&s); // The closure is called with a reference local to this function.
+    f(&s); // Closure called with reference local to this function.
 }
 
-// This closure works for any &str, so it can be passed to `call_on_hello`.
+// This closure works for any &str, can pass to `call_on_hello`.
 let print_it = |s: &str| println!("{}", s);
 call_on_hello(print_it);
 ```
@@ -233,10 +236,10 @@ This code demonstrates why safe Rust disallows self-referential structs. You can
 Instead of direct references, you can use indices into a collection. This avoids the self-reference problem because indices remain valid even if the collection is moved.
 
 ```rust
-// A graph where nodes reference each other via indices, not pointers.
+// Graph where nodes reference each other via indices.
 struct Node {
     name: String,
-    edges: Vec<usize>, // Indices of other nodes in the graph's `nodes` vector.
+    edges: Vec<usize>, // Indices into graph's `nodes` vector.
 }
 
 struct Graph {
@@ -262,13 +265,13 @@ impl Unmovable {
     fn new(data: String) -> Pin<Box<Self>> {
         let res = Unmovable {
             data,
-            // Can't initialize `slice` yet, as `data` is not pinned.
+            // Can't init `slice` yet, `data` is not pinned.
             slice: std::ptr::null(),
             _pin: PhantomPinned,
         };
         let mut boxed = Box::pin(res);
 
-        // Now that the data is pinned, we can create a pointer to it.
+        // Now that data is pinned, we can create a pointer to it.
         let slice = &boxed.data[..] as *const str;
         // And update the `slice` field with the correct pointer.
         unsafe {
@@ -293,7 +296,7 @@ impl Unmovable {
 
 ### Solution 3: Rental Crates
 
-Libraries like `ouroboros` provide safe abstractions:
+Libraries like `ouroboros` provide safe abstractions for self-referential structs without requiring `unsafe` code. These crates use procedural macros to generate the necessary boilerplate for pinning and initialization. The `#[self_referencing]` attribute transforms your struct definition into a safe, usable self-referential type.
 
 ```rust
 // Using ouroboros crate
@@ -320,7 +323,7 @@ The `ouroboros` crate uses macros and `Pin` internally to provide a safe interfa
 
 ### Solution 4: Restructure the Design
 
-Often, self-references indicate a design problem. Consider alternatives:
+Often, the need for self-references signals a design that can be restructured. Instead of a struct owning data and holding a reference to it, separate the owner from the borrower into two distinct types. This approach is idiomatic Rust and works naturally with the borrow checker.
 
 ```rust
 // Instead of self-referential:
@@ -376,7 +379,7 @@ fn example() {
     let outer: &'static str = "hello";
 
     {
-        let inner: &str = outer; // OK: 'static is subtype of shorter lifetime
+        let inner: &str = outer; // OK: 'static subtype of shorter
     }
 }
 ```
@@ -385,7 +388,7 @@ If `'long: 'short` (read: "'long outlives 'short"), then `'long` is a subtype of
 
 ### Variance Categories
 
-Types have variance with respect to their lifetime and type parameters:
+Types have variance with respect to their lifetime and type parameters, determining how subtyping relationships propagate. Covariance means a longer lifetime can substitute for a shorter one. Invariance means no substitution is allowed, while contravariance (rare) reverses the direction.
 
 **Covariant**: Subtyping flows in the same direction
 
@@ -423,7 +426,7 @@ where
 
 ### Why Variance Matters
 
-Variance determines when types are compatible:
+Variance determines when types are compatible and when lifetime substitutions are safe. Covariance allows flexibility—a `&'static str` can be used anywhere a shorter-lived `&'a str` is expected. Invariance prevents unsound substitutions that could create dangling references through mutable aliasing.
 
 ```rust
 // Covariance allows this:
@@ -431,7 +434,7 @@ fn take_short(x: &str) {}
 
 fn example() {
     let s: &'static str = "hello";
-    take_short(s); // OK: can pass 'static where shorter lifetime expected
+    take_short(s); // OK: 'static works where shorter expected
 }
 
 // Invariance prevents this:
@@ -442,7 +445,7 @@ fn swap<'a, 'b>(x: &'a mut &'static str, y: &'b mut &'a str) {
 
 ### Variance in Practice
 
-Common types and their variance:
+Most standard library types are covariant over their type parameters, enabling flexible composition. Mutable references and interior mutability types are invariant because they could otherwise be exploited to create unsound aliasing. Understanding these rules helps predict which type substitutions the compiler will accept.
 
 ```rust
 // Covariant:
@@ -472,19 +475,21 @@ struct Consumer<T> {
 }
 
 fn example() {
-    // Can use Producer<&'static str> where Producer<&'a str> expected
-    let p: Producer<&'static str> = Producer { produce: || "hello" };
+    // Producer<&'static str> usable where Producer<&'a str> needed
+    let p: Producer<&'static str> = Producer {
+        produce: || "hello",
+    };
     let _p2: Producer<&str> = p; // OK
 
     // Contravariance with Consumer
     let c: Consumer<&str> = Consumer { consume: |_s| {} };
-    // let _c2: Consumer<&'static str> = c; // Would be error if uncommented
+    // let _c2: Consumer<&'static str> = c; // Would error
 }
 ```
 
 ### Interior Mutability and Invariance
 
-Interior mutability types are invariant:
+Types with interior mutability like `Cell<T>` and `RefCell<T>` are invariant over their contents. If they were covariant, you could store a short-lived reference and later read it as a longer-lived one—a soundness hole. This invariance is the price of safe interior mutation.
 
 ```rust
 use std::cell::Cell;
@@ -502,7 +507,7 @@ Invariance prevents creating references with incorrect lifetimes through interio
 
 ### PhantomData and Variance
 
-Control variance explicitly with `PhantomData`:
+`PhantomData<T>` lets you control a type's variance without actually storing `T`. The marker inherits the variance of whichever type you use—`PhantomData<T>` is covariant, `PhantomData<fn(T)>` is contravariant, and `PhantomData<Cell<T>>` is invariant. This is essential for unsafe code that logically owns or references data without a physical field.
 
 ```rust
 use std::marker::PhantomData;
@@ -527,7 +532,7 @@ Use `PhantomData` when you need to control variance without storing the actual t
 
 ### Subtyping and Higher-Rank Trait Bounds
 
-HRTBs interact with variance:
+HRTBs and variance work together to enable flexible generic code. A closure satisfying `for<'a> Fn(&'a str)` must handle any lifetime, which works because covariance lets longer lifetimes substitute for shorter ones. This combination powers iterator adapters and callback-based APIs.
 
 ```rust
 // Works because of variance
@@ -548,7 +553,7 @@ The HRTB ensures the function works with any lifetime, leveraging variance.
 
 ### Lifetime Subtyping in APIs
 
-Design APIs to work with variance:
+When designing APIs, prefer covariant types (immutable references) for maximum flexibility. A `GoodReader<'static>` can be used wherever `GoodReader<'a>` is expected because covariance allows longer lifetimes to substitute. Use mutable references only when mutation is truly required, as their invariance restricts how callers can use your API.
 
 ```rust
 // Good: covariant, flexible
@@ -580,6 +585,8 @@ Let's explore some sophisticated patterns that combine these concepts.
 
 ### Lifetime Bounds with Closures
 
+When a closure parameter needs to work with references tied to other inputs, you combine lifetime bounds with generic constraints. The closure receives references that share the same lifetime as the data passed to the function. This pattern is common in APIs that process data with user-provided callbacks.
+
 ```rust
 fn process_with_context<'a, F, T>(
     data: &'a str,
@@ -597,7 +604,7 @@ The closure receives references tied to the input lifetimes.
 
 ### Streaming Iterators
 
-Iterator items that borrow from the iterator itself:
+Standard iterators own their items, but streaming iterators yield references tied to the iterator's own lifetime. This pattern uses Generic Associated Types (GATs) to express that each yielded item borrows from the iterator. It enables memory-efficient iteration over sliding windows or parsed chunks without copying data.
 
 ```rust
 trait StreamingIterator {
@@ -617,7 +624,9 @@ impl<'a> StreamingIterator for WindowIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         if self.position + self.window_size <= self.data.len() {
-            let window = &self.data[self.position..self.position + self.window_size];
+            let start = self.position;
+            let end = self.position + self.window_size;
+            let window = &self.data[start..end];
             self.position += 1;
             Some(window)
         } else {
@@ -630,6 +639,8 @@ impl<'a> StreamingIterator for WindowIter<'a> {
 This pattern allows iterators to yield references tied to the iterator's lifetime.
 
 ### Lifetime Elision in Impl Blocks
+
+Lifetime elision rules also apply within impl blocks, reducing annotation noise. Methods returning references to struct fields typically have their lifetimes inferred from `&self`. When you need different lifetimes for different parameters, you can introduce additional lifetime parameters on individual methods.
 
 ```rust
 struct Parser<'a> {
@@ -652,7 +663,7 @@ impl<'a> Parser<'a> {
 
 ### Anonymous Lifetimes
 
-Use `'_` for clarity without naming:
+The `'_` placeholder indicates "infer this lifetime" without requiring a name. It improves readability when the specific lifetime doesn't matter—the compiler still enforces correctness. Use `'_` in function signatures and impl blocks where elision rules would apply but you want to be explicit.
 
 ```rust
 impl<'a> Parser<'a> {

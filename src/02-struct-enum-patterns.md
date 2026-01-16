@@ -1,15 +1,16 @@
 # Struct & Enum Patterns
 
-Rust doesn’t just give you `struct` and `enum` as containers for data. 
 This chapter explores struct and enum patterns for type-safe **data modeling**: choosing struct types, newtype wrappers for domain types, zero-sized types for compile-time guarantees, enums for variants, and advanced techniques for memory efficiency and recursion.
 
 ## Pattern 1: Struct Design Patterns
 
 *   **Problem**: It's often unclear when to use a named-field struct, a tuple struct, or a unit struct. Named fields can be verbose for simple types (`Point { x: f64, y: f64 }`), while tuple structs can be ambiguous (`Point(1.0, 2.0)`).
 *   **Solution**: Use named-field structs for complex data models where clarity is key. Use tuple structs for simple wrappers and the newtype pattern to create distinct types from primitives.
-*   **Why It Matters**: This choice enhances type safety and code clarity. Named fields are self-documenting.
+
 
 ### Example: Named Field Structs
+
+Named field structs provide self-documenting code where each field's purpose is explicit. Use them for complex data models like users, configurations, or domain entities. The `Self` keyword in constructors makes refactoring easier when the type name changes.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -35,16 +36,17 @@ impl User {
     }
 }
 
-// Usage
-let user = User::new(1, "alice".to_string(), "alice@example.com".to_string());
-println!("User {} is active: {}", user.username, user.active);
+// Usage: Create users via the constructor, which sets active=true by default.
+// Call deactivate() to change state. Clone is derived automatically.
+let mut user = User::new(1, "alice".to_string(), "alice@example.com".to_string());
+user.deactivate(); // Sets active to false
 ```
 
 **Why this matters:** Named fields provide self-documenting code. When you see `user.email`, the intent is clear. They also allow field reordering without breaking code.
 
 ### Example: Tuple Structs
 
-Tuple structs are useful when field names would be redundant or when you want to create distinct types:
+Tuple structs access fields by index (`.0`, `.1`) rather than by name. Use them when field names would be redundant, like `Point(x, y)` or `Rgb(r, g, b)`. They're also the foundation of the newtype pattern for creating type-safe wrappers.
 
 ```rust
 // Coordinates where position matters more than names
@@ -64,21 +66,24 @@ impl Point3D {
     }
 }
 
-// Usage
-let point = Point3D(3.0, 4.0, 0.0);
-println!("Distance: {}", point.distance_from_origin());
+impl Kilometers {
+    fn to_miles(&self) -> Miles {
+        Miles(self.0 * 0.621371)
+    }
+}
 
-// Type safety prevents mixing units
-let distance_km = Kilometers(100.0);
-let distance_mi = Miles(62.0);
-// let total = distance_km.0 + distance_mi.0; // Compiles but semantically wrong!
+// Usage: Access tuple struct fields by index (.0, .1). The newtype pattern
+// creates distinct types—Kilometers and Miles can't be accidentally mixed.
+let point = Point3D(3.0, 4.0, 0.0);
+let km = Kilometers(100.0);
+let mi = km.to_miles(); // Type-safe conversion
 ```
 
 **The pattern:** Use tuple structs when the structure itself conveys meaning more than field names would. They're particularly powerful for the newtype pattern.
 
 ### Example: Unit Structs
 
-Unit structs carry no data but can implement traits and provide type-level information:
+Unit structs have no fields and occupy zero bytes at runtime. They're used as marker types for type-level programming and state machines. Combined with `PhantomData`, they enable compile-time state enforcement without runtime cost.
 
 ```rust
 // Marker types for type-level programming
@@ -99,7 +104,10 @@ impl Database<Unauthenticated> {
         }
     }
 
-    fn authenticate(self, password: &str) -> Result<Database<Authenticated>, String> {
+    fn authenticate(
+        self,
+        password: &str,
+    ) -> Result<Database<Authenticated>, String> {
         if password == "secret" {
             Ok(Database {
                 connection_string: self.connection_string,
@@ -113,27 +121,27 @@ impl Database<Unauthenticated> {
 
 impl Database<Authenticated> {
     fn query(&self, sql: &str) -> Vec<String> {
-        println!("Executing: {}", sql);
         vec!["result1".to_string(), "result2".to_string()]
     }
 }
 
-// Usage
-let db = Database::new("postgres://localhost".to_string());
-// db.query("SELECT *"); // Error! Can't query unauthenticated database
-let db = db.authenticate("secret").unwrap();
-let results = db.query("SELECT * FROM users"); // Now this works
+// Usage: query() is only available on Database<Authenticated>. The typestate
+// pattern enforces authentication at compile time with zero runtime cost.
+let db = Database::<Unauthenticated>::new("postgres://localhost".to_string());
+let auth_db = db.authenticate("secret").unwrap();
+let results = auth_db.query("SELECT * FROM users"); // Now allowed
 ```
 
-**The insight:** Unit structs enable compile-time state tracking without runtime overhead. This is the typestate pattern in action.
 
 ## Pattern 2: Newtype and Wrapper Patterns
 
 *   **Problem**: Using raw primitive types like `u64` for different kinds of IDs (`UserId`, `OrderId`) can lead to bugs where they are accidentally mixed up. Primitives can't enforce invariants (e.g., a `String` that must be non-empty) and lack domain-specific meaning.
 *   **Solution**: Wrap primitive types in a tuple struct (e.g., `struct UserId(u64)`). This creates a new, distinct type that cannot be mixed with other types, even if they wrap the same primitive.
-*   **Why It Matters**: This pattern provides compile-time type safety at zero runtime cost. It prevents logical errors like passing an `OrderId` to a function expecting a `UserId`.
 
 ### Example: Newtype
+
+The newtype pattern wraps a primitive in a tuple struct to create a distinct type. This prevents mixing up semantically different values like `UserId` and `OrderId`. The wrapper has zero runtime cost—it compiles to the same code as the raw primitive.
+
 ```rust
 use std::fmt;
 
@@ -155,39 +163,17 @@ fn get_user(id: UserId) -> User {
 // let order_id = OrderId(123);
 // get_user(order_id); // Type error!
 
-// Wrapper for adding functionality
-struct PositiveInteger(i32);
 
-impl PositiveInteger {
-    fn new(value: i32) -> Result<Self, String> {
-        if value > 0 {
-            Ok(PositiveInteger(value))
-        } else {
-            Err(format!("{} is not positive", value))
-        }
-    }
-
-    fn get(&self) -> i32 {
-        self.0
-    }
-}
-
-impl fmt::Display for PositiveInteger {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-// Usage prevents invalid states
-let num = PositiveInteger::new(42).unwrap();
-// let invalid = PositiveInteger::new(-5); // Returns Err
+// Usage: UserId and OrderId are distinct types even though both wrap u64.
+// The compiler prevents mixing them up, with zero runtime overhead.
+let user_id = UserId(42);
+let order_id = OrderId(42);
+// user_id == order_id; // Won't compile: different types
 ```
-
-**Why wrappers matter:** They encode invariants in the type system. Once you have a `PositiveInteger`, you know it's valid. This eliminates defensive checks throughout your codebase.
 
 ### Example: Transparent Wrappers with Deref
 
-For ergonomic access to the wrapped type:
+Implementing `Deref` lets your wrapper auto-coerce to the inner type. This means `&Validated<String>` can be used anywhere `&String` is expected. Use this pattern when the wrapper should behave transparently like its contents.
 
 ```rust
 use std::ops::Deref;
@@ -218,61 +204,38 @@ impl<T> Deref for Validated<T> {
     }
 }
 
-// Usage
-let validated_string = Validated::new("hello".to_string());
-println!("Length: {}", validated_string.len()); // Deref to String
-println!("Age: {:?}", validated_string.age());  // Validated method
+// Usage: Deref lets you call the wrapped type's methods directly. Here,
+// validated.len() calls String::len, while validated.age() is the wrapper's own method.
+let validated = Validated::new("hello".to_string());
+assert_eq!(validated.len(), 5); // String::len via Deref
 ```
 
 ## Pattern 3: Struct Memory and Update Patterns
 
 *   **Problem**: Understanding struct update syntax (`..other`) can lead to confusion about ownership and partial moves. Creating variations of a struct immutably can feel clumsy, and the interaction between `Copy` and non-`Copy` fields during updates is not always intuitive.
 *   **Solution**: Use the struct update syntax `..other` to create a new struct instance from an old one. Be aware that this will *move* any non-`Copy` fields, making the original struct partially unusable.
-*   **Why It Matters**: This syntax enables ergonomic, immutable updates. A clear understanding of the move semantics involved prevents surprising compile-time ownership errors.
-
-> **Note**: For compile-time state checking with phantom types and typestate patterns, see **Chapter 4: Pattern 6 (Phantom Types)** and **Chapter 5: Pattern 2 (Typestate Pattern)**.
 
 ### Example: Struct Update Syntax
 
-The struct update syntax `..` is a convenient way to create a new instance of a struct using the values from another instance. Fields that implement the `Copy` trait are copied, while non-`Copy` fields are moved. Because a move occurs, the original instance can no longer be used. To preserve the original, you must `clone()` it.
+The struct update syntax `..other` creates a new instance using values from an existing one. Fields with `Copy` are copied, while non-`Copy` fields are moved from the original. To preserve the original struct, clone it before the update: `..base.clone()`.
 
 ```rust
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Config {
     host: String,
     port: u16,
     timeout_ms: u64,
 }
 
-// Usage with move (original is consumed)
-let config1 = Config {
-    host: "localhost".to_string(),
-    port: 8080,
-    timeout_ms: 5000,
-};
-
-let config2 = Config {
-    port: 9090,
-    ..config1 // `config1.host` is moved, `timeout_ms` is copied.
-};
-// println!("{:?}", config1); // ERROR: `host` field was moved.
-
-// Usage with clone (original is preserved)
-let config3 = Config {
-    host: "localhost".to_string(),
-    port: 8080,
-    timeout_ms: 5000,
-};
-let config4 = Config {
-    port: 9090,
-    ..config3.clone() // Clones the `host` string.
-};
-println!("Original: {:?}", config3); // OK
-println!("New: {:?}", config4);
+// Usage: Use ..base.clone() to create a modified copy while preserving the
+// original. Without clone, non-Copy fields are moved from base.
+let base = Config { host: "localhost".to_string(), port: 8080, timeout_ms: 5000 };
+let updated = Config { port: 9090, ..base.clone() }; // base still usable
 ```
 
 ### Example: Understanding Partial Moves
-You can move specific fields out of a struct. If a field does not implement `Copy` (like `String`), moving it means the original struct can no longer be fully accessed, as it is now "partially moved". You can still access the remaining `Copy` fields, but you cannot move the struct as a whole.
+
+Moving a non-`Copy` field out of a struct makes it "partially moved". You can still access the remaining `Copy` fields, but the struct as a whole becomes unusable. This commonly happens with destructuring or explicit field moves like `let s = data.moveable;`.
 
 ```rust
 struct Data {
@@ -280,31 +243,21 @@ struct Data {
     moveable: String,   // Does not implement Copy
 }
 
-let data = Data {
-    copyable: 42,
-    moveable: "hello".to_string(),
-};
-
-// Move the non-Copy field out of the struct.
-let s = data.moveable;
-println!("Moved string: {}", s);
-
-// You can still access the Copy field.
-println!("Copyable field: {}", data.copyable);
-
-// But you cannot use the whole struct anymore, as it's partially moved.
-// let moved_data = data; // ERROR: use of partially moved value: `data`
+// Usage: Moving a non-Copy field makes the struct partially moved. Copy fields
+// remain accessible, but the whole struct can't be used. Clone or borrow instead.
+let data = Data { copyable: 42, moveable: "hello".to_string() };
+let s = data.moveable;      // Moves the String out
+assert_eq!(data.copyable, 42); // Copy field still accessible
 ```
-
-**The pattern:** When building fluent APIs or config builders, be mindful of moves. Consider consuming `self` and returning `Self`, or use `&mut self` for in-place updates. For full builder pattern coverage, see **Chapter 5: Builder & API Design**.
 
 ## Pattern 4: Enum Design Patterns
 
 *   **Problem**: Representing a value that can be one of several related kinds is difficult with structs alone. Using `Option` for optional fields can create invalid states (e.g., a "shipped" order with no shipping address).
 *   **Solution**: Use an `enum` to define a type that can be one of several variants. Each variant can have its own associated data.
-*   **Why It Matters**: Enums make impossible states unrepresentable. The compiler's exhaustive checking for `match` statements prevents bugs from forgotten cases.
 
 ### Example: Basic Enum with Pattern Matching
+
+Enums let each variant carry different associated data. Pattern matching with `match` extracts this data and ensures all variants are handled. The compiler errors if you forget a case, making refactoring safe.
 
 ```rust
 // Model HTTP responses precisely
@@ -332,7 +285,12 @@ impl HttpResponse {
     }
 
     fn is_success(&self) -> bool {
-        matches!(self, HttpResponse::Ok { .. } | HttpResponse::Created { .. } | HttpResponse::NoContent)
+        matches!(
+            self,
+            HttpResponse::Ok { .. }
+                | HttpResponse::Created { .. }
+                | HttpResponse::NoContent
+        )
     }
 }
 
@@ -341,7 +299,10 @@ fn handle_request(path: &str) -> HttpResponse {
     match path {
         "/users" => HttpResponse::Ok {
             body: "[{\"id\": 1}]".to_string(),
-            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            headers: vec![(
+                "Content-Type".to_string(),
+                "application/json".to_string(),
+            )],
         },
         "/users/create" => HttpResponse::Created {
             id: 123,
@@ -350,13 +311,17 @@ fn handle_request(path: &str) -> HttpResponse {
         _ => HttpResponse::NotFound,
     }
 }
-```
 
-**The power:** Each variant carries exactly the data it needs. No null or undefined—if a variant needs an ID, it has one.
+// Usage: Each variant carries its own data. Use status_code() and is_success()
+// to handle responses uniformly regardless of variant.
+let ok = HttpResponse::Ok { body: "Hello".to_string(), headers: vec![] };
+assert_eq!(ok.status_code(), 200);
+assert!(ok.is_success());
+```
 
 ### Example: Enum State Machines
 
-Enums model state machines with exhaustive matching:
+Enums naturally model state machines where each state has different associated data. Transition methods consume `self` and return a new state, preventing invalid state access. Exhaustive matching ensures all transitions from every state are explicitly handled.
 
 ```rust
 enum OrderStatus {
@@ -384,21 +349,28 @@ impl OrderStatus {
     }
 
     fn can_cancel(&self) -> bool {
-        matches!(self, OrderStatus::Pending { .. } | OrderStatus::Processing { .. })
+        matches!(
+            self,
+            OrderStatus::Pending { .. } | OrderStatus::Processing { .. }
+        )
     }
 }
-```
 
-> **Note:** For compile-time enforced state machines using types (typestate pattern), see **Chapter 5: Pattern 2 (Typestate Pattern)**.
+// Usage: process() consumes self and returns a new state. can_cancel() uses
+// matches! to check multiple variants. Invalid transitions return Err.
+let order = OrderStatus::Pending { items: vec!["Book".to_string()], customer_id: 42 };
+let processing = order.process().unwrap(); // Transitions to Processing
+assert!(processing.can_cancel()); // Processing orders can still be cancelled
+```
 
 ## Pattern 5: Advanced Enum Techniques
 
 *   **Problem**: Enums can have issues with memory usage if one variant is much larger than the others. Recursive enums (like a tree where a node contains other nodes) are impossible to define directly.
 *   **Solution**: Use `Box<T>` to heap-allocate the data for large or recursive variants. This makes the size of the variant a pointer size, not the size of the data itself.
-*   **Why It Matters**: Boxing variants is crucial for two reasons: it makes recursive enum definitions possible, and it makes enums with large variants memory-efficient, improving cache performance. Implementing methods and conversion traits on enums leads to cleaner, more idiomatic, and more reusable code.
-
 
 ### Example: Recursive Enums with Box
+
+Recursive types like trees need `Box` to break the infinite size calculation. Without `Box`, the compiler can't determine the enum's size since it contains itself. The `Box` provides indirection—the enum stores a fixed-size pointer to heap-allocated children.
 
 ```rust
 // Binary tree - recursive enum needs Box to break infinite size
@@ -438,9 +410,19 @@ impl Expr {
         }
     }
 }
+
+// Usage: Box breaks the infinite size calculation for recursive types.
+// Build trees or ASTs by boxing child nodes.
+let expr = Expr::Mul(
+    Box::new(Expr::Add(Box::new(Expr::Number(2)), Box::new(Expr::Number(3)))),
+    Box::new(Expr::Number(4)),
+);
+assert_eq!(expr.eval(), 20); // (2 + 3) * 4 = 20
 ```
 
 ### Example: Memory-Efficient Large Variants
+
+An enum's size equals its largest variant plus a discriminant. Boxing large variants keeps the enum small—only 8 bytes for the pointer. This improves cache performance when most instances use smaller variants.
 
 ```rust
 // Without Box: enum size = size of largest variant (LargeData)
@@ -455,19 +437,17 @@ enum Efficient {
     Large(Box<[u8; 1024]>),  // Only allocates when this variant is used
 }
 
-fn check_sizes() {
-    println!("Inefficient: {} bytes", std::mem::size_of::<Inefficient>());
-    println!("Efficient: {} bytes", std::mem::size_of::<Efficient>());
-}
+// Usage: Boxing the large variant keeps the enum pointer-sized (≤16 bytes)
+// instead of 1KB+. The heap allocation only happens for the Large variant.
+use std::mem::size_of;
+assert!(size_of::<Inefficient>() >= 1024); // Huge
+assert!(size_of::<Efficient>() <= 16);     // Compact
 ```
 
 ## Pattern 6: Visitor Pattern with Enums
 
 *   **Problem**: You have a complex, tree-like data structure, such as an Abstract Syntax Tree (AST). You want to perform various operations on this structure (e.g., pretty-printing, evaluation, type-checking) without cluttering the data structure's definition with all of this logic.
 *   **Solution**: Define a `Visitor` trait with a `visit` method for each variant of your enum-based data structure. Each operation is then implemented as a separate struct that implements the `Visitor` trait.
-*   **Why It Matters**: This pattern decouples the logic of an operation from the data structure it operates on. This makes it easy to add new operations (just add a new visitor struct) without modifying the (potentially complex) data structure code.
-
-The visitor pattern in Rust leverages enums for traversing complex structures. It involves three parts: the data structure, the visitor trait, and one or more visitor implementations.
 
 ### 1. The Data Structure (AST)
 First, define the enum that represents the tree-like structure. For a simple expression language, this is the Abstract Syntax Tree (AST). Note the use of `Box<Expr>` to handle recursion.
@@ -538,7 +518,7 @@ trait ExprVisitor {
     fn visit(&mut self, expr: &Expr) -> Self::Output {
         match expr {
             Expr::Number(n) => self.visit_number(*n),
-            Expr.Variable(name) => self.visit_variable(name),
+            Expr::Variable(name) => self.visit_variable(name),
             Expr::BinaryOp { op, left, right } => {
                 self.visit_binary_op(op, left, right)
             }
@@ -550,8 +530,17 @@ trait ExprVisitor {
 
     fn visit_number(&mut self, n: f64) -> Self::Output;
     fn visit_variable(&mut self, name: &str) -> Self::Output;
-    fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output;
-    fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output;
+    fn visit_binary_op(
+        &mut self,
+        op: &BinOp,
+        left: &Expr,
+        right: &Expr,
+    ) -> Self::Output;
+    fn visit_unary_op(
+        &mut self,
+        op: &UnOp,
+        expr: &Expr,
+    ) -> Self::Output;
 }
 ```
 
@@ -559,75 +548,45 @@ trait ExprVisitor {
 Finally, implement the visitors. Each visitor is a separate struct that implements the `ExprVisitor` trait, providing concrete logic for each `visit_*` method. This separates the concerns of pretty-printing and evaluation from the data structure itself.
 
 ```rust
-# // AST for a simple expression language
-# enum Expr {
-#     Number(f64),
-#     Variable(String),
-#     BinaryOp {
-#         op: BinOp,
-#         left: Box<Expr>,
-#         right: Box<Expr>,
-#     },
-#     UnaryOp {
-#         op: UnOp,
-#         expr: Box<Expr>,
-#     },
-# }
-# 
-# enum BinOp {
-#     Add,
-#     Subtract,
-#     Multiply,
-#     Divide,
-# }
-# 
-# enum UnOp {
-#     Negate,
-#     Abs,
-# }
-# 
-# // Visitor trait
-# trait ExprVisitor {
-#     type Output;
-# 
-#     fn visit(&mut self, expr: &Expr) -> Self::Output {
-#         match expr {
-#             Expr::Number(n) => self.visit_number(*n),
-#             Expr::Variable(name) => self.visit_variable(name),
-#             Expr::BinaryOp { op, left, right } => {
-#                 self.visit_binary_op(op, left, right)
-#             }
-#             Expr::UnaryOp { op, expr } => {
-#                 self.visit_unary_op(op, expr)
-#             }
-#         }
-#     }
-# 
-#     fn visit_number(&mut self, n: f64) -> Self::Output;
-#     fn visit_variable(&mut self, name: &str) -> Self::Output;
-#     fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output;
-#     fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output;
-# }
-
 // Pretty printer visitor
 struct PrettyPrinter;
 
 impl ExprVisitor for PrettyPrinter {
     type Output = String;
 
-    fn visit_number(&mut self, n: f64) -> String { n.to_string() }
-    fn visit_variable(&mut self, name: &str) -> String { name.to_string() }
-
-    fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> String {
-        let op_str = match op {
-            BinOp::Add => "+", BinOp::Subtract => "-",
-            BinOp::Multiply => "*", BinOp::Divide => "/",
-        };
-        format!("({} {} {})", self.visit(left), op_str, self.visit(right))
+    fn visit_number(&mut self, n: f64) -> String {
+        n.to_string()
+    }
+    fn visit_variable(&mut self, name: &str) -> String {
+        name.to_string()
     }
 
-    fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> String {
-        let op_str = match op { UnOp::Negate => "-", UnOp::Abs => "abs" };
+    fn visit_binary_op(
+        &mut self,
+        op: &BinOp,
+        left: &Expr,
+        right: &Expr,
+    ) -> String {
+        let op_str = match op {
+            BinOp::Add => "+",
+            BinOp::Subtract => "-",
+            BinOp::Multiply => "*",
+            BinOp::Divide => "/",
+        };
+        let l = self.visit(left);
+        let r = self.visit(right);
+        format!("({} {} {})", l, op_str, r)
+    }
+
+    fn visit_unary_op(
+        &mut self,
+        op: &UnOp,
+        expr: &Expr,
+    ) -> String {
+        let op_str = match op {
+            UnOp::Negate => "-",
+            UnOp::Abs => "abs",
+        };
         format!("{}({})", op_str, self.visit(expr))
     }
 }
@@ -640,24 +599,38 @@ struct Evaluator {
 impl ExprVisitor for Evaluator {
     type Output = Result<f64, String>;
 
-    fn visit_number(&mut self, n: f64) -> Self::Output { Ok(n) }
-
-    fn visit_variable(&mut self, name: &str) -> Self::Output {
-        self.variables.get(name).copied().ok_or_else(|| format!("Undefined variable: {}", name))
+    fn visit_number(&mut self, n: f64) -> Self::Output {
+        Ok(n)
     }
 
-    fn visit_binary_op(&mut self, op: &BinOp, left: &Expr, right: &Expr) -> Self::Output {
-        let left_val = self.visit(left)?;
-        let right_val = self.visit(right)?;
+    fn visit_variable(&mut self, name: &str) -> Self::Output {
+        self.variables
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("Undefined: {}", name))
+    }
+
+    fn visit_binary_op(
+        &mut self,
+        op: &BinOp,
+        left: &Expr,
+        right: &Expr,
+    ) -> Self::Output {
+        let l = self.visit(left)?;
+        let r = self.visit(right)?;
         match op {
-            BinOp::Add => Ok(left_val + right_val),
-            BinOp::Subtract => Ok(left_val - right_val),
-            BinOp::Multiply => Ok(left_val * right_val),
-            BinOp::Divide => Ok(left_val / right_val),
+            BinOp::Add => Ok(l + r),
+            BinOp::Subtract => Ok(l - r),
+            BinOp::Multiply => Ok(l * r),
+            BinOp::Divide => Ok(l / r),
         }
     }
 
-    fn visit_unary_op(&mut self, op: &UnOp, expr: &Expr) -> Self::Output {
+    fn visit_unary_op(
+        &mut self,
+        op: &UnOp,
+        expr: &Expr,
+    ) -> Self::Output {
         let val = self.visit(expr)?;
         match op {
             UnOp::Negate => Ok(-val),
@@ -665,26 +638,19 @@ impl ExprVisitor for Evaluator {
         }
     }
 }
+
+// Usage: Different visitors implement different operations on the same AST.
+// PrettyPrinter outputs a string, Evaluator computes a numeric result.
+let expr = Expr::BinaryOp {
+    op: BinOp::Add,
+    left: Box::new(Expr::Number(2.0)),
+    right: Box::new(Expr::Number(3.0)),
+};
+let mut printer = PrettyPrinter;
+assert_eq!(printer.visit(&expr), "(2 + 3)");
 ```
 
-**The pattern:** Visitors separate traversal logic from data structure. You can add new operations without modifying the enum definition.
-
 ### Summary
-
-This chapter covered struct and enum patterns for type-safe data modeling:
-
-1. **Struct Design Patterns**: Named fields for clarity, tuple for newtypes/position, unit for markers
-2. **Newtype and Wrapper Patterns**: Domain IDs, validated types, invariant enforcement, orphan rule workaround
-3. **Struct Memory and Update Patterns**: Struct update syntax, partial moves, builder-style transformations
-4. **Enum Design Patterns**: Variants for related types, exhaustive matching, state machines, error types
-5. **Advanced Enum Techniques**: Box for large/recursive variants, methods on enums, memory optimization
-6. **Visitor Pattern**: Separating traversal logic from data structure with enums
-
-**Key Takeaways**:
-- Struct choice is semantic: named for data models, tuple for wrappers, unit for markers
-- Newtype pattern: UserId(u64) vs OrderId(u64) prevents mixing at zero cost
-- Enums enforce exhaustiveness: adding variant causes compile errors in incomplete matches
-- Box breaks infinite size for recursive enums and reduces memory for large variants
 
 **Design Principles**:
 - Use named fields when clarity matters, tuple when type itself is meaningful
