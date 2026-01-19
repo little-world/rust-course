@@ -25,7 +25,7 @@ In languages like C, it's easy to accidentally return a pointer to memory that h
 char* get_string() {
     char buffer[100];
     strcpy(buffer, "Hello");
-    return buffer; // Returns a pointer to stack memory that is now invalid!
+    return buffer; // Returns pointer to invalid stack memory!
 }
 ```
 
@@ -59,13 +59,11 @@ fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
     }
 }
 
-fn example() {
-    let string1 = String::from("long string");
-    let string2 = String::from("short");
-
-    let result = longest(&string1, &string2);
-    println!("Longest: {}", result);
-}
+// Usage: 'a ties return lifetime to both inputs; result valid while both exist.
+let string1 = String::from("long string");
+let string2 = String::from("short");
+let result = longest(&string1, &string2);
+println!("Longest: {}", result);
 ```
 ### Example: Lifetime Elision Rules
 To avoid boilerplate, the compiler applies three rules to infer lifetimes automatically. You only need to write annotations when these rules are not sufficient.
@@ -92,6 +90,10 @@ impl<'a> MyString<'a> {
         self.text
     }
 }
+// Usage: Elision infers lifetimes; no explicit annotations needed here.
+let word = first_word("hello world"); // "hello"
+let ms = MyString { text: "example" };
+println!("{}", ms.get_text());
 ```
 
 ### Example: The `'static` Lifetime
@@ -103,7 +105,9 @@ The `'static` lifetime indicates that a reference is valid for the entire durati
 let s: &'static str = "I have a static lifetime.";
 
 // You can also create static data with `const`.
-const STATIC_STRING: &'static str = "This is also a static string.";
+const STATIC_STRING: &'static str = "Also a static string.";
+// Usage: 'static references are valid for the entire program duration.
+println!("{} and {}", s, STATIC_STRING);
 ```
 
 ## Pattern 2: Lifetime Bounds
@@ -129,6 +133,9 @@ A struct containing a generic type with a reference needs a lifetime bound. Here
 struct Wrapper<'a, T: 'a> {
     value: &'a T,
 }
+// Usage: T: 'a ensures wrapped reference doesn't outlive the data.
+let num = 42;
+let wrapped = Wrapper { value: &num };
 ```
 
 ### Example: `where` Clauses for Complex Bounds
@@ -144,6 +151,8 @@ where
         println!("Item: {:?}", item);
     }
 }
+// Usage: where clause combines trait bound (Debug) with lifetime bound ('a).
+process_and_debug(&[1, 2, 3]);
 ```
 
 2. **Implementing traits with lifetime parameters**
@@ -181,7 +190,7 @@ where
     f(&s); // Closure called with reference local to this function.
 }
 
-// This closure works for any &str, can pass to `call_on_hello`.
+// Usage: for<'a> means closure handles any lifetime the function provides.
 let print_it = |s: &str| println!("{}", s);
 call_on_hello(print_it);
 ```
@@ -203,6 +212,9 @@ impl Processor for Trimmer {
         data.trim()
     }
 }
+// Usage: Method is generic over 'a; works with any input lifetime.
+let trimmer = Trimmer;
+let result = trimmer.process("  hello  "); // "hello"
 ```
 
 ## Pattern 4: Self-Referential Structs and `Pin`
@@ -245,6 +257,10 @@ struct Node {
 struct Graph {
     nodes: Vec<Node>,
 }
+// Usage: Indices stay valid even if vec reallocates; avoids self-reference.
+let mut graph = Graph {
+    nodes: vec![Node { name: "A".into(), edges: vec![1] }]
+};
 ```
 
 ### Example: A Pinned, Self-Referential Struct (Unsafe)
@@ -350,6 +366,9 @@ impl Data {
         }
     }
 }
+// Usage: Separate owner (Data) from borrower (View) to avoid self-reference.
+let data = Data { content: "hello".into() };
+let view = data.view(); // View borrows from Data
 ```
 
 This separates ownership from borrowing, eliminating the self-reference.
@@ -375,13 +394,9 @@ For these, use `Pin`, arena allocation, or specialized crates.
 **Use Cases**: Reference wrappers (determining if Wrapper<'a> covariant), iterator chains (covariant iterators compose naturally), function pointers (contravariant arguments, covariant returns), trait objects (variance of dyn Trait<'a>), smart pointers with references (Arc<&'a T> variance), custom pointer types (controlling subtyping behavior with PhantomData), phantom data usage (adding variance markers to generic types).
 
 ```rust
-fn example() {
-    let outer: &'static str = "hello";
-
-    {
-        let inner: &str = outer; // OK: 'static subtype of shorter
-    }
-}
+// Usage: Longer lifetime ('static) substitutes for shorter; subtyping in action.
+let outer: &'static str = "hello";
+let inner: &str = outer; // OK: 'static subtype of shorter
 ```
 
 If `'long: 'short` (read: "'long outlives 'short"), then `'long` is a subtype of `'short`. You can use a longer lifetime where a shorter one is expected.
@@ -396,10 +411,9 @@ Types have variance with respect to their lifetime and type parameters, determin
 // &'a T is covariant over 'a
 // If 'a: 'b, then &'a T <: &'b T
 
-fn covariant_example() {
-    let long: &'static str = "hello";
-    let short: &str = long; // OK
-}
+// Usage: Covariant &'a T allows longer 'static where shorter 'a expected.
+let long: &'static str = "hello";
+let short: &str = long; // OK
 ```
 
 **Invariant**: No subtyping allowed
@@ -432,10 +446,9 @@ Variance determines when types are compatible and when lifetime substitutions ar
 // Covariance allows this:
 fn take_short(x: &str) {}
 
-fn example() {
-    let s: &'static str = "hello";
-    take_short(s); // OK: 'static works where shorter expected
-}
+// Usage: Covariance lets 'static str pass to function expecting &str.
+let s: &'static str = "hello";
+take_short(s); // OK: 'static works where shorter expected
 
 // Invariance prevents this:
 fn swap<'a, 'b>(x: &'a mut &'static str, y: &'b mut &'a str) {
@@ -474,17 +487,11 @@ struct Consumer<T> {
     consume: fn(T), // Contravariant over T
 }
 
-fn example() {
-    // Producer<&'static str> usable where Producer<&'a str> needed
-    let p: Producer<&'static str> = Producer {
-        produce: || "hello",
-    };
-    let _p2: Producer<&str> = p; // OK
-
-    // Contravariance with Consumer
-    let c: Consumer<&str> = Consumer { consume: |_s| {} };
-    // let _c2: Consumer<&'static str> = c; // Would error
-}
+// Usage: Producer covariant (longer → shorter OK); Consumer contravariant.
+let p: Producer<&'static str> = Producer { produce: || "hello" };
+let _p2: Producer<&str> = p; // OK: covariant
+let c: Consumer<&str> = Consumer { consume: |_s| {} };
+// let _c2: Consumer<&'static str> = c; // Would error: contravariant
 ```
 
 ### Interior Mutability and Invariance
@@ -526,6 +533,10 @@ struct Invariant<T> {
 struct Contravariant<T> {
     _marker: PhantomData<fn(T)>,
 }
+// Usage: PhantomData controls variance without storing T.
+let cov: Covariant<&'static str> = Covariant {
+    _marker: PhantomData
+};
 ```
 
 Use `PhantomData` when you need to control variance without storing the actual type.
@@ -543,10 +554,8 @@ where
     f("hello");
 }
 
-fn example() {
-    // This closure works with any lifetime
-    accepts_any_lifetime(|s: &str| s.to_uppercase());
-}
+// Usage: HRTB + covariance lets closure work with any provided lifetime.
+accepts_any_lifetime(|s: &str| s.to_uppercase());
 ```
 
 The HRTB ensures the function works with any lifetime, leveraging variance.
@@ -574,7 +583,9 @@ struct BadReader<'a> {
     data: &'a mut [u8],
 }
 
-// Cannot substitute different lifetimes
+// Usage: Covariant GoodReader accepts longer lifetimes; more flexible API.
+let reader = GoodReader { data: b"hello" };
+let bytes = reader.read();
 ```
 
 Prefer immutable references for flexibility unless mutation is necessary.
@@ -598,6 +609,10 @@ where
 {
     f(data, context)
 }
+// Usage: Closure receives refs with same lifetime as function inputs.
+let ctx = "prefix";
+let result = process_with_context(
+    "data", &ctx, |d, c| format!("{}: {}", c, d));
 ```
 
 The closure receives references tied to the input lifetimes.
@@ -634,6 +649,12 @@ impl<'a> StreamingIterator for WindowIter<'a> {
         }
     }
 }
+// Usage: GAT enables iterator that yields refs tied to iterator's lifetime.
+let data = [1, 2, 3, 4];
+let mut iter = WindowIter {
+    data: &data, window_size: 2, position: 0
+};
+while let Some(window) = iter.next() { println!("{:?}", window); }
 ```
 
 This pattern allows iterators to yield references tied to the iterator's lifetime.
@@ -659,6 +680,9 @@ impl<'a> Parser<'a> {
         (self.input, other)
     }
 }
+// Usage: Elision ties method return lifetime to &self automatically.
+let parser = Parser { input: "hello world" };
+let parsed = parser.parse(); // Some("hello world")
 ```
 
 ### Anonymous Lifetimes
@@ -677,6 +701,9 @@ impl<'a> Parser<'a> {
 fn get_first<T>(vec: &Vec<T>) -> Option<&'_ T> {
     vec.first()
 }
+// Usage: '_ placeholder lets compiler infer lifetime without naming it.
+let v = vec![1, 2, 3];
+let first = get_first(&v); // Some(&1)
 ```
 
 Anonymous lifetimes improve readability when the specific lifetime name doesn't matter.

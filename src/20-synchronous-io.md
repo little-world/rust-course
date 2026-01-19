@@ -30,6 +30,7 @@ fn read_to_string(path: &str) -> io::Result<String> {
     // Allocates a String big enough for the entire file
     // Returns Err if file doesn't exist, isn't readable, or isn't valid UTF-8
 }
+let content = read_to_string("config.json")?; // Reads entire file as UTF-8
 
 ```
 
@@ -42,6 +43,7 @@ fn read_to_bytes(path: &str) -> io::Result<Vec<u8>> {
     // Allocates a Vec<u8> and reads all bytes
     // Returns Err if file doesn't exist or isn't readable
 }
+let bytes = read_to_bytes("image.png")?; // Reads binary file
 
 ```
 
@@ -57,6 +59,7 @@ fn read_with_buffer(path: &str) -> io::Result<String> {
     file.read_to_string(&mut contents)?;
     Ok(contents)
 }
+let data = read_with_buffer("data.txt")?; // Manual control over File handle
 
 ```
 
@@ -73,6 +76,7 @@ fn read_exact_bytes(path: &str, n: usize) -> io::Result<Vec<u8>> {
     file.read_exact(&mut buffer)?;
     Ok(buffer)
 }
+let header = read_exact_bytes("file.bin", 128)?; // Read fixed-size header
 ```
 
 
@@ -104,6 +108,7 @@ fn write_string(path: &str, content: &str) -> io::Result<()> {
     // Truncates (erases) existing content
     // Writes all content in one operation
 }
+Usage: write_string("output.txt", "Hello, world!")?;
 
 ```
 
@@ -114,6 +119,7 @@ This example walks through how to write bytes to file.
 fn write_bytes(path: &str, content: &[u8]) -> io::Result<()> {
     std::fs::write(path, content)
 }
+write_bytes("data.bin", &[0x89, 0x50, 0x4E, 0x47])?; // Write binary
 
 ```
 
@@ -129,6 +135,7 @@ fn write_with_handle(path: &str, content: &str) -> io::Result<()> {
     file.write_all(content.as_bytes())?;
     Ok(())
 }
+write_with_handle("output.txt", "data")?; // Manual File handle
 
 ```
 
@@ -147,6 +154,7 @@ fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     writeln!(file, "{}", content)?;  // Adds newline automatically
     Ok(())
 }
+append_to_file("log.txt", "New entry")?; // Preserves existing content
 ```
 
 
@@ -269,6 +277,7 @@ fn process_large_file(path: &str) -> io::Result<()> {
 
     Ok(())
 }
+process_large_file("access.log")?; // Memory-efficient line processing
 
 ```
 
@@ -285,6 +294,7 @@ fn process_errors_only(path: &str) -> io::Result<Vec<String>> {
         .filter(|line| line.contains("ERROR"))
         .collect()
 }
+let errors = process_errors_only("app.log")?; // Extract error lines
 ```
 
 
@@ -321,6 +331,7 @@ fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     writer.flush()?;  // Ensure all buffered data written
     Ok(())
 }
+buffered_write("output.txt", &["line1", "line2"])?; // Fast bulk writes
 
 ```
 
@@ -341,6 +352,7 @@ fn append_log(path: &str, message: &str) -> io::Result<()> {
     writer.flush()?;  // Critical for logs
     Ok(())
 }
+append_log("app.log", "Server started")?; // Buffered log appending
 ```
 
 
@@ -380,7 +392,8 @@ fn prompt(message: &str) -> io::Result<String> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_string())
-}
+} 
+let name = prompt("Enter your name: ")?; // Interactive input
 
 ```
 
@@ -406,6 +419,7 @@ fn interactive_menu() -> io::Result<()> {
     }
     Ok(())
 }
+interactive_menu()?; // CLI menu loop with user input
 ```
 
 
@@ -508,6 +522,7 @@ mod memmap_examples {
 
         Ok(count)
     }
+    let count = process_large_file_mmap("huge.log")?; // Newline count via mmap
 }
 ```
 
@@ -549,6 +564,7 @@ fn create_directory(path: &str) -> io::Result<()> {
     // Fails if parent doesn't exist
     // Fails if directory already exists
 }
+create_directory("new_folder")?;
 
 ```
 
@@ -562,6 +578,7 @@ fn create_directory_all(path: &str) -> io::Result<()> {
     // Creates parent directories as needed
     // Succeeds if directory already exists
 }
+create_directory_all("a/b/c")?; // Creates all parents
 
 ```
 
@@ -573,6 +590,7 @@ fn remove_directory(path: &str) -> io::Result<()> {
     fs::remove_dir(path)
     // Fails if directory is not empty
 }
+remove_directory("empty_folder")?;
 
 ```
 
@@ -585,6 +603,7 @@ fn remove_directory_all(path: &str) -> io::Result<()> {
     // Recursively deletes everything
     // Like rm -rf in Unix
 }
+remove_directory_all("temp")?; // DANGEROUS: deletes recursively
 
 ```
 
@@ -596,6 +615,7 @@ fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
     // Returns false for broken symlinks
 }
+if path_exists("config.toml") { ... }
 
 ```
 
@@ -607,6 +627,7 @@ fn is_directory(path: &str) -> bool {
     Path::new(path).is_dir()
     // Follows symlinks
 }
+if is_directory("src") { walk_it(); }
 ```
 
 
@@ -637,6 +658,7 @@ fn list_directory(path: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(entries)
 }
+let entries = list_directory("src")?; // All files and dirs
 
 ```
 
@@ -656,6 +678,7 @@ fn list_files_only(path: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(files)
 }
+let files = list_files_only("docs")?; // Only files, no dirs
 
 ```
 
@@ -678,6 +701,7 @@ fn list_by_extension(path: &str, ext: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(files)
 }
+let rs_files = list_by_extension("src", "rs")?;
 
 ```
 
@@ -697,6 +721,7 @@ fn list_with_metadata(path: &str) -> io::Result<Vec<(PathBuf, fs::Metadata)>> {
 
     Ok(entries)
 }
+let items = list_with_metadata(".")?; // Files with size, dates, etc.
 ```
 
 
@@ -745,6 +770,7 @@ fn get_all_files(path: &str) -> io::Result<Vec<PathBuf>> {
     walk_directory(Path::new(path), &mut files)?;
     Ok(files)
 }
+let all_files = get_all_files("project")?; // Recursive file list
 
 ```
 
@@ -773,6 +799,7 @@ fn print_tree(path: &Path, prefix: &str) -> io::Result<()> {
 
     Ok(())
 }
+print_tree(Path::new("src"), "")?; // Visual tree like `tree` command
 
 ```
 
@@ -804,6 +831,7 @@ fn find_files(root: &Path, pattern: &str) -> io::Result<Vec<PathBuf>> {
     search(root, pattern, &mut matches)?;
     Ok(matches)
 }
+let matches = find_files(Path::new("."), "test")?; // Like `find . -name *test*`
 ```
 
 
@@ -848,6 +876,7 @@ fn run_command() -> io::Result<()> {
 
     Ok(())
 }
+run_command()?; // Runs ls -la and prints output
 
 ```
 
@@ -868,6 +897,7 @@ fn run_command_check() -> io::Result<()> {
 
     Ok(())
 }
+run_command_check()?; // Run cargo build, check exit status
 
 ```
 
@@ -884,6 +914,7 @@ fn run_with_env() -> io::Result<()> {
     println!("{}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
+run_with_env()?; // Sets custom environment variables
 
 ```
 
@@ -899,6 +930,7 @@ fn run_in_directory() -> io::Result<()> {
     println!("Working directory: {}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
+run_in_directory()?; // Runs command in /tmp
 ```
 
 
@@ -941,6 +973,7 @@ fn stream_output() -> io::Result<()> {
 
     Ok(())
 }
+stream_output()?; // Real-time output from long-running command
 
 ```
 
@@ -987,6 +1020,7 @@ fn capture_both_streams() -> io::Result<()> {
 
     Ok(())
 }
+capture_both_streams()?; // Reads stdout/stderr concurrently with threads
 ```
 
 
@@ -1022,6 +1056,7 @@ fn pipe_commands() -> io::Result<()> {
 
     Ok(())
 }
+pipe_commands()?; // ls | grep txt
 
 ```
 
@@ -1052,6 +1087,7 @@ fn complex_pipeline(file: &str, pattern: &str) -> io::Result<()> {
 
     Ok(())
 }
+complex_pipeline("log.txt", "ERROR")?; // cat | grep | wc -l
 ```
 
 

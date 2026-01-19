@@ -2,9 +2,9 @@
 
 Rust’s ownership system is best understood not as a single feature, but as a foundation that enables a wide range of design patterns. This chapter focuses on **practical ownership-driven patterns** that arise once you move beyond the basics and start building real systems.
 
-Rather than re‑explaining ownership rules, we explore how Rust programmers *use* ownership, borrowing, and lifetimes to solve concrete problems such as:
+Rather than re-explaining ownership rules, we explore how Rust programmers *use* ownership, borrowing, and lifetimes to solve concrete problems such as:
 
-- Conditional allocation and zero‑copy APIs
+- Conditional allocation and zero-copy APIs
 - Safe mutation through shared references
 - Coordinating shared state across threads
 - Deterministic resource cleanup
@@ -22,10 +22,11 @@ This chapter assumes you already understand basic ownership, borrowing, and life
 
 *   **Problem**: Functions that sometimes need to modify their input face a dilemma: always clone the input (which is wasteful if no modification is needed), or require a mutable reference (which makes the API less ergonomic).
 *   **Solution**: Use `Cow<T>` (Clone-on-Write). This is a smart pointer that can enclose either borrowed data (`Cow::Borrowed`) or owned data (`Cow::Owned`).
+*   **Why It Matters**: This pattern enables a "fast path" for zero-allocation operations. In high-throughput systems like web servers or parsers, avoiding millions of unnecessary string allocations per second can lead to significant performance gains.
 
 
 #### Example: Conditional Modification
-A common use for `Cow` is in functions that may or may not need to modify their string-like input. This `normalize_whitespace` function provides a zero-allocation "fast path". It only allocates a new `String` and returns `Cow::Owned` if the input text actually contains characters that need to be replaced. Otherwise, it returns a borrowed slice `Cow::Borrowed` without any heap allocation.
+A common use for `Cow` is in functions that may or may not need to modify their string-like input. This `normalize_whitespace` example function provides a zero-allocation "fast path". It only allocates a new `String` and returns `Cow::Owned` if the input text actually contains characters that need to be replaced. Otherwise, it returns a borrowed slice `Cow::Borrowed` without any heap allocation.
 
 ```rust
 use std::borrow::Cow;
@@ -42,6 +43,9 @@ fn normalize_whitespace(text: &str) -> Cow<str> {
         Cow::Borrowed(text)
     }
 }
+// Usage: Returns borrowed when no changes needed, owned when modified.
+let clean = normalize_whitespace("hello world");      // Borrowed
+let modified = normalize_whitespace("hello  world");  // Owned
 ```
 
 #### Example: Lazy Mutation Chains
@@ -62,10 +66,12 @@ fn process_path(path: &str) -> Cow<str> {
     if result.contains('\\') {
         result = Cow::Owned(result.replace('\\', "/"));
     }
-
     // Only allocates if modifications were needed
     result
 }
+// Usage: Chain of transformations allocates only if needed.
+let unchanged = process_path("/absolute/path");  // Borrowed
+let expanded = process_path("~/documents");      // Owned (tilde expanded)
 ```
 
 #### Example: In-Place Modification with `to_mut()`
@@ -74,18 +80,23 @@ The `to_mut()` method is a powerful tool for getting a mutable reference to the 
 ```rust
 use std::borrow::Cow;
 
-fn capitalize_first<'a>(s: &'a str) -> Cow<'a, str> {
-    if let Some(first_char) = s.chars().next() {
-        if first_char.is_lowercase() {
-            let mut owned = s.to_string();
-            owned[0..first_char.len_utf8()].make_ascii_uppercase();
-            Cow::Owned(owned)
-        } else {
-            Cow::Borrowed(s)
-        }
-    } else {
-        Cow::Borrowed(s)
-    }
+fn append_suffix<'a>(mut data: Cow<'a, str>, suffix: &str) -> Cow<'a, str> {
+    // to_mut() clones only if borrowed, then allows in-place modification
+    data.to_mut().push_str(suffix);
+    data
+}
+
+fn main() {
+    let borrowed: Cow<str> = Cow::Borrowed("hello");
+    let owned: Cow<str> = Cow::Owned(String::from("world"));
+
+    // First call clones because data is borrowed
+    let result1 = append_suffix(borrowed, "!");
+    println!("{}", result1); // "hello!"
+
+    // Second call needs no clone - data is already owned
+    let result2 = append_suffix(owned, "!");
+    println!("{}", result2); // "world!"
 }
 ```
 
@@ -116,6 +127,9 @@ impl<'a> Config<'a> {
         self
     }
 }
+// Usage: Defaults are borrowed (no allocation), overrides are owned.
+let config = Config::new("localhost", 8080);
+let custom = config.with_database("my_db".to_string());
 ```
 
 **When to use Cow:**
@@ -127,12 +141,13 @@ impl<'a> Config<'a> {
 **Performance characteristics:**
 - Zero allocation when borrowing
 - Single allocation when owned
-- Same size as a pointer + discriminant (24 bytes on 64-bit)
+- 24 bytes on 64-bit (stores either `&str` or `String` internally)
 
 ## Pattern 2: Interior Mutability with Cell and RefCell
 
 * **Problem**: Rust's borrowing rules require `&mut self` for mutation, but some designs need mutation through shared references (`&self`). Examples: caching computed values, counters in shared structures, graph nodes that need to update neighbors, observer patterns.
 * **Solution**: Use interior mutability types—`Cell<T>` for `Copy` types (get/set without borrowing), `RefCell<T>` for non-`Copy` types (runtime-checked borrows). These move borrow checking from compile-time to runtime.
+* **Why It Matters**: Some data structures are impossible without interior mutability. Doubly-linked lists, graphs with cycles, and the observer pattern all require mutation through shared references.
 
 ### The Problem: Experiencing the Borrow Checker
 Let's start by trying to implement a simple counter. We want to pass this counter to multiple functions that can increment it, but we only have a shared reference (`&Counter`). This code will not compile, because `increment` requires a mutable reference `&mut self`, but `process_item` only has an immutable one.
@@ -170,7 +185,7 @@ impl Counter {
         Counter { count: Cell::new(0) }
     }
 
-    fn increment(&self) {  // ✅ Note: takes &self, not &mut self!
+    fn increment(&self) {  // Note: takes &self, not &mut self!
         self.count.set(self.count.get() + 1);
     }
 
@@ -181,8 +196,14 @@ impl Counter {
 
 // Now this works!
 fn process_item(counter: &Counter) {
-    counter.increment();  // ✅ Works even with &self!
+    counter.increment();  // Works even with &self!
 }
+
+// Usage: Mutate through shared reference using Cell.
+let counter = Counter::new();
+process_item(&counter);
+process_item(&counter);
+assert_eq!(counter.get(), 2);
 ```
 `Cell` is safe because it never gives out references to the inner data; it only moves `Copy` values in and out.
 
@@ -223,11 +244,11 @@ impl Cache {
     }
 }
 
-// Usage: The cache computes a value once and returns the cached
-// result on subsequent calls. Different keys trigger new computations.
+// Usage: The cache computes a value once and returns cached
+// result. Different keys trigger new computations.
 let cache = Cache::new();
 let v1 = cache.get_or_compute("key1", || "value1".to_string());
-let v2 = cache.get_or_compute("key1", || "ignored".to_string()); // Returns cached
+let v2 = cache.get_or_compute("key1", || "ignored".to_string());
 ```
 
 ### RefCell Patterns and Pitfalls
@@ -297,8 +318,8 @@ impl Node {
     }
 }
 
-// Usage: Build a graph where nodes can be shared and mutated. The Rc
-// provides shared ownership, and RefCell allows adding edges via &self.
+// Usage: Build a graph where nodes can be shared and mutated.
+// Rc provides shared ownership, RefCell allows adding edges.
 let a = Node::new(1);
 let b = Node::new(2);
 a.add_edge(Rc::clone(&b)); // a -> b
@@ -320,6 +341,10 @@ b.add_edge(Rc::clone(&a)); // b -> a (cycle is allowed)
 **Critical safety note:**
 - `RefCell` is for **single-threaded** scenarios only. For multiple threads, you need `Mutex` or `RwLock`.
 - Always keep borrow scopes as short as possible. Never hold a borrow guard across a call to an unknown function.
+
+**When NOT to use interior mutability:**
+- If you can restructure code to use `&mut self`, do that instead—it's clearer and has zero runtime cost.
+- Interior mutability should be a last resort for specific patterns (caching, observers, graphs), not a way to bypass the borrow checker.
 
 ## Pattern 3: Thread-Safe Interior Mutability (Mutex & RwLock)
 
@@ -386,8 +411,7 @@ impl SharedCache {
         self.data.write().unwrap().insert(key, value);
     }
 }
-
-// Usage: Multiple readers can access the cache concurrently. Writers
+// Usage: Multiple readers can access cache concurrently. Writers
 // get exclusive access. Wrap in Arc to share across threads.
 let cache = Arc::new(SharedCache::new());
 cache.insert("key".into(), "value".into());
@@ -440,27 +464,30 @@ impl Account {
 }
 
 fn transfer(from: &Account, to: &Account, amount: i64) {
-    // Prevent deadlock: acquire locks in consistent order by ID
-    let (mut first, mut second) = if from.id < to.id {
+    // Prevent deadlock: always acquire locks in consistent order (by ID).
+    // We must track which guard corresponds to which account because
+    // the lock order may differ from the transfer direction.
+    let (mut first, mut second, first_is_from) = if from.id < to.id {
         (from.balance.lock().unwrap(),
-         to.balance.lock().unwrap())
+         to.balance.lock().unwrap(),
+         true)
     } else {
         (to.balance.lock().unwrap(),
-         from.balance.lock().unwrap())
+         from.balance.lock().unwrap(),
+         false)
     };
 
-    // Perform transfer based on lock order
-    if from.id < to.id {
-        *first -= amount;
-        *second += amount;
+    // Apply the transfer: debit 'from', credit 'to'
+    if first_is_from {
+        *first -= amount;  // first = from
+        *second += amount; // second = to
     } else {
-        *second -= amount;
-        *first += amount;
+        *first += amount;  // first = to
+        *second -= amount; // second = from
     }
 }
-
-// Usage: Transfer money between accounts safely. Lock ordering by ID
-// prevents deadlock even when threads transfer in opposite directions.
+// Usage: Transfer money safely. Lock ordering by ID prevents
+// deadlock even when threads transfer in opposite directions.
 let alice = Arc::new(Account::new(1, 1000));
 let bob = Arc::new(Account::new(2, 1000));
 transfer(&alice, &bob, 100); // Always acquires locks in ID order
@@ -480,10 +507,8 @@ fn try_update(data: &Mutex<Vec<i32>>) -> Result<(), &'static str> {
         Err("Lock held, skipping update")
     }
 }
-
-
-// Usage: Use try_lock to avoid blocking. Returns Ok if lock is free,
-// Err if already held. Useful when you can do other work instead.
+// Usage: try_lock avoids blocking. Returns Ok if lock is free,
+// Err if held. Useful when you can do other work instead.
 let data = Mutex::new(vec![1, 2, 3]);
 if try_update(&data).is_ok() {
     println!("Updated successfully");
@@ -492,9 +517,9 @@ if try_update(&data).is_ok() {
 
 **Mutex vs RwLock trade-offs:**
 - **Mutex**: Simpler, lower overhead, exclusive access
-- **RwLock**: Multiple readers, write-heavy can starve readers
-- RwLock ~3x slower for writes, but allows concurrent reads
-- Use Mutex unless >70% reads and contention is proven issue
+- **RwLock**: Multiple readers, but write-heavy workloads can starve readers
+- RwLock has higher overhead per operation, but concurrent reads can offset this
+- Use Mutex by default; switch to RwLock only when profiling shows read contention
 
 **Lock granularity strategies:**
 - Fine-grained: More parallelism, higher overhead, deadlock risk
@@ -543,9 +568,8 @@ impl Drop for TempFile {
         let _ = std::fs::remove_file(&self.path);
     }
 }
-
-// Usage: The file is automatically deleted when TempFile goes out of
-// scope, whether via normal exit, early return, or panic.
+// Usage: File is auto-deleted when TempFile goes out of scope,
+// whether via normal exit, early return, or panic.
 let mut temp = TempFile::new("/tmp/data.tmp").unwrap();
 temp.write_all(b"temporary data").unwrap();
 // File is deleted automatically when `temp` is dropped
@@ -553,6 +577,8 @@ temp.write_all(b"temporary data").unwrap();
 
 #### Example: Custom Lock Guard
 You can create your own guards that behave like `MutexGuard`. This `LockGuard` uses a `Cell<bool>` to track the lock state. When the guard is created, it sets the flag to `true`. When it's dropped, it sets it back to `false`. The `Deref` and `DerefMut` traits provide ergonomic access to the inner data.
+
+**Note:** This example is single-threaded only (uses `Cell`). For thread-safe locks, use `AtomicBool` or the standard `Mutex`.
 
 ```rust
 use std::ops::{Deref, DerefMut};
@@ -600,9 +626,8 @@ impl<T> MyLock<T> {
         LockGuard::new(self)
     }
 }
-
-// Usage: The lock guard provides access via Deref and automatically
-// releases the lock when dropped. Second lock attempts fail while held.
+// Usage: Lock guard provides access via Deref and auto-releases
+// on drop. Second lock attempts fail while held.
 let lock = MyLock::new(42);
 let guard = lock.try_lock().unwrap();
 assert_eq!(*guard, 42); // Access via Deref
@@ -610,18 +635,20 @@ assert_eq!(*guard, 42); // Access via Deref
 ```
 
 #### Example: Panic-Safe State Restoration
-A guard can be used to ensure state is restored, even in the case of a panic. This `StateGuard` sets a boolean flag to a new value on creation and restores the old value when it's dropped. This is useful for things like a "processing" flag.
+A guard can be used to ensure state is restored, even in the case of a panic. This `StateGuard` sets a boolean flag to a new value on creation and restores the old value when it's dropped. This is useful for things like a "processing" flag. We use `Cell<bool>` to allow reading the value while the guard exists.
 
 ```rust
+use std::cell::Cell;
+
 struct StateGuard<'a> {
-    state: &'a mut bool,
+    state: &'a Cell<bool>,
     old_value: bool,
 }
 
 impl<'a> StateGuard<'a> {
-    fn new(state: &'a mut bool, new_value: bool) -> Self {
-        let old_value = *state;
-        *state = new_value;
+    fn new(state: &'a Cell<bool>, new_value: bool) -> Self {
+        let old_value = state.get();
+        state.set(new_value);
         StateGuard { state, old_value }
     }
 }
@@ -629,17 +656,17 @@ impl<'a> StateGuard<'a> {
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
         // Restore the original state, no matter what.
-        *self.state = self.old_value;
+        self.state.set(self.old_value);
     }
 }
-
-// Usage: The guard changes state on creation and restores it on drop.
+// Usage: Guard changes state on creation, restores it on drop.
 // State is restored even if the code panics.
-let mut processing = false;
+let processing = Cell::new(false);
 {
-    let _guard = StateGuard::new(&mut processing, true);
-    // processing is now true
+    let _guard = StateGuard::new(&processing, true);
+    assert!(processing.get()); // Can read while guard exists
 } // processing is restored to false
+assert!(!processing.get());
 ```
 
 #### Example: Generic Scope Guard
@@ -668,9 +695,9 @@ impl<F: FnOnce()> Drop for ScopeGuard<F> {
     }
 }
 
-// Usage: The closure runs on drop unless disarm() is called. Perfect
+// Usage: Closure runs on drop unless disarm() is called. Perfect
 // for rollback logic where success should prevent cleanup.
-let guard = ScopeGuard::new(|| println!("Rolling back transaction"));
+let guard = ScopeGuard::new(|| println!("Rolling back"));
 // ... do work ...
 guard.disarm(); // Success! Don't run the rollback
 ```
@@ -741,8 +768,8 @@ struct Optimized {
 // - 6 bytes of padding at the end makes the total size 16.
 // - Total size = 16 bytes.
 
-// Usage: Check sizes with std::mem::size_of to verify optimization.
-assert_eq!(std::mem::size_of::<Unoptimized>(), 24); // Padding waste
+// Usage: Check sizes with size_of to verify optimization.
+assert_eq!(std::mem::size_of::<Unoptimized>(), 24); // Padded
 assert_eq!(std::mem::size_of::<Optimized>(), 16);   // Compact
 ```
 
@@ -793,7 +820,7 @@ assert_eq!(size_of::<Status>(), 1);      // Single byte enum
 False sharing is a silent performance killer in multi-threaded code. It happens when two threads write to different variables that happen to live on the same CPU cache line. The CPU's cache coherency protocol forces the cores to fight over the cache line, serializing execution. The fix is to pad data to ensure contended variables are on different cache lines.
 
 ```rust
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const CACHE_LINE_SIZE: usize = 64;
 
@@ -809,8 +836,8 @@ struct SharedCounters {
     counter2: Padded<AtomicUsize>,
 }
 
-// Usage: Each counter is on its own cache line, so threads don't
-// interfere. Verify alignment is 64 bytes to match cache line size.
+// Usage: Each counter is on its own cache line, so threads
+// don't interfere. Alignment is 64 bytes to match cache line.
 let counters = SharedCounters {
     counter1: Padded { value: AtomicUsize::new(0) },
     counter2: Padded { value: AtomicUsize::new(0) },
@@ -880,7 +907,6 @@ impl ParticlesSoA {
         }
     }
 }
-
 // Usage: SoA keeps data for the same field contiguous in memory,
 // improving cache locality when iterating over a single field.
 let mut soa = ParticlesSoA::new(100);
@@ -907,9 +933,6 @@ soa.update_positions(); // Efficient: positions_x is contiguous
 
 ### Example: Arena Allocator
 ```rust
-//================================
-// Pattern: Simple arena allocator
-//================================
 struct Arena {
     chunks: Vec<Vec<u8>>,
     current: Vec<u8>,
@@ -936,7 +959,8 @@ impl Arena {
         // Check if we need a new chunk
         if self.position + size > self.current.len() {
             let new_chunk = vec![0; 4096];
-            let old = std::mem::replace(&mut self.current, new_chunk);
+            let old = std::mem::replace(
+                &mut self.current, new_chunk);
             self.chunks.push(old);
             self.position = 0;
         }
@@ -953,9 +977,7 @@ impl Arena {
     }
 }
 
-//===================================
 // Use case: AST nodes during parsing
-//===================================
 struct AstArena {
     arena: Arena,
 }
@@ -975,21 +997,27 @@ impl AstArena {
         self.arena.alloc(Expr::Number(n))
     }
 
-    fn add<'a>(
-        &'a mut self,
-        left: &'a Expr,
-        right: &'a Expr,
-    ) -> &'a Expr<'a> {
+    fn add<'a>(&'a mut self, left: &'a Expr<'a>, right: &'a Expr<'a>) -> &'a Expr<'a> {
         self.arena.alloc(Expr::Add(left, right))
     }
-}
 
-// Usage: Allocate many objects without per-object allocation overhead.
-// All allocations are freed at once when the arena is dropped.
+    fn multiply<'a>(&'a mut self, left: &'a Expr<'a>, right: &'a Expr<'a>) -> &'a Expr<'a> {
+        self.arena.alloc(Expr::Multiply(left, right))
+    }
+}
+// Usage: Allocate many objects without per-object overhead.
+// All allocations freed at once when arena is dropped.
 let mut arena = Arena::new();
-let a = arena.alloc(42i32);
-let b = arena.alloc(100i32);
-// Both a and b are valid until arena is dropped
+{
+    let a = arena.alloc(42i32);
+    println!("a = {}", a);
+} // Use each allocation before the next
+{
+    let b = arena.alloc(100i32);
+    println!("b = {}", b);
+}
+// Note: For simultaneous references, use typed-arena crate
+// which returns &T instead of &mut T after initialization.
 ```
 
 
@@ -1015,6 +1043,8 @@ let b = arena.alloc(100i32);
 
 #### Example: Intrusive Reference Counting
 Standard `Rc` and `Arc` perform two allocations: one for the object, and one for the reference-count block. An *intrusive* counter stores the count inside the object itself, saving an allocation. This is critical when you have millions of small, reference-counted objects. This example shows a simplified intrusive `Rc`.
+
+**Note:** This implementation uses `Cell` and is single-threaded only (`!Sync`). For a thread-safe version, replace `Cell<usize>` with `AtomicUsize`.
 
 ```rust
 use std::ptr::NonNull;
@@ -1084,9 +1114,8 @@ impl<T> IntrusiveRc<T> {
         unsafe { self.ptr.as_ref().refcount.get() }
     }
 }
-
-// Usage: Clone increments the refcount; drop decrements it. When the
-// last reference is dropped, the data is deallocated.
+// Usage: Clone increments refcount; drop decrements it. When
+// last reference is dropped, data is deallocated.
 let rc1 = IntrusiveRc::new(String::from("hello"));
 let rc2 = rc1.clone();
 assert_eq!(rc1.refcount(), 2); // Both share the same allocation
@@ -1152,8 +1181,8 @@ impl<T> GenerationalArena<T> {
     }
 }
 
-// Usage: Handles are stable IDs. After removal, stale handles return
-// None instead of accessing freed memory.
+// Usage: Handles are stable IDs. After removal, stale handles
+// return None instead of accessing freed memory.
 let mut arena = GenerationalArena::new();
 let h1 = arena.insert("first");
 arena.remove(h1);
@@ -1207,11 +1236,11 @@ impl<T: Clone> Clone for Immutable<T> {
     }
 }
 
-// Usage: Clones share data until modified. modify() triggers a copy
-// only when the data is shared, leaving the original unchanged.
+// Usage: Clones share data until modified. modify() triggers
+// copy only when data is shared, leaving original unchanged.
 let original = Immutable::new(vec![1, 2, 3]);
-let mut copy = original.clone(); // Cheap: shared data
-copy.modify(|v| v.push(4));       // Triggers copy, original unchanged
+let mut copy = original.clone();  // Cheap: shared data
+copy.modify(|v| v.push(4));       // Triggers copy
 ```
 
 **When to build custom smart pointers:**
@@ -1236,7 +1265,7 @@ copy.modify(|v| v.push(4));       // Triggers copy, original unchanged
 ### Common Anti-Patterns
 
 ```rust
-// ❌ Holding RefCell borrow across function call
+//  Holding RefCell borrow across function call
 let borrowed = data.borrow();
 might_borrow_again(&data);  // Runtime panic!
 
@@ -1247,13 +1276,13 @@ might_borrow_again(&data);  // Runtime panic!
 } // Dropped here
 might_borrow_again(&data);  // Safe
 
-// ❌ Arc<Mutex<T>> when single-threaded
+//  Arc<Mutex<T>> when single-threaded
 let shared = Arc::new(Mutex::new(data));  // Unnecessary overhead
 
 // ✓ Use Rc<RefCell<T>> for single-threaded
 let shared = Rc::new(RefCell::new(data));
 
-// ❌ Cloning Cow unnecessarily
+//  Cloning Cow unnecessarily
 fn process(s: Cow<str>) -> String {
     s.into_owned()  // Always allocates
 }

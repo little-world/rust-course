@@ -135,9 +135,6 @@ The `expected` parameter verifies that the panic message contains specific text,
 As codebases grow, test organization becomes important. Here are common patterns:
 
 ```rust
-//============
-// src/math.rs
-//============
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
 }
@@ -388,18 +385,14 @@ Sometimes you need specific input patterns:
 ```rust
 use proptest::prelude::*;
 
-//=================================
 // Generate vectors of length 1-100
-//=================================
 prop_compose! {
     fn vec_1_to_100()(vec in prop::collection::vec(any::<i32>(), 1..=100)) -> Vec<i32> {
         vec
     }
 }
 
-//============================
 // Generate email-like strings
-//============================
 prop_compose! {
     fn email_strategy()(
         username in "[a-z]{3,10}",
@@ -535,7 +528,6 @@ cargo fuzz init
 This creates a `fuzz/` workspace. Add a target:
 
 ```rust
-// fuzz_targets/parse_expr.rs
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
@@ -554,7 +546,6 @@ Run it with `cargo fuzz run parse_expr`. Crashes are saved in `fuzz/artifacts/pa
 ### Example: Fuzzing Structured Inputs with `arbitrary`
 
 ```rust
-// fuzz_targets/http_request.rs
 #![no_main]
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -663,7 +654,6 @@ pub fn checked_add(a: u32, b: u32) -> Option<u32> {
     a.checked_add(b)
 }
 
-// proofs/add.rs
 #[kani::proof]
 fn checked_add_never_wraps() {
     let a = kani::any::<u32>();
@@ -719,16 +709,12 @@ For more complex models, consider Prusti or Creusot for contract-based verificat
 The most idiomatic approach uses traits:
 
 ```rust
-//==================================
 // Define a trait for the dependency
-//==================================
 trait EmailService {
     fn send_email(&self, to: &str, subject: &str, body: &str) -> Result<(), String>;
 }
 
-//====================
 // Real implementation
-//====================
 struct SmtpEmailService {
     server: String,
 }
@@ -741,9 +727,7 @@ impl EmailService for SmtpEmailService {
     }
 }
 
-//=================
 // Mock for testing
-//=================
 struct MockEmailService {
     sent_emails: std::sync::Mutex<Vec<(String, String, String)>>,
 }
@@ -771,9 +755,7 @@ impl EmailService for MockEmailService {
     }
 }
 
-//================================
 // Application code uses the trait
-//================================
 struct UserService<E: EmailService> {
     email_service: E,
 }
@@ -820,13 +802,9 @@ This pattern is powerful: the real code uses `EmailService` trait, tests use `Mo
 For complex mocking needs, the `mockall` crate provides a powerful framework:
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // [dev-dependencies]
-//=================
 // mockall = "0.12"
-//=================
 
 use mockall::{automock, predicate::*};
 
@@ -877,9 +855,7 @@ mockall automatically generates mock implementations and verifies expectations, 
 Dependency injection makes testing easier by making dependencies explicit:
 
 ```rust
-//===================
 // Poor: Hard to test
-//===================
 struct PaymentProcessor {
     // Hard-coded dependency
 }
@@ -891,9 +867,7 @@ impl PaymentProcessor {
     }
 }
 
-//=============================
 // Better: Dependency injection
-//=============================
 trait PaymentGateway {
     fn charge(&self, amount: f64) -> Result<String, String>;
 }
@@ -914,9 +888,7 @@ impl<G: PaymentGateway> PaymentProcessor<G> {
     }
 }
 
-//=======================
 // Test with mock gateway
-//=======================
 struct MockGateway {
     should_succeed: bool,
 }
@@ -960,9 +932,7 @@ trait FileSystem {
     fn write_file(&self, path: &str, content: &str) -> std::io::Result<()>;
 }
 
-//====================
 // Real implementation
-//====================
 struct RealFileSystem;
 
 impl FileSystem for RealFileSystem {
@@ -975,9 +945,7 @@ impl FileSystem for RealFileSystem {
     }
 }
 
-//===========================
 // In-memory fake for testing
-//===========================
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -1054,9 +1022,7 @@ my_project/
 Each file in `tests/` is compiled as a separate crate:
 
 ```rust
-//==========================
 // tests/integration_test.rs
-//==========================
 use my_project::*;
 
 #[test]
@@ -1073,9 +1039,7 @@ Integration tests only have access to your crate's public API, just like externa
 Shared test utilities go in `tests/common/`:
 
 ```rust
-//====================
 // tests/common/mod.rs
-//====================
 use my_project::*;
 
 pub fn setup_test_database() -> Database {
@@ -1092,9 +1056,7 @@ pub fn create_test_user() -> User {
 ```
 
 ```rust
-//==========================
 // tests/integration_test.rs
-//==========================
 mod common;
 
 #[test]
@@ -1122,16 +1084,12 @@ my_binary/
 ```
 
 ```rust
-//===========
 // src/lib.rs
-//===========
 pub fn run(args: Args) -> Result<(), Error> {
     // Application logic
 }
 
-//============
 // src/main.rs
-//============
 fn main() {
     let args = parse_args();
     if let Err(e) = my_binary::run(args) {
@@ -1140,9 +1098,7 @@ fn main() {
     }
 }
 
-//=====================
 // tests/integration.rs
-//=====================
 use my_binary::*;
 
 #[test]
@@ -1159,9 +1115,6 @@ This structure makes the binary testable while keeping `main.rs` simple.
 Testing with real databases requires setup and teardown:
 
 ```rust
-//==============================
-// tests/database_integration.rs
-//==============================
 use sqlx::PgPool;
 
 async fn setup_test_db() -> PgPool {
@@ -1242,9 +1195,6 @@ This pattern runs tests in isolation without slow database cleanup.
 Testing HTTP servers requires starting a test server:
 
 ```rust
-//==========================
-// tests/http_integration.rs
-//==========================
 use axum::{Router, routing::get};
 use hyper::StatusCode;
 
@@ -1330,7 +1280,6 @@ async fn test_full_server() {
 // name = "my_benchmark"
 // harness = false
 
-// benches/my_benchmark.rs
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn fibonacci(n: u64) -> u64 {
@@ -1479,7 +1428,6 @@ parse_throughput/parse  time:   [1.2034 ms 1.2156 ms 1.2289 ms]
 Criterion can integrate with profilers:
 
 ```rust
-use criterion::{criterion_group, criterion_main, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 
 fn profiled_benchmark(c: &mut Criterion) {

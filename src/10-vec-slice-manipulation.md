@@ -26,6 +26,8 @@ fn process_batch(items: &[Item]) -> Vec<ProcessedItem> {
     }
     results
 }
+// Usage: process items with pre-allocated buffer
+let results = process_batch(&items);
 ```
 
 ### Example: Reserve Before Iterative Construction
@@ -218,7 +220,8 @@ fn find_user_by_id(users: &[User], id: u64) -> Option<&User> {
         .ok()
         .map(|idx| &users[idx])
 }
-
+// Usage: O(log n) lookup in sorted user list
+let user = find_user_by_id(&sorted_users, 42);
 ```
 
 ### Example: Partition Point for Range Queries
@@ -231,6 +234,8 @@ fn find_range(sorted: &[i32], min: i32, max: i32) -> &[i32] {
     let end = sorted.partition_point(|&x| x <= max);
     &sorted[start..end]
 }
+// Usage: find elements in range [3, 7]
+let range = find_range(&[1, 3, 5, 7, 9], 3, 7); // [3, 5, 7]
 ```
 
 ### Example: Partition by Predicate
@@ -288,6 +293,9 @@ fn top_k_elements(values: &mut [i32], k: usize) -> &[i32] {
     let (_, _, right) = values.select_nth_unstable(idx);
     right
 }
+// Usage: find median and top-k in O(n) time
+let median = find_median(&mut [3.0, 1.0, 4.0, 1.0, 5.0]);
+let top3 = top_k_elements(&mut [1, 5, 2, 8, 3], 3);
 ```
 
 ### Example: Efficient Cyclic Rotation
@@ -417,7 +425,8 @@ fn process_in_batches(
         .map(|chunk| process_batch(chunk))
         .collect()
 }
-
+// Usage: process data in 1024-byte batches
+let batches = process_in_batches(&data, 1024);
 ```
 
 ### Example: Mutable Chunks for In-Place Transformation
@@ -470,6 +479,8 @@ fn moving_average(values: &[f64], window_size: usize) -> Vec<f64> {
         })
         .collect()
 }
+// Usage: compute rolling 2-element average
+let avgs = moving_average(&[1.0, 2.0, 3.0, 4.0], 2);
 ```
 
 ### Example: Pairwise Operations
@@ -482,6 +493,8 @@ fn compute_deltas(values: &[i32]) -> Vec<i32> {
         .map(|pair| pair[1] - pair[0])
         .collect()
 }
+// Usage: compute differences between adjacent elements
+let deltas = compute_deltas(&[1, 3, 6, 10]); // [2, 3, 4]
 ```
 
 ### Example: Pattern Matching in Overlapping Windows
@@ -659,7 +672,8 @@ fn find_field<'a>(
         &[]
     }
 }
-
+// Usage: extract CSV field without allocation
+let field = find_field(b"a,b,c", 1); // b"b"
 ```
 
 ### Example: Split Without Allocation
@@ -672,6 +686,8 @@ fn parse_csv_line(line: &str) -> Vec<&str> {
         .map(|s| s.trim())
         .collect()
 }
+// Usage: parse CSV line into field slices
+let fields = parse_csv_line("a, b, c"); // ["a", "b", "c"]
 ```
 
 ### Example: Multiple Slices from One Allocation
@@ -731,6 +747,8 @@ fn decode_field(field: &[u8]) -> Cow<str> {
         }
     }
 }
+// Usage: decode UTF-8, allocating only if invalid
+let s = decode_field(b"hello"); // Cow::Borrowed("hello")
 ```
 
 ### Example: Split First and Last for Protocol Parsing
@@ -1135,7 +1153,8 @@ fn compact_vector(vec: &mut Vec<Item>) {
 
     vec.truncate(write_index);
 }
-
+// Usage: remove unwanted items in-place
+compact_vector(&mut items);
 ```
 
 ### Example: Extracting Elements with Drain

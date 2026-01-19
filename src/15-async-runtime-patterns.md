@@ -52,6 +52,8 @@ async fn get_user_name_uppercase(user_id: u64) -> Result<String, String> {
         .map(|name| name.to_uppercase())
 }
 
+// Usage: chain async call with sync transformation
+let name = get_user_name_uppercase(42).await;
 ```
 
 ### Example: Chaining async operations
@@ -73,6 +75,7 @@ async fn get_user_with_posts(user_id: u64) -> Result<(String, Vec<String>), Stri
     Ok((name, posts))
 }
 
+let (name, posts) = get_user_with_posts(1).await?;
 ```
 
 ### Example: Error conversion and propagation
@@ -104,6 +107,8 @@ async fn fetch_json_data(url: &str) -> Result<serde_json::Value, AppError> {
     Ok(data)
 }
 
+// Usage: fetch and parse JSON from URL
+let data = fetch_json_data("https://api.example.com/users").await?;
 ```
 
 ### Example: Combining multiple futures with different error types
@@ -144,7 +149,8 @@ where
                     return Err(e);
                 }
                 println!("Attempt {} failed: {}. Retrying...", attempts, e);
-                tokio::time::sleep(Duration::from_secs(2u64.pow(attempts as u32))).await;
+                let delay = Duration::from_secs(2u64.pow(attempts as u32));
+                tokio::time::sleep(delay).await;
             }
         }
     }
@@ -215,6 +221,7 @@ async fn concurrent_fetch() {
     println!("Results: {:?}, {:?}, {:?}", result1, result2, result3);
 }
 
+concurrent_fetch().await;
 ```
 
 ### Example: try_join! - wait for all, fail fast on error
@@ -230,6 +237,7 @@ async fn concurrent_fetch_fail_fast() -> Result<(String, String, String), String
     )
 }
 
+let (u1, u2, u3) = concurrent_fetch_fail_fast().await?;
 ```
 
 ### Example: select! - race futures, take first to complete
@@ -253,6 +261,8 @@ async fn race_requests() -> String {
     }
 }
 
+// Usage: race multiple requests with timeout
+let winner = race_requests().await;
 ```
 
 ### Example: Dynamic number of futures with FuturesUnordered
@@ -270,10 +280,15 @@ async fn fetch_all_users(user_ids: Vec<u64>) -> Vec<Result<String, String>> {
 
     futures.collect().await
 }
+
+// Usage: fetch multiple users concurrently with FuturesUnordered
+let results = fetch_all_users(vec![1, 2, 3]).await;
 // Real-world: Parallel HTTP requests with limit
 use futures::stream::FuturesOrdered;
 
-async fn fetch_urls_concurrently(urls: Vec<String>, max_concurrent: usize) -> Vec<Result<String, reqwest::Error>> {
+async fn fetch_urls_concurrently(
+    urls: Vec<String>, max_concurrent: usize
+) -> Vec<Result<String, reqwest::Error>> {
     let mut results = Vec::new();
 
     for chunk in urls.chunks(max_concurrent) {
@@ -421,6 +436,7 @@ async fn transform_stream() {
     println!("Transformed: {:?}", results);
 }
 
+transform_stream().await; // Output: [4, 8, 12, 16, 20]
 ```
 
 ### Example: Then (async map)
@@ -454,6 +470,7 @@ async fn aggregate_stream() {
     println!("Sum: {}", sum);
 }
 
+aggregate_stream().await; // Output: Sum: 5050
 ```
 
 ### Example: Take and skip
@@ -470,7 +487,14 @@ async fn limit_stream() {
 
     println!("Limited: {:?}", results);
 }
-// Real-world: Rate limiting
+
+limit_stream().await; // Output: [11, 12, 13, 14, 15]
+
+```
+
+### Example: Rate Limiting
+```rust
+
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -554,21 +578,9 @@ async fn main() {
 
 ### Example: Stream from Async Generators
 
-Create custom async streams from various sources like WebSockets, file watching, or event sources.
-
-```rust
-use tokio;
-use tokio_stream::{Stream, StreamExt};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-```
-
-### Example: Manual stream implementation
 This example shows how to manual stream implementation while calling out the practical trade-offs.
 
 ```rust
-
 struct CounterStream {
     count: u32,
     max: u32,
@@ -594,6 +606,8 @@ impl Stream for CounterStream {
     }
 }
 
+let mut stream = CounterStream::new(5); 
+while let Some(n) = stream.next().await { ... }
 ```
 
 ### Example: Async generator pattern using channels
@@ -615,7 +629,17 @@ async fn number_generator(max: u32) -> impl Stream<Item = u32> {
 
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
-// Real-world: File watcher stream
+
+// Usage: create an async stream of numbers
+let stream = number_generator(10).await;
+while let Some(n) = stream.next().await { ... }
+
+```
+
+### Example: File watcher stream
+```rust
+
+// Real-world: 
 use notify::{Watcher, RecursiveMode, Event};
 
 async fn file_watcher_stream(path: String) -> impl Stream<Item = notify::Result<Event>> {
@@ -669,7 +693,10 @@ async fn websocket_stream() -> impl Stream<Item = WsMessage> {
 
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
-// Real-world: Database query result stream
+
+```
+### Example: Database query result stream
+```rust
 #[derive(Debug)]
 struct Row {
     id: u64,
@@ -785,7 +812,6 @@ use std::time::Duration;
 This example walks through the basics of task spawning, highlighting each step so you can reuse the pattern.
 
 ```rust
-
 async fn spawn_basic_tasks() {
     let handle1 = tokio::spawn(async {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -802,7 +828,6 @@ async fn spawn_basic_tasks() {
     let (result1, result2) = tokio::join!(handle1, handle2);
     println!("Results: {:?}, {:?}", result1, result2);
 }
-
 ```
 
 ### Example: Structured concurrency with JoinSet
@@ -831,7 +856,6 @@ async fn structured_concurrency() {
         }
     }
 }
-
 ```
 
 ### Example: Scoped tasks (guaranteed completion before scope ends)
@@ -882,7 +906,10 @@ async fn cancellable_task() {
 
     task.await.unwrap();
 }
-// Real-world: Worker pool pattern
+
+```
+### Example Worker pool pattern
+```rust
 struct WorkerPool {
     tasks: tokio::sync::mpsc::Sender<Box<dyn FnOnce() + Send + 'static>>,
 }
@@ -911,7 +938,12 @@ impl WorkerPool {
         self.tasks.send(Box::new(task)).await.unwrap();
     }
 }
-// Real-world: Supervisor pattern (restart on failure)
+
+```
+### Exampl: Supervisor pattern (restart on failure)
+```rust
+
+// Real-world: 
 async fn supervised_task<F, Fut>(
     mut task_fn: F,
     max_restarts: usize,
@@ -938,7 +970,11 @@ async fn supervised_task<F, Fut>(
         }
     }
 }
-// Real-world: Background task with graceful shutdown
+
+
+``` 
+### Example: Background task with graceful shutdown
+```rust
 async fn background_service(shutdown: tokio::sync::watch::Receiver<bool>) {
     let mut shutdown = shutdown;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -970,22 +1006,8 @@ async fn run_with_graceful_shutdown() {
 
     service.await.unwrap();
 }
-
-#[tokio::main]
-async fn main() {
-    println!("=== Basic Task Spawning ===\n");
-    spawn_basic_tasks().await;
-
-    println!("\n=== Structured Concurrency ===\n");
-    structured_concurrency().await;
-
-    println!("\n=== Cancellable Task ===\n");
-    cancellable_task().await;
-
-    println!("\n=== Graceful Shutdown ===\n");
-    run_with_graceful_shutdown().await;
-}
 ```
+
 
 **Task Management Patterns**:
 - **spawn**: Create independent task
@@ -995,16 +1017,6 @@ async fn main() {
 - **Graceful shutdown**: Clean task termination
 
 ---
-
-### Example: Error Handling and Recovery
-
-Handle errors in async code, implement retry logic, and provide fallback mechanisms.
-
-```rust
-use tokio;
-use std::time::Duration;
-
-```
 
 ### Example: Result propagation with ?
 This example shows how to result propagation with ? in practice, emphasizing why it works.
@@ -1024,6 +1036,8 @@ async fn get_user_profile(user_id: u64) -> Result<String, String> {
     Ok(profile)
 }
 
+// Usage: fetch user profile with error propagation
+let profile = get_user_profile(42).await?;
 ```
 
 ### Example: Retry with exponential backoff
@@ -1093,6 +1107,8 @@ impl CircuitBreaker {
             timeout,
         }
     }
+
+    let breaker = CircuitBreaker::new(3, 2, Duration::from_secs(5));
 
     async fn call<F, Fut, T, E>(&self, operation: F) -> Result<T, E>
     where
@@ -1259,17 +1275,6 @@ async fn main() {
 
 Wait on multiple async operations and react to whichever completes first.
 
-
-```rust
-use tokio;
-use tokio::sync::mpsc;
-use std::time::Duration;
-
-```
-
-### Example: Basic select with two branches
-This example walks through the basics of select with two branches, highlighting each step so you can reuse the pattern.
-
 ```rust
 
 async fn select_two_channels() {
@@ -1371,7 +1376,10 @@ async fn biased_select() {
         }
     }
 }
-// Real-world: Request with cancellation
+
+```
+### Example Request with cancellation
+```rust
 async fn request_with_cancel() {
     let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
 
@@ -1394,7 +1402,9 @@ async fn request_with_cancel() {
         }
     }
 }
-// Real-world: Server with shutdown signal
+```
+### Example: Server with shutdown signal
+```rust
 async fn server_with_shutdown() {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     let (request_tx, mut request_rx) = mpsc::channel::<String>(10);
@@ -1431,7 +1441,6 @@ async fn server_with_shutdown() {
 
     println!("Server stopped");
 }
-
 ```
 
 ### Example: Select with default (non-blocking)
@@ -1469,47 +1478,8 @@ async fn select_with_default() {
         }
     }
 }
-
-#[tokio::main]
-async fn main() {
-    println!("=== Select Two Channels ===\n");
-    select_two_channels().await;
-
-    println!("\n=== Select Loop ===\n");
-    select_loop().await;
-
-    println!("\n=== Biased Select ===\n");
-    biased_select().await;
-
-    println!("\n=== Request with Cancel ===\n");
-    request_with_cancel().await;
-
-    println!("\n=== Server with Shutdown ===\n");
-    server_with_shutdown().await;
-
-    println!("\n=== Select with Default ===\n");
-    select_with_default().await;
-}
 ```
-
-**Select Patterns**:
-- **Basic select**: Race multiple futures
-- **Loop select**: Continuous event handling
-- **Biased select**: Priority ordering
-- **With cancellation**: Abort long operations
-- **Default**: Non-blocking poll
-
 ---
-
-### Example: Timeout and Deadline Patterns
-
-Enforce time limits on async operations to prevent indefinite blocking.
-
-```rust
-use tokio;
-use tokio::time::{timeout, sleep, Duration, Instant};
-
-```
 
 ### Example: Basic timeout
 This example walks through the basics of timeout, highlighting each step so you can reuse the pattern.
@@ -1527,7 +1497,6 @@ async fn basic_timeout() {
         Err(_) => println!("Operation timed out"),
     }
 }
-
 ```
 
 ### Example: Timeout with retry
@@ -1633,7 +1602,12 @@ async fn timeout_all() {
         Err(_) => println!("Not all operations completed in time"),
     }
 }
-// Real-world: Rate limiter with timeout
+
+```
+
+### Example: Rate limiter with timeout
+
+```rust
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -1675,7 +1649,11 @@ impl RateLimiter {
         }
     }
 }
-// Real-world: Health check with timeout
+
+```
+
+### Example: Health check with timeout
+```rust
 async fn health_check(url: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let check = async {
         let response = reqwest::get(url).await?;
@@ -1686,7 +1664,10 @@ async fn health_check(url: &str) -> Result<bool, Box<dyn std::error::Error>> {
         .await
         .map_err(|_| "Health check timed out".into())?
 }
-// Real-world: Graceful timeout (finish current work)
+```
+
+### Example: Graceful timeout (finish current work)
+```rust
 async fn graceful_shutdown_with_timeout(
     workers: Vec<tokio::task::JoinHandle<()>>,
     grace_period: Duration,
@@ -1702,41 +1683,7 @@ async fn graceful_shutdown_with_timeout(
         Err(_) => println!("Timeout - forcing shutdown"),
     }
 }
-
-#[tokio::main]
-async fn main() {
-    println!("=== Basic Timeout ===\n");
-    basic_timeout().await;
-
-    println!("\n=== Timeout with Retry ===\n");
-    timeout_with_retry().await;
-
-    println!("\n=== Deadline ===\n");
-    deadline_example().await;
-
-    println!("\n=== Timeout All ===\n");
-    timeout_all().await;
-
-    println!("\n=== Rate Limiter ===\n");
-    let limiter = RateLimiter::new(5, 2, Duration::from_millis(500));
-
-    for i in 0..10 {
-        match limiter.acquire_with_timeout(Duration::from_secs(1)).await {
-            Ok(_) => println!("Request {} allowed", i),
-            Err(e) => println!("Request {} rejected: {}", i, e),
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
-}
 ```
-
-**Timeout Patterns**:
-- **Basic timeout**: Single operation limit
-- **Deadline**: Absolute time limit
-- **Timeout all**: Batch operation limit
-- **Graceful timeout**: Allow cleanup before forcing stop
-- **Rate limiter**: Control request rate with timeout
-
 ---
 
 ## Pattern 5: Runtime Comparison
@@ -1749,15 +1696,6 @@ async fn main() {
 
 **Use Cases**: Tokio for web servers, databases, general applications. async-std for learning, simpler projects. smol for single-threaded, minimal overhead. embassy for embedded systems, bare-metal. Runtime-agnostic libraries for maximum compatibility.
 
-### Example: Tokio Runtime Features
-
-Understand Tokio's features and how to configure them for different workloads.
-
-```rust
-use tokio;
-use std::time::Duration;
-
-```
 
 ### Example: Multi-threaded runtime (default)
 This example shows multi-threaded runtime (default) to illustrate where the pattern fits best.
@@ -1878,7 +1816,10 @@ async fn local_task_set_example() {
         }).await.unwrap();
     }).await;
 }
-// Real-world: CPU-bound work with rayon
+
+```
+### Example: CPU-bound work with rayon
+```rust
 use rayon::prelude::*;
 
 async fn cpu_bound_with_rayon() {
@@ -1890,7 +1831,9 @@ async fn cpu_bound_with_rayon() {
 
     println!("Sum: {}", sum);
 }
-// Real-world: Mixed workload (I/O and CPU)
+```
+### Example: Mixed workload (I/O and CPU)
+```rust
 async fn mixed_workload() {
     let io_task = tokio::spawn(async {
         for i in 0..5 {
@@ -1911,40 +1854,7 @@ async fn mixed_workload() {
 
     tokio::join!(io_task, cpu_task);
 }
-
-fn main() {
-    println!("=== Multi-threaded Runtime ===\n");
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(multi_threaded_example());
-
-    println!("\n=== Custom Runtime ===\n");
-    custom_runtime_example();
-
-    println!("\n=== Blocking Operations ===\n");
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(handle_blocking_operations());
-
-    println!("\n=== Local Task Set ===\n");
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(local_task_set_example());
-
-    println!("\n=== Mixed Workload ===\n");
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(mixed_workload());
-}
 ```
-
-**Tokio Features**:
-- **Multi-threaded**: Work-stealing scheduler
-- **Current-thread**: Single-threaded for simpler workloads
-- **spawn_blocking**: Offload blocking operations
-- **LocalSet**: Support !Send futures
-- **Configurable**: Thread count, stack size, naming
-
 ---
 
 ### Example: Runtime Comparison and Interop
@@ -1977,7 +1887,9 @@ mod tokio_example {
         }
     }
 }
-// async-std version
+```
+### Example: async-std version
+```rust
 #[cfg(feature = "async-std-runtime")]
 mod async_std_example {
     use async_std;
@@ -2002,7 +1914,10 @@ mod async_std_example {
         }
     }
 }
-// Runtime-agnostic code using futures
+```
+
+### Example: Runtime-agnostic code using futures
+```rust
 mod runtime_agnostic {
     use futures::future::{join_all, FutureExt};
     use std::future::Future;
@@ -2020,25 +1935,31 @@ mod runtime_agnostic {
         join_all(futures).await
     }
 }
-// Feature comparison
-/**
- * Tokio vs async-std:
- *
- * Tokio:
- * - Work-stealing scheduler (better for CPU-intensive tasks)
- * - More configuration options
- * - Larger ecosystem (widely used)
- * - spawn_blocking for blocking operations
- * - Good for web servers, databases
- *
- * async-std:
- * - Simpler API (mirrors std library)
- * - Easier to learn
- * - Good for general-purpose async
- * - Less configuration needed
- * - Good for CLI tools, simpler services
- */
-// Performance comparison example
+
+```
+
+### Feature comparison
+ Tokio vs async-std:
+ 
+ Tokio:
+ - Work-stealing scheduler (better for CPU-intensive tasks)
+ - More configuration options
+ - Larger ecosystem (widely used)
+ - spawn_blocking for blocking operations
+ - Good for web servers, databases
+ 
+ async-std:
+ - Simpler API (mirrors std library)
+ - Easier to learn
+ - Good for general-purpose async
+ - Less configuration needed
+ - Good for CLI tools, simpler services
+
+
+             
+### Example: Performance comparison 
+```rust
+
 #[cfg(feature = "tokio-runtime")]
 async fn tokio_performance_test() {
     use tokio::time::{Instant, Duration};
@@ -2082,7 +2003,10 @@ async fn async_std_performance_test() {
 
     println!("async-std: 1000 tasks in {:?}", start.elapsed());
 }
-// Interop: using futures crate for compatibility
+```
+### Example: using futures crate for compatibility
+
+```rust
 use futures::executor::block_on;
 use futures::future::join;
 
@@ -2102,39 +2026,29 @@ fn interop_example() {
 
     println!("Interop result: {}", result);
 }
-
-/**
- * Choosing a Runtime:
- *
- * Use Tokio when:
- * - Building high-performance web servers
- * - Need fine-grained control over runtime
- * - Working with Tokio ecosystem (tonic, axum, etc.)
- * - CPU-bound tasks mixed with I/O
- *
- * Use async-std when:
- * - Building CLI tools or simpler services
- * - Want std-like API familiarity
- * - Primarily I/O-bound workload
- * - Simpler application with less configuration
- *
- * Use runtime-agnostic futures when:
- * - Writing libraries
- * - Need portability
- * - Want to avoid runtime lock-in
- */
-
-fn main() {
-    println!("=== Runtime Interop ===\n");
-    interop_example();
-
-    #[cfg(feature = "tokio-runtime")]
-    tokio_example::run();
-
-    #[cfg(feature = "async-std-runtime")]
-    async_std_example::run();
-}
 ```
+
+ ## Choosing a Runtime:
+ 
+ Use Tokio when:
+ - Building high-performance web servers
+ - Need fine-grained control over runtime
+ - Working with Tokio ecosystem (tonic, axum, etc.)
+ - CPU-bound tasks mixed with I/O
+ 
+ Use async-std when:
+ - Building CLI tools or simpler services
+ - Want std-like API familiarity
+ - Primarily I/O-bound workload
+ - Simpler application with less configuration
+ 
+ Use runtime-agnostic futures when:
+ - Writing libraries
+ - Need portability
+ - Want to avoid runtime lock-in
+
+
+
 
 **Runtime Comparison**:
 

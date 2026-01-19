@@ -81,17 +81,6 @@ Locks are:
 **Use Cases**: Lock-free data structures (queues, stacks, maps), reference counting (Arc), flags and signals, atomic counters, synchronization primitives, wait-free algorithms.
 
 
-### Example: Memory Ordering Fundamentals
-
-Understand different memory orderings and their performance/correctness trade-offs.
-
-```rust
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-
-```
 
 ### Example: Relaxed - No ordering guarantees (fastest)
 This example shows how to use Relaxed to no ordering guarantees (fastest) without over-synchronizing.
@@ -122,6 +111,7 @@ fn relaxed_ordering_example() {
     println!("Counter (Relaxed): {}", counter.load(Ordering::Relaxed));
 }
 
+relaxed_ordering_example(); // Output: Counter (Relaxed): 10000
 ```
 
 ### Example: Acquire/Release - Synchronization without sequential consistency
@@ -271,7 +261,16 @@ impl Spinlock {
         self.locked.store(false, Ordering::Release);
     }
 }
-// Real-world: Double-checked locking for lazy initialization
+
+ let lock = Spinlock::new(); 
+lock.lock(); 
+/* critical section */ 
+lock.unlock();
+```
+
+### Example: Double-checked locking for lazy initialization
+
+```rust
 struct LazyInit<T> {
     data: AtomicUsize, // Actually *mut T
     initialized: AtomicBool,
@@ -323,39 +322,6 @@ impl<T> LazyInit<T> {
         }
     }
 }
-
-fn main() {
-    println!("=== Relaxed Ordering ===\n");
-    relaxed_ordering_example();
-
-    println!("\n=== Acquire/Release Ordering ===\n");
-    acquire_release_ordering();
-
-    println!("\n=== Sequential Consistency ===\n");
-    seq_cst_ordering();
-
-    println!("\n=== AcqRel Ordering ===\n");
-    acq_rel_ordering();
-
-    println!("\n=== Spinlock ===\n");
-    let lock = Arc::new(Spinlock::new());
-    let mut handles = vec![];
-
-    for i in 0..3 {
-        let lock = Arc::clone(&lock);
-        handles.push(thread::spawn(move || {
-            lock.lock();
-            println!("Thread {} acquired lock", i);
-            thread::sleep(Duration::from_millis(10));
-            lock.unlock();
-            println!("Thread {} released lock", i);
-        }));
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
-    }
-}
 ```
 
 **Memory Ordering Guide**:
@@ -368,18 +334,6 @@ fn main() {
 | AcqRel | Both Acquire and Release | RMW operations | Medium |
 | SeqCst | Total order across all threads | When correctness is critical | Slowest |
 
-
-### Example: Fence Operations
-
-Establish memory ordering without atomic operations, or strengthen ordering of existing atomics.
-
-
-```rust
-use std::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::thread;
-
-```
 
 ### Example: Fence for non-atomic data
 This example shows how to fence for non-atomic data in practice, emphasizing why it works.
@@ -441,7 +395,11 @@ fn compiler_fence_example() {
 
     // Ensures compiler sees x=1 before y=2
 }
-// Real-world: Memory barrier for DMA/MMIO
+```
+
+### Example: Memory barrier for DMA/MMIO
+
+```rust
 #[repr(C)]
 struct DmaBuffer {
     data: [u8; 4096],
@@ -469,15 +427,8 @@ impl DmaBuffer {
         Some(&self.data)
     }
 }
-
-fn main() {
-    println!("=== Fence with Non-Atomic ===\n");
-    fence_with_non_atomic();
-
-    println!("\n=== Compiler Fence ===\n");
-    compiler_fence_example();
-}
 ```
+
 
 **Fence Types**:
 - **fence(Ordering)**: Hardware and compiler barrier
@@ -493,17 +444,6 @@ fn main() {
 **Why It Matters**: CAS is foundation of all lock-free algorithms. Without proper CAS loops, concurrent updates are lost.
 
 **Use Cases**: Lock-free stacks and queues, atomic max/min tracking, conditional increments (rate limiting), version tracking, optimistic updates, retry logic.
-
-### Example: CAS Basics and Patterns
-Using compare-and-swap to implement lock-free operations correctly.
-
-```rust
-use std::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
-use std::sync::Arc;
-use std::thread;
-use std::ptr;
-
-```
 
 ### Example: Basic CAS loop
 This example walks through the basics of cas loop, highlighting each step so you can reuse the pattern.
@@ -532,6 +472,9 @@ fn cas_increment(counter: &AtomicUsize) {
     }
 }
 
+// Usage: increment counter with CAS loop
+let counter = AtomicUsize::new(0);
+cas_increment(&counter);
 ```
 
 ### Example: compare_exchange vs compare_exchange_weak
@@ -591,7 +534,11 @@ where
         }
     }
 }
-// Real-world: Lock-free max tracking
+```
+
+### Example: Lock-free max tracking
+```rust
+
 struct MaxTracker {
     max: AtomicUsize,
 }
@@ -628,7 +575,14 @@ impl MaxTracker {
         self.max.load(Ordering::Relaxed)
     }
 }
-// Real-world: Lock-free accumulator
+
+// Usage: track maximum value across concurrent updates
+let tracker = MaxTracker::new(); tracker.update(50); tracker.update(30); println!("{}", tracker.get()); // 50
+```
+
+### Example:  Lock-free accumulator
+```rust
+
 struct Accumulator {
     sum: AtomicUsize,
     count: AtomicUsize,
@@ -664,7 +618,11 @@ impl Accumulator {
         (sum, count)
     }
 }
-// Real-world: Conditional update
+```
+
+### Example: Conditional update
+
+```rust
 struct ConditionalCounter {
     value: AtomicUsize,
 }
@@ -700,7 +658,11 @@ impl ConditionalCounter {
         self.value.load(Ordering::Relaxed)
     }
 }
+```
 
+
+### Usage
+```rust
 fn main() {
     println!("=== CAS Increment ===\n");
 
@@ -1046,6 +1008,8 @@ impl<T> TreiberStack<T> {
         }
     }
 
+    // Usage: let stack = TreiberStack::new(); stack.push(42); let val = stack.pop();
+
     pub fn push(&self, data: T) {
         let new_node = Box::into_raw(Box::new(Node {
             data,
@@ -1300,6 +1264,8 @@ impl<T> MpscQueue<T> {
             tail: AtomicPtr::new(sentinel),
         }
     }
+
+    // Usage: let queue = MpscQueue::new(); queue.push(42); let val = queue.pop();
 
     pub fn push(&self, data: T) {
         let new_node = Box::into_raw(Box::new(QueueNode {
@@ -1864,6 +1830,8 @@ impl<T: Copy> SeqLock<T> {
         }
     }
 
+    // Usage: let lock = SeqLock::new(0); lock.write(42); let val = lock.read();
+
     pub fn read(&self) -> T {
         loop {
             // Read sequence number (even = not writing)
@@ -2164,6 +2132,10 @@ impl StripedCounter {
     }
 }
 
+// Usage: reduce contention with cache-line striping
+let counter = StripedCounter::new(16);
+counter.increment();
+println!("{}", counter.get());
 ```
 
 ### Example: Exponential backoff
@@ -2240,6 +2212,8 @@ impl AtomicMinMax {
         }
     }
 
+    // Usage: let mm = AtomicMinMax::new(); mm.update(5); mm.update(10); let (min, max) = mm.get();
+
     fn update(&self, value: u64) {
         // Update min
         let mut current_min = self.min.load(Ordering::Relaxed);
@@ -2299,6 +2273,8 @@ impl OnceFlag {
             state: AtomicUsize::new(INCOMPLETE),
         }
     }
+
+    // Usage: let once = OnceFlag::new(); once.call_once(|| println!("init"));
 
     fn call_once<F>(&self, f: F)
     where

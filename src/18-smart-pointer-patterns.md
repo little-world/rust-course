@@ -71,6 +71,8 @@ impl<'a, T> Iterator for ListIter<'a, T> {
     }
 }
 
+let list = List::new().prepend(3).prepend(2).prepend(1);
+for item in list.iter() { println!("{}", item); }
 ```
 
 ### Example: Large structs on heap
@@ -95,7 +97,8 @@ fn heap_allocation() -> Box<LargeData> {
         buffer: [0; 1024 * 1024],
     })
 }
-
+ 
+let data = heap_allocation(); // Only 8-byte pointer on stack
 ```
 
 ### Example: Trait objects require Box
@@ -198,6 +201,8 @@ impl<T: Ord> TreeNode<T> {
         result
     }
 }
+let mut tree = TreeNode::new(5).insert(3).insert(7);
+ println!("Contains 3: {}", tree.contains(&3));
 
 ```
 
@@ -258,16 +263,11 @@ fn main() {
 
 Multiple owners need read-only access to the same data.
 
-```rust
-use std::rc::Rc;
-
-```
 
 ### Example: Shared configuration
 This example shows shared configuration to illustrate where the pattern fits best.
 
 ```rust
-
 struct Config {
     database_url: String,
     max_connections: usize,
@@ -328,7 +328,6 @@ fn shared_config() {
     // config, db_pool, cache, api all dropped at end of scope
     // Reference count goes to 0, memory freed
 }
-
 ```
 
 ### Example: Shared data in graph
@@ -371,6 +370,21 @@ impl Graph {
         }
     }
 }
+
+let a = graph.add_node(1, "A".to_string());
+let b = graph.add_node(2, "B".to_string());
+let c = graph.add_node(3, "C".to_string());
+
+graph.add_edge(Rc::clone(&a), Rc::clone(&b));
+graph.add_edge(Rc::clone(&b), Rc::clone(&c));
+graph.add_edge(Rc::clone(&a), Rc::clone(&c));
+
+graph.print_edges();
+```
+
+### Example: Version Control
+
+```rust
 // Real-world: Immutable data sharing
 #[derive(Debug, Clone)]
 struct Document {
@@ -422,7 +436,10 @@ impl VersionControl {
         }
     }
 }
-
+let mut vc = VersionControl::new("Initial content".to_string());
+vc.add_version("Updated content".to_string());
+vc.add_version("Final content".to_string());
+vc.compare_versions(1, 3);
 ```
 
 ### Example: Rc with interior mutability
@@ -469,55 +486,15 @@ impl SensorNetwork {
     }
 }
 
-fn main() {
-    println!("=== Shared Config ===\n");
-    shared_config();
+let mut network = SensorNetwork::new();
+let sensor1 = network.add_sensor(1);
+let sensor2 = network.add_sensor(2);
 
-    println!("\n=== Graph with Shared Nodes ===\n");
-
-    let mut graph = Graph::new();
-
-    let a = graph.add_node(1, "A".to_string());
-    let b = graph.add_node(2, "B".to_string());
-    let c = graph.add_node(3, "C".to_string());
-
-    graph.add_edge(Rc::clone(&a), Rc::clone(&b));
-    graph.add_edge(Rc::clone(&b), Rc::clone(&c));
-    graph.add_edge(Rc::clone(&a), Rc::clone(&c));
-
-    println!("Edges:");
-    graph.print_edges();
-
-    println!("\nNode A ref count: {}", Rc::strong_count(&a));
-
-    println!("\n=== Version Control ===\n");
-
-    let mut vc = VersionControl::new("Initial content".to_string());
-    vc.add_version("Updated content".to_string());
-    vc.add_version("Final content".to_string());
-
-    vc.compare_versions(1, 3);
-
-    println!("\n=== Sensor Network ===\n");
-
-    let mut network = SensorNetwork::new();
-    let sensor1 = network.add_sensor(1);
-    let sensor2 = network.add_sensor(2);
-
-    network.update_readings();
-    println!("Sensor 1: {:.2}", sensor1.reading.borrow());
-    println!("Sensor 2: {:.2}", sensor2.reading.borrow());
-    println!("Average: {:.2}", network.average_reading());
-}
+network.update_readings();
+println!("Sensor 1: {:.2}", sensor1.reading.borrow());
+println!("Sensor 2: {:.2}", sensor2.reading.borrow());
+println!("Average: {:.2}", network.average_reading());
 ```
-
-**Rc Characteristics**:
-- **Single-threaded**: Not thread-safe
-- **Shared ownership**: Multiple owners, last one frees
-- **Reference counting**: Overhead of counter updates
-- **Interior mutability**: Combine with RefCell for mutation
-
-
 
 ### Example: Arc for Thread-Safe Sharing
 
@@ -552,7 +529,6 @@ fn arc_readonly() {
         handle.join().unwrap();
     }
 }
-
 ```
 
 ### Example: Arc with Mutex for shared mutable state
@@ -606,7 +582,7 @@ fn arc_mutex_example() {
 
     println!("Final count: {}", counter.get());
 }
-
+arc_mutex_example(); // 10 threads x 1000 increments = 10000
 ```
 
 ### Example: Arc with RwLock for read-heavy workloads
@@ -673,7 +649,12 @@ fn arc_rwlock_example() {
         reader.join().unwrap();
     }
 }
-// Real-world: Thread pool with shared work queue
+```
+
+### Example: Thread pool with shared work queue
+
+```rust
+
 use std::sync::mpsc;
 
 struct ThreadPool {
@@ -817,6 +798,7 @@ impl Node {
         }))
     }
 }
+let node = Node::new(42); // Weak prev breaks reference cycles
 
 ```
 
@@ -878,6 +860,9 @@ impl DoublyLinkedList {
         println!("None");
     }
 }
+let mut list = DoublyLinkedList::new();
+list.push_back(1);
+list.push_back(2);
 
 ```
 
@@ -957,6 +942,7 @@ impl Subject {
         });
     }
 }
+
 
 struct ConcreteObserver {
     id: usize,
@@ -1130,6 +1116,7 @@ impl<T> Drop for MyBox<T> {
         }
     }
 }
+let mut b = MyBox::new(42); *b = 100; println!("{}", *b);
 
 ```
 
@@ -1173,6 +1160,7 @@ impl<T> DerefMut for LoggingPtr<T> {
         &mut self.data
     }
 }
+let mut p = LoggingPtr::new(vec![1,2]); p.push(3); println!("{:?}", p.get_stats());
 
 ```
 
@@ -1211,6 +1199,7 @@ where
         }
     }
 }
+let lazy = Lazy::new(|| expensive_init()); let val = lazy.get();
 // Real-world: Reference-counted string (like Arc<str> but custom)
 struct RcStr {
     data: *mut RcStrInner,
@@ -1297,6 +1286,7 @@ impl fmt::Display for RcStr {
         write!(f, "{}", self.as_str())
     }
 }
+let s1 = RcStr::new("hello"); let s2 = s1.clone(); println!("{}", s1.ref_count());
 
 ```
 
@@ -1787,6 +1777,7 @@ impl StringInterner {
         duplicates * std::mem::size_of::<String>()
     }
 }
+let mut interner = StringInterner::new(); let s = interner.intern("hello");
 
 ```
 
@@ -1809,6 +1800,7 @@ impl Observer {
         }
     }
 }
+let data = Rc::new(vec![1,2,3]); let obs = Observer { subject: Rc::downgrade(&data) };
 
 ```
 
@@ -1874,7 +1866,10 @@ fn rc_vs_owned_benchmark() {
     println!("Rc clones: {:?}", rc_time);
     println!("Owned clones: {:?}", owned_time);
 }
+```
+### Usage
 
+```rust
 fn main() {
     println!("=== Efficient vs Inefficient ===\n");
 

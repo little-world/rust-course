@@ -35,6 +35,7 @@ async fn read_file(path: &str) -> io::Result<String> {
     // Convenience method: allocates a String, reads entire file
     // Returns Err if file missing, unreadable, or contains invalid UTF-8
 }
+let content = read_file("config.json").await?;
 
 ```
 
@@ -47,6 +48,7 @@ async fn read_bytes(path: &str) -> io::Result<Vec<u8>> {
     // Reads entire file into memory
     // More efficient than read_to_string for binary data
 }
+let bytes = read_bytes("image.png").await?;
 
 ```
 
@@ -59,6 +61,7 @@ async fn write_file(path: &str, content: &str) -> io::Result<()> {
     // Convenience method: creates file, writes content, closes file
     // Overwrites existing file! Use append_to_file if you want to append
 }
+write_file("output.txt", "Hello async!").await?;
 
 ```
 
@@ -110,6 +113,7 @@ async fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     file.write_all(b"\n").await?;  // Add newline separator
     Ok(())
 }
+append_to_file("log.txt", "New entry").await?;
 
 ```
 
@@ -121,6 +125,7 @@ async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     tokio::fs::copy(src, dst).await
     // Efficiently copies src to dst using OS-level optimizations when possible
 }
+let bytes_copied = copy_file("src.txt", "dst.txt").await?;
 
 ```
 
@@ -173,6 +178,7 @@ async fn read_lines(path: &str) -> io::Result<Vec<String>> {
 
     Ok(lines)
 }
+let lines = read_lines("data.txt").await?;
 
 ```
 
@@ -197,6 +203,7 @@ async fn process_large_file(path: &str) -> io::Result<()> {
     println!("Processed {} lines", count);
     Ok(())
 }
+process_large_file("access.log").await?; // Memory-efficient
 
 ```
 
@@ -220,6 +227,7 @@ async fn read_first_n_lines(path: &str, n: usize) -> io::Result<Vec<String>> {
 
     Ok(result)
 }
+let header = read_first_n_lines("file.csv", 1).await?;
 ```
 
 
@@ -268,6 +276,7 @@ async fn run_tcp_server(addr: &str) -> io::Result<()> {
     }
     // Note: This loop never exits. In production, you'd add graceful shutdown.
 }
+run_tcp_server("127.0.0.1:8080").await?; // Starts echo server
 
 ```
 
@@ -315,6 +324,7 @@ async fn tcp_client(addr: &str, message: &str) -> io::Result<String> {
 
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
+let resp = tcp_client("127.0.0.1:8080", "Hello").await?;
 
 ```
 
@@ -342,6 +352,7 @@ async fn http_handler(mut socket: TcpStream) -> io::Result<()> {
     socket.write_all(response.as_bytes()).await?;
     Ok(())
 }
+tokio::spawn(async { http_handler(socket).await }); // Per-connection
 ```
 
 
@@ -388,6 +399,7 @@ async fn udp_server(addr: &str) -> io::Result<()> {
         socket.send_to(&buffer[..len], addr).await?;
     }
 }
+udp_server("0.0.0.0:8888").await?; // Starts UDP echo server
 
 ```
 
@@ -408,6 +420,7 @@ async fn udp_client(server_addr: &str, message: &str) -> io::Result<String> {
 
     Ok(String::from_utf8_lossy(&buffer[..len]).to_string())
 }
+let resp = udp_client("127.0.0.1:8888", "ping").await?;
 ```
 
 
@@ -460,6 +473,7 @@ mod unix_sockets {
 
         Ok(String::from_utf8_lossy(&buffer).to_string())
     }
+    unix_server("/tmp/my.sock").await?; unix_client("/tmp/my.sock", "msg").await?;
 }
 ```
 
@@ -503,6 +517,7 @@ async fn buffered_read(path: &str) -> io::Result<()> {
 
     Ok(())
 }
+buffered_read("large.log").await?; // Efficient line-by-line
 
 ```
 
@@ -527,6 +542,7 @@ async fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     writer.flush().await?;
     Ok(())
 }
+buffered_write("out.txt", &["line1", "line2"]).await?;
 
 ```
 
@@ -544,6 +560,7 @@ async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     // copy() efficiently transfers data, using the buffers to minimize system calls
     tokio::io::copy(&mut reader, &mut writer).await
 }
+let bytes = buffered_copy("src.txt", "dst.txt").await?;
 ```
 
 
@@ -616,6 +633,7 @@ async fn use_uppercase_reader() -> io::Result<()> {
 
     Ok(())
 }
+use_uppercase_reader().await?; // Transforms file content to uppercase
 ```
 
 
@@ -669,6 +687,7 @@ async fn split_stream_example() -> io::Result<()> {
 
     Ok(())
 }
+split_stream_example().await?; // Independent read/write tasks
 ```
 
 
@@ -717,6 +736,7 @@ async fn framed_lines() -> io::Result<()> {
 
     Ok(())
 }
+framed_lines().await?; // Send/receive newline-delimited messages
 
 ```
 
@@ -785,6 +805,7 @@ async fn length_prefixed_example() -> io::Result<()> {
 
     Ok(())
 }
+length_prefixed_example().await?; // Binary protocol framing
 ```
 
 
@@ -856,6 +877,7 @@ async fn backpressure_example() {
 
     let _ = tokio::join!(producer, consumer);
 }
+backpressure_example().await; // Producer waits when channel full
 ```
 
 
@@ -882,6 +904,7 @@ async fn stream_backpressure() {
         })
         .await;
 }
+stream_backpressure().await; // Max 5 concurrent futures
 ```
 
 
@@ -951,6 +974,7 @@ async fn rate_limited_requests() {
         // Make request...
     }
 }
+rate_limited_requests().await; // Max 10 req/sec
 ```
 
 
@@ -992,6 +1016,7 @@ async fn concurrent_with_limit() {
         handle.await.unwrap();
     }
 }
+concurrent_with_limit().await; // Max 5 concurrent tasks
 ```
 
 
@@ -1034,6 +1059,7 @@ async fn server_with_connection_limit(addr: &str, max_connections: usize) -> io:
         });
     }
 }
+server_with_connection_limit("0.0.0.0:8080", 100).await?;
 ```
 
 
@@ -1173,6 +1199,7 @@ async fn use_pool() -> io::Result<()> {
 
     Ok(())
 }
+use_pool().await?; // 20 tasks share 5 pooled connections
 ```
 
 
@@ -1248,6 +1275,7 @@ async fn use_deadpool() -> io::Result<()> {
 
     Ok(())
 }
+use_deadpool().await?; // Production-ready pool with health checks
 ```
 
 
@@ -1296,6 +1324,7 @@ async fn http_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+http_connection_pool().await?; // Reuses TCP connections per host
 ```
 
 
@@ -1336,6 +1365,7 @@ async fn async_operation() -> io::Result<String> {
     sleep(Duration::from_secs(10)).await;
     Ok("Done".to_string())
 }
+with_timeout().await?; // Times out after 5s
 ```
 
 
@@ -1371,6 +1401,7 @@ async fn fetch_data_from_fallback() -> io::Result<String> {
     sleep(Duration::from_millis(500)).await;  // Fast fallback
     Ok("Fallback data".to_string())
 }
+let data = timeout_with_fallback().await; // Uses fallback if primary slow
 ```
 
 
@@ -1423,6 +1454,7 @@ async fn cancellation_example() {
 
     worker.await.unwrap();
 }
+cancellation_example().await; // Cancel worker after 5 seconds
 ```
 
 
@@ -1462,6 +1494,7 @@ async fn operation_c() -> String {
     sleep(Duration::from_secs(2)).await;
     "C completed".to_string()
 }
+let winner = race_operations().await; // Returns "B completed"
 
 ```
 
@@ -1543,6 +1576,7 @@ async fn graceful_shutdown_server() -> io::Result<()> {
     println!("Server stopped");
     Ok(())
 }
+graceful_shutdown_server().await?; // Ctrl+C triggers graceful shutdown
 
 async fn handle_connection_with_shutdown(
     mut socket: TcpStream,
@@ -1598,6 +1632,7 @@ async fn timeout_multiple() -> Result<Vec<String>, Box<dyn std::error::Error>> {
 
     Ok(result.into_iter().map(|r| r.unwrap()).collect())
 }
+timeout_multiple().await?; // All 3 tasks must complete within 5s
 
 async fn async_task(id: usize) -> io::Result<String> {
     sleep(Duration::from_secs(1)).await;
@@ -1622,6 +1657,7 @@ async fn individual_timeouts() -> Vec<Result<String, tokio::time::error::Elapsed
         .map(|r| r.map(|inner| inner.unwrap()))
         .collect()
 }
+individual_timeouts().await; // Each task has own timeout
 ```
 
 
@@ -1691,6 +1727,7 @@ async fn use_retry() -> Result<(), Box<dyn std::error::Error>> {
     println!("Result: {}", result);
     Ok(())
 }
+use_retry().await?; // Retries up to 5 times with exponential backoff
 ```
 
 
@@ -1732,6 +1769,7 @@ async fn process_item(id: usize, deadline: Instant) -> io::Result<String> {
     .await
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Deadline exceeded"))?
 }
+deadline_based_processing().await?; // All tasks share 10s deadline
 ```
 
 

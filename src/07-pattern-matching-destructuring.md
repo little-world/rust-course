@@ -56,8 +56,6 @@ match ch {
 
 **Why It Matters**: Range patterns reduce 20 lines of if-else to a single clear match expression. The `@` binding eliminates temporary variables—capture and test in one step.
 
-**Use Cases**: Numeric classification (temperature ranges, HTTP status codes, port numbers), token parsing (keywords, operators, literals), request routing (method + path combinations), user categorization (age/premium/activity), validation with capture (valid ranges that you need to use).
-
 ### Example: Range Matching
 
 Range patterns provide a concise way to match against a range of values, which is far more readable than a long chain of `if-else` statements. The `..=` syntax creates an inclusive range, while `..` creates an exclusive range. You can use constants like `i32::MIN` and `i32::MAX` to cover the full numeric range without gaps.
@@ -75,6 +73,9 @@ fn classify_temperature(temp: i32) -> &'static str {
         46..=i32::MAX => "extreme heat",
     }
 }
+// Usage: classify temperatures into human-readable categories
+assert_eq!(classify_temperature(20), "comfortable");
+assert_eq!(classify_temperature(-50), "extreme cold");
 ```
 
 ### Example: Guards for Complex Conditions
@@ -97,6 +98,9 @@ fn process_request(
         _ => Err(Error),
     }
 }
+// Usage: match HTTP status with body length using guards
+let result = process_request(200, "data"); // Ok(Response)
+let error = process_request(404, "not found"); // Err(Error)
 ```
 
 ### Example: `@` Bindings to Capture and Test
@@ -115,6 +119,9 @@ fn validate_port(port: u16) -> Result<Port, ValidationError> {
         0 => Err(ValidationError),
     }
 }
+// Usage: categorize ports while capturing their values
+let port = validate_port(80); // Ok(Port::WellKnown(80))
+let dynamic = validate_port(50000); // Ok(Port::Dynamic(50000))
 ```
 
 ### Example: Nested Destructuring
@@ -140,6 +147,11 @@ fn contains_origin(shape: &Shape) -> bool {
         _ => false,
     }
 }
+// Usage: check if shapes contain the origin point
+let circle = Shape::Circle {
+    center: Point { x: 0, y: 0 }, radius: 5.0
+};
+assert!(contains_origin(&circle));
 ```
 
 ## Pattern 2: Exhaustiveness and Match Ergonomics
@@ -180,6 +192,9 @@ fn state_duration(state: &RequestState, now: u64) -> Option<u64> {
         // this match would produce a compile-time error.
     }
 }
+// Usage: calculate how long a request has been in progress
+let state = RequestState::InProgress { started_at: 100 };
+assert_eq!(state_duration(&state, 150), Some(50));
 ```
 
 ### Example: Match Ergonomics
@@ -194,6 +209,9 @@ fn process_option(opt: &Option<String>) {
         None => println!("Got nothing."),
     }
 }
+// Usage: match on references with automatic binding mode
+let opt = Some("hello".to_string());
+process_option(&opt); // "Got a string: hello"
 ```
 
 ### Example: The `#[non_exhaustive]` Attribute
@@ -226,7 +244,7 @@ fn handle_version(version: HttpVersion) {
 4. **Prefer match over if-let for complex enums**: Makes missing cases obvious
 5. **Group similar cases carefully**: Don't hide distinct behavior behind wildcards
 
-### Pattern 3: `if let`, `while let`, and `let-else`
+## Pattern 3: `if let`, `while let`, and `let-else`
 
 **Problem**: A full `match` expression can be verbose if you only care about one or two cases. Nested `if-let` statements for a sequence of validations can lead to a "pyramid of doom" that is hard to read.
 
@@ -242,7 +260,7 @@ fn handle_version(version: HttpVersion) {
 
 ### Example: `if let` and `if let` chains
 
-An `if let` chain can replace nested `if let` statements, making validation logic much flatter and easier to read. The `&&` syntax (stabilized in Rust 1.65) lets you combine multiple pattern matches and boolean conditions in a single expression. 
+An `if let` chain can replace nested `if let` statements, making validation logic much flatter and easier to read. The `&&` syntax (stabilized in Rust 1.79) lets you combine multiple pattern matches and boolean conditions in a single expression. 
 
 ```rust
 struct Claims;
@@ -292,6 +310,9 @@ fn get_user_id(request: &Request) -> Result<u64, Error> {
 
     Ok(claims.user_id)
 }
+// Usage: extract user ID with early returns for errors
+let req = Request { authorization: Some("token".into()) };
+let user_id = get_user_id(&req);
 ```
 
 ### Example: `while let` for Iteration
@@ -307,6 +328,9 @@ fn drain_queue(queue: &mut VecDeque<String>) {
         println!("Processing task: {}", task);
     }
 }
+// Usage: drain a queue until it's empty
+let mut queue = VecDeque::from(["task1".into(), "task2".into()]);
+drain_queue(&mut queue); // Processes both tasks
 ```
 
 **If-let and while-let guidelines:**
@@ -351,6 +375,10 @@ fn execute_command(command: Command) {
         }
     }
 }
+// Usage: dispatch commands via pattern matching
+execute_command(Command::CreateUser {
+    username: "alice".into(), email: "a@b.com".into()
+});
 ```
 
 ### Example: Event Sourcing with Enums
@@ -396,6 +424,14 @@ impl User {
         }
     }
 }
+// Usage: rebuild user state from event history
+let events = vec![
+    UserEvent::UserRegistered {
+        user_id: 1, username: "alice".into()
+    },
+    UserEvent::EmailVerified { user_id: 1 },
+];
+let user = User::from_events(&events);
 ```
 
 **Destructuring best practices:**

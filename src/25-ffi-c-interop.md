@@ -49,6 +49,7 @@ fn demonstrate_repr() {
     // Both are likely 12 bytes, but only CCompatibleStruct guarantees
     // the exact layout C expects
 }
+demonstrate_repr(); // Shows size difference between Rust and C-compatible structs
 ```
 
 The difference becomes critical when passing data to C libraries. If the layouts don't match exactly, you'll get corrupted data or crashes.
@@ -86,6 +87,7 @@ fn use_c_functions() {
         println!("sqrt(16.0) = {}", root);
     }
 }
+use_c_functions(); // Calls C stdlib abs() and sqrt() functions
 ```
 
 Notice that we must wrap C function calls in `unsafe` blocks. This is Rust's way of saying: "Beyond this point, the safety guarantees are up to you." C doesn't have Rust's borrow checker, null-safety, or bounds checking, so the compiler can't verify that the C code won't cause undefined behavior.
@@ -122,6 +124,7 @@ pub extern "C" fn rust_compute_average(values: *const f64, count: usize) -> f64 
         sum / count as f64
     }
 }
+From C: double avg = rust_compute_average(arr, 5);
 ```
 
 The `#[no_mangle]` attribute is crucial. Normally, Rust "mangles" function names to encode type information, which helps with overloading but makes the names unreadable. C expects simple, predictable names like `rust_add`, not something like `_ZN4rust8rust_add17h3b3c3d3e3f3g3hE`.
@@ -168,6 +171,7 @@ fn use_c_types() {
         }
     }
 }
+use_c_types(); // Demonstrates C type mappings (c_int, c_char, etc.)
 ```
 
 The `std::os::raw` module provides platform-independent type aliases that match C's types on the current platform. Always use these rather than assuming `int` is `i32`—on some platforms, it might not be.
@@ -206,6 +210,7 @@ fn examine_layout() {
     );
     // NoPadding size: 6, align: 1
 }
+examine_layout(); // Shows padding effects: 12 bytes vs 6 bytes
 ```
 
 The `packed` attribute removes padding, which can save space but may cause performance issues or crashes on architectures that don't support misaligned access. Only use it when interfacing with C code that explicitly uses packed structs.
@@ -269,6 +274,7 @@ unsafe fn c_string_to_rust(c_ptr: *const c_char) -> String {
 extern "C" {
     fn some_c_function(s: *const c_char);
 }
+rust_string_to_c(); // Converts "Hello, C!" to null-terminated C string
 ```
 
 The key insight here is that `CString::new()` can fail. Why? Because Rust strings can contain null bytes, but C strings can't (null terminates the string). If you try to create a `CString` from a Rust string containing `\0`, you'll get an error:
@@ -292,6 +298,7 @@ fn demonstrate_null_bytes() {
 
     let c_string = CString::new(without_null).unwrap();
 }
+demonstrate_null_bytes(); // Shows CString fails on embedded NUL bytes
 ```
 
 ### Example: OsString and OsStr
@@ -320,6 +327,7 @@ fn working_with_os_strings() {
     let string = os_str.to_string_lossy();
     println!("Path (lossy): {}", string);
 }
+working_with_os_strings(); // Platform-independent path string handling
 ```
 
 `OsString` is particularly important when writing cross-platform code:
@@ -389,6 +397,7 @@ pub unsafe extern "C" fn rust_uses_c_string(s: *const c_char) {
 
     // s is still valid here; C will free it
 }
+From C: rust_uses_c_string("hello"); // Borrows C string, C frees it
 
 //==========================
 // WRONG: This leaks memory!
@@ -452,6 +461,7 @@ fn file_handling_example() {
         println!("Failed to open file");
     }
 }
+file_handling_example(); // Safe Rust wrapper around C's fopen/fclose
 ```
 
 This pattern—wrapping unsafe C calls in safe Rust functions—is the key to good FFI code. You contain the unsafety in small, well-tested functions and expose safe APIs to the rest of your code.
@@ -494,6 +504,7 @@ fn simple_callback_example() {
         trigger_callbacks();
     }
 }
+simple_callback_example(); // Registers extern "C" fn as C callback
 ```
 
 This works because `my_callback` is a simple function pointer. No state, no closures, just a function. But what if you need state?
@@ -546,6 +557,7 @@ fn stateful_callback_example() {
 
     println!("Final count: {}", state.count);
 }
+stateful_callback_example(); // Passes Rust state via void* user_data
 ```
 
 This pattern is powerful but dangerous. You must ensure:
@@ -598,6 +610,7 @@ fn threadsafe_example() {
     // Keep state alive for the duration of the program
     std::mem::forget(state);
 }
+threadsafe_example(); // Thread-safe callback with Arc<Mutex<T>> state
 ```
 
 Notice the `std::mem::forget` at the end. This is necessary because we're giving C a pointer to Rust-owned data. If `state` were dropped, the pointer would become invalid. `forget` leaks the memory, which is usually wrong, but here it's intentional—the callback might be called at any time in the future.
@@ -662,6 +675,7 @@ extern "C" fn stateful_callback(user_data: *mut c_void, value: c_int) {
         state.count += 1;
     }
 }
+ManagedCallback::new("test".into()); // RAII callback with auto-cleanup
 ```
 
 Now we have RAII-style cleanup. When `ManagedCallback` is dropped, it automatically unregisters the callback and cleans up the state. This is much safer.
@@ -690,6 +704,7 @@ fn closure_callback_example() {
         register_simple_callback(callback);
     }
 }
+closure_callback_example(); // Non-capturing closure as C callback
 ```
 
 But capturing closures don't work directly—they have state, and C function pointers can't carry state. You need the user data pattern for that.
@@ -748,6 +763,7 @@ fn error_handling_example() {
         Err(e) => eprintln!("Error: {}", e),
     }
 }
+error_handling_example(); // Converts C errno to Rust io::Result
 ```
 
 This pattern—checking the return value and converting errno to a Rust error—is common when wrapping POSIX functions.
@@ -816,6 +832,7 @@ pub extern "C" fn rust_error_message(error_code: c_int) -> *const c_char {
 
     msg.as_ptr() as *const c_char
 }
+From C: int err = rust_compute(in, &out); const char* msg = rust_error_message(err);
 ```
 
 This provides a C-friendly error API: integer codes with a function to get error messages. The pattern of using out-parameters (the `output` pointer) is also very C-friendly.
@@ -851,6 +868,7 @@ fn risky_computation(value: c_int) -> c_int {
     }
     value * 2
 }
+safe_rust_function(-1) returns -1 instead of unwinding into C
 ```
 
 `catch_unwind` prevents panics from crossing the FFI boundary, giving you a chance to log the error and return a safe error code.
@@ -910,6 +928,7 @@ pub unsafe extern "C" fn rust_clear_last_error() {
         *e.borrow_mut() = None;
     });
 }
+rust_function_with_error(-1); const char* err = rust_get_last_error();
 ```
 
 This provides detailed error messages while maintaining a C-compatible API.
@@ -991,6 +1010,7 @@ fn use_bindings() {
         println!("Result: {}", result);
     }
 }
+use_bindings(); // Calls auto-generated FFI bindings from bindgen
 ```
 
 The `allow` attributes silence warnings about the generated code not following Rust naming conventions.
@@ -1040,6 +1060,7 @@ fn main() {
 
     // Write bindings...
 }
+cargo build triggers build.rs to generate filtered bindings
 ```
 
 This level of control is essential for large libraries where you only need a subset of functionality.
@@ -1111,6 +1132,7 @@ impl Drop for Database {
 // Safe to send between threads if C library is thread-safe
 //=========================================================
 unsafe impl Send for Database {}
+let db = Database::open("test.db")?; db.query("SELECT *")?;
 ```
 
 Now users of your library can work with `Database` using safe, idiomatic Rust, while all the FFI complexity is hidden.
@@ -1167,6 +1189,7 @@ impl Drop for Connection {
         }
     }
 }
+let conn = Connection::connect("postgres://...")?; // Auto-disconnects on drop
 ```
 
 ### Example: Function Pointers and Callbacks with bindgen
@@ -1182,9 +1205,7 @@ void register_callback(callback_t callback, void* user_data);
 Generated Rust:
 
 ```rust
-//==========
 // Generated
-//==========
 pub type callback_t = Option<unsafe extern "C" fn(value: ::std::os::raw::c_int, user_data: *mut ::std::os::raw::c_void)>;
 
 extern "C" {

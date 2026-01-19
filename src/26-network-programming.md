@@ -66,6 +66,7 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
 
     Ok(())
 }
+simple_echo_server()?; // Blocks, handles one client at a time
 ```
 
 This simple server has a critical limitation: it can only handle one client at a time. While one client is connected, other clients attempting to connect will have to wait. For production use, we need concurrent handling.
@@ -124,6 +125,7 @@ fn handle_client_thread(mut stream: TcpStream) -> std::io::Result<()> {
 
     Ok(())
 }
+multithreaded_server()?; // One thread per connection
 ```
 
 While this works well for moderate numbers of clients, each thread consumes system resources. For high-concurrency scenarios, async I/O is more efficient.
@@ -174,6 +176,7 @@ async fn handle_connection(mut socket: TcpStream) -> tokio::io::Result<()> {
         socket.write_all(&buffer[..n]).await?;
     }
 }
+async_echo_server().await?; // Handles 10K+ concurrent connections
 ```
 
 The key advantage here is that `await` points yield control to the runtime, allowing other tasks to make progress. This means one slow client doesn't block others.
@@ -241,6 +244,7 @@ fn process_command(line: &str) -> String {
         _ => format!("ECHO: {}\n", line),
     }
 }
+line_based_server().await?; // Text protocol: HELLO → WORLD
 ```
 
 This pattern is extremely common in network programming. By reading line-by-line, you can implement simple command-response protocols efficiently.
@@ -271,6 +275,7 @@ async fn tcp_client_example() -> tokio::io::Result<()> {
 
     Ok(())
 }
+tcp_client_example().await?; // Simple send/receive TCP client
 ```
 
 For more complex clients, you might want to separate reading and writing:
@@ -323,6 +328,7 @@ async fn interactive_client() -> tokio::io::Result<()> {
 
     Ok(())
 }
+interactive_client().await?; // Concurrent read/write from stdin
 ```
 
 This pattern—splitting reading and writing into separate tasks—is very powerful for building responsive network clients.
@@ -406,6 +412,7 @@ impl std::ops::DerefMut for PooledConnection {
         self.stream.as_mut().unwrap()
     }
 }
+let pool = ConnectionPool::new("127.0.0.1:8080".into(), 10); let conn = pool.acquire().await?;
 ```
 
 ## Pattern 2: UDP Patterns
@@ -446,6 +453,7 @@ async fn udp_echo_server() -> io::Result<()> {
         socket.send_to(&buffer[..len], addr).await?;
     }
 }
+udp_echo_server().await?; // Connectionless, echoes datagrams
 ```
 
 Notice how much simpler this is than TCP—no connection management, no accept loop. Each packet is independent.
@@ -477,6 +485,7 @@ async fn udp_client_example() -> tokio::io::Result<()> {
 
     Ok(())
 }
+udp_client_example().await?; // Send datagram, receive response
 ```
 
 ### Example: Broadcast and Multicast
@@ -522,6 +531,7 @@ async fn udp_broadcast_listener() -> tokio::io::Result<()> {
         );
     }
 }
+udp_broadcast().await?; // Broadcast discovery message to 255.255.255.255
 ```
 
 ### Example: Reliable UDP Pattern
@@ -565,6 +575,7 @@ async fn reliable_udp_request(
         "All retry attempts failed"
     ))
 }
+reliable_udp_request(&socket, b"data", "127.0.0.1:8080", 3).await?;
 ```
 
 This pattern is the basis for protocols like QUIC and helps bridge the gap between UDP's speed and TCP's reliability.
@@ -618,6 +629,7 @@ async fn get_json() -> Result<(), Box<dyn std::error::Error>> {
     println!("Response: {:?}", response);
     Ok(())
 }
+simple_get_request().await?; // GET with headers, body, status
 ```
 
 The `.json()` method automatically deserializes the response body using serde, making it very convenient for API interactions.
@@ -682,6 +694,7 @@ async fn post_form() -> Result<(), Box<dyn std::error::Error>> {
     println!("Login status: {}", response.status());
     Ok(())
 }
+create_user().await?; // POST JSON, deserialize response
 ```
 
 ### Example: Request Headers and Authentication
@@ -732,6 +745,7 @@ async fn client_with_defaults() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+client_with_defaults().await?; // All requests include Bearer token
 ```
 
 ### Example: Error Handling and Retries
@@ -795,6 +809,7 @@ async fn request_with_retry(
         }
     }
 }
+request_with_retry(&client, "https://api.com/data", 3).await?;
 ```
 
 This pattern—exponential backoff with retry limits—is essential for building resilient network clients.
@@ -842,6 +857,7 @@ async fn download_file(
     println!("\nDownload complete!");
     Ok(())
 }
+download_file("https://example.com/file.zip", "file.zip").await?;
 ```
 
 ## Pattern 4: HTTP Server (axum, actix-web)
@@ -975,6 +991,7 @@ async fn create_user(
 
     (StatusCode::CREATED, Json(user))
 }
+basic_axum_server(); // Routes: GET /, GET/POST /users, GET /users/:id
 ```
 
 Notice how axum uses extractors (like `Path`, `Query`, `Json`) to parse and validate request data at compile time. If the types don't match, you get a compile error.
@@ -1043,6 +1060,7 @@ async fn get_all_users(
     // Clone the users (in real app, might want to use pagination)
     Json(db.users.clone())
 }
+stateful_server(); // Shared Arc<RwLock<Database>> across handlers
 ```
 
 The `State` extractor ensures every handler has access to the application state without global variables.
@@ -1107,6 +1125,7 @@ async fn auth_middleware<B>(
         .body("Unauthorized".into())
         .unwrap()
 }
+middleware_example(); // Timing + auth middleware on all routes
 ```
 
 Middleware composes nicely, allowing you to build complex request processing pipelines.
@@ -1169,6 +1188,7 @@ async fn get_user(path: web::Path<u64>) -> impl Responder {
         HttpResponse::NotFound().finish()
     }
 }
+actix_server(); // Fast actor-based HTTP server
 ```
 
 actix-web is slightly more imperative in style compared to axum's declarative approach, but both are excellent choices.
@@ -1271,6 +1291,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     println!("Client disconnected");
 }
+websocket_server(); // Broadcast chat: all clients receive all messages
 ```
 
 This creates a simple chat server where all messages are broadcast to all connected clients. Each client gets two tasks: one for receiving broadcasts and one for sending messages.
@@ -1326,6 +1347,7 @@ async fn websocket_client() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+websocket_client().await?; // Connect, send 5 messages, close
 ```
 
 ### Example: Room-based WebSocket Pattern
@@ -1404,6 +1426,7 @@ impl ChatServer {
         }
     }
 }
+let server = ChatServer::new(); server.join_room("room1", "user1", "Alice").await;
 ```
 
 This pattern allows users to join specific rooms and only receive messages from those rooms, which is much more scalable than broadcasting everything to everyone.
@@ -1451,6 +1474,7 @@ async fn websocket_with_keepalive(mut socket: WebSocket) {
 
     println!("WebSocket connection closed");
 }
+websocket_with_keepalive(socket).await; // Ping every 30s to detect dead connections
 ```
 
 This ensures you detect and clean up dead connections promptly.

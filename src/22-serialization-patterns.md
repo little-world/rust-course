@@ -61,6 +61,7 @@ fn basic_serialization() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+basic_serialization()?; // Converts Person to/from JSON
 ```
 
 
@@ -148,6 +149,7 @@ This example walks through }.
 
     Ok(())
 }
+field_attributes_example()?; // Demonstrates rename, skip, flatten
 ```
 
 
@@ -246,6 +248,7 @@ This example walks through }.
 
     Ok(())
 }
+enum_serialization()?; // Tagged vs untagged enum formats
 ```
 
 
@@ -352,6 +355,7 @@ where
 
     deserializer.deserialize_str(DateVisitor)
 }
+Config { timeout: Duration::from_secs(300), created_at: NaiveDate::from_ymd(2024, 1, 1) }
 ```
 
 
@@ -488,6 +492,7 @@ impl<'de> Deserialize<'de> for Point {
         deserializer.deserialize_struct("Point", FIELDS, PointVisitor)
     }
 }
+let json = serde_json::to_string(&Point { x: 1.0, y: 2.0 })?;
 ```
 
 
@@ -555,6 +560,7 @@ impl<'a, T: Serialize> Serialize for SerializeWithContext<'a, T> {
         }
     }
 }
+SerializeWithContext { value: &data, include_metadata: true }
 ```
 
 
@@ -612,6 +618,7 @@ fn zero_copy_example() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+zero_copy_example()?; // Borrows strings from JSON input
 
 ```
 
@@ -641,6 +648,7 @@ fn cow_example() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+cow_example()?; // Cow: borrows when possible, owns when needed
 ```
 
 
@@ -693,6 +701,7 @@ fn binary_data_example() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+binary_data_example()?; // Efficient byte array serialization
 ```
 
 
@@ -734,6 +743,7 @@ fn bincode_zero_copy() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+bincode_zero_copy()?; // Binary zero-copy deserialization
 ```
 
 
@@ -868,6 +878,7 @@ fn schema_evolution_example() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+schema_evolution_example()?; // V1 JSON works with V3 struct
 ```
 
 
@@ -1134,6 +1145,7 @@ This example walks through }.
 
     Ok(())
 }
+json_format()?; // Human-readable, ~80 bytes
 ```
 
 
@@ -1177,6 +1189,7 @@ fn bincode_format() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+bincode_format()?; // Compact binary, ~30 bytes
 ```
 
 
@@ -1224,6 +1237,7 @@ fn messagepack_format() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+messagepack_format()?; // Cross-language binary, ~35 bytes
 ```
 
 
@@ -1265,6 +1279,7 @@ fn cbor_format() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+cbor_format()?; // IoT/embedded binary format
 ```
 
 
@@ -1311,6 +1326,7 @@ fn yaml_format() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+yaml_format()?; // Human-readable config format
 ```
 
 
@@ -1380,6 +1396,7 @@ fn toml_format() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+toml_format()?; // Application config file format
 ```
 
 
@@ -1433,6 +1450,7 @@ fn format_comparison() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+format_comparison()?; // Compare sizes across formats
 ```
 
 
@@ -1503,6 +1521,7 @@ fn streaming_array_example() -> io::Result<()> {
 
     Ok(())
 }
+streaming_array_example()?; // Stream JSON array incrementally
 ```
 
 
@@ -1550,6 +1569,7 @@ fn stream_to_file(path: &str) -> io::Result<()> {
 
     Ok(())
 }
+stream_to_file("logs.jsonl")?; // JSON Lines format
 ```
 
 
@@ -1594,6 +1614,7 @@ fn stream_from_file(path: &str) -> io::Result<()> {
 
     Ok(())
 }
+stream_from_file("logs.jsonl")?; // O(1) memory processing
 ```
 
 
@@ -1632,6 +1653,7 @@ fn streaming_deserializer() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+streaming_deserializer()?; // Stream multiple JSON objects
 ```
 
 
@@ -1675,6 +1697,7 @@ async fn async_stream_write(path: &str) -> tokio::io::Result<()> {
     file.flush().await?;
     Ok(())
 }
+async_stream_write("data.jsonl").await?;
 
 ```
 
@@ -1696,6 +1719,7 @@ async fn async_stream_read(path: &str) -> tokio::io::Result<()> {
 
     Ok(())
 }
+async_stream_read("data.jsonl").await?; // Async line-by-line
 ```
 
 
@@ -1776,6 +1800,7 @@ fn stream_large_dataset() -> io::Result<()> {
 
     Ok(())
 }
+stream_large_dataset()?; // 1M points, constant memory
 ```
 
 
@@ -1843,6 +1868,7 @@ fn binary_streaming_example() -> io::Result<()> {
 
     Ok(())
 }
+binary_streaming_example()?; // Length-prefixed binary stream
 ```
 
 

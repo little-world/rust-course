@@ -109,7 +109,9 @@ impl TaskQueue {
 
     fn remove_by_id(&mut self, id: u64) -> Option<Task> {
         // Helper to remove from a specific queue
-        fn remove_from_queue(queue: &mut VecDeque<Task>, id: u64) -> Option<Task> {
+        fn remove_from_queue(
+            queue: &mut VecDeque<Task>, id: u64
+        ) -> Option<Task> {
             let pos = queue.iter().position(|t| t.id == id)?;
             queue.remove(pos)
         }
@@ -120,7 +122,9 @@ impl TaskQueue {
     }
 
     fn len(&self) -> usize {
-        self.high_priority.len() + self.normal_priority.len() + self.low_priority.len()
+        self.high_priority.len()
+            + self.normal_priority.len()
+            + self.low_priority.len()
     }
 
     fn is_empty(&self) -> bool {
@@ -134,9 +138,7 @@ impl TaskQueue {
     }
 }
 
-//==============
 // Example usage
-//==============
 fn main() {
     let mut queue = TaskQueue::new();
 
@@ -213,9 +215,7 @@ impl<T> RingBuffer<T> {
     }
 }
 
-//=======================================
 // Specialized: Sliding window statistics
-//=======================================
 struct SlidingWindowStats {
     buffer: RingBuffer<f64>,
 }
@@ -241,11 +241,13 @@ impl SlidingWindowStats {
     }
 
     fn min(&self) -> Option<f64> {
-        self.buffer.iter().copied().min_by(|a, b| a.partial_cmp(b).unwrap())
+        self.buffer.iter().copied()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
     }
 
     fn max(&self) -> Option<f64> {
-        self.buffer.iter().copied().max_by(|a, b| a.partial_cmp(b).unwrap())
+        self.buffer.iter().copied()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
     }
 
     fn variance(&self) -> Option<f64> {
@@ -267,9 +269,7 @@ impl SlidingWindowStats {
     }
 }
 
-//========================================
 // Real-world example: Audio sample buffer
-//========================================
 struct AudioBuffer {
     samples: RingBuffer<f32>,
     sample_rate: u32,
@@ -331,9 +331,7 @@ impl AudioBuffer {
     }
 }
 
-//==============
 // Example usage
-//==============
 fn main() {
     println!("=== Sliding Window Stats ===\n");
 
@@ -354,7 +352,8 @@ fn main() {
     // Simulate sine wave
     for i in 0..4410 {
         let t = i as f32 / 44100.0;
-        let sample = (2.0 * std::f32::consts::PI * 440.0 * t).sin(); // 440 Hz
+        // 440 Hz sine wave
+        let sample = (2.0 * std::f32::consts::PI * 440.0 * t).sin();
         audio.add_sample(sample * 0.5); // 50% amplitude
     }
 
@@ -436,9 +435,7 @@ impl SlidingWindowMax {
     }
 }
 
-//=============================================
 // Real-world application: Stock price analysis
-//=============================================
 struct StockAnalyzer {
     prices: Vec<f64>,
 }
@@ -547,15 +544,16 @@ fn main() {
     println!("\n=== Stock Analysis ===\n");
 
     let prices = vec![
-        100.0, 102.0, 101.0, 105.0, 103.0, 108.0, 107.0, 110.0, 109.0, 112.0,
+        100.0, 102.0, 101.0, 105.0, 103.0,
+        108.0, 107.0, 110.0, 109.0, 112.0,
     ];
 
     let analyzer = StockAnalyzer::new(prices.clone());
 
     println!("Prices: {:?}", prices);
-    println!("\nResistance (5-day high): {:?}", analyzer.resistance_levels(5));
-    println!("Support (5-day low): {:?}", analyzer.support_levels(5));
-    println!("Volatility (5-day range): {:?}", analyzer.volatility(5));
+    println!("\nResistance (5d): {:?}", analyzer.resistance_levels(5));
+    println!("Support (5d): {:?}", analyzer.support_levels(5));
+    println!("Volatility (5d): {:?}", analyzer.volatility(5));
 }
 ```
 
@@ -627,13 +625,16 @@ impl TaskScheduler {
         }
     }
 
-    fn schedule(&mut self, description: String, priority: u32, deadline: u64, duration: u32) {
+    fn schedule(
+        &mut self, desc: String, priority: u32,
+        deadline: u64, duration: u32
+    ) {
         let task = Task {
             id: self.next_id,
             priority,
             deadline,
             duration,
-            description,
+            description: desc,
         };
         self.next_id += 1;
         self.heap.push(task);
@@ -869,7 +870,10 @@ impl<T: Ord> PartialEq for MergeItem<T> {
 impl<T: Ord + Clone> KWayMerge<T> {
     fn merge(lists: Vec<Vec<T>>) -> Vec<T> {
         let mut heap = BinaryHeap::new();
-        let mut iters: Vec<_> = lists.into_iter().map(|v| v.into_iter()).collect();
+        let mut iters: Vec<_> = lists
+            .into_iter()
+            .map(|v| v.into_iter())
+            .collect();
 
         // Initialize heap with first element from each list
         for (id, iter) in iters.iter_mut().enumerate() {
@@ -917,7 +921,9 @@ impl MedianTracker {
 
     fn add(&mut self, num: i32) {
         // Add to appropriate heap
-        if self.lower_half.is_empty() || num <= *self.lower_half.peek().unwrap() {
+        let add_to_lower = self.lower_half.is_empty()
+            || num <= *self.lower_half.peek().unwrap();
+        if add_to_lower {
             self.lower_half.push(num);
         } else {
             self.upper_half.push(Reverse(num));
@@ -1657,9 +1663,15 @@ fn main() {
 
     let mut build = BuildSystem::new();
 
-    build.add_target("main.o".to_string(), vec!["main.c".to_string(), "util.h".to_string()]);
-    build.add_target("util.o".to_string(), vec!["util.c".to_string(), "util.h".to_string()]);
-    build.add_target("program".to_string(), vec!["main.o".to_string(), "util.o".to_string()]);
+    build.add_target(
+        "main.o".into(),
+        vec!["main.c".into(), "util.h".into()]);
+    build.add_target(
+        "util.o".into(),
+        vec!["util.c".into(), "util.h".into()]);
+    build.add_target(
+        "program".into(),
+        vec!["main.o".into(), "util.o".into()]);
 
     match build.build_order() {
         Ok(order) => {
@@ -1675,10 +1687,16 @@ fn main() {
 
     let mut planner = CoursePlanner::new();
 
-    planner.add_course("Data Structures".to_string(), vec!["Programming 101".to_string()]);
-    planner.add_course("Algorithms".to_string(), vec!["Data Structures".to_string()]);
-    planner.add_course("AI".to_string(), vec!["Algorithms".to_string(), "Linear Algebra".to_string()]);
-    planner.add_course("Machine Learning".to_string(), vec!["AI".to_string(), "Statistics".to_string()]);
+    planner.add_course(
+        "Data Structures".into(), vec!["Programming 101".into()]);
+    planner.add_course(
+        "Algorithms".into(), vec!["Data Structures".into()]);
+    planner.add_course(
+        "AI".into(),
+        vec!["Algorithms".into(), "Linear Algebra".into()]);
+    planner.add_course(
+        "Machine Learning".into(),
+        vec!["AI".into(), "Statistics".into()]);
 
     if planner.can_complete() {
         match planner.course_order() {
@@ -2081,7 +2099,8 @@ impl RadixTree {
                 let new_suffix = &key[common_prefix_len..];
 
                 // Create new intermediate node
-                let mut intermediate = Box::new(RadixNode::new(common.to_string()));
+                let mut intermediate =
+                    Box::new(RadixNode::new(common.to_string()));
 
                 // Move old child under intermediate
                 let old_child = node.children.remove(&first_char).unwrap();
@@ -2094,7 +2113,8 @@ impl RadixTree {
                 // Add new branch
                 if !new_suffix.is_empty() {
                     let new_first = new_suffix.chars().next().unwrap();
-                    let mut new_node = Box::new(RadixNode::new(new_suffix.to_string()));
+                    let mut new_node =
+                        Box::new(RadixNode::new(new_suffix.to_string()));
                     new_node.is_end = true;
                     new_node.value = Some(value);
                     intermediate.children.insert(new_first, new_node);
@@ -2260,8 +2280,8 @@ fn main() {
     routing.add_route("192.168.2.0", "gateway2");
     routing.add_route("192.168.1.100", "gateway3");
 
-    println!("Lookup 192.168.1.0: {:?}", routing.lookup("192.168.1.0"));
-    println!("Lookup 192.168.1.100: {:?}", routing.lookup("192.168.1.100"));
+    println!("192.168.1.0: {:?}", routing.lookup("192.168.1.0"));
+    println!("192.168.1.100: {:?}", routing.lookup("192.168.1.100"));
 
     println!("\nRoutes for '192.168.1':");
     for route in routing.routes_for_prefix("192.168.1") {
@@ -2327,10 +2347,10 @@ impl<T> LockFreeStack<T> {
             }
 
             // Try to swap: if head unchanged, install new_node
-            if self
-                .head
-                .compare_exchange(head, new_node, Ordering::Release, Ordering::Acquire)
-                .is_ok()
+            if self.head.compare_exchange(
+                head, new_node,
+                Ordering::Release, Ordering::Acquire
+            ).is_ok()
             {
                 break;
             }
@@ -2349,10 +2369,10 @@ impl<T> LockFreeStack<T> {
                 let next = (*head).next;
 
                 // Try to swap head with next
-                if self
-                    .head
-                    .compare_exchange(head, next, Ordering::Release, Ordering::Acquire)
-                    .is_ok()
+                if self.head.compare_exchange(
+                    head, next,
+                    Ordering::Release, Ordering::Acquire
+                ).is_ok()
                 {
                     let data = ptr::read(&(*head).data);
                     // Note: In production, use proper memory reclamation (epoch-based)
@@ -2558,16 +2578,19 @@ impl<T> UnboundedWorkQueue<T> {
 //==================================================
 // Real-world: Thread pool with lock-free task queue
 //==================================================
+type Task = Box<dyn FnOnce() + Send + 'static>;
+
 struct ThreadPool {
-    task_queue: UnboundedWorkQueue<Box<dyn FnOnce() + Send + 'static>>,
+    task_queue: UnboundedWorkQueue<Task>,
     workers: Vec<thread::JoinHandle<()>>,
     shutdown: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ThreadPool {
     fn new(num_threads: usize) -> Self {
+        use std::sync::atomic::AtomicBool;
         let task_queue = UnboundedWorkQueue::new();
-        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shutdown = Arc::new(AtomicBool::new(false));
         let mut workers = Vec::new();
 
         for id in 0..num_threads {
@@ -2575,7 +2598,8 @@ impl ThreadPool {
             let shutdown_clone = Arc::clone(&shutdown);
 
             workers.push(thread::spawn(move || {
-                while !shutdown_clone.load(std::sync::atomic::Ordering::Acquire) {
+                use std::sync::atomic::Ordering::Acquire;
+                while !shutdown_clone.load(Acquire) {
                     if let Some(task) = queue_clone.pop() {
                         task();
                     } else {
@@ -2600,8 +2624,8 @@ impl ThreadPool {
     }
 
     fn shutdown(self) {
-        self.shutdown
-            .store(true, std::sync::atomic::Ordering::Release);
+        use std::sync::atomic::Ordering::Release;
+        self.shutdown.store(true, Release);
 
         for worker in self.workers {
             worker.join().unwrap();
@@ -2662,7 +2686,8 @@ fn benchmark_lockfree_vs_mutex() {
     // Mutex-based queue
     println!("\nMutex-based queue:");
     let start = Instant::now();
-    let mutex_queue = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let deque = std::collections::VecDeque::new();
+    let mutex_queue = Arc::new(Mutex::new(deque));
 
     let mut producers = vec![];
     for _ in 0..THREADS {
@@ -2734,7 +2759,10 @@ fn main() {
 
     p.join().unwrap();
 
-    let total: i32 = consumers.into_iter().map(|h| h.join().unwrap()).sum();
+    let total: i32 = consumers
+        .into_iter()
+        .map(|h| h.join().unwrap())
+        .sum();
     println!("Total consumed: {}", total);
 
     println!("\n=== Thread Pool ===\n");

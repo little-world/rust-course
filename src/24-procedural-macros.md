@@ -66,6 +66,7 @@ pub fn hello_world_derive(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+
 ```
 
 ```rust
@@ -86,6 +87,7 @@ fn main() {
     MyStruct::hello_world();
     AnotherStruct::hello_world();
 }
+MyStruct::hello_world(); // Prints "Hello, World! My name is MyStruct"
 ```
 
 ### Example: Derive Macro with Field Access
@@ -199,6 +201,7 @@ fn main() {
     let point = Point(10, 20);
     println!("{}", point.describe());
 }
+person.describe(); // Returns "Person { name: "Alice", age: 30 }"
 ```
 
 ### Example: Derive Macro with Attributes
@@ -335,6 +338,7 @@ fn main() {
         .build()
         .unwrap();
 }
+User::builder().username("alice").email("a@b.com").age(30).build()?
 ```
 
 ### Example: Derive Macro for Enums
@@ -400,6 +404,7 @@ fn main() {
         println!("{}", name);
     }
 }
+Color::variants() returns &[Color::Red, Color::Green, Color::Blue]
 ```
 
 ## Pattern 2: Attribute Macros
@@ -458,6 +463,7 @@ fn slow_function() {
 fn main() {
     slow_function(); // Prints: Function slow_function took ~100ms
 }
+slow_function(); // Auto-prints elapsed time after execution
 ```
 
 ### Example: Attribute Macro with Parameters
@@ -519,6 +525,7 @@ fn main() {
     // Doing work...
     // [INFO] Exiting my_function
 }
+my_function(); // Logs entry/exit with [INFO] prefix
 ```
 
 ### Example: Method Attribute Macro
@@ -613,6 +620,7 @@ fn main() {
     };
     println!("{}", s.debug_info());
 }
+s.debug_info(); // Returns the _debug_info string
 ```
 
 ## Pattern 3: Function-like Macros
@@ -670,6 +678,7 @@ fn main() {
     let query = sql!("SELECT * FROM users WHERE age > 18");
     println!("Query: {}", query);
 }
+let q = sql!("SELECT * FROM users"); // Compile-time SQL validation
 ```
 
 ### Example: Complex Function-like Macro
@@ -733,6 +742,7 @@ pub fn hashmap(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+hashmap! { "key" => "value" } 
 ```
 
 ```rust
@@ -748,6 +758,7 @@ fn main() {
 
     println!("{:?}", map);
 }
+let m = hashmap!{ "a" => 1, "b" => 2 }; // HashMap with 2 entries
 ```
 
 ### Example: DSL Function-like Macro
@@ -825,6 +836,7 @@ pub fn routes(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+routes!(GET, "/users" => handle_users; POST, "/users" => create_user)
 ```
 
 ## Pattern 4: Token Stream Manipulation
@@ -851,6 +863,7 @@ pub fn reverse_tokens(input: TokenStream) -> TokenStream {
     let reversed: TokenStream = tokens.into_iter().rev().collect();
     reversed
 }
+reverse_tokens!(a b c)
 ```
 
 ### Example: Token Inspection
@@ -881,6 +894,7 @@ pub fn inspect_tokens(input: TokenStream) -> TokenStream {
 
     input
 }
+inspect_tokens!(my code here) 
 ```
 
 ### Example: Building TokenStream from Scratch
@@ -910,6 +924,8 @@ pub fn build_struct(_input: TokenStream) -> TokenStream {
 
     tokens
 }
+build_struct!() 
+struct MyStruct { value: i32 }
 ```
 
 ### Example: Span Manipulation
@@ -947,6 +963,8 @@ pub fn with_span(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+with_span!(foo) 
+let prefixed_foo = "foo";
 ```
 
 ## Pattern 5: Macro Helper Crates (syn, quote)
@@ -1010,6 +1028,7 @@ impl Parse for StructDef {
         })
     }
 }
+pub struct Foo { x: i32, y: String } // into StructDef AST
 ```
 
 ### Example: Using quote for Code Generation
@@ -1044,6 +1063,7 @@ fn generate_multiple_methods(name: &str, count: usize) -> proc_macro2::TokenStre
         }
     }
 }
+generate_multiple_methods("MyStruct", 3)
 ```
 
 ### Example: Advanced syn Features
@@ -1053,9 +1073,7 @@ use syn::{
     Attribute, Expr, ExprLit, Lit, Meta, MetaNameValue,
 };
 
-//========================
 // Parse custom attributes
-//========================
 fn parse_custom_attribute(attr: &Attribute) -> Option<String> {
     if attr.path().is_ident("doc") {
         if let Meta::NameValue(MetaNameValue {
@@ -1071,14 +1089,13 @@ fn parse_custom_attribute(attr: &Attribute) -> Option<String> {
     None
 }
 
-//===============================
 // Extract documentation comments
-//===============================
 fn get_doc_comments(attrs: &[Attribute]) -> Vec<String> {
     attrs.iter()
         .filter_map(parse_custom_attribute)
         .collect()
 }
+get_doc_comments(&item.attrs) 
 ```
 
 ### Example: Combining syn and quote
@@ -1135,6 +1152,7 @@ pub fn getter_setter_derive(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+#[derive(GetterSetter)] 
 ```
 
 ### Example: Error Handling in Procedural Macros
@@ -1173,6 +1191,7 @@ pub fn validated_derive(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+#[derive(Validated)]
 ```
 
 ### Example: Custom Parse Implementation
@@ -1220,6 +1239,7 @@ impl Parse for ConfigItem {
         })
     }
 }
+
 ```
 
 ### Example: Using proc_macro2
@@ -1245,9 +1265,7 @@ fn generate_with_proc_macro2() -> TokenStream {
     }
 }
 
-//===========================================
 // Convert between proc_macro and proc_macro2
-//===========================================
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream as TokenStream2;
 
@@ -1302,6 +1320,7 @@ pub fn to_json_derive(input: TokenStream) -> TokenStream {
 
     TokenStream::from(json_impl)
 }
+#[derive(ToJson)]
 ```
 
 ```rust
@@ -1321,14 +1340,12 @@ fn main() {
     };
     println!("{}", person.to_json());
 }
+person.to_json(); // Returns { "name": "Alice", "age": 30 }
 ```
 
 ### Example: Testing Procedural Macros
 
 ```rust
-//===========================
-// tests/integration_tests.rs
-//===========================
 #[test]
 fn test_derive_macro() {
     #[derive(HelloWorld)]

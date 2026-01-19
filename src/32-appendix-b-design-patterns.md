@@ -64,9 +64,9 @@ Creational patterns abstract the instantiation process, making systems independe
 **Motivation**: When creating an object requires many optional parameters or complex initialization logic, constructors become unwieldy. The builder pattern provides a fluent interface for step-by-step construction, improving readability and enabling compile-time validation of required fields.
 
 ```rust
-//=========================================
+
 // Problem: Too many constructor parameters
-//=========================================
+
 struct HttpClient {
     base_url: String,
     timeout: Duration,
@@ -76,9 +76,7 @@ struct HttpClient {
     compression: bool,
 }
 
-//=====================
 // Unwieldy constructor
-//=====================
 impl HttpClient {
     fn new(
         base_url: String,
@@ -92,9 +90,7 @@ impl HttpClient {
     }
 }
 
-//==========================
 // Solution: Builder pattern
-//==========================
 struct HttpClientBuilder {
     base_url: String,
     timeout: Option<Duration>,
@@ -148,9 +144,6 @@ impl HttpClientBuilder {
     }
 }
 
-//===========================
-// Usage: Fluent and readable
-//===========================
 let client = HttpClientBuilder::new("https://api.example.com")
     .timeout(Duration::from_secs(60))
     .max_retries(5)
@@ -165,9 +158,7 @@ The typestate pattern uses phantom types to encode state in the type system, cat
 ```rust
 use std::marker::PhantomData;
 
-//==============
 // State markers
-//==============
 struct Incomplete;
 struct Complete;
 
@@ -200,9 +191,9 @@ impl ConfigBuilder<Incomplete> {
     }
 }
 
-//=========================================
+
 // build() only available on Complete state
-//=========================================
+
 impl ConfigBuilder<Complete> {
     fn build(self) -> Config {
         Config {
@@ -217,9 +208,9 @@ struct Config {
     port: u16,
 }
 
-//==============================================
+=====
 // Compile-time error if required fields missing
-//==============================================
+=====
 // let config = ConfigBuilder::new().build(); // Error: no method `build`
 let config = ConfigBuilder::new()
     .host("localhost".to_string())
@@ -242,17 +233,13 @@ let config = ConfigBuilder::new()
 **Motivation**: When the exact type of object to create isn't known until runtime, or when creation logic needs to be abstracted, factories encapsulate instantiation. In Rust, this typically uses trait objects or enums rather than inheritance.
 
 ```rust
-//=================
 // Abstract product
-//=================
 trait Button {
     fn render(&self) -> String;
     fn on_click(&self);
 }
 
-//==================
 // Concrete products
-//==================
 struct WindowsButton;
 impl Button for WindowsButton {
     fn render(&self) -> String {
@@ -273,16 +260,12 @@ impl Button for MacButton {
     }
 }
 
-//==================
 // Factory interface
-//==================
 trait UIFactory {
     fn create_button(&self) -> Box<dyn Button>;
 }
 
-//===================
 // Concrete factories
-//===================
 struct WindowsFactory;
 impl UIFactory for WindowsFactory {
     fn create_button(&self) -> Box<dyn Button> {
@@ -297,18 +280,13 @@ impl UIFactory for MacFactory {
     }
 }
 
-//============
 // Client code
-//============
 fn render_ui(factory: &dyn UIFactory) {
     let button = factory.create_button();
     println!("{}", button.render());
     button.on_click();
 }
 
-//======
-// Usage
-//======
 let factory: Box<dyn UIFactory> = if cfg!(target_os = "windows") {
     Box::new(WindowsFactory)
 } else {
@@ -348,9 +326,7 @@ enum Platform {
     Mac,
 }
 
-//========================================
 // No heap allocation, no dynamic dispatch
-//========================================
 let button = Button::new(Platform::Windows);
 ```
 
@@ -390,9 +366,6 @@ impl AppConfig {
     }
 }
 
-//=====================================
-// Usage: Thread-safe, initialized once
-//=====================================
 let config = AppConfig::global();
 println!("API Key: {}", config.api_key);
 ```
@@ -422,9 +395,9 @@ impl<'a> UserService<'a> {
     }
 }
 
-//=================================================
+========
 // Explicit dependencies, testable, no global state
-//=================================================
+========
 let db = Database::new("postgres://localhost".to_string());
 let service = UserService::new(&db);
 ```
@@ -487,14 +460,9 @@ fn load_template(_name: &str) -> String {
     String::from("template content")
 }
 
-//======
-// Usage
-//======
 let base_engine = TemplateEngine::new();  // Expensive
 
-//=============================
 // Cheap clones with variations
-//=============================
 let dev_engine = base_engine.with_different_config(Config {
     strict_mode: false,
     cache_enabled: false,
@@ -521,9 +489,9 @@ let original = SharedData {
 };
 
 let cloned = original.clone();
-//============================================
+===
 // cache is shared (reference count increased)
-//============================================
+===
 // user_id is copied
 assert_eq!(Rc::strong_count(&original.cache), 2);
 ```
@@ -547,16 +515,14 @@ Structural patterns compose objects and types to form larger structures while ke
 **Motivation**: When integrating third-party libraries or legacy code, interfaces often don't match your requirements. Adapters wrap existing types to provide the interface you need without modifying the original.
 
 ```rust
-//===================================
 // Target interface your code expects
-//===================================
 trait MediaPlayer {
     fn play(&self, filename: &str);
 }
 
-//======================================================
+=============
 // Existing third-party library with different interface
-//======================================================
+=============
 struct VlcPlayer;
 impl VlcPlayer {
     fn play_vlc(&self, file_path: &str) {
@@ -571,9 +537,7 @@ impl Mp3Player {
     }
 }
 
-//=================================
 // Adapters to make them compatible
-//=================================
 struct VlcAdapter {
     player: VlcPlayer,
 }
@@ -594,16 +558,13 @@ impl MediaPlayer for Mp3Adapter {
     }
 }
 
-//=========================================
+
 // Client code works with uniform interface
-//=========================================
+
 fn play_media(player: &dyn MediaPlayer, file: &str) {
     player.play(file);
 }
 
-//======
-// Usage
-//======
 let vlc = VlcAdapter { player: VlcPlayer };
 let mp3 = Mp3Adapter { player: Mp3Player };
 play_media(&vlc, "video.mp4");
@@ -627,9 +588,9 @@ impl<T: PlayVlc> MediaPlayer for GenericAdapter<T> {
     }
 }
 
-//========================================================
+===============
 // No trait object overhead, monomorphized at compile-time
-//========================================================
+===============
 ```
 
 **Trade-offs**:
@@ -652,9 +613,7 @@ trait DataSource {
     fn write(&mut self, data: &str);
 }
 
-//===================
 // Concrete component
-//===================
 struct FileDataSource {
     filename: String,
     contents: String,
@@ -670,9 +629,7 @@ impl DataSource for FileDataSource {
     }
 }
 
-//======================
 // Decorator: Encryption
-//======================
 struct EncryptionDecorator {
     wrapped: Box<dyn DataSource>,
 }
@@ -689,9 +646,7 @@ impl DataSource for EncryptionDecorator {
     }
 }
 
-//=======================
 // Decorator: Compression
-//=======================
 struct CompressionDecorator {
     wrapped: Box<dyn DataSource>,
 }
@@ -713,9 +668,6 @@ fn decrypt(data: &str) -> String { data.trim_start_matches("encrypted(").trim_en
 fn compress(data: &str) -> String { format!("compressed({})", data) }
 fn decompress(data: &str) -> String { data.trim_start_matches("compressed(").trim_end_matches(')').to_string() }
 
-//========================
-// Usage: Stack decorators
-//========================
 let file = FileDataSource {
     filename: "data.txt".to_string(),
     contents: "sensitive data".to_string(),
@@ -726,9 +678,7 @@ source = Box::new(EncryptionDecorator { wrapped: source });
 source = Box::new(CompressionDecorator { wrapped: source });
 
 source.write("secret");
-//======================================
 // Writes: compressed(encrypted(secret))
-//======================================
 ```
 
 **Type-safe decorator with generics**
@@ -759,9 +709,7 @@ impl<T: Read> Read for Compressed<T> {
     }
 }
 
-//====================================
 // Compile-time composition, zero-cost
-//====================================
 let data = String::from("data");
 let secure = Compressed(Encrypted(data));
 println!("{}", secure.read());
@@ -782,9 +730,7 @@ println!("{}", secure.read());
 **Motivation**: Complex libraries or modules can have dozens of types and methods. A facade presents a clean, high-level API that hides the complexity, making common use cases simple while still allowing access to advanced features when needed.
 
 ```rust
-//==================
 // Complex subsystem
-//==================
 mod video_processing {
     pub struct VideoDecoder;
     impl VideoDecoder {
@@ -818,9 +764,7 @@ mod video_processing {
     }
 }
 
-//=========================
 // Facade: Simple interface
-//=========================
 struct VideoConverter {
     decoder: video_processing::VideoDecoder,
     audio: video_processing::AudioExtractor,
@@ -847,9 +791,7 @@ impl VideoConverter {
     }
 }
 
-//==============================
 // Client code: Simple and clean
-//==============================
 let converter = VideoConverter::new();
 let output = converter.convert_to_mp4("input.avi");
 println!("Converted: {}", output);
@@ -870,9 +812,9 @@ println!("Converted: {}", output);
 **Motivation**: Type aliases provide no safety—a `UserId` alias for `u64` can be accidentally mixed with `ProductId`. Newtypes create distinct types at compile-time with zero runtime cost, preventing bugs and enabling custom trait implementations.
 
 ```rust
-//===========================================
+==
 // Problem: Type aliases don't prevent mixing
-//===========================================
+==
 type Meters = f64;
 type Feet = f64;
 
@@ -881,9 +823,7 @@ fn calculate_distance(m: Meters) -> Meters { m * 2.0 }
 let feet: Feet = 10.0;
 let result = calculate_distance(feet);  // Compiles but wrong!
 
-//==========================
 // Solution: Newtype pattern
-//==========================
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Meters(f64);
 
@@ -915,9 +855,9 @@ fn calculate_distance_safe(m: Meters) -> Meters {
 }
 
 let feet = Feet::new(10.0);
-//===============================================================
+======================
 // let result = calculate_distance_safe(feet);  // Compile error!
-//===============================================================
+======================
 let meters = feet.to_meters();
 let result = calculate_distance_safe(meters);  // OK
 ```
@@ -929,14 +869,12 @@ Rust's orphan rule prevents implementing external traits for external types, but
 ```rust
 use std::fmt;
 
-//============================================================
+===================
 // Can't implement Display for Vec<i32> directly (orphan rule)
-//============================================================
+===================
 // impl fmt::Display for Vec<i32> { }  // Error!
 
-//======================================
 // Newtype enables custom implementation
-//======================================
 struct IntList(Vec<i32>);
 
 impl fmt::Display for IntList {
@@ -973,17 +911,13 @@ Behavioral patterns define how objects interact and distribute responsibility. T
 **Motivation**: When multiple algorithms exist for a specific task, strategy pattern allows selecting the algorithm at runtime. In Rust, this uses trait objects for runtime polymorphism or generics for compile-time selection.
 
 ```rust
-//===============
 // Strategy trait
-//===============
 trait CompressionStrategy {
     fn compress(&self, data: &[u8]) -> Vec<u8>;
     fn decompress(&self, data: &[u8]) -> Vec<u8>;
 }
 
-//====================
 // Concrete strategies
-//====================
 struct ZipCompression;
 impl CompressionStrategy for ZipCompression {
     fn compress(&self, data: &[u8]) -> Vec<u8> {
@@ -1010,9 +944,7 @@ impl CompressionStrategy for RarCompression {
     }
 }
 
-//========
 // Context
-//========
 struct FileCompressor {
     strategy: Box<dyn CompressionStrategy>,
 }
@@ -1031,9 +963,6 @@ impl FileCompressor {
     }
 }
 
-//==================================
-// Usage: Runtime strategy selection
-//==================================
 let data = vec![1, 2, 3, 4, 5];
 let mut compressor = FileCompressor::new(Box::new(ZipCompression));
 compressor.compress_file(&data);
@@ -1059,9 +988,9 @@ impl<S: CompressionStrategy> StaticCompressor<S> {
     }
 }
 
-//====================================================
+===========
 // Compile-time strategy selection, no heap allocation
-//====================================================
+===========
 let compressor = StaticCompressor::new(ZipCompression);
 compressor.compress_file(&data);
 ```
@@ -1089,9 +1018,7 @@ where
     }
 }
 
-//====================
 // Strategy as closure
-//====================
 let zip_fn = |data: &[u8]| -> Vec<u8> {
     println!("ZIP compressing");
     data.to_vec()
@@ -1117,16 +1044,12 @@ let compressor = FunctionalCompressor::new(zip_fn);
 ```rust
 use std::sync::{Arc, Mutex};
 
-//===============
 // Observer trait
-//===============
 trait Observer {
     fn update(&mut self, temperature: f32);
 }
 
-//===================
 // Concrete observers
-//===================
 struct TemperatureDisplay {
     name: String,
 }
@@ -1148,9 +1071,7 @@ impl Observer for TemperatureLogger {
     }
 }
 
-//========
 // Subject
-//========
 struct WeatherStation {
     temperature: f32,
     observers: Vec<Arc<Mutex<dyn Observer + Send>>>,
@@ -1180,9 +1101,6 @@ impl WeatherStation {
     }
 }
 
-//======
-// Usage
-//======
 let mut station = WeatherStation::new();
 
 let display = Arc::new(Mutex::new(TemperatureDisplay {
@@ -1207,9 +1125,7 @@ struct Event {
     temperature: f32,
 }
 
-//==========
 // Publisher
-//==========
 struct Publisher {
     subscribers: Vec<mpsc::Sender<Event>>,
 }
@@ -1237,9 +1153,6 @@ struct Event {
     temperature: f32,
 }
 
-//======
-// Usage
-//======
 let mut publisher = Publisher::new();
 
 let rx1 = publisher.subscribe();
@@ -1276,17 +1189,13 @@ publisher.publish(Event { temperature: 25.5 });
 **Motivation**: When you need to decouple the object that invokes an operation from the one that performs it, commands encapsulate all information needed to execute an action. This enables undo/redo, macros, and request queuing.
 
 ```rust
-//==============
 // Command trait
-//==============
 trait Command {
     fn execute(&mut self);
     fn undo(&mut self);
 }
 
-//=========
 // Receiver
-//=========
 struct TextEditor {
     content: String,
 }
@@ -1312,9 +1221,7 @@ impl TextEditor {
     }
 }
 
-//==================
 // Concrete commands
-//==================
 struct WriteCommand {
     editor: std::rc::Rc<std::cell::RefCell<TextEditor>>,
     text: String,
@@ -1352,9 +1259,7 @@ impl Command for DeleteCommand {
     }
 }
 
-//========
 // Invoker
-//========
 struct CommandHistory {
     history: Vec<Box<dyn Command>>,
     current: usize,
@@ -1391,9 +1296,6 @@ impl CommandHistory {
     }
 }
 
-//======
-// Usage
-//======
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -1456,9 +1358,7 @@ impl FunctionalCommand {
 **Motivation**: Rust has first-class support for the iterator pattern through the `Iterator` trait. This is the most idiomatic way to traverse collections and is deeply integrated into the language.
 
 ```rust
-//================
 // Custom iterator
-//================
 struct Fibonacci {
     current: u64,
     next: u64,
@@ -1481,9 +1381,8 @@ impl Iterator for Fibonacci {
     }
 }
 
-//===========================================
-// Usage: Works with all iterator combinators
-//===========================================
+==
+==
 let fibs: Vec<u64> = Fibonacci::new().take(10).collect();
 println!("{:?}", fibs);  // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 ```
@@ -1505,9 +1404,7 @@ impl MyCollection {
     }
 }
 
-//===============
 // Owned iterator
-//===============
 impl IntoIterator for MyCollection {
     type Item = String;
     type IntoIter = std::vec::IntoIter<String>;
@@ -1517,9 +1414,7 @@ impl IntoIterator for MyCollection {
     }
 }
 
-//==================
 // Borrowed iterator
-//==================
 impl<'a> IntoIterator for &'a MyCollection {
     type Item = &'a String;
     type IntoIter = std::slice::Iter<'a, String>;
@@ -1529,9 +1424,6 @@ impl<'a> IntoIterator for &'a MyCollection {
     }
 }
 
-//======
-// Usage
-//======
 let mut collection = MyCollection::new();
 collection.add("Item 1".to_string());
 collection.add("Item 2".to_string());
@@ -1539,16 +1431,12 @@ collection.add("Item 2".to_string());
 for item in &collection {
     println!("{}", item);
 }
-//=======================
 // collection still valid
-//=======================
 
 for item in collection {
     println!("{}", item);
 }
-//=================
 // collection moved
-//=================
 ```
 
 **Trade-offs**:
@@ -1628,9 +1516,6 @@ impl Worker {
     }
 }
 
-//======
-// Usage
-//======
 let pool = ThreadPool::new(4);
 
 for i in 0..10 {
@@ -1646,9 +1531,9 @@ for i in 0..10 {
 ```rust
 use rayon::prelude::*;
 
-//=========================================================
+================
 // Parallel iterator (much simpler than manual thread pool)
-//=========================================================
+================
 let numbers: Vec<i32> = (0..1000).collect();
 let sum: i32 = numbers.par_iter().map(|&x| x * 2).sum();
 ```
@@ -1673,9 +1558,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-//=========
 // Producer
-//=========
 fn producer(tx: mpsc::Sender<i32>) {
     for i in 0..10 {
         println!("Producing {}", i);
@@ -1685,9 +1568,7 @@ fn producer(tx: mpsc::Sender<i32>) {
     // Channel closes when tx is dropped
 }
 
-//=========
 // Consumer
-//=========
 fn consumer(rx: mpsc::Receiver<i32>) {
     for item in rx {
         println!("  Consuming {}", item);
@@ -1695,9 +1576,6 @@ fn consumer(rx: mpsc::Receiver<i32>) {
     }
 }
 
-//========================================
-// Usage: Single producer, single consumer
-//========================================
 let (tx, rx) = mpsc::channel();
 
 thread::spawn(move || producer(tx));
@@ -1736,9 +1614,7 @@ use std::sync::mpsc::sync_channel;
 
 let (tx, rx) = sync_channel(3);  // Buffer size of 3
 
-//=================================
 // Producer blocks if queue is full
-//=================================
 thread::spawn(move || {
     for i in 0..10 {
         println!("Sending {}", i);
@@ -1794,9 +1670,6 @@ fn parallel_sum(data: &[i32]) -> i32 {
     }
 }
 
-//======
-// Usage
-//======
 let data: Vec<i32> = (1..=1000).collect();
 let total = parallel_sum(&data);
 println!("Sum: {}", total);
@@ -1811,9 +1684,7 @@ fn rayon_sum(data: &[i32]) -> i32 {
     data.par_iter().sum()  // Automatically parallelizes
 }
 
-//==============================
 // Parallel recursion with rayon
-//==============================
 fn quicksort<T: Ord + Send>(mut data: Vec<T>) -> Vec<T> {
     if data.len() <= 1 {
         return data;
@@ -1855,9 +1726,7 @@ fn quicksort<T: Ord + Send>(mut data: Vec<T>) -> Vec<T> {
 use std::sync::mpsc;
 use std::thread;
 
-//==============
 // Message types
-//==============
 enum AccountMessage {
     Deposit(u64),
     Withdraw(u64),
@@ -1865,9 +1734,7 @@ enum AccountMessage {
     Shutdown,
 }
 
-//======
 // Actor
-//======
 struct BankAccount {
     balance: u64,
     receiver: mpsc::Receiver<AccountMessage>,
@@ -1912,9 +1779,7 @@ impl BankAccount {
     }
 }
 
-//======
-// Usage
-//======
+
 let (account, handle) = BankAccount::new(100);
 account.run();
 
@@ -1932,9 +1797,7 @@ handle.send(AccountMessage::Shutdown).unwrap();
 **Using Actix framework**
 
 ```rust
-//===============================
 // With actix-rt (external crate)
-//===============================
 // Much more ergonomic for complex actor systems
 /*
 use actix::prelude::*;

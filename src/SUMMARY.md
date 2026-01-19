@@ -9,7 +9,6 @@
 - [functional-programming](04-functional-programming-patterns.md)
 - [pattern-matching-destructuring](07-pattern-matching-destructuring.md)
 - [iterator-patterns-combinators](08-iterator-patterns-combinators.md)
-- [reference-binding](18-reference-iterator-patterns.md)
 - [error-handling-architecture](09-error-handling-architecture.md)
 # Part II: Collections & Data Structures
 - [vec-slice-manipulation](10-vec-slice-manipulation.md)

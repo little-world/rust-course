@@ -5,24 +5,22 @@ This chapter explores advanced trait patterns: inheritance and bounds for capabi
 
 *   **Problem**: Expressing complex capability requirements is unclear—a trait needs `Display` but can't require it directly. Combining multiple capabilities is verbose (`T: Clone + Debug + Display`).
 *   **Solution**: Use supertrait relationships (`trait Loggable: Debug`) to express requirements. Use trait bounds in generics (`fn process<T: Clone>`), and `where` clauses for readability.
+* **Why It Matters**: Supertraits create clear capability requirements. Trait bounds allow for powerful composition of abstractions from simple components.
+
 
 ### Example: Super Traits
 
 A supertrait is a trait that another trait depends on. When you declare `trait Printable: Debug`, any type implementing `Printable` must also implement `Debug`. This creates a clear dependency chain and guarantees capabilities.
 
 ```rust
-//==================================================
 // Supertrait relationship: Printable requires Debug
-//==================================================
 trait Printable: std::fmt::Debug {
     fn print(&self) {
         println!("{:?}", self);
     }
 }
 
-//==========================================================
 // Any type implementing Printable must also implement Debug
-//==========================================================
 #[derive(Debug)]
 struct Document {
     title: String,
@@ -31,10 +29,12 @@ struct Document {
 
 impl Printable for Document {}
 
-// Usage: Implementing Printable requires implementing Debug (supertrait).
-// The print() method uses Debug internally via println!("{:?}", self).
-let doc = Document { title: "Rust Guide".to_string(), content: "Learning Rust".to_string() };
-doc.print(); // Uses Debug formatting
+// Usage: Implementing Printable gives you print() via Debug supertrait.
+let doc = Document {
+    title: "Rust Guide".to_string(),
+    content: "Learning Rust".to_string()
+};
+doc.print();
 ```
 
 
@@ -45,9 +45,7 @@ Traits can require multiple supertraits using `+` syntax, combining different ca
 ```rust
 use std::fmt::{Debug, Display};
 
-//================================
 // Requires both Debug and Display
-//================================
 trait Loggable: Debug + Display {
     fn log(&self) {
         println!("[DEBUG] {:?}", self);
@@ -73,8 +71,7 @@ fn use_loggable<T: Loggable>(item: &T) {
     item.log();
 }
 
-// Usage: User implements Debug (derived) and Display (manual), so it can implement Loggable.
-// The log() method uses both formats; use_loggable() requires the combined bound.
+// Usage: Loggable requires both Debug and Display implementations.
 let user = User { name: "Alice".to_string(), id: 42 };
 user.log(); // Prints both [DEBUG] and [INFO] lines
 use_loggable(&user);
@@ -87,24 +84,18 @@ This pattern is useful when your abstraction needs multiple orthogonal capabilit
 Trait bounds specify what capabilities a generic type must have using `T: Trait` syntax. Multiple bounds use `+` (e.g., `T: Clone + Debug`). For complex bounds, `where` clauses improve readability.
 
 ```rust
-//=============
 // Simple bound
-//=============
 fn print_item<T: std::fmt::Display>(item: T) {
     println!("{}", item);
 }
 
-//================
 // Multiple bounds
-//================
 fn process<T: Clone + std::fmt::Debug>(item: T) {
     let copy = item.clone();
     println!("Processing: {:?}", copy);
 }
 
-//=============================
 // Where clause for readability
-//=============================
 fn complex_function<T, U>(t: T, u: U) -> String
 where
     T: std::fmt::Debug + Clone,
@@ -113,16 +104,16 @@ where
     format!("{:?} and {}", t, u)
 }
 
-// Usage: print_item requires Display, process requires Clone + Debug.
-// complex_function uses a where clause for readability with multiple bounds.
-print_item("hello"); // &str implements Display
-process(vec![1, 2, 3]); // Vec implements Clone + Debug
-let result = complex_function(vec![1, 2], String::new()); // Where clause in action
+// Usage: Bounds specify required capabilities for generic parameters.
+print_item("hello");
+process(vec![1, 2, 3]);
+let result = complex_function(vec![1, 2], String::new());
 ```
 
 The `where` clause improves readability when you have many bounds or complex constraints. It's especially useful in traits and impl blocks:
 
 ```rust
+// Note: This example requires the `serde` crate
 trait DataProcessor {
     fn process<T>(&self, data: T) -> String
     where
@@ -137,41 +128,34 @@ You can implement traits conditionally based on what traits the type parameters 
 ```rust
 struct Wrapper<T>(T);
 
-//===================================
 // Only implement Clone if T is Clone
-//===================================
 impl<T: Clone> Clone for Wrapper<T> {
     fn clone(&self) -> Self {
         Wrapper(self.0.clone())
     }
 }
 
-//===================================
 // Only implement Debug if T is Debug
-//===================================
 impl<T: std::fmt::Debug> std::fmt::Debug for Wrapper<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Wrapper({:?})", self.0)
     }
 }
 
-// Usage: Wrapper<T> is Clone only when T is Clone, Debug only when T is Debug.
-// The compiler automatically selects which trait impls apply for each concrete type.
+// Usage: Wrapper gains Clone and Debug only when inner type has them.
 let w = Wrapper("hello".to_string());
 let w_clone = w.clone(); // Works because String is Clone
 println!("{:?}", w); // Works because String is Debug
 ```
 
-This pattern allows `Wrapper<String>` to be `Clone` and `Debug`, while `Wrapper<Rc<RefCell<i32>>>` is only `Clone` (because `RefCell` isn't `Debug` in a useful way). The compiler automatically determines which implementations apply.
+This pattern allows `Wrapper<String>` to be `Clone` and `Debug`. The compiler automatically determines which implementations apply based on the inner type's capabilities.
 
 ### Example: Trait Bound Patterns
 
 Several common patterns emerge when working with trait bounds. Methods can be conditionally available based on type parameter bounds. Higher-rank trait bounds (`for<'a>`) express constraints that must hold for all lifetimes.
 
 ```rust
-//==================================
 // Builder pattern with trait bounds
-//==================================
 struct Query<T> {
     data: T,
 }
@@ -191,6 +175,7 @@ impl<T: Clone> Query<T> {
     }
 }
 
+// Note: Requires serde and serde_json crates
 impl<T: serde::Serialize> Query<T> {
     // Only available if T is Serialize
     fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -198,9 +183,7 @@ impl<T: serde::Serialize> Query<T> {
     }
 }
 
-//=============================================
 // Higher-rank trait bounds (for all lifetimes)
-//=============================================
 fn process_with_lifetime<F>(f: F)
 where
     F: for<'a> Fn(&'a str) -> &'a str,
@@ -209,11 +192,10 @@ where
     println!("{}", result);
 }
 
-// Usage: Query::new works for any T, but duplicate() only appears when T: Clone.
-// Higher-rank bounds (for<'a>) express constraints that must hold for all lifetimes.
+// Usage: Methods appear based on type parameter's capabilities.
 let q = Query::new(vec![1, 2, 3]);
-let q_dup = q.duplicate(); // Only available because Vec is Clone
-process_with_lifetime(|s| s); // Closure works with higher-rank bounds
+let q_dup = q.duplicate();
+process_with_lifetime(|s| s);
 ```
 
 The builder pattern becomes particularly powerful with conditional trait implementations, as methods only appear when the type parameter supports them.
@@ -228,38 +210,21 @@ The builder pattern becomes particularly powerful with conditional trait impleme
 With generic type parameters, a single type can implement the same trait multiple times for different type arguments. This allows flexibility but requires the caller to specify which implementation to use. The syntax becomes verbose with turbofish (`Parser::<i32>::parse`).
 
 ```rust
-//=================================================
 // With generics: Multiple implementations possible
-//=================================================
-trait Parser<Output> {
+trait GenericParser<Output> {
     fn parse(&self, input: &str) -> Result<Output, String>;
 }
 
-struct JsonParser;
-
-impl Parser<serde_json::Value> for JsonParser {
-    fn parse(
-        &self,
-        input: &str,
-    ) -> Result<serde_json::Value, String> {
-        serde_json::from_str(input).map_err(|e| e.to_string())
-    }
-}
-
-//=========================================================
-// Could also implement Parser<MyCustomType> for JsonParser
-//=========================================================
-
-// Demo without serde dependency
+// A single type can implement GenericParser for multiple Output types
 struct SimpleParser;
 
-impl Parser<i32> for SimpleParser {
+impl GenericParser<i32> for SimpleParser {
     fn parse(&self, input: &str) -> Result<i32, String> {
         input.parse().map_err(|e| format!("{}", e))
     }
 }
 
-impl Parser<bool> for SimpleParser {
+impl GenericParser<bool> for SimpleParser {
     fn parse(&self, input: &str) -> Result<bool, String> {
         match input {
             "true" => Ok(true),
@@ -269,11 +234,10 @@ impl Parser<bool> for SimpleParser {
     }
 }
 
-// Usage: SimpleParser implements Parser<i32> and Parser<bool> separately.
-// Caller must specify which impl to use with turbofish syntax.
+// Usage: Same parser, multiple Output types; caller specifies which.
 let parser = SimpleParser;
-let num: Result<i32, _> = Parser::<i32>::parse(&parser, "42");
-let b: Result<bool, _> = Parser::<bool>::parse(&parser, "true");
+let num: Result<i32, _> = GenericParser::<i32>::parse(&parser, "42");
+let b: Result<bool, _> = GenericParser::<bool>::parse(&parser, "true");
 ```
 
 #### Example: Associated Types: One Implementation
@@ -281,27 +245,37 @@ let b: Result<bool, _> = Parser::<bool>::parse(&parser, "true");
 Associated types express "there is one specific type for this implementation." Each implementor defines exactly one concrete type for the associated type. The compiler infers the output type from the implementor, eliminating the need for turbofish syntax.
 
 ```rust
-//========================================================
 // With associated types: Only one implementation possible
-//========================================================
 trait Parser {
     type Output;
     fn parse(&self, input: &str) -> Result<Self::Output, String>;
 }
 
-struct JsonParser;
+struct IntParser;
 
-impl Parser for JsonParser {
-    type Output = serde_json::Value;
+impl Parser for IntParser {
+    type Output = i32;
 
     fn parse(&self, input: &str) -> Result<Self::Output, String> {
-        serde_json::from_str(input).map_err(|e| e.to_string())
+        input.trim().parse().map_err(|e| format!("{}", e))
     }
 }
 
-//=======================================================
-// Cannot impl Parser again for JsonParser (one Output!)
-//=======================================================
+struct FloatParser;
+
+impl Parser for FloatParser {
+    type Output = f64;
+
+    fn parse(&self, input: &str) -> Result<Self::Output, String> {
+        input.trim().parse().map_err(|e| format!("{}", e))
+    }
+}
+
+// Usage: Each type has exactly one Output; no turbofish needed.
+let int_parser = IntParser;
+let float_parser = FloatParser;
+let num = int_parser.parse("42");   // Output inferred as i32
+let flt = float_parser.parse("3.14"); // Output inferred as f64
 ```
 
 #### Example: Ergonomics: Associated Types Win for Consumers
@@ -309,30 +283,22 @@ impl Parser for JsonParser {
 Associated types lead to cleaner call sites because the output type is determined by the implementor. With generics, functions need extra type parameters that callers must specify. With associated types, the compiler infers everything from the concrete type.
 
 ```rust
-//=======================
-// With generic parameter
-//=======================
-fn use_generic_parser<T, P: Parser<T>>(parser: P, input: &str) -> T {
+// With generic parameter (from earlier Parser<Output> trait)
+fn use_generic_parser<T, P: GenericParser<T>>(parser: P, input: &str) -> T {
     parser.parse(input).unwrap()
 }
 
-//======================
-// Caller must specify T
-//======================
-let value: serde_json::Value =
-    use_generic_parser::<serde_json::Value, _>(JsonParser, "{}");
+// Caller must specify T with turbofish
+let num = use_generic_parser::<i32, _>(SimpleParser, "42");
 
-//=====================
-// With associated type
-//=====================
+// With associated type (from Parser trait with type Output)
 fn use_associated_parser<P: Parser>(parser: P, input: &str) -> P::Output {
     parser.parse(input).unwrap()
 }
 
-//=======================
-// Compiler infers Output
-//=======================
-let value = use_associated_parser(JsonParser, "{}");
+// Usage: Associated types let compiler infer Output automatically.
+let num = use_associated_parser(IntParser, "42"); // i32 inferred
+let flt = use_associated_parser(FloatParser, "3.14"); // f64 inferred
 ```
 
 #### Example: When to Use Each
@@ -345,16 +311,12 @@ The choice between generics and associated types depends on whether the type par
 - You want flexibility at the call site
 
 ```rust
-//========================================
 // Generic: Different conversions possible
-//========================================
 trait From<T> {
     fn from(value: T) -> Self;
 }
 
-//=======================================================
 // String can be created from &str, String, Vec<u8>, etc.
-//=======================================================
 impl From<&str> for String { /* ... */ }
 impl From<Vec<u8>> for String { /* ... */ }
 ```
@@ -365,17 +327,13 @@ impl From<Vec<u8>> for String { /* ... */ }
 - You want simpler API for consumers
 
 ```rust
-//==================================================
 // Associated type: One iterator type per collection
-//==================================================
 trait Iterator {
     type Item;
     fn next(&mut self) -> Option<Self::Item>;
 }
 
-//====================================================
 // Vec<i32>'s iterator produces i32, not anything else
-//====================================================
 ```
 
 #### Example: Combining Both
@@ -401,9 +359,9 @@ impl Converter<f64> for TemperatureConverter {
     }
 }
 
-//=======================================================
-// Could also impl Converter<i32> with different types
-//=======================================================
+// Usage: Generic Input chosen by caller; Output fixed by implementation.
+let conv = TemperatureConverter;
+let fahrenheit = conv.convert(100.0); // Celsius to Fahrenheit
 ```
 
 #### Example: Associated Types with Bounds
@@ -419,9 +377,7 @@ trait Graph {
     fn edges(&self) -> Vec<Self::Edge>;
 }
 
-//=======================================
 // Implementation must satisfy the bounds
-//=======================================
 struct SimpleGraph;
 
 impl Graph for SimpleGraph {
@@ -436,6 +392,10 @@ impl Graph for SimpleGraph {
         vec![(0, 1)]
     }
 }
+
+// Usage: Associated type bounds ensure Node is Display, Edge is Clone.
+let graph = SimpleGraph;
+for node in graph.nodes() { println!("{}", node); }
 ```
 
 #### Example: The Iterator Pattern Deep Dive
@@ -473,15 +433,15 @@ Why associated type instead of generic?
 With generics, the compiler generates a specialized copy of the function for each concrete type used. This is called monomorphization—`process::<i32>` and `process::<String>` become separate functions. The result is fast code but larger binaries.
 
 ```rust
+use std::fmt::Display;
+
 fn process<T: Display>(item: T) {
     println!("{}", item);
 }
 
-
-// Usage: Each call generates a specialized function (monomorphization).
-// process::<i32>, process::<&str>, and process::<f64> become separate functions.
+// Usage: Compiler generates specialized function for each type.
 process(42i32);   // Generates process::<i32>
-process("hello"); // Generates process::<&str>     
+process("hello"); // Generates process::<&str>
 ```
 
 Each call site gets optimized code for that specific type. Fast, but increases binary size (code bloat).
@@ -497,12 +457,11 @@ fn process(item: &dyn Display) {
     println!("{}", item);
 }
 
-// Usage: One process() function handles all types at runtime via vtable lookup.
-// Trait objects enable heterogeneous collections like Vec<&dyn Display>.
+// Usage: One function handles all types; enables heterogeneous collections.
 let num: i32 = 42;
 let text: &str = "hello";
-process(&num); // Same function, different types
-let items: Vec<&dyn Display> = vec![&num, &text]; // Different types in one Vec
+process(&num);
+let items: Vec<&dyn Display> = vec![&num, &text];
 ```
 
 One function handles all types. Smaller binary, but slight runtime cost for the vtable lookup.
@@ -543,8 +502,7 @@ fn draw_all(shapes: &[Box<dyn Drawable>]) {
     }
 }
 
-// Usage: Box<dyn Drawable> enables heterogeneous collections of different shape types.
-// All shapes are accessed through the same trait interface via draw_all().
+// Usage: Vec holds different concrete types via shared trait interface.
 let shapes: Vec<Box<dyn Drawable>> = vec![
     Box::new(Circle { radius: 5.0 }),
     Box::new(Rectangle { width: 10.0, height: 20.0 }),
@@ -565,9 +523,7 @@ trait NotObjectSafe {
     fn generic_method<T>(&self, value: T); // ✗ Generic method
 }
 
-//=================================
 // Cannot create &dyn NotObjectSafe
-//=================================
 ```
 
 2. **No `Self: Sized` bound**: The trait can't require `Self` to be sized
@@ -593,23 +549,17 @@ The reasoning: when calling a method on a trait object, the compiler doesn't kno
 You can make traits object-safe with careful design by replacing generics with trait objects. Instead of `fn create<T: Serialize>`, use `fn create(&self, item: &dyn Serialize)`. Another approach is splitting functionality into separate traits.
 
 ```rust
-//================
 // Not object-safe
-//================
 trait Repository {
     fn create<T: Serialize>(&self, item: T) -> Result<(), Error>;
 }
 
-//====================
 // Object-safe version
-//====================
 trait Repository {
     fn create(&self, item: &dyn Serialize) -> Result<(), Error>;
 }
 
-//=========================
 // Or split into two traits
-//=========================
 trait Repository {
     fn create(&self, item: Box<dyn Item>) -> Result<(), Error>;
 }
@@ -651,8 +601,7 @@ fn try_as_circle(shape: &dyn Shape) -> Option<&Circle> {
     shape.as_any().downcast_ref::<Circle>()
 }
 
-// Usage: Use as_any() and downcast_ref::<T>() to recover concrete types from trait objects.
-// Downcasting succeeds for matching types, returns None for mismatches.
+// Usage: Downcast from trait object back to concrete type when needed.
 let circle = Circle { radius: 5.0 };
 let shape: &dyn Shape = &circle;
 if let Some(c) = try_as_circle(shape) {
@@ -671,9 +620,7 @@ trait Processor {
     fn process(&self, data: &str) -> String;
 }
 
-//===========================
 // Trait object with lifetime
-//===========================
 fn process_data<'a>(
     processor: &'a dyn Processor,
     data: &'a str,
@@ -681,9 +628,7 @@ fn process_data<'a>(
     processor.process(data)
 }
 
-//=================================
 // Boxed trait object with lifetime
-//=================================
 struct Handler<'a> {
     processor: Box<dyn Processor + 'a>,
 }
@@ -706,11 +651,10 @@ impl<'a> Processor for PrefixProcessor<'a> {
     }
 }
 
-// Usage: Box<dyn Processor + 'a> specifies the trait object lives at least as long as 'a.
-// PrefixProcessor borrows data, so its lifetime must be tracked.
+// Usage: Lifetime bounds ensure trait object outlives borrowed data.
 let prefix = String::from(">>> ");
 let prefixer = PrefixProcessor { prefix: &prefix };
-let result = process_data(&prefixer, "message"); // Returns ">>> message"
+let result = process_data(&prefixer, "message");
 ```
 
 The `+ 'a` syntax means "the trait object must live at least as long as `'a`". This ensures references in the trait implementation remain valid.
@@ -743,8 +687,7 @@ impl SumExt for Vec<f64> {
     }
 }
 
-// Usage: The extension trait adds sum_ext() to Vec<i32> and Vec<f64>.
-// It works like a native method once the trait is in scope.
+// Usage: Extension trait adds sum_ext() method to Vec types.
 let numbers = vec![1, 2, 3, 4, 5];
 let sum = numbers.sum_ext(); // Returns 15
 ```
@@ -774,10 +717,9 @@ trait IteratorExt: Iterator {
 // Blanket impl: applies to any type that is an Iterator.
 impl<I: Iterator> IteratorExt for I {}
 
-// Usage: The blanket impl adds counts() to every Iterator automatically.
-// Works on Vec, array, range, and string iterators.
+// Usage: Blanket impl gives counts() to all iterators automatically.
 let words = vec!["apple", "banana", "apple"];
-let counts = words.into_iter().counts(); // HashMap: {"apple": 2, "banana": 1}
+let counts = words.into_iter().counts();
 ```
 
 ### Example: Ergonomic Error Handling
@@ -808,11 +750,9 @@ impl<T, E: std::fmt::Display> ResultContextExt<T, E> for Result<T, E> {
         self.map_err(|e| format!("{}: {}", msg, e))
     }
 }
-
-// Usage: log_err() logs errors while preserving them; with_context() adds context to error messages.
-// Both work seamlessly with the standard Result type.
+// Usage: Extension adds with_context() to any Result for error chaining.
 let result: Result<i32, &str> = Err("not found");
-let contexted = result.with_context("Loading user"); // "Loading user: not found"
+let contexted = result.with_context("Loading user");
 ```
 
 ### Example: Extending Standard Types
@@ -835,8 +775,7 @@ impl<T: AsRef<str>> StringExt for T {
     }
 }
 
-// Usage: truncate_to() works on &str, String, and Cow<str> via AsRef<str> bound.
-// Strings shorter than max_len are returned unchanged.
+// Usage: Extension adds truncate_to() to all string-like types.
 let s = "This is a long string that needs truncation";
 let truncated = s.truncate_to(20); // "This is a long st..."
 ```
@@ -856,8 +795,7 @@ impl<T: std::fmt::Debug> DebugExt for T {
     }
 }
 
-// Usage: The blanket impl adds debug_print() to any type implementing Debug.
-// Works on Vec, tuples, Option, and custom #[derive(Debug)] structs.
+// Usage: All Debug types automatically get debug_print() method.
 let numbers = vec![1, 2, 3];
 numbers.debug_print(); // Prints "[1, 2, 3]"
 ```
@@ -890,6 +828,10 @@ pub trait MyTrait: sealed::Sealed {
 struct MyType {
     value: i32
 }
+
+// Must implement Sealed first (only possible within this crate)
+impl sealed::Sealed for MyType {}
+
 impl MyTrait for MyType {
     fn my_method(&self) {
         println!("Value: {}", self.value);
@@ -913,7 +855,6 @@ fn use_trait<T: MyTrait>(item: &T) {
 }
 
 // Usage: External crates can use MyTrait but cannot implement it.
-// Library authors can add methods like new_method() without breaking changes.
 let my = MyType { value: 42 };
 my.my_method(); // Prints "Value: 42"
 my.new_method(); // Default implementation works
@@ -999,12 +940,11 @@ impl EmailService for MockEmail {
     }
 }
 
-// Usage: UserService accepts any D: Database and E: EmailService.
-// In tests, inject MockDb and MockEmail; in production, use real implementations.
+// Usage: Trait bounds enable swapping real services for mocks in tests.
 let db = MockDb { users: RefCell::new(vec![]) };
 let email = MockEmail { sent: RefCell::new(vec![]) };
 let service = UserService::new(db, email);
-let user = service.register_user("Alice", "a@b.com"); // Uses mock implementations
+let user = service.register_user("Alice", "a@b.com");
 ```
 
 

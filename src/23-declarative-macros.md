@@ -31,7 +31,7 @@ macro_rules! say_hello {
         println!("Hello, World!");
     };
 }
-
+say_hello!(); // Prints "Hello, World!"
 ```
 
 ### Example: Macro with a single argument
@@ -44,7 +44,7 @@ macro_rules! greet {
         println!("Hello, {}!", $name);
     };
 }
-
+greet!("Alice"); // Prints "Hello, Alice!"
 ```
 
 ### Example: Macro with multiple patterns
@@ -75,6 +75,7 @@ fn basic_examples() {
     let product = calculate!(mul 4, 7);  // Expands to: 4 * 7
     println!("Sum: {}, Product: {}", sum, product);
 }
+basic_examples(); // Demonstrates say_hello!, greet!, calculate! macros
 ```
 
 
@@ -161,6 +162,7 @@ fn fragment_usage() {
     let size = fragment_examples!(i32);  // ty: returns 4 (size of i32)
     println!("Size of i32: {}", size);
 }
+fragment_usage(); // Shows expr, ident, ty fragment specifiers in action
 ```
 
 
@@ -197,7 +199,7 @@ macro_rules! create_vec {
         }
     };
 }
-
+let v = create_vec![1, 2, 3]; // Creates Vec containing [1, 2, 3]
 ```
 
 ### Example: Repetition with + (one or more)
@@ -216,7 +218,7 @@ macro_rules! sum {
         }
     };
 }
-
+let total = sum!(1, 2, 3, 4); // Returns 10
 ```
 
 ### Example: Optional repetition with ?
@@ -229,7 +231,8 @@ macro_rules! optional_value {
         Some($val) $(.or(Some($default)))?
     };
 }
-
+let v = optional_value!(42); // Some(42)
+let v = optional_value!(42, 100); // Some(42).or(Some(100))
 ```
 
 ### Example: Multiple repetitions
@@ -266,6 +269,7 @@ fn repetition_examples() {
     };
     println!("Map: {:?}", map);
 }
+repetition_examples(); // Demonstrates *, +, and HashMap macro patterns
 ```
 
 
@@ -293,7 +297,7 @@ macro_rules! matrix {
         ]
     };
 }
-
+let m = matrix![[1,2,3], [4,5,6]]; // Creates Vec<Vec<i32>>
 ```
 
 ### Example: Multiple types of repetitions
@@ -339,6 +343,7 @@ fn nested_examples() {
     println!("Add: {}", add(5, 3));
     println!("Multiply: {}", multiply(4, 7));
 }
+nested_examples(); // Creates 3x3 matrix and generates add/multiply functions
 ```
 
 
@@ -359,7 +364,7 @@ macro_rules! count {
     () => (0);  // Base case: no tokens = 0
     ($head:tt $($tail:tt)*) => (1 + count!($($tail)*));  // Recursive: 1 + count(rest)
 }
-
+const N: usize = count!(a b c d e); // N = 5 at compile time
 ```
 
 ### Example: Generate indexed names
@@ -397,6 +402,7 @@ fn counting_examples() {
     println!("First: {}", tuple_access!(tuple, 0));
     println!("Second: {}", tuple_access!(tuple, 1));
 }
+counting_examples(); // Demonstrates compile-time counting and tuple access
 ```
 
 
@@ -418,7 +424,7 @@ macro_rules! match_literal {
     (false) => { "It's false!" };
     ($other:expr) => { "It's something else" };
 }
-
+match_literal!(true); // Returns "It's true!"
 ```
 
 ### Example: Match different types of expressions
@@ -432,7 +438,7 @@ macro_rules! describe_expr {
         $e
     }};
 }
-
+let x = describe_expr!(2 + 2); // Prints "Expression: 2 + 2", returns 4
 ```
 
 ### Example: Complex pattern matching
@@ -463,6 +469,7 @@ fn pattern_matching_examples() {
     let result = operation!(10, +, 5);
     println!("Result: {}", result);  // 15
 }
+pattern_matching_examples(); // Shows literal matching and operator DSL
 ```
 
 
@@ -501,6 +508,7 @@ fn hygiene_test() {
 
     println!("Outer x again: {}", x);  // Still 100 (not affected by macro)
 }
+hygiene_test(); // Demonstrates macro hygiene - inner x doesn't shadow outer x
 ```
 
 
@@ -537,6 +545,7 @@ fn breaking_hygiene() {
     increment!(counter);
     println!("Counter: {}", counter);  // 1
 }
+breaking_hygiene(); // Creates and modifies 'counter' in caller's scope
 ```
 
 
@@ -654,6 +663,7 @@ fn context_example() {
         println!("Context: {}", ctx);  // ctx is provided by the macro
     });
 }
+context_example(); // Macro provides 'ctx' variable to the block
 ```
 
 
@@ -710,6 +720,7 @@ fn sql_dsl_example() {
     println!("Results: {:?}", results);
     // Output: [("Alice", 30), ("Carol", 35)]
 }
+sql_dsl_example(); // SQL-like syntax: select!(field from table where cond)
 ```
 
 
@@ -767,6 +778,7 @@ fn config_dsl_example() {
     println!("Config: {:?}", settings);
     // Produces a nested HashMap structure
 }
+config_dsl_example(); // Nested config syntax → HashMap<&str, HashMap<&str, String>>
 ```
 
 
@@ -823,6 +835,7 @@ fn html_dsl_example() {
     println!("{}", page);
     // Produces: <html><body><h1>Hello, World!</h1><p>This is a paragraph.</p><br /></body></html>
 }
+html_dsl_example(); // XML-like syntax compiles to HTML string
 ```
 
 
@@ -905,6 +918,7 @@ fn state_machine_example() {
     sm.transition(Event::Pause).unwrap();
     println!("After pause: {:?}", sm.current());  // Paused
 }
+state_machine_example(); // Declarative state machine with type-safe transitions
 ```
 
 
@@ -984,6 +998,7 @@ fn accessor_example() {
     person.set_age(31);
     println!("Age: {}", person.age());
 }
+accessor_example(); // Auto-generated getters/setters via accessors! macro
 ```
 
 
@@ -1011,7 +1026,7 @@ enum Value {
     String(String),
     Bool(bool),
 }
-
+impl_from!(i64 => Value, Integer); // Generates From<i64> for Value
 ```
 
 ### Example: Generate From impls for each variant
@@ -1028,6 +1043,7 @@ fn trait_impl_example() {
     let string_value: Value = "hello".to_string().into();
     // Now you can use .into() to convert to Value
 }
+trait_impl_example(); // Uses generated From impls: 42i64.into() → Value::Integer
 ```
 
 
@@ -1163,6 +1179,7 @@ fn bitflags_example() {
     println!("Has read: {}", perms.contains(Permissions::READ));
     println!("Has execute: {}", perms.contains(Permissions::EXECUTE));
 }
+bitflags_example(); // Combine flags with |, check with .contains()
 ```
 
 
@@ -1241,6 +1258,7 @@ fn tracing_example() {
     // Stderr: "Macro trace: 5 + 3"
     // Stdout: "Result: 8"
 }
+tracing_example(); // Logs macro input to stderr, then executes
 ```
 
 
@@ -1258,7 +1276,7 @@ macro_rules! echo {
         }
     };
 }
-
+echo!(let x = 5); // Prints input, then executes it
 ```
 
 ### Example: 2. Type introspection
@@ -1277,7 +1295,7 @@ macro_rules! show_type {
         }
     };
 }
-
+let v = show_type!(vec![1,2,3]); // Prints type, returns value
 ```
 
 ### Example: 3. Count token trees
@@ -1298,6 +1316,7 @@ fn debugging_patterns() {
     const COUNT: usize = count_tts!(a b c d e);
     println!("Token count: {}", COUNT);  // 5
 }
+debugging_patterns(); // Demonstrates echo, show_type, count_tts macros
 ```
 
 

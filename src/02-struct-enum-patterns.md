@@ -36,10 +36,10 @@ impl User {
     }
 }
 
-// Usage: Create users via the constructor, which sets active=true by default.
-// Call deactivate() to change state. Clone is derived automatically.
-let mut user = User::new(1, "alice".to_string(), "alice@example.com".to_string());
-user.deactivate(); // Sets active to false
+// Usage: Create user with constructor, mutate with methods.
+let mut user = User::new(
+    1, "alice".to_string(), "alice@example.com".to_string());
+user.deactivate();
 ```
 
 **Why this matters:** Named fields provide self-documenting code. When you see `user.email`, the intent is clear. They also allow field reordering without breaking code.
@@ -72,8 +72,7 @@ impl Kilometers {
     }
 }
 
-// Usage: Access tuple struct fields by index (.0, .1). The newtype pattern
-// creates distinct types—Kilometers and Miles can't be accidentally mixed.
+// Usage: Access tuple struct fields by index.
 let point = Point3D(3.0, 4.0, 0.0);
 let km = Kilometers(100.0);
 let mi = km.to_miles(); // Type-safe conversion
@@ -125,11 +124,11 @@ impl Database<Authenticated> {
     }
 }
 
-// Usage: query() is only available on Database<Authenticated>. The typestate
-// pattern enforces authentication at compile time with zero runtime cost.
-let db = Database::<Unauthenticated>::new("postgres://localhost".to_string());
+// Usage: Type state ensures query() is only callable after authentication.
+let db = Database::<Unauthenticated>::new(
+    "postgres://localhost".to_string());
 let auth_db = db.authenticate("secret").unwrap();
-let results = auth_db.query("SELECT * FROM users"); // Now allowed
+let results = auth_db.query("SELECT * FROM users");
 ```
 
 
@@ -158,17 +157,10 @@ fn get_user(id: UserId) -> User {
     // ... fetch user
     unimplemented!()
 }
-
-// This won't compile:
-// let order_id = OrderId(123);
-// get_user(order_id); // Type error!
-
-
-// Usage: UserId and OrderId are distinct types even though both wrap u64.
-// The compiler prevents mixing them up, with zero runtime overhead.
+// Usage: Distinct types prevent mixing IDs even with same inner value.
 let user_id = UserId(42);
 let order_id = OrderId(42);
-// user_id == order_id; // Won't compile: different types
+// get_user(order_id); // Won't compile: expected UserId, got OrderId
 ```
 
 ### Example: Transparent Wrappers with Deref
@@ -204,8 +196,7 @@ impl<T> Deref for Validated<T> {
     }
 }
 
-// Usage: Deref lets you call the wrapped type's methods directly. Here,
-// validated.len() calls String::len, while validated.age() is the wrapper's own method.
+// Usage: Deref lets wrapper use inner type's methods directly.
 let validated = Validated::new("hello".to_string());
 assert_eq!(validated.len(), 5); // String::len via Deref
 ```
@@ -227,10 +218,15 @@ struct Config {
     timeout_ms: u64,
 }
 
-// Usage: Use ..base.clone() to create a modified copy while preserving the
-// original. Without clone, non-Copy fields are moved from base.
-let base = Config { host: "localhost".to_string(), port: 8080, timeout_ms: 5000 };
-let updated = Config { port: 9090, ..base.clone() }; // base still usable
+let base = Config {
+    host: "localhost".to_string(), port: 8080, timeout_ms: 5000
+};
+let updated = Config { port: 9090, ..base.clone() };
+
+// Usage: updated has new port, other fields copied from base.
+assert_eq!(updated.port, 9090);
+assert_eq!(updated.host, "localhost"); // Cloned from base
+assert_eq!(base.port, 8080);           // Original unchanged
 ```
 
 ### Example: Understanding Partial Moves
@@ -243,11 +239,12 @@ struct Data {
     moveable: String,   // Does not implement Copy
 }
 
-// Usage: Moving a non-Copy field makes the struct partially moved. Copy fields
-// remain accessible, but the whole struct can't be used. Clone or borrow instead.
+// Usage: After moving non-Copy field, only Copy fields remain accessible.
 let data = Data { copyable: 42, moveable: "hello".to_string() };
-let s = data.moveable;      // Moves the String out
+let s = data.moveable;         // Moves the String out
 assert_eq!(data.copyable, 42); // Copy field still accessible
+// println!("{:?}", data);     // Error: value partially moved
+// let d = data;               // Error: cannot use `data` as a whole
 ```
 
 ## Pattern 4: Enum Design Patterns
@@ -312,9 +309,10 @@ fn handle_request(path: &str) -> HttpResponse {
     }
 }
 
-// Usage: Each variant carries its own data. Use status_code() and is_success()
-// to handle responses uniformly regardless of variant.
-let ok = HttpResponse::Ok { body: "Hello".to_string(), headers: vec![] };
+// Usage: Each variant carries its own data; match extracts it safely.
+let ok = HttpResponse::Ok {
+    body: "Hello".to_string(), headers: vec![]
+};
 assert_eq!(ok.status_code(), 200);
 assert!(ok.is_success());
 ```
@@ -356,11 +354,12 @@ impl OrderStatus {
     }
 }
 
-// Usage: process() consumes self and returns a new state. can_cancel() uses
-// matches! to check multiple variants. Invalid transitions return Err.
-let order = OrderStatus::Pending { items: vec!["Book".to_string()], customer_id: 42 };
-let processing = order.process().unwrap(); // Transitions to Processing
-assert!(processing.can_cancel()); // Processing orders can still be cancelled
+// Usage: State transitions consume self and return new state.
+let order = OrderStatus::Pending {
+    items: vec!["Book".to_string()], customer_id: 42
+};
+let processing = order.process().unwrap();
+assert!(processing.can_cancel());
 ```
 
 ## Pattern 5: Advanced Enum Techniques
@@ -411,10 +410,10 @@ impl Expr {
     }
 }
 
-// Usage: Box breaks the infinite size calculation for recursive types.
-// Build trees or ASTs by boxing child nodes.
 let expr = Expr::Mul(
-    Box::new(Expr::Add(Box::new(Expr::Number(2)), Box::new(Expr::Number(3)))),
+    Box::new(Expr::Add(
+        Box::new(Expr::Number(2)),
+        Box::new(Expr::Number(3)))),
     Box::new(Expr::Number(4)),
 );
 assert_eq!(expr.eval(), 20); // (2 + 3) * 4 = 20
@@ -437,8 +436,6 @@ enum Efficient {
     Large(Box<[u8; 1024]>),  // Only allocates when this variant is used
 }
 
-// Usage: Boxing the large variant keeps the enum pointer-sized (≤16 bytes)
-// instead of 1KB+. The heap allocation only happens for the Large variant.
 use std::mem::size_of;
 assert!(size_of::<Inefficient>() >= 1024); // Huge
 assert!(size_of::<Efficient>() <= 16);     // Compact
@@ -450,21 +447,23 @@ assert!(size_of::<Efficient>() <= 16);     // Compact
 *   **Solution**: Define a `Visitor` trait with a `visit` method for each variant of your enum-based data structure. Each operation is then implemented as a separate struct that implements the `Visitor` trait.
 
 ### 1. The Data Structure (AST)
-First, define the enum that represents the tree-like structure. For a simple expression language, this is the Abstract Syntax Tree (AST). Note the use of `Box<Expr>` to handle recursion.
+First, define the enum that represents the tree-like structure. For a simple expression language, this is the Abstract Syntax Tree (AST). Note the use of `Box<AstExpr>` to handle recursion.
+
+**Note:** The following code blocks form a complete example. They should be combined in the same module to compile.
 
 ```rust
 // AST for a simple expression language
-enum Expr {
+enum AstExpr {
     Number(f64),
     Variable(String),
     BinaryOp {
         op: BinOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Box<AstExpr>,
+        right: Box<AstExpr>,
     },
     UnaryOp {
         op: UnOp,
-        expr: Box<Expr>,
+        expr: Box<AstExpr>,
     },
 }
 
@@ -479,50 +478,30 @@ enum UnOp {
     Negate,
     Abs,
 }
+
+// Usage: Build an AST representing "2 + x".
+let expr = AstExpr::BinaryOp {
+    op: BinOp::Add,
+    left: Box::new(AstExpr::Number(2.0)),
+    right: Box::new(AstExpr::Variable("x".to_string())),
+};
 ```
 
 ### 2. The Visitor Trait
-Next, define the `ExprVisitor` trait. It has a `visit` method for each variant of the `Expr` enum. The `visit` method on the trait itself handles dispatching to the correct specific method.
-
+Next, define the `AstVisitor` trait. It has a `visit` method for each variant of the `AstExpr` enum. The `visit` method on the trait itself handles dispatching to the correct specific method.
 ```rust
-// AST for a simple expression language
-enum Expr {
-    Number(f64),
-    Variable(String),
-    BinaryOp {
-        op: BinOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
-    UnaryOp {
-        op: UnOp,
-        expr: Box<Expr>,
-    },
-}
-
-enum BinOp {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-}
-
-enum UnOp {
-    Negate,
-    Abs,
-}
 // Visitor trait
-trait ExprVisitor {
+trait AstVisitor {
     type Output;
 
-    fn visit(&mut self, expr: &Expr) -> Self::Output {
+    fn visit(&mut self, expr: &AstExpr) -> Self::Output {
         match expr {
-            Expr::Number(n) => self.visit_number(*n),
-            Expr::Variable(name) => self.visit_variable(name),
-            Expr::BinaryOp { op, left, right } => {
+            AstExpr::Number(n) => self.visit_number(*n),
+            AstExpr::Variable(name) => self.visit_variable(name),
+            AstExpr::BinaryOp { op, left, right } => {
                 self.visit_binary_op(op, left, right)
             }
-            Expr::UnaryOp { op, expr } => {
+            AstExpr::UnaryOp { op, expr } => {
                 self.visit_unary_op(op, expr)
             }
         }
@@ -533,25 +512,30 @@ trait ExprVisitor {
     fn visit_binary_op(
         &mut self,
         op: &BinOp,
-        left: &Expr,
-        right: &Expr,
+        left: &AstExpr,
+        right: &AstExpr,
     ) -> Self::Output;
     fn visit_unary_op(
         &mut self,
         op: &UnOp,
-        expr: &Expr,
+        expr: &AstExpr,
     ) -> Self::Output;
 }
+
+// Usage: Implementors call visitor.visit(&expr) to traverse the AST.
+// The trait dispatches to the appropriate visit_* method for each node.
 ```
 
 ### 3. Visitor Implementations
-Finally, implement the visitors. Each visitor is a separate struct that implements the `ExprVisitor` trait, providing concrete logic for each `visit_*` method. This separates the concerns of pretty-printing and evaluation from the data structure itself.
+Finally, implement the visitors. Each visitor is a separate struct that implements the `AstVisitor` trait, providing concrete logic for each `visit_*` method. This separates the concerns of pretty-printing and evaluation from the data structure itself.
 
 ```rust
+use std::collections::HashMap;
+
 // Pretty printer visitor
 struct PrettyPrinter;
 
-impl ExprVisitor for PrettyPrinter {
+impl AstVisitor for PrettyPrinter {
     type Output = String;
 
     fn visit_number(&mut self, n: f64) -> String {
@@ -564,8 +548,8 @@ impl ExprVisitor for PrettyPrinter {
     fn visit_binary_op(
         &mut self,
         op: &BinOp,
-        left: &Expr,
-        right: &Expr,
+        left: &AstExpr,
+        right: &AstExpr,
     ) -> String {
         let op_str = match op {
             BinOp::Add => "+",
@@ -581,7 +565,7 @@ impl ExprVisitor for PrettyPrinter {
     fn visit_unary_op(
         &mut self,
         op: &UnOp,
-        expr: &Expr,
+        expr: &AstExpr,
     ) -> String {
         let op_str = match op {
             UnOp::Negate => "-",
@@ -593,10 +577,10 @@ impl ExprVisitor for PrettyPrinter {
 
 // Evaluator visitor
 struct Evaluator {
-    variables: std::collections::HashMap<String, f64>,
+    variables: HashMap<String, f64>,
 }
 
-impl ExprVisitor for Evaluator {
+impl AstVisitor for Evaluator {
     type Output = Result<f64, String>;
 
     fn visit_number(&mut self, n: f64) -> Self::Output {
@@ -613,8 +597,8 @@ impl ExprVisitor for Evaluator {
     fn visit_binary_op(
         &mut self,
         op: &BinOp,
-        left: &Expr,
-        right: &Expr,
+        left: &AstExpr,
+        right: &AstExpr,
     ) -> Self::Output {
         let l = self.visit(left)?;
         let r = self.visit(right)?;
@@ -629,7 +613,7 @@ impl ExprVisitor for Evaluator {
     fn visit_unary_op(
         &mut self,
         op: &UnOp,
-        expr: &Expr,
+        expr: &AstExpr,
     ) -> Self::Output {
         let val = self.visit(expr)?;
         match op {
@@ -639,15 +623,25 @@ impl ExprVisitor for Evaluator {
     }
 }
 
-// Usage: Different visitors implement different operations on the same AST.
-// PrettyPrinter outputs a string, Evaluator computes a numeric result.
-let expr = Expr::BinaryOp {
+// Usage: PrettyPrinter formats AST as string
+let expr = AstExpr::BinaryOp {
     op: BinOp::Add,
-    left: Box::new(Expr::Number(2.0)),
-    right: Box::new(Expr::Number(3.0)),
+    left: Box::new(AstExpr::Number(2.0)),
+    right: Box::new(AstExpr::Number(3.0)),
 };
 let mut printer = PrettyPrinter;
 assert_eq!(printer.visit(&expr), "(2 + 3)");
+
+// Usage: Evaluator computes result with variable bindings
+let expr_with_var = AstExpr::BinaryOp {
+    op: BinOp::Multiply,
+    left: Box::new(AstExpr::Variable("x".to_string())),
+    right: Box::new(AstExpr::Number(10.0)),
+};
+let mut eval = Evaluator {
+    variables: HashMap::from([("x".to_string(), 5.0)]),
+};
+assert_eq!(eval.visit(&expr_with_var), Ok(50.0)); // x * 10 = 50
 ```
 
 ### Summary
@@ -661,7 +655,7 @@ assert_eq!(printer.visit(&expr), "(2 + 3)");
 
 **Performance Characteristics**:
 - Newtype: zero runtime cost, same representation as wrapped type
-- Enum size: largest variant + discriminant (usually 1 byte)
+- Enum size: largest variant + discriminant (1-8 bytes depending on variant count)
 - Boxing: reduces enum to pointer size, adds indirection
 
 **Memory Layout**:

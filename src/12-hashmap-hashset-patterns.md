@@ -62,7 +62,8 @@ fn group_sales_by_category() {
         Sale { category: "Electronics".to_string(), amount: 25.0 },
     ];
 
-    let mut sales_by_category: HashMap<String, Vec<Sale>> = HashMap::new();
+    let mut sales_by_category: HashMap<String, Vec<Sale>> =
+        HashMap::new();
 
     for sale in sales {
         // Find the vector for the category, creating a new one if it doesn't exist,
@@ -94,7 +95,11 @@ struct LruCache<K, V> {
 
 impl<K: Eq + Hash + Clone> LruCache<K, V> {
     fn new(capacity: usize) -> Self {
-        Self { capacity, map: HashMap::new(), order: VecDeque::new() }
+        Self {
+            capacity,
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
     }
 
     fn put(&mut self, key: K, value: V) {
@@ -122,6 +127,11 @@ impl<K: Eq + Hash + Clone> LruCache<K, V> {
         }
     }
 }
+// Usage: LRU cache with entry-based eviction
+let mut cache = LruCache::new(2);
+cache.put("a", 1);
+cache.put("b", 2);
+cache.put("c", 3); // "a" evicted
 ```
 
 ## Pattern 2: Custom Hashing and Equality
@@ -153,9 +163,9 @@ struct CaseInsensitiveString(String);
 
 impl Hash for CaseInsensitiveString {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash the lowercase version of the string to ensure "A" and "a" have the same hash.
-        for byte in self.0.bytes().map(|b| b.to_ascii_lowercase()) {
-            byte.hash(state);
+        // Hash lowercase so "A" and "a" have the same hash.
+        for byte in self.0.bytes() {
+            byte.to_ascii_lowercase().hash(state);
         }
     }
 }
@@ -170,13 +180,19 @@ impl PartialEq for CaseInsensitiveString {
 fn case_insensitive_headers() {
     let mut headers = HashMap::new();
 
-    headers.insert(CaseInsensitiveString("Content-Type".to_string()), "application/json");
-    headers.insert(CaseInsensitiveString("X-Request-ID".to_string()), "12345");
+    headers.insert(
+        CaseInsensitiveString("Content-Type".to_string()),
+        "application/json");
+    headers.insert(
+        CaseInsensitiveString("X-Request-ID".to_string()),
+        "12345");
 
     // Lookup is case-insensitive.
     let key = CaseInsensitiveString("content-type".to_string());
     assert_eq!(headers.get(&key), Some(&"application/json"));
 }
+// Usage: case-insensitive header lookup
+case_insensitive_headers(); // "content-type" finds "Content-Type"
 ```
 
 ### Example: Faster Hashing with FxHashMap
@@ -191,7 +207,7 @@ use std::time::Instant;
 
 fn benchmark_fxhashmap() {
     const SIZE: usize = 1_000_000;
-    
+
     // Benchmark FxHashMap
     let start = Instant::now();
     let mut fx_map = FxHashMap::default();
@@ -208,6 +224,8 @@ fn benchmark_fxhashmap() {
     }
     println!("Standard HashMap insertion time: {:?}", start.elapsed());
 }
+// Usage: compare FxHashMap vs standard HashMap performance
+benchmark_fxhashmap(); // FxHashMap: ~50ms vs HashMap: ~150ms
 ```
 
 ## Pattern 3: Capacity and Memory Management
@@ -243,7 +261,7 @@ fn batch_processing_with_capacity() {
     for i in 0..BATCH_SIZE {
         map1.insert(i, i);
     }
-    println!("Without pre-allocation: {:?}, final capacity: {}", start.elapsed(), map1.capacity());
+    println!("Without pre-allocation: {:?}", start.elapsed());
 
     // With pre-allocation
     let start = Instant::now();
@@ -251,7 +269,7 @@ fn batch_processing_with_capacity() {
     for i in 0..BATCH_SIZE {
         map2.insert(i, i);
     }
-    println!("With pre-allocation: {:?}, final capacity: {}", start.elapsed(), map2.capacity());
+    println!("With pre-allocation: {:?}", start.elapsed());
 }
 ```
 
@@ -311,18 +329,20 @@ fn leaderboard() {
     scores.insert(2200, "David".to_string());
     scores.insert(1800, "Charlie".to_string());
 
-    // `iter()` returns items in sorted key order. `.rev()` gets us descending order for a top-down leaderboard.
+    // iter() returns sorted order. rev() gives descending order.
     println!("Leaderboard (Top 3):");
     for (score, name) in scores.iter().rev().take(3) {
         println!("- {}: {}", name, score);
     }
-    
+
     // BTreeMap also supports efficient range queries.
     println!("\nPlayers with scores between 1500 and 2000:");
     for (score, name) in scores.range(1500..=2000) {
         println!("- {}: {}", name, score);
     }
 }
+// Usage: BTreeMap for sorted leaderboard and range queries
+leaderboard();
 ```
 
 ### Example: IndexMap for Insertion Order Preservation
@@ -343,9 +363,12 @@ fn ordered_json() {
 
     // When serialized (e.g., to JSON), the fields will appear in the order they were inserted.
     // This is not guaranteed with a standard HashMap.
-    let as_vec: Vec<_> = user_data.iter().map(|(k,v)| (k.to_string(), v.clone())).collect();
+    let as_vec: Vec<_> = user_data.iter()
+        .map(|(k,v)| (k.to_string(), v.clone())).collect();
     println!("Fields in insertion order: {:?}", as_vec);
 }
+// Usage: IndexMap preserves insertion order for JSON
+ordered_json(); // Always outputs id, name, email in that order
 ```
 
 ## Pattern 5: Concurrent HashMaps
@@ -389,6 +412,8 @@ fn concurrent_request_counter() {
         println!("- {}: {}", entry.key(), entry.value());
     }
 }
+// Usage: DashMap for lock-free concurrent counting
+concurrent_request_counter(); // Each endpoint: 100 requests
 ```
 
 ## Key Takeaways**:

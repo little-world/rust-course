@@ -107,8 +107,8 @@ impl RequestBuilder {
         }
     }
 }
-// Usage: The builder API is fluent, readable, and self-documenting.
-// Each method call clearly expresses intent without positional argument ambiguity.
+
+// Usage: Chain setters for readable configuration; build() creates final object.
 let request = Request::builder("https://api.example.com")
     .method("POST")
     .header("Authorization", "Bearer token")
@@ -165,19 +165,16 @@ impl DatabaseBuilder {
     }
 }
 
-// The caller must now handle the `Result`.
+// Usage: build() returns Result to catch missing required fields at runtime.
 let db_result = DatabaseBuilder::new()
     .host("localhost")
     .port(5432)
     .username("admin")
     .build();
 assert!(db_result.is_ok());
-println!("{:#?}", db_result.unwrap());
 
-// This would fail at runtime because a required field is missing.
 let db_fail = DatabaseBuilder::new().host("localhost").build();
-assert!(db_fail.is_err());
-println!("{}", db_fail.unwrap_err());
+assert!(db_fail.is_err()); // Missing port and username
 ```
 
 ### Example: Non-Consuming (Mutable) Builder
@@ -242,8 +239,7 @@ impl EmailBuilder {
     }
 }
 
-// Usage: Mutable builders can be reused by calling clear() between builds.
-// This avoids reallocating the builder when creating multiple similar objects.
+// Usage: Mutable builder can be reused; clear() resets for next build.
 let mut builder = EmailBuilder::new();
 builder.to("a@example.com").subject("First").body("Hello");
 let email1 = builder.build();
@@ -325,13 +321,12 @@ impl Connection<Connected> {
         Connection { stream: None, _state: PhantomData }
     }
 }
-// Usage: The compiler enforces valid state transitions at compile time.
-// conn.send() is only available on Connection<Connected>, not Connection<Disconnected>.
-let conn = Connection::new(); // Disconnected state
-// conn.send(b"hello"); // ERROR: no method `send` on Disconnected
-let mut connected = conn.connect("127.0.0.1:8080")?; // Connected state
-connected.send(b"hello")?; // OK: send() available here
-let _closed = connected.close(); // Back to Disconnected
+// Usage: send() only exists on Connected state; compile error if called on Disconnected.
+let conn = Connection::new();
+// conn.send(b"hello"); // ERROR: no `send` on Disconnected
+let mut connected = conn.connect("127.0.0.1:8080")?;
+connected.send(b"hello")?;
+let _closed = connected.close();
 ```
 
 ### Example: Typestate Builder for Compile-Time Validation
@@ -412,13 +407,12 @@ impl UserBuilder<HasName, HasEmail> {
         }
     }
 }
-// Usage: build() is only available after both name() and email() are called.
-// Missing either produces a compile error, not a runtime error.
+// Usage: build() only available after both name() and email() called.
 let user = UserBuilder::default()
     .name("Alice")
     .email("alice@example.com")
-    .build(); // OK: both required fields set
-// UserBuilder::default().name("Bob").build(); // ERROR: no method `build`
+    .build();
+// UserBuilder::default().name("Bob").build(); // ERROR: no `build` on <HasName, NoEmail>
 ```
 
 ---
@@ -460,8 +454,7 @@ impl ConnectionBuilder {
     pub fn build(self) {}
 }
 
-// Usage: The compiler warns if #[must_use] return values are ignored.
-// connect_to_db(); // WARNING: unused Result that must be used
+// Usage: Compiler warns if #[must_use] return value is ignored.
 // ConnectionBuilder::new(); // WARNING: unused builder
 if let Err(e) = connect_to_db() { println!("Error: {}", e); }
 ConnectionBuilder::new().build(); // Correct: return value is used

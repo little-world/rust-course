@@ -82,6 +82,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+let pool = create_pool("postgres://...")?; 
+let user = fetch_user(&pool, 1)?;
 ```
 
 The beauty of this pattern is in the `PooledConnection` type. It's a smart pointer that automatically returns the connection to the pool when dropped. You can't forget to return it—Rust's ownership system enforces correct cleanup.
@@ -124,6 +126,7 @@ fn configure_pool_detailed(manager: PostgresConnectionManager<NoTls>) -> Postgre
         .build(manager)
         .unwrap()
 }
+let pool = configure_pool_detailed(manager); // max 20, idle 5, 10s timeout
 ```
 
 For a typical web application:
@@ -208,6 +211,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+fetch_user_async(&pool, 42).await?; // Non-blocking async pool access
 ```
 
 The key difference: deadpool's `get()` returns a `Future` that yields to other tasks while waiting for a connection. With r2d2, a thread would block. This makes deadpool much more efficient for high-concurrency async applications.
@@ -250,6 +254,7 @@ async fn shutdown_pool(pool: Pool) {
 
     println!("Pool shutdown complete");
 }
+monitor_pool_health(&pool).await; // Check available/size/max_size
 ```
 
 Monitoring helps you tune pool size and detect issues before they impact users.
@@ -327,6 +332,7 @@ async fn create_user(
 
     Ok(user)
 }
+let user = fetch_user(&pool, 1).await?; // Compile-time verified SQL
 ```
 
 If you misspell a column name or use the wrong type, your code won't compile. This is a game-changer for database programming.
@@ -386,6 +392,7 @@ async fn search_users(
 
     Ok(users)
 }
+search_users(&pool, Some("alice"), None, 10).await?; // Dynamic WHERE clauses
 ```
 
 This is type-safe and SQL-injection safe (all values are bound parameters), while still allowing runtime flexibility.
@@ -479,6 +486,7 @@ fn find_active_users(conn: &mut PgConnection) -> QueryResult<Vec<User>> {
         .select(User::as_select())
         .load(conn)
 }
+let user = fetch_user_diesel(&mut conn, 1)?; // Type-safe Diesel DSL
 ```
 
 Diesel's approach is entirely type-safe. The compiler ensures your queries are correct at compile time. The trade-off is a steeper learning curve and less flexibility for complex queries.
@@ -509,6 +517,7 @@ fn fetch_user_pooled(pool: &Pool, user_id: i32) -> QueryResult<User> {
 
     users.find(user_id).first(&mut conn)
 }
+let pool = create_diesel_pool("postgres://..."); fetch_user_pooled(&pool, 1)?;
 ```
 
 This pattern is common in Diesel applications—the ORM handles queries, while the pool manages connections.
@@ -561,6 +570,7 @@ async fn transfer_money(
 
     Ok(())
 }
+transfer_money(&pool, 1, 2, 100.0).await?; // Atomic transfer with rollback on error
 ```
 
 The key insight: if any operation fails, the transaction automatically rolls back when `tx` is dropped. You can't forget to handle errors—the type system enforces it.
@@ -614,6 +624,7 @@ async fn risky_operation(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx:
 
     Ok(())
 }
+complex_operation(&pool).await?; // Savepoint allows partial rollback
 ```
 
 Savepoints allow partial rollbacks, which is useful for complex multi-step operations.
@@ -640,6 +651,7 @@ async fn set_isolation_level(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     Ok(())
 }
+set_isolation_level(&pool).await?; // SERIALIZABLE prevents phantom reads
 ```
 
 The four standard isolation levels are:
@@ -680,6 +692,7 @@ fn transfer_with_diesel(
         Ok(())
     })
 }
+transfer_with_diesel(&mut conn, 1, 2, 100)?; // Closure-based transaction
 ```
 
 The closure-based API is elegant: returning `Ok` commits, returning `Err` rolls back. You can't accidentally forget to commit or rollback.
@@ -737,6 +750,7 @@ async fn update_with_optimistic_lock(
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
+update_with_optimistic_lock(&pool, 1, "new content".into()).await?;
 ```
 
 This pattern avoids database locks while preventing lost updates. It's ideal for long-running operations or distributed systems.
@@ -801,6 +815,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+sqlx::migrate!("./migrations").run(&pool).await?; // Run pending migrations
 ```
 
 Or use the CLI:
@@ -990,6 +1005,7 @@ async fn run_data_migration(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     Ok(())
 }
+run_data_migration(&pool).await?; // Batch process 1000 rows at a time
 ```
 
 Processing in batches prevents memory exhaustion on large datasets.
@@ -1082,6 +1098,7 @@ async fn full_text_search(pool: &PgPool, query: &str) -> Result<Vec<Document>, s
     .fetch_all(pool)
     .await
 }
+ORM for CRUD, raw SQL for analytics/full-text search
 ```
 
 ### When to Use Each
@@ -1220,6 +1237,7 @@ pub struct GrowthMetric {
     pub new_users: Option<i64>,
     pub cumulative_users: Option<i64>,
 }
+let repo = UserRepository::new(pool); repo.create("alice", "a@b.com").await?;
 ```
 
 This structure separates concerns: simple operations use type-safe queries, while analytics uses raw SQL for complex aggregations.

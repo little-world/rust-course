@@ -14,9 +14,7 @@ This chapter explores performance optimization: profiling to find bottlenecks, a
 
 ### Example: Which bottleneck
 ```rust
-//=========================
 // Which is the bottleneck?
-//=========================
 fn process_data(items: Vec<String>) -> Vec<String> {
     items.iter()
         .filter(|s| validate(s))      // Is it validation?
@@ -100,7 +98,6 @@ Instruments provides a GUI for exploring hotspots, viewing call trees, and drill
 ### Example: Profiling in Code with Benchmarks
 
 Criterion benchmarks provide detailed performance data:
-
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -287,9 +284,7 @@ Allocating is often 10-100x slower than stack allocation. Reducing allocations c
 Instead of allocating repeatedly, reuse buffers:
 
 ```rust
-//===============================
 // Bad: Allocates every iteration
-//===============================
 fn process_bad(items: &[String]) -> Vec<String> {
     let mut results = Vec::new();
     for item in items {
@@ -301,9 +296,7 @@ fn process_bad(items: &[String]) -> Vec<String> {
     results
 }
 
-//====================
 // Good: Reuses buffer
-//====================
 fn process_good(items: &[String]) -> Vec<String> {
     let mut results = Vec::new();
     let mut buffer = String::new();  // Allocate once
@@ -349,9 +342,7 @@ fn process_best(items: &[String]) -> Vec<String> {
 
 use smallvec::SmallVec;
 
-//===========================================================
 // Stores up to 4 elements on stack, spills to heap if larger
-//===========================================================
 type SmallVec4<T> = SmallVec<[T; 4]>;
 
 fn process_items(items: &[i32]) -> SmallVec4<i32> {
@@ -367,9 +358,7 @@ fn process_items(items: &[i32]) -> SmallVec4<i32> {
     result
 }
 
-//=================================================
 // If result has ≤4 elements, no heap allocation!
-//=================================================
 ```
 
 Use `SmallVec` when collections are usually small. The stack storage avoids allocation in the common case.
@@ -409,9 +398,7 @@ This pattern is common in APIs that sometimes need to modify data and sometimes 
 Arena as batch allocations for better performance:
 
 ```rust
-//===================
 // Add to Cargo.toml:
-//===================
 // typed-arena = "2.0"
 
 use typed_arena::Arena;
@@ -516,9 +503,7 @@ Use interning when you have many duplicate strings (like identifiers in a compil
 ### Example: Array-of-Structs vs Struct-of-Arrays
 
 ```rust
-//=======================================
 // Array of Structs (AoS) - bad for cache
-//=======================================
 struct ParticleAoS {
     x: f32,
     y: f32,
@@ -575,17 +560,13 @@ struct CacheLineAligned {
     padding: [u8; 56],
 }
 
-//===================
 // Bad: False sharing
-//===================
 struct CounterBad {
     thread1_counter: i64,  // Same cache line
     thread2_counter: i64,  // Same cache line
 }
 
-//=======================
 // Good: No false sharing
-//=======================
 #[repr(C, align(64))]
 struct CounterGood {
     thread1_counter: i64,
@@ -651,9 +632,7 @@ Design data structures for sequential access when possible.
 Linked lists are almost always slower than vectors due to poor cache behavior:
 
 ```rust
-//=================
 // Bad: Linked list
-//=================
 struct LinkedList<T> {
     head: Option<Box<Node<T>>>,
 }
@@ -663,16 +642,12 @@ struct Node<T> {
     next: Option<Box<Node<T>>>,
 }
 
-//=============
 // Good: Vector
-//=============
 struct VecList<T> {
     items: Vec<T>,
 }
 
-//================================================
 // Iterating a vector loads contiguous cache lines
-//================================================
 // Iterating a linked list causes a cache miss per node
 ```
 
@@ -805,25 +780,19 @@ fn sum_if_positive_sorted(data: &mut [i32]) -> i32 {
 ### Example: Branch-Free Code with Bitwise Operations
 
 ```rust
-//============
 // With branch
-//============
 fn max_with_branch(a: i32, b: i32) -> i32 {
     if a > b { a } else { b }
 }
 
-//===========
 // Branchless
-//===========
 fn max_branchless(a: i32, b: i32) -> i32 {
     let diff = a - b;
     let sign = diff >> 31;  // -1 if negative, 0 if positive
     a - (diff & sign)
 }
 
-//=======================================================
 // Or use LLVM's select (compiler does this optimization)
-//=======================================================
 fn max_select(a: i32, b: i32) -> i32 {
     if a > b { a } else { b }  // LLVM converts to select instruction
 }
@@ -834,9 +803,7 @@ The compiler often optimizes simple `if` expressions to branchless code automati
 ### Example: Likely and Unlikely Hints
 
 ```rust
-//====================================
 // Unstable feature - requires nightly
-//====================================
 #![feature(core_intrinsics)]
 
 use std::intrinsics::{likely, unlikely};
@@ -853,10 +820,7 @@ fn process_with_hints(data: &[i32]) -> i32 {
     sum
 }
 
-//==============================
 // Stable alternative using cold
-//==============================
-#[cold]
 #[inline(never)]
 fn handle_error() {
     eprintln!("Error occurred!");
@@ -1033,9 +997,7 @@ let buffer = RingBuffer::<i32, 8>::new();
 Use build scripts to generate code:
 
 ```rust
-//=========
 // build.rs
-//=========
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -1180,7 +1142,6 @@ unsafe fn add_arrays_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 For absolute control (rarely needed):
 
 ```rust
-#![feature(asm)]
 
 unsafe fn cpuid(eax: u32) -> (u32, u32, u32, u32) {
     let mut ebx: u32;

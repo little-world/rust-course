@@ -62,6 +62,9 @@ fn cow_example<'a>(data: &'a str, uppercase: bool) -> Cow<'a, str> {
         Cow::Borrowed(data)  // No allocation
     }
 }
+// Usage: conditionally allocate based on transformation needs
+let s = cow_example("hello", false); // Cow::Borrowed, no allocation
+let s = cow_example("hello", true);  // Cow::Owned("HELLO")
 ```
 
 ### Example: OsString/OsStr - Platform-Native Strings
@@ -219,6 +222,9 @@ impl StringBuilder {
         &self.buffer
     }
 }
+// Usage: build strings with method chaining
+let s = StringBuilder::with_capacity(100)
+    .append("Hello").append(" World").build();
 ```
 
 ### Example: Domain-Specific HTML Builder
@@ -269,6 +275,9 @@ impl HtmlBuilder {
         self.builder.build()
     }
 }
+// Usage: fluent HTML generation with automatic indentation
+let html = HtmlBuilder::new()
+    .open_tag("div").content("Hello").close_tag("div").build();
 ```
 
 ### Example: Using the Builders
@@ -359,6 +368,9 @@ impl<'a> LineParser<'a> {
         line.split(',').nth(index)
     }
 }
+// Usage: zero-copy iteration over lines
+let parser = LineParser::new("a,b,c\n1,2,3");
+for line in parser.lines() { println!("{}", line); }
 ```
 
 ### Example: Zero-Allocation CSV Parser
@@ -393,6 +405,9 @@ impl<'a> CsvParser<'a> {
         }
     }
 }
+// Usage: process CSV without intermediate allocations
+let csv = CsvParser::new("a,b,c\n1,2,3");
+csv.process(|fields| println!("{:?}", fields));
 ```
 
 ### Example: String View with UTF-8 Boundary Checking
@@ -534,6 +549,9 @@ fn normalize_whitespace(s: &str) -> Cow<str> {
 
     Cow::Owned(result)
 }
+// Usage: normalize whitespace, allocating only if needed
+let s1 = normalize_whitespace("hello world");   // Cow::Borrowed
+let s2 = normalize_whitespace("hello  world");  // Cow::Owned("hello world")
 ```
 
 ### Example: Conditional HTML Escaping
@@ -563,6 +581,9 @@ fn escape_html(s: &str) -> Cow<str> {
 
     Cow::Owned(escaped)
 }
+// Usage: escape HTML, skipping allocation when safe
+let safe = escape_html("hello");        // Cow::Borrowed
+let esc = escape_html("<script>");      // Cow::Owned("&lt;script&gt;")
 ```
 
 ### Example: Strip Prefix/Suffix Without Allocation
@@ -679,6 +700,8 @@ For handling potentially invalid data, `from_utf8_lossy` replaces invalid byte s
 fn validate_utf8_lossy(data: &[u8]) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
+// Usage: convert bytes to string, replacing invalid UTF-8
+let s = validate_utf8_lossy(&[0x48, 0x65, 0xFF, 0x6C]); // "He�l"
 ```
 
 ### Example: Strict UTF-8 Validation
@@ -689,6 +712,9 @@ When you need to know if data is valid UTF-8, use `from_utf8` which returns an e
 fn validate_utf8_strict(data: &[u8]) -> Result<&str, std::str::Utf8Error> {
     std::str::from_utf8(data)
 }
+// Usage: validate UTF-8, returning error on invalid bytes
+let valid = validate_utf8_strict(b"hello");   // Ok("hello")
+let invalid = validate_utf8_strict(&[0xFF]); // Err(Utf8Error)
 ```
 
 ### Example: Custom UTF-8 Validator
@@ -744,7 +770,8 @@ impl<'a> Utf8Validator<'a> {
             if second & 0xC0 != 0x80 {
                 return Err(pos);
             }
-            let ch = ((first as u32 & 0x1F) << 6) | (second as u32 & 0x3F);
+            let ch = ((first as u32 & 0x1F) << 6)
+                | (second as u32 & 0x3F);
             if ch < 0x80 {
                 return Err(pos);  // Overlong encoding
             }
@@ -1235,7 +1262,8 @@ impl Lexer {
     fn handle_operator(&mut self, ch: char) -> Option<Token> {
         // Multi-char operators: ==, !=, <=, >=, &&, ||
         let two_char = format!("{}{}", self.current_token, ch);
-        if matches!(two_char.as_str(), "==" | "!=" | "<=" | ">=" | "&&" | "||") {
+        let ops = ["==", "!=", "<=", ">=", "&&", "||"];
+        if ops.contains(&two_char.as_str()) {
             self.current_token = two_char;
             self.pos += 1;
             let token = Token::Operator(self.current_token.clone());
@@ -1251,7 +1279,9 @@ impl Lexer {
     }
 
     fn finish_identifier(&mut self) -> Token {
-        let keywords = ["if", "else", "while", "for", "return", "fn", "let"];
+        let keywords = [
+            "if", "else", "while", "for", "return", "fn", "let"
+        ];
 
         let token = if keywords.contains(&self.current_token.as_str()) {
             Token::Keyword(self.current_token.clone())
@@ -1368,7 +1398,8 @@ impl UrlParser {
                         }
                         self.state = ParseState::AfterScheme;
                         self.pos += 1;
-                    } else if ch.is_alphanumeric() || ch == '+' || ch == '-' || ch == '.' {
+                    } else if ch.is_alphanumeric()
+                        || ch == '+' || ch == '-' || ch == '.' {
                         scheme.push(ch);
                         self.pos += 1;
                     } else {
@@ -1792,14 +1823,17 @@ impl Rope {
     fn len(&self) -> usize {
         match self {
             Rope::Leaf(s) => s.len(),
-            Rope::Branch { length, right, .. } => length + right.len(),
+            Rope::Branch { length, right, .. } => {
+                length + right.len()
+            }
         }
     }
 
     // Insert string at position
     fn insert(&mut self, pos: usize, text: &str) {
         let (left, right) = self.split(pos);
-        *self = Rope::concat(Rope::concat(left, Rope::from_str(text)), right);
+        let inner = Rope::concat(left, Rope::from_str(text));
+        *self = Rope::concat(inner, right);
     }
 
     // Delete range
@@ -1819,7 +1853,8 @@ impl Rope {
                     (Rope::Leaf(String::new()), Rope::Leaf(s))
                 } else {
                     let (left, right) = s.split_at(pos);
-                    (Rope::Leaf(left.to_string()), Rope::Leaf(right.to_string()))
+                    (Rope::Leaf(left.to_string()),
+                     Rope::Leaf(right.to_string()))
                 }
             }
             Rope::Branch { left, right, length } => {
@@ -1870,7 +1905,9 @@ impl Rope {
 
         let mid = text.len() / 2;
         let (left, right) = text.split_at(mid);
-        Rope::concat(Rope::Leaf(left.to_string()), Rope::Leaf(right.to_string()))
+        Rope::concat(
+            Rope::Leaf(left.to_string()),
+            Rope::Leaf(right.to_string()))
     }
 }
 
@@ -2244,7 +2281,8 @@ impl BoyerMoore {
                 // Shift pattern
                 if s + m < n {
                     let next_char = text[s + m];
-                    s += m - self.bad_char.get(&next_char).unwrap_or(&0);
+                    let skip = self.bad_char.get(&next_char).unwrap_or(&0);
+                    s += m - skip;
                 } else {
                     s += 1;
                 }

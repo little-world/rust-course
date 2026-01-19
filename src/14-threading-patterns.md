@@ -12,11 +12,6 @@ This pattern is the foundation of multi-threaded programming in Rust. It covers 
 
 -   **Why It Matters**: - **True Parallelism**: Threads allow your program to execute multiple operations at the same time on different CPU cores, dramatically improving performance for CPU-bound tasks. - **Compile-Time Safety**: Rust's ownership model prevents data races at compile time, one of the most common and difficult types of concurrency bugs.
 
--   **Use Cases**:
-    -   **Parallel Computation**: Performing expensive calculations like image processing, simulations, or scientific computing.
-    -   **Background Tasks**: Running tasks like logging, metrics collection, or periodic cleanup without blocking the main application.
-    -   **Concurrent I/O**: Handling multiple network requests or file operations simultaneously.
-    -   **Responsive UI**: Offloading long-running tasks from the main UI thread to keep an application responsive.
 
 ### Example: Spawning a Thread with Owned Data
 
@@ -93,8 +88,12 @@ fn thread_with_error_handling() {
     });
 
     match handle.join() {
-        Ok(Ok(value)) => println!("Thread completed successfully with value: {}", value),
-        Ok(Err(e)) => println!("Thread returned a business logic error: {}", e),
+        Ok(Ok(value)) => {
+            println!("Thread completed with value: {}", value)
+        }
+        Ok(Err(e)) => {
+            println!("Thread returned error: {}", e)
+        }
         Err(_) => println!("Thread panicked!"),
     }
 }
@@ -114,7 +113,9 @@ fn named_threads() {
             thread::Builder::new()
                 .name(format!("worker-{}", i))
                 .spawn(move || {
-                    println!("Thread '{}' starting", thread::current().name().unwrap_or("unnamed"));
+                    let name = thread::current().name()
+                        .unwrap_or("unnamed").to_string();
+                    println!("Thread '{}' starting", name);
                     thread::sleep(Duration::from_millis(100));
                     println!("Thread '{}' finished", i);
                     i * 2
@@ -201,12 +202,14 @@ fn scoped_threads_for_borrowing() {
     thread::scope(|s| {
         // This thread borrows 'data' immutably.
         s.spawn(|| {
-            println!("Scoped thread sees sum: {}", data.iter().sum::<i32>());
+            let sum: i32 = data.iter().sum();
+            println!("Scoped thread sees sum: {}", sum);
         });
 
         // This thread also borrows 'data' immutably.
         s.spawn(|| {
-            println!("Scoped thread sees product: {}", data.iter().product::<i32>());
+            let product: i32 = data.iter().product();
+            println!("Scoped thread sees product: {}", product);
         });
     }); // The scope blocks here until all spawned threads complete.
 
@@ -226,11 +229,6 @@ Spawning a new thread for every small task is inefficient. Thread pools and work
 
 -   **Why It Matters**: - **Efficiency**: Thread pools eliminate the overhead of thread creation, making it feasible to parallelize even small tasks. - **Automatic Load Balancing**: Work-stealing schedulers automatically distribute work, ensuring that all CPU cores are kept busy, leading to near-linear performance scaling for many parallel algorithms.
 
--   **Use Cases**:
-    -   **Data Parallelism**: Processing large collections of data (e.g., arrays, vectors) in parallel.
-    -   **Web Servers**: Handling a large number of incoming requests with a fixed pool of worker threads.
-    -   **Recursive Algorithms**: Parallelizing divide-and-conquer algorithms like quicksort or tree traversals.
-    -   **Batch Processing**: Running a large number of independent jobs, such as image encoding or data analysis tasks.
 
 ### Example: Data Parallelism with Rayon
 
@@ -369,8 +367,8 @@ fn multiple_producers() {
         let tx_clone = tx.clone();
         thread::spawn(move || {
             for i in 0..3 {
-                let message = format!("Thread {} sends message {}", thread_id, i);
-                tx_clone.send(message).unwrap();
+                let msg = format!("Thread {} msg {}", thread_id, i);
+                tx_clone.send(msg).unwrap();
             }
         });
     }
@@ -495,12 +493,6 @@ While message passing is preferred, sometimes you need multiple threads to acces
 
 -   **Why It Matters**: - **Compile-Time Safety**: Rust's type system ensures you use locks correctly. You cannot access the data without first acquiring the lock, and you cannot forget to release it, preventing entire classes of concurrency bugs.
 
--   **Use Cases**:
-    -   **Shared Caches**: An in-memory cache that is accessed by multiple worker threads.
-    -   **Connection Pools**: A pool of database or network connections that are shared among threads in a web server.
-    -   **Global State/Configuration**: Application-wide configuration that needs to be read by many threads and occasionally updated.
-    -   **Metrics and Counters**: Collecting metrics (like request counts) from multiple threads into a single shared data structure.
-
 ### Example: Shared Counter with `Arc<Mutex<T>>`
 
 This is the "Hello, World!" of shared state concurrency. Multiple threads increment a shared counter, using a `Mutex` to ensure that the increments don't interfere with each other.
@@ -588,12 +580,6 @@ Barriers and Condvars are lower-level primitives used to coordinate the timing o
 
 -   **Why It Matters**: - **Efficiency**: `Condvar` avoids busy-waiting, leading to much better CPU utilization. Threads that are waiting for a condition consume no CPU resources.
 
--   **Use Cases**:
-    -   **Parallel Simulations**: Using a `Barrier` to ensure all threads have completed a time step before starting the next one.
-    -   **Producer-Consumer Queues**: Using a `Condvar` to make a consumer wait when the queue is empty and a producer wait when it's full.
-    -   **Parallel Testing**: Using a `Barrier` to start multiple threads simultaneously to test for race conditions under high contention.
-    -   **Phased Algorithms**: Any algorithm where work is divided into distinct, sequential phases that can be executed in parallel within each phase.
-
 ### Example: `Barrier` for Phased Computation
 
 A `Barrier` is used to synchronize multiple threads at a specific point. All threads must reach the barrier before any of them can proceed.
@@ -614,11 +600,11 @@ fn barrier_for_phased_work() {
             // ... do some work ...
             barrier_clone.wait(); // All threads wait here.
 
-            println!("Thread {}: All threads finished phase 1. Starting phase 2.", id);
+            println!("Thread {}: Phase 1 done. Starting phase 2.", id);
             // ... do some work ...
             barrier_clone.wait(); // Wait again.
 
-            println!("Thread {}: All threads finished phase 2.", id);
+            println!("Thread {}: Phase 2 done.", id);
         }));
     }
 

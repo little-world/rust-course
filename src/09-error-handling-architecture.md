@@ -57,6 +57,11 @@ fn load_and_parse_number(path: &str) -> Result<i32, DataError> {
     let number = content.trim().parse()?;
     Ok(number)
 }
+// Usage: match on specific error variants
+match parse_number("") {
+    Err(ParseError::EmptyInput) => {}, _ => {}
+}
+let num = load_and_parse_number("config.txt")?;
 ```
 
 ### Example: `#[non_exhaustive]` for Library Stability
@@ -73,6 +78,8 @@ pub enum ApiError {
     Timeout,
     // A new variant could be added here in a future version.
 }
+// Usage: handle known errors with wildcard for future variants
+match err { ApiError::Timeout => retry(), _ => fail() }
 ```
 
 ## Pattern 2: `anyhow` for Application-Level Errors
@@ -103,6 +110,11 @@ pub struct HttpError {
     #[source]
     pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
+// Usage: create an HTTP error with full context
+let err = HttpError {
+    method: "GET".into(), url: "/api".into(),
+    status: 404, body: None, source: None
+};
 ```
 
 ### Example: Error Builder for Complex Errors
@@ -119,7 +131,11 @@ pub struct HttpErrorBuilder {
 }
 
 impl HttpErrorBuilder {
-    pub fn new(method: impl Into<String>, url: impl Into<String>, status: u16) -> Self {
+    pub fn new(
+        method: impl Into<String>,
+        url: impl Into<String>,
+        status: u16,
+    ) -> Self {
         HttpErrorBuilder {
             method: method.into(),
             url: url.into(),
@@ -134,7 +150,10 @@ impl HttpErrorBuilder {
         self
     }
 
-    pub fn source(mut self, err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+    pub fn source(
+        mut self,
+        err: Box<dyn std::error::Error + Send + Sync>,
+    ) -> Self {
         self.source = Some(err);
         self
     }
@@ -146,6 +165,9 @@ impl HttpErrorBuilder {
         }
     }
 }
+// Usage: build complex errors fluently
+let err = HttpErrorBuilder::new("POST", "/users", 500)
+    .body("Internal error".into()).build();
 ```
 
 **Error type design principles:**
@@ -180,6 +202,8 @@ fn read_username(path: &str) -> Result<String, std::io::Error> {
     let username = content.trim().to_string();
     Ok(username)
 }
+// Usage: propagate I/O errors with the ? operator
+let name = read_username("user.txt")?;
 ```
 
 ### Example: Error Type Conversion with `?`
@@ -196,10 +220,12 @@ enum AppError {
 }
 
 fn process_file(path: &str) -> Result<i32, AppError> {
-    let content = std::fs::read_to_string(path)?; // io::Error -> AppError
-    let number = parse_number(&content)?;         // ParseError -> AppError
+    let content = std::fs::read_to_string(path)?;
+    let number = parse_number(&content)?;
     Ok(number)
 }
+// Usage: mix error types with automatic conversion
+let n = process_file("number.txt")?;
 ```
 
 ### Example: Manual Error Mapping
@@ -208,8 +234,9 @@ When automatic conversion isn't enough, `map_err` transforms errors with custom 
 
 ```rust
 fn read_and_validate(path: &str) -> Result<String, IoError> {
-    std::fs::read_to_string(path)
-        .map_err(|e| IoError::ReadFailed { path: path.to_string(), source: e })?;
+    std::fs::read_to_string(path).map_err(|e| IoError::ReadFailed {
+        path: path.to_string(), source: e
+    })?;
     Ok("valid".to_string())
 }
 ```
@@ -222,6 +249,8 @@ Collecting an iterator of `Result`s into `Result<Vec<T>, E>` stops at the first 
 fn parse_all_numbers(lines: Vec<&str>) -> Result<Vec<i32>, ParseError> {
     lines.into_iter().map(parse_number).collect() // Stops at first error
 }
+// Usage: collect results, failing fast on first error
+let nums = parse_all_numbers(vec!["1", "2", "bad"]);
 ```
 
 ### Example: Collect Successes, Log Failures
@@ -238,6 +267,8 @@ fn parse_all_lenient(lines: Vec<&str>) -> Vec<i32> {
         })
         .collect()
 }
+// Usage: parse all valid values, logging failures
+let nums = parse_all_lenient(vec!["1", "bad", "3"]);
 ```
 
 ### Example: Early Return with Multiple Error Types
@@ -246,9 +277,11 @@ Using `anyhow::Error` with `.context()` handles mixed error types elegantly in a
 
 ```rust
 fn complex_operation(path: &str) -> Result<String, anyhow::Error> {
-    let data = std::fs::read_to_string(path).context("Failed to read input file")?;
-    let parsed: Config = serde_json::from_str(&data).context("Failed to parse JSON")?;
-    validate_config(&parsed).context("Config validation failed")?;
+    let data = std::fs::read_to_string(path)
+        .context("Failed to read input file")?;
+    let parsed: Config = serde_json::from_str(&data)
+        .context("Failed to parse JSON")?;
+    validate_config(&parsed).context("Config validation")?;
     Ok("success".to_string())
 }
 ```
@@ -267,6 +300,8 @@ fn read_or_default(path: &str) -> Result<String, std::io::Error> {
         Err(e) => Err(e),
     }
 }
+// Usage: fall back to default if file not found
+let content = read_or_default("missing.txt")?;
 ```
 
 ### Example: Retry Logic with Error Inspection
@@ -322,6 +357,8 @@ fn partition_results<T, E>(results: Vec<Result<T, E>>) -> (Vec<T>, Vec<E>) {
         Err(e) => itertools::Either::Right(e),
     })
 }
+// Usage: separate successes and failures
+let (ok, err) = partition_results(vec![Ok(1), Err("bad"), Ok(2)]);
 ```
 
 **Propagation strategies:**
@@ -372,6 +409,9 @@ impl ParseErrorWithLocation {
         self
     }
 }
+// Usage: create parse error with precise location
+let err = ParseErrorWithLocation::new(10, 5, "unexpected token".into());
+// Displays: "Parse error at line 10, column 5: unexpected token"
 ```
 
 ### Example: Error with Stack Trace
@@ -420,8 +460,9 @@ pub struct QueryError {
 
 impl QueryError {
     pub fn display_detailed(&self) -> String {
-        format!("Query failed after {}ms\nQuery: {}\nParameters: {:?}\nError: {}",
-            self.duration_ms, self.query, self.parameters, self.source)
+        format!(
+            "Query failed after {}ms\nQuery: {}\nError: {}",
+            self.duration_ms, self.query, self.source)
     }
 }
 ```
@@ -479,6 +520,9 @@ impl ConfigError {
         ConfigError::MissingField { field, suggestion }
     }
 }
+// Usage: create actionable error with fix suggestion
+let err = ConfigError::missing_field("database_url");
+// Displays: "Missing field: database_url\n  Hint: Add DATABASE_URL to .env"
 ```
 
 ### Example: Error Aggregation
@@ -547,6 +591,8 @@ Indexing directly into a slice panics on out-of-bounds access—this is intentio
 fn get_user(users: &[User], index: usize) -> &User {
     &users[index]  // Panics on out-of-bounds - caller bug
 }
+// Usage: access user by index (panics if invalid)
+let user = get_user(&users, 0); // Panics if users is empty
 ```
 
 ### Example: Result for Expected Failures
@@ -557,6 +603,8 @@ When absence is an expected outcome, return `Option` or `Result` instead of pani
 fn find_user(users: &[User], id: u64) -> Option<&User> {
     users.iter().find(|u| u.id == id)  // None is expected
 }
+// Usage: search for user, handling absence gracefully
+if let Some(user) = find_user(&users, 42) { /* ... */ }
 ```
 
 ### Example: Expect with Informative Message
@@ -565,7 +613,8 @@ fn find_user(users: &[User], id: u64) -> Option<&User> {
 
 ```rust
 fn initialize() {
-    let config = load_config().expect("Failed to load config.toml - check file exists");
+    let config = load_config()
+        .expect("Failed to load config.toml");
 }
 ```
 
@@ -711,6 +760,8 @@ async fn fetch_user_data(id: u64) -> Result<User> {
     let user = parse_response(response).await?;
     Ok(user)
 }
+// Usage: propagate errors across async boundaries
+let user = fetch_user_data(42).await?;
 ```
 
 ### Example: Timeout with Context
@@ -724,6 +775,8 @@ async fn fetch_with_timeout(id: u64) -> Result<User> {
         .await
         .map_err(|_| anyhow::anyhow!("Timeout fetching user {id}"))?
 }
+// Usage: fetch with 5-second timeout
+let user = fetch_with_timeout(42).await?;
 ```
 
 ### Example: Concurrent Operations with try_join
@@ -869,8 +922,14 @@ impl CircuitBreaker {
             anyhow::bail!("Circuit breaker open");
         }
         match f().await {
-            Ok(v) => { self.failure_count.store(0, Ordering::Relaxed); Ok(v) }
-            Err(e) => { self.failure_count.fetch_add(1, Ordering::Relaxed); Err(e) }
+            Ok(v) => {
+                self.failure_count.store(0, Ordering::Relaxed);
+                Ok(v)
+            }
+            Err(e) => {
+                self.failure_count.fetch_add(1, Ordering::Relaxed);
+                Err(e)
+            }
         }
     }
 }

@@ -43,7 +43,7 @@ impl Iterator for Counter {
     }
 }
 
-// You can now use `Counter` with any iterator methods.
+// Usage: create a counter and sum its values
 let sum: u32 = Counter { current: 0, max: 5 }.sum();
 assert_eq!(sum, 10); // 0 + 1 + 2 + 3 + 4
 ```
@@ -74,6 +74,9 @@ impl<'a, T> IntoIterator for &'a RingBuffer<T> {
         self.data.iter()
     }
 }
+// Usage: iterate over a custom collection with for loop
+let buffer = RingBuffer { data: vec![1, 2, 3] };
+for item in &buffer { println!("{}", item); }
 ```
 
 ### Example: An Infinite Iterator
@@ -99,7 +102,7 @@ impl Iterator for Fibonacci {
     }
 }
 
-// We can take the first 10 Fibonacci numbers.
+// Usage: take the first 10 Fibonacci numbers
 let fib = Fibonacci { current: 0, next: 1 };
 let fibs: Vec<_> = fib.take(10).collect();
 assert_eq!(fibs, vec![0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);
@@ -139,6 +142,8 @@ fn process_numbers(input: &[i32]) -> i32 {
         .filter(|&x| x < 1000)
         .sum() // The iterator is consumed only at the end.
 }
+// Usage: filter, map, filter, and sum in a single pass
+let result = process_numbers(&[-1, 2, 3, 50]); // 2*2 + 3*3 = 13
 ```
 
 ### Example: Using `windows` for Sliding Window
@@ -151,6 +156,8 @@ fn moving_average(data: &[f64], window_size: usize) -> Vec<f64> {
         .map(|w| w.iter().sum::<f64>() / window_size as f64)
         .collect()
 }
+// Usage: compute moving average over sliding windows
+let avgs = moving_average(&[1.0, 2.0, 3.0, 4.0], 2);
 ```
 
 ### Example: `fold` for Custom Reductions
@@ -163,6 +170,8 @@ fn count_long_strings(strings: &[&str]) -> usize {
         .iter()
         .fold(0, |n, &s| if s.len() > 10 { n + 1 } else { n })
 }
+// Usage: count strings longer than 10 characters
+let count = count_long_strings(&["short", "a]long string"]);
 ```
 
 **Zero-allocation principles:**
@@ -212,6 +221,8 @@ fn analyze_logs(logs: &[LogEntry]) -> HashMap<String, usize> {
             map
         })
 }
+// Usage: filter logs by level and count occurrences
+let counts = analyze_logs(&logs); // {"ERROR": 5, "WARN": 3}
 ```
 
 ### Example: Chunking with stateful iteration
@@ -232,6 +243,10 @@ fn process_in_chunks<T>(
             Some(items.drain(..drain_end).collect())
         }
     })
+}
+// Usage: process items in batches of specified size
+for batch in process_in_chunks(vec![1,2,3,4,5], 2) {
+    println!("{:?}", batch);
 }
 ```
 
@@ -278,6 +293,8 @@ where
         use_a: true,
     }
 }
+// Usage: alternate elements from two iterators
+let merged: Vec<_> = interleave([1, 3], [2, 4]).collect();
 ```
 
 ### Example: Cartesian product
@@ -293,6 +310,8 @@ fn cartesian_product<T: Clone>(
         b.iter().map(move |y| (x.clone(), y.clone()))
     })
 }
+// Usage: generate all pairs from two slices
+let pairs: Vec<_> = cartesian_product(&[1, 2], &[3, 4]).collect();
 ```
 
 ### Example: Group by key
@@ -312,6 +331,8 @@ where
         map
     })
 }
+// Usage: group numbers by even/odd
+let grouped = group_by(vec![1, 2, 3, 4], |x| x % 2);
 ```
 
 ### Example: Scan for cumulative operations
@@ -328,6 +349,8 @@ fn cumulative_sum(numbers: &[i32]) -> Vec<i32> {
         })
         .collect()
 }
+// Usage: compute running totals (prefix sums)
+let sums = cumulative_sum(&[1, 2, 3, 4]); // [1, 3, 6, 10]
 ```
 
 ### Example: Take while and skip while for prefix/suffix operations
@@ -348,6 +371,9 @@ fn extract_header_body(
         .collect();
     (header, body)
 }
+// Usage: split text at empty line into header and body
+let lines = vec!["Header".into(), "".into(), "Body".into()];
+let (h, b) = extract_header_body(&lines);
 ```
 
 ### Example: Peekable for lookahead
@@ -470,6 +496,8 @@ fn compute_streaming_average(
     }
     avg.average()
 }
+// Usage: compute average in a single pass
+let avg = compute_streaming_average([1.0, 2.0, 3.0].into_iter());
 ```
 
 ### Example: Top-K elements without sorting
@@ -499,6 +527,8 @@ fn top_k<T: Ord>(
 
     heap.into_iter().map(|Reverse(x)| x).collect()
 }
+// Usage: find top 3 elements without sorting
+let top3 = top_k([5, 1, 9, 3, 7].into_iter(), 3); // [5, 7, 9]
 ```
 
 ### Example: Sliding window statistics
@@ -580,6 +610,9 @@ where
     let mut seen = HashSet::new();
     iter.filter(move |item| seen.insert(item.clone()))
 }
+// Usage: remove duplicates while streaming
+let unique: Vec<_> = deduplicate_stream(
+    [1, 2, 1, 3, 2].into_iter()).collect();
 ```
 
 ### Example: Rate limiting iterator
@@ -708,6 +741,9 @@ fn parse_csv_stream(
             .collect()
     })
 }
+// Usage: parse CSV data lazily from a reader
+let reader = std::io::Cursor::new("a,b,c\n1,2,3");
+for row in parse_csv_stream(reader) { println!("{:?}", row); }
 ```
 
 ### Example: Lazy transformation chain
@@ -774,6 +810,8 @@ fn parallel_sum_of_squares(numbers: &[i64]) -> i64 {
         .map(|&x| x * x)
         .sum()
 }
+// Usage: compute sum of squares in parallel
+let result = parallel_sum_of_squares(&[1, 2, 3, 4]);
 ```
 
 ### Example: Parallel sort
@@ -787,6 +825,8 @@ fn parallel_sort(mut data: Vec<i32>) -> Vec<i32> {
     data.par_sort_unstable();
     data
 }
+// Usage: sort a vector using multiple cores
+let sorted = parallel_sort(vec![3, 1, 4, 1, 5]); // [1, 1, 3, 4, 5]
 ```
 
 ### Example: Parallel chunked processing
@@ -804,6 +844,8 @@ fn parallel_chunk_processing(
         .map(|chunk| chunk.iter().map(|&b| b as u32).sum())
         .collect()
 }
+// Usage: process data in chunks across multiple threads
+let sums = parallel_chunk_processing(&[1, 2, 3, 4], 2); // [3, 7]
 ```
 
 ### Example: Parallel file processing
@@ -823,6 +865,9 @@ fn parallel_process_files(paths: &[String]) -> Vec<usize> {
         })
         .collect()
 }
+// Usage: count lines in multiple files concurrently
+let counts = parallel_process_files(
+    &["file1.txt".into(), "file2.txt".into()]);
 ```
 
 ### Example: Parallel find (early exit)
@@ -838,6 +883,8 @@ fn parallel_find_first(
 ) -> Option<usize> {
     numbers.par_iter().position_any(|&x| x == target)
 }
+// Usage: find element position using parallel search
+let idx = parallel_find_first(&[3, 1, 4, 1, 5], 4); // Some(2)
 ```
 
 ### Example: Parallel fold with combiner
@@ -853,6 +900,8 @@ fn parallel_word_count(lines: &[String]) -> usize {
         .map(|line| line.split_whitespace().count())
         .sum()
 }
+// Usage: count words across lines in parallel
+let count = parallel_word_count(&["hello world".into(), "foo".into()]); // 3
 ```
 
 ### Example: Parallel partition
@@ -865,6 +914,8 @@ use rayon::prelude::*;
 fn parallel_partition(numbers: Vec<i32>) -> (Vec<i32>, Vec<i32>) {
     numbers.into_par_iter().partition(|&x| x % 2 == 0)
 }
+// Usage: split numbers into even and odd in parallel
+let (evens, odds) = parallel_partition(vec![1, 2, 3, 4]);
 ```
 
 ### Example: Parallel nested iteration with `flat_map`
@@ -990,6 +1041,8 @@ fn parallel_pipeline(data: &[i32]) -> Vec<i32> {
         .map(|x| x / 3)       // Stage 3: divide
         .collect()
 }
+// Usage: chain map/filter/map operations in parallel
+let result = parallel_pipeline(&[10, 60, 80]);
 ```
 
 ### Example: Custom parallel iterator

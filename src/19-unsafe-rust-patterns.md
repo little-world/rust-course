@@ -62,6 +62,7 @@ fn raw_pointer_basics() {
         // Dereferencing r3 would be UB - it points to random memory!
     }
 }
+raw_pointer_basics(); // Demonstrates safe pointer creation, unsafe dereferencing
 ```
 
 **Why this pattern exists**: Sometimes you need to store pointers in data structures where the borrow checker can't track the relationships. A tree node with a parent pointer, for example—the parent outlives the child, but Rust's borrow checker can't express that bidirectional relationship without causing issues.
@@ -87,6 +88,7 @@ fn pointer_arithmetic() {
         // ptr.add(10) would be UB - out of bounds!
     }
 }
+pointer_arithmetic(); // Prints array elements via pointer offsets
 ```
 
 **The critical rule**: Pointer arithmetic must stay within the bounds of the original allocation (or one byte past the end). Going beyond is undefined behavior even if you don't dereference. The CPU's memory protection won't save you—UB means the compiler can assume it never happens and optimize accordingly, leading to bizarre bugs.
@@ -176,6 +178,8 @@ impl<T> Drop for RawVec<T> {
         }
     }
 }
+let mut v = RawVec::with_capacity(10); 
+v.grow(); // Doubles capacity to 20
 ```
 
 **Why this pattern?** Separating raw allocation from element management clarifies responsibilities. `RawVec` handles memory, higher-level code handles `Drop` for elements. This is exactly how `std::vec::Vec` is implemented.
@@ -255,6 +259,8 @@ impl<T> Drop for LinkedList<T> {
         }
     }
 }
+let mut list = LinkedList::new(); 
+list.push_back(1);
 ```
 
 **Why NonNull?** Three benefits:
@@ -316,6 +322,7 @@ fn use_c_functions() {
         }
     }
 }
+use_c_functions(); // Calls abs(), strlen(), malloc/free from libc
 ```
 
 **Why unsafe?** The compiler can't verify that:
@@ -361,9 +368,7 @@ unsafe fn free_rust_c_string(ptr: *mut c_char) {
     }
 }
 
-//==============
 // Example usage
-//==============
 fn c_string_example() {
     let c_str = rust_to_c_string("Hello from Rust");
 
@@ -409,15 +414,14 @@ enum Status {
     Pending = 2,
 }
 
-//=================================================
 // Declare C functions that work with these structs
-//=================================================
 extern "C" {
     fn process_point(point: *const Point) -> c_int;
     fn create_person(name: *const c_char, age: c_int) -> *mut Person;
     fn free_person(person: *mut Person);
 }
 
+// Usage
 fn use_c_structs() {
     let point = Point { x: 10, y: 20 };
 
@@ -427,7 +431,6 @@ fn use_c_structs() {
     }
 }
 ```
-
 **Why `#[repr(C)]`?** Rust can reorder struct fields for optimization. C can't—field order is part of the ABI contract. `#[repr(C)]` locks in C's layout.
 
 **Common pitfall**: Using Rust types (`String`, `&str`, `Option<T>`) in `#[repr(C)]` structs. These have Rust-specific layouts. Use raw pointers and C-compatible types instead.
@@ -440,26 +443,22 @@ Raw FFI is unsafe and error-prone. The pattern: create a safe Rust wrapper that 
 use std::ffi::CString;
 use std::os::raw::c_char;
 
-//======================================================
 // Unsafe C API (these would come from a real C library)
-//======================================================
 extern "C" {
     fn create_context() -> *mut std::os::raw::c_void;
     fn destroy_context(ctx: *mut std::os::raw::c_void);
     fn context_do_work(ctx: *mut std::os::raw::c_void, data: *const c_char) -> i32;
 }
 
-/// Safe Rust wrapper for the C context API.
-///
-/// Ensures the context is properly created and destroyed.
+// Safe Rust wrapper for the C context API.
+// Ensures the context is properly created and destroyed.
 pub struct Context {
     inner: *mut std::os::raw::c_void,
 }
 
 impl Context {
-    /// Creates a new context.
-    ///
-    /// Returns None if the C library fails to create a context.
+    // Creates a new context.
+    // Returns None if the C library fails to create a context.
     pub fn new() -> Option<Self> {
         let ptr = unsafe { create_context() };
 
@@ -470,9 +469,8 @@ impl Context {
         }
     }
 
-    /// Performs work with the given data.
-    ///
-    /// Returns Ok(result) on success, Err(message) on failure.
+    // Performs work with the given data.
+    // Returns Ok(result) on success, Err(message) on failure.
     pub fn do_work(&mut self, data: &str) -> Result<i32, String> {
         let c_data = CString::new(data).map_err(|e| e.to_string())?;
 
@@ -496,11 +494,8 @@ impl Drop for Context {
     }
 }
 
-//===============================================================================
-// If the C library is thread-safe, we can mark this safe to send between threads
-//===============================================================================
-// SAFETY: The C library documentation claims thread-safety
-unsafe impl Send for Context {}
+let ctx = Context::new().unwrap(); 
+ctx.do_work("data").unwrap();
 ```
 
 **This pattern solves multiple problems:**
@@ -518,9 +513,7 @@ Sometimes C libraries need to call back into your code. Callbacks must use the C
 ```rust
 use std::os::raw::c_int;
 
-//==========================
 // Type alias for C callback
-//==========================
 type Callback = extern "C" fn(c_int) -> c_int;
 
 extern "C" {
@@ -528,9 +521,8 @@ extern "C" {
     fn trigger_callback(value: c_int);
 }
 
-/// Rust function with C calling convention.
-///
-/// This can be called from C code.
+// Rust function with C calling convention.
+// This can be called from C code.
 extern "C" fn my_callback(value: c_int) -> c_int {
     println!("Callback called with: {}", value);
     value * 2
@@ -543,9 +535,7 @@ fn callback_example() {
     }
 }
 
-//====================================================
 // Advanced: Callback with user data (context pointer)
-//====================================================
 type CallbackWithData = extern "C" fn(*mut std::os::raw::c_void, c_int) -> c_int;
 
 extern "C" fn callback_with_context(user_data: *mut std::os::raw::c_void, value: c_int) -> c_int {
@@ -556,6 +546,7 @@ extern "C" fn callback_with_context(user_data: *mut std::os::raw::c_void, value:
     }
 }
 
+// Example usage
 fn callback_with_state_example() {
     let mut state = 0i32;
 
@@ -624,9 +615,7 @@ fn create_array_uninit() -> [i32; 1000] {
     }
 }
 
-//=====================================
 // Better: Use the newer stabilized API
-//=====================================
 fn create_array_uninit_safe() -> [i32; 1000] {
     let mut arr = MaybeUninit::uninit_array::<1000>();
 
@@ -732,7 +721,9 @@ fn call_out_parameter_function() -> Option<i32> {
     } else {
         None
     }
-}
+} 
+// Usage
+if let Some(val) = call_out_parameter_function() { println!("{}", val); }
 ```
 
 **Pattern**: Create `MaybeUninit`, pass its pointer to C, check return code, assume init only on success.
@@ -772,6 +763,8 @@ fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
         None
     }
 }
+
+if let Some(data) = read_into_buffer(1024) { process(&data); }
 ```
 
 **Why transmute?** `Vec<MaybeUninit<u8>>` and `Vec<u8>` have identical memory layout. `transmute` reinterprets the type without copying data.
@@ -838,18 +831,14 @@ Transmuting references is one of the easiest ways to create undefined behavior. 
 ```rust
 use std::mem;
 
-//======================================
-// ❌ DANGEROUS: Transmuting references
-//======================================
+//  DANGEROUS: Transmuting references
 fn transmute_reference_unsafe() {
     let x: &i32 = &42;
     let y: &u32 = unsafe { mem::transmute(x) };
     println!("Transmuted: {}", y);
 }
 
-//==================================
-// ✅ BETTER: Using pointer casting
-//==================================
+//  BETTER: Using pointer casting
 fn transmute_reference_safer() {
     let x: i32 = 42;
     let ptr = &x as *const i32 as *const u32;
@@ -857,9 +846,7 @@ fn transmute_reference_safer() {
     println!("Casted: {}", y);
 }
 
-//==============================================
-// ✅ SAFEST: Just use from_ne_bytes or as cast
-//==============================================
+//  SAFEST: Just use from_ne_bytes or as cast
 fn safe_conversion() {
     let x: i32 = 42;
     let y = x as u32;  // Sign-extends negative values
@@ -891,7 +878,6 @@ fn slice_transmute() {
     };
 
     println!("Bytes: {:?}", bytes);
-
     // Reverse: bytes to u32 (must ensure alignment!)
 }
 ```
@@ -926,12 +912,12 @@ fn enum_discriminant_safe(e: &MyEnum) -> u8 {
     }
 }
 
-//======================================
-// ✅ Also safe: std::mem::discriminant
-//======================================
+// Also safe: std::mem::discriminant
 fn enum_discriminant_std(e: &MyEnum) -> std::mem::Discriminant<MyEnum> {
     std::mem::discriminant(e)
 }
+
+let disc = enum_discriminant_safe(&MyEnum::B); // Returns 1
 ```
 
 **Why the unsafe version is wrong**: Enums might have niches (unused bit patterns) that the compiler uses for optimization. Reading the raw bytes might give you unexpected values.
@@ -953,12 +939,12 @@ fn fast_float_bits(f: f32) -> u32 {
     unsafe { union.u }  // Reading inactive union field is unsafe
 }
 
-//=======================================
 // For real code, use the built-in method
-//=======================================
 fn correct_float_bits(f: f32) -> u32 {
     f.to_bits()
 }
+
+let bits = fast_float_bits(3.14); // Gets raw bits of float via union
 ```
 
 **Union safety**: Writing one field and reading another is safe only if both types are valid for all bit patterns (e.g., integers, floats). Reading a `bool` from a union where you wrote `u8` would be UB if the byte is not 0 or 1.
@@ -970,9 +956,7 @@ fn correct_float_bits(f: f32) -> u32 {
 Some uses of transmute are always wrong. Here are the common mistakes:
 
 ```rust
-//===============================
-// ❌ WRONG: Extending lifetimes
-//===============================
+// WRONG: Extending lifetimes
 fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
     unsafe { std::mem::transmute(x) }  // UB: dangling reference
 }
@@ -981,27 +965,21 @@ fn extend_lifetime_good<'a>(x: &'a str) -> &'a str {
     x  // Just return the original with its real lifetime
 }
 
-//=================================
-// ❌ WRONG: Different sized types
-//=================================
+// WRONG: Different sized types
 fn different_sizes_bad() {
     let x: u32 = 42;
     // Won't compile: size mismatch
     // let y: u64 = unsafe { std::mem::transmute(x) };
 }
 
-//===============================
-// ❌ WRONG: Changing mutability
-//===============================
+//  WRONG: Changing mutability
 fn change_mutability_bad(x: &i32) -> &mut i32 {
     // UB: violates aliasing rules
     // unsafe { std::mem::transmute(x) }
     panic!("Can't safely do this")
 }
 
-//=================================
-// ❌ WRONG: Bypassing type safety
-//=================================
+//  WRONG: Bypassing type safety
 fn type_confusion_bad() {
     let x: &str = "hello";
     // UB: str has invariants (valid UTF-8) that might be violated
@@ -1140,9 +1118,7 @@ impl<T> Drop for MyVec<T> {
     }
 }
 
-//========================================================
 // Safety: MyVec<T> can be sent to another thread if T can
-//========================================================
 unsafe impl<T: Send> Send for MyVec<T> {}
 unsafe impl<T: Sync> Sync for MyVec<T> {}
 ```
@@ -1173,9 +1149,8 @@ pub struct NonEmptySlice<'a, T> {
 }
 
 impl<'a, T> NonEmptySlice<'a, T> {
-    /// Creates a non-empty slice from a regular slice.
-    ///
-    /// Returns None if the slice is empty.
+    // Creates a non-empty slice from a regular slice.
+    // Returns None if the slice is empty.
     pub fn new(slice: &'a [T]) -> Option<Self> {
         if slice.is_empty() {
             None
@@ -1184,10 +1159,8 @@ impl<'a, T> NonEmptySlice<'a, T> {
         }
     }
 
-    /// Creates a non-empty slice without checking.
-    ///
-    /// # Safety
-    /// The caller must ensure that the slice is not empty.
+    // Creates a non-empty slice without checking.
+    // # Safety: The caller must ensure that the slice is not empty.
     pub unsafe fn new_unchecked(slice: &'a [T]) -> Self {
         debug_assert!(!slice.is_empty());
         NonEmptySlice { slice }
@@ -1207,6 +1180,8 @@ impl<'a, T> NonEmptySlice<'a, T> {
         self.slice
     }
 }
+let s = NonEmptySlice::new(&[1,2,3]).unwrap(); 
+println!("{}", s.first());
 ```
 
 **Pattern**: Every `unsafe fn` needs a "# Safety" section. Every `unsafe` block should have a "SAFETY:" comment explaining why it's correct.
@@ -1254,11 +1229,12 @@ impl<T> Drop for RawPtr<T> {
     }
 }
 
-//==========================
 // Safe because we own the T
-//==========================
 unsafe impl<T: Send> Send for RawPtr<T> {}
 unsafe impl<T: Sync> Sync for RawPtr<T> {}
+
+let p = RawPtr::new(42); 
+println!("{}", p.as_ref()); // Owned heap value
 ```
 
 **Why PhantomData?** Without it, the compiler wouldn't know we "own" a `T`, so drop check wouldn't run T's destructor before RawPtr's. The `_marker` field has zero runtime cost but provides compile-time guarantees.
@@ -1273,8 +1249,6 @@ Here's a complete example: a spinlock that uses unsafe internally but exposes a 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// A simple spinlock implementation.
-///
 /// Uses atomic operations and unsafe cell internally,
 /// but provides safe locking through RAII guards.
 pub struct SpinLock<T> {
@@ -1295,14 +1269,12 @@ impl<T> SpinLock<T> {
     }
 
     /// Acquires the lock, blocking until available.
-    ///
     /// Returns a guard that provides access to the data
     /// and releases the lock when dropped.
     pub fn lock(&self) -> SpinLockGuard<T> {
         while self.locked.swap(true, Ordering::Acquire) {
             std::hint::spin_loop();
         }
-
         SpinLockGuard { lock: self }
     }
 }
@@ -1327,12 +1299,13 @@ impl<'a, T> Drop for SpinLockGuard<'a, T> {
     }
 }
 
-//===================================================
 // SAFETY: SpinLock properly synchronizes access to T
-//===================================================
 // The Acquire/Release ordering ensures memory visibility
 unsafe impl<T: Send> Send for SpinLock<T> {}
 unsafe impl<T: Send> Sync for SpinLock<T> {}
+
+let lock = SpinLock::new(0); 
+*lock.lock() += 1; // RAII guard auto-unlocks
 ```
 
 **Safe API**: Users never see `unsafe`. The lock/unlock mechanism is enforced by the type system—you can't forget to unlock because the guard drops automatically.
@@ -1348,14 +1321,11 @@ Type-state uses phantom types to encode state machine transitions at compile-tim
 ```rust
 use std::marker::PhantomData;
 
-//============
 // Type states
-//============
 struct Locked;
 struct Unlocked;
 
 /// A lock that uses the type system to ensure correct usage.
-///
 /// Can only access data when in the Locked state.
 pub struct TypeStateLock<T, State = Unlocked> {
     data: *mut T,
@@ -1402,11 +1372,11 @@ impl<T, State> Drop for TypeStateLock<T, State> {
     }
 }
 
+// Usage
 fn typestate_example() {
     let lock = TypeStateLock::new(vec![1, 2, 3]);
 
     // Can't access unlocked data - no access() method!
-
     let mut locked = lock.lock();
     locked.access().push(4);  // OK, we're in Locked state
 
@@ -1520,16 +1490,12 @@ Unsafe Rust is powerful but dangerous. These practices help you wield that power
 Keep unsafe code localized. Encapsulate it in small, well-tested functions or types.
 
 ```rust
-//============================================
-// ❌ BAD: Unsafe spreads throughout the code
-//============================================
+// BAD: Unsafe spreads throughout the code
 pub fn bad_api(data: *mut u8, len: usize) {
     // Users must pass raw pointers
 }
 
-//=========================================
-// ✅ GOOD: Unsafe is contained internally
-//=========================================
+//  GOOD: Unsafe is contained internally
 pub fn good_api(data: &mut [u8]) {
     unsafe {
         // Unsafe code is hidden from users
@@ -1545,10 +1511,7 @@ Every unsafe function must document its preconditions. This is for your future s
 
 ```rust
 /// Interprets a raw pointer as a slice.
-///
-/// # Safety
-///
-/// The caller must ensure that:
+/// # Safety: The caller must ensure that:
 /// - `ptr` is valid for reads of `len * size_of::<T>()` bytes
 /// - `ptr` is properly aligned for type `T`
 /// - The memory referenced by `ptr` is not concurrently accessed for writes
@@ -1572,7 +1535,6 @@ Extract unsafe operations into well-named, well-tested helper functions.
 ```rust
 mod unsafe_helpers {
     /// Writes a value to a pointer without dropping the old value.
-    ///
     /// # Safety
     /// `ptr` must be valid for writes and properly aligned.
     pub(crate) unsafe fn write_unchecked<T>(ptr: *mut T, value: T) {
@@ -1581,7 +1543,6 @@ mod unsafe_helpers {
     }
 
     /// Reads a value from a pointer without moving it.
-    ///
     /// # Safety
     /// `ptr` must be valid for reads, properly aligned, and point to initialized data.
     pub(crate) unsafe fn read_unchecked<T>(ptr: *const T) -> T {

@@ -74,6 +74,8 @@ fn iterator_variants() {
     println!("Squares: {:?}", squares);
 }
 
+ iterator_variants(); 
+// Output: Sum: 15, Doubled: [2, 4, 6, 8, 10], Squares: [1, 4, 9, 16, 25]
 ```
 
 ### Example: Parallel filter and map
@@ -110,6 +112,8 @@ fn parallel_flat_map() {
 
     println!("Flattened {} items", flattened.len());
 }
+
+// Usage: parallel_flat_map(); // Output: Flattened 30 items
 // Real-world: Image processing
 struct Image {
     pixels: Vec<u8>,
@@ -125,6 +129,8 @@ impl Image {
             height,
         }
     }
+
+    // Usage: let mut img = Image::new(1920, 1080); img.grayscale_parallel();
 
     fn apply_filter_parallel(&mut self, filter: fn(u8) -> u8) {
         self.pixels.par_iter_mut().for_each(|pixel| {
@@ -159,6 +165,7 @@ fn validate_emails_parallel(emails: Vec<String>) -> Vec<(String, bool)> {
         })
         .collect()
 }
+
 // Real-world: Log parsing
 #[derive(Debug)]
 struct LogEntry {
@@ -253,6 +260,7 @@ fn par_bridge_basic() {
     println!("Sum: {}", sum);
 }
 
+// Usage: par_bridge_basic(); // Bridges sequential iterator to parallel processing
 ```
 
 ### Example: Bridge from channel receiver
@@ -320,6 +328,8 @@ fn find_large_files_parallel(root: &str, min_size: u64) -> Vec<(PathBuf, u64)> {
         })
         .collect()
 }
+
+// Usage: let large_files = find_large_files_parallel("/home/user", 1024 * 1024); // Files > 1MB
 // Real-world: Database query results
 struct DatabaseIterator {
     current: usize,
@@ -692,6 +702,8 @@ fn parallel_quicksort<T: Ord + Send>(arr: &mut [T]) {
     );
 }
 
+// Usage: let mut data = vec![5, 2, 8, 1, 9]; parallel_quicksort(&mut data);
+
 fn partition<T: Ord>(arr: &mut [T]) -> usize {
     let len = arr.len();
     let pivot_idx = len / 2;
@@ -818,6 +830,8 @@ fn parallel_dir_size<P: AsRef<Path>>(path: P) -> u64 {
         .map(|entry| parallel_dir_size(entry.path()))
         .sum()
 }
+
+// Usage: let size = parallel_dir_size("/home/user/projects"); // bytes
 // Real-world: Parallel expression evaluation
 #[derive(Debug, Clone)]
 enum Expr {
@@ -937,6 +951,7 @@ fn simple_reductions() {
     println!("Product: {}", product);
 }
 
+// Usage: simple_reductions(); // Output: Sum: 500000500000, Min: 1, Max: 1000000, Product: 3628800
 ```
 
 ### Example: Reduce with custom operation
@@ -1066,6 +1081,8 @@ fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
             },
         )
 }
+
+// Usage: let hist = parallel_histogram(vec![1, 2, 2, 3, 3, 3]); // {1: 1, 2: 2, 3: 3}
 // Real-world: Word frequency count
 fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
     text.par_split_whitespace()
@@ -1086,6 +1103,8 @@ fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
             },
         )
 }
+
+// Usage: let freq = word_frequency_parallel("the quick fox".into());
 // Real-world: Parallel variance calculation
 fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
     // Two-pass algorithm (more numerically stable)
@@ -1099,6 +1118,8 @@ fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
 
     (mean, variance)
 }
+
+// Usage: let (mean, var) = parallel_variance(&[1.0, 2.0, 3.0, 4.0, 5.0]);
 // Real-world: Merge sorted chunks
 fn parallel_merge_reduce(mut chunks: Vec<Vec<i32>>) -> Vec<i32> {
     while chunks.len() > 1 {
@@ -1263,6 +1284,8 @@ impl ImagePipeline {
             .collect()
     }
 
+    // Usage: let processed = ImagePipeline::process_batch(raw_images);
+
     fn stage1_decode(data: Vec<u8>) -> Vec<u8> {
         // Simulate decoding
         thread::sleep(Duration::from_micros(100));
@@ -1310,6 +1333,8 @@ impl LogPipeline {
             .filter(|enriched| enriched.log.level == "ERROR")
             .collect()
     }
+
+    // Usage: let errors = LogPipeline::process(raw_logs);
 
     fn parse(raw: RawLog) -> Option<ParsedLog> {
         let parts: Vec<&str> = raw.0.split('|').collect();
@@ -1484,6 +1509,7 @@ fn simd_friendly_sum(data: &[f32]) -> f32 {
     chunk_sum + remainder_sum
 }
 
+// Usage: let sum = simd_friendly_sum(&[1.0, 2.0, 3.0, 4.0, 5.0]);
 ```
 
 ### Example: Array operations (SIMD-friendly)
@@ -1527,6 +1553,8 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
         .sum()
 }
 
+// Usage: let result = dot_product(&[1.0, 2.0], &[3.0, 4.0]); // 11.0
+
 fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
     use rayon::prelude::*;
 
@@ -1537,6 +1565,8 @@ fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
         .map(|(&x, &y)| x * y)
         .sum()
 }
+
+// Usage: let result = dot_product_parallel(&big_vec_a, &big_vec_b);
 // Real-world: Matrix multiplication with SIMD hints
 fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
     // Matrix dimensions: n x n
@@ -1806,6 +1836,8 @@ impl PointsSoA {
             .collect()
     }
 }
+
+// Usage: let soa = PointsSoA { x: vec![1.0], y: vec![2.0], z: vec![3.0] }; let sums = soa.process();
 // Real-world: Parallel + SIMD Monte Carlo
 fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
     use rayon::prelude::*;

@@ -60,8 +60,7 @@ fn identity<T>(x: T) -> T {
     x
 }
 
-// Usage: The compiler infers T from the argument type.
-// identity(42) becomes identity::<i32>, identity("hello") becomes identity::<&str>.
+// Usage: Compiler infers T from argument; works with any type.
 let x = identity(42); // Returns 42, type i32
 let s = identity("hello"); // Returns "hello", type &str
 ```
@@ -79,10 +78,9 @@ fn largest<T: PartialOrd>(list: &[T]) -> Option<&T> {
     Some(largest)
 }
 
-// Usage: Works on any slice of comparable elements.
-// Returns None for empty slices, Some(&largest) otherwise.
-let max_int = largest(&[34, 50, 25, 100, 65]); // Some(&100)
-let max_str = largest(&["apple", "zebra", "mango"]); // Some(&"zebra")
+// Usage: Works on any slice of comparable items.
+let max_int = largest(&[34, 50, 25, 100, 65]);
+let max_str = largest(&["apple", "zebra", "mango"]);
 ```
 
 ### Example: Multiple Trait Bounds
@@ -97,9 +95,9 @@ fn print_sorted<T: Ord + Display>(mut items: Vec<T>) {
     for item in items { println!("{}", item); }
 }
 
-// Usage: Accepts any Vec<T> where T is both Ord (sortable) and Display (printable).
-print_sorted(vec![3, 1, 4, 1, 5]); // Prints: 1, 1, 3, 4, 5
-print_sorted(vec!["banana", "apple", "cherry"]); // Prints: apple, banana, cherry
+// Usage: Bounds enable sorting (Ord) and printing (Display).
+print_sorted(vec![3, 1, 4, 1, 5]);
+print_sorted(vec!["banana", "apple", "cherry"]);
 ```
 
 ### Example: Returning Owned vs Borrowed
@@ -113,8 +111,7 @@ fn longest<'a, T>(x: &'a [T], y: &'a [T]) -> &'a [T] {
     if x.len() > y.len() { x } else { y }
 }
 
-// Usage: create_default returns an owned value, first borrows from input.
-// longest returns a reference to the longer slice.
+// Usage: Generic return types inferred from variable annotation.
 let s: String = create_default(); // Empty string via Default
 let f = first(&[1, 2, 3]); // Some(&1)
 let longer = longest(&[1, 2], &[3, 4, 5]); // &[3, 4, 5]
@@ -127,10 +124,10 @@ When inference can't determine the type, use turbofish `::<Type>` syntax. Common
 ```rust
 fn create_default<T: Default>() -> T { T::default() }
 
-// Usage: Use ::<Type> turbofish when inference can't determine the type.
-let parsed = "42".parse::<i32>().unwrap(); // Explicit i32
-let default = create_default::<String>(); // Explicit String
-let collected: Vec<i32> = (0..5).collect(); // Type annotation alternative
+// Usage: Turbofish specifies type when inference isn't enough.
+let parsed = "42".parse::<i32>().unwrap();
+let default = create_default::<String>();
+let collected: Vec<i32> = (0..5).collect();
 ```
 
 ### Example: Generic Comparison with Borrowing
@@ -145,8 +142,7 @@ fn min_ref<'a, T: Ord>(a: &'a T, b: &'a T) -> &'a T {
     if a <= b { a } else { b }
 }
 
-// Usage: compare returns Ordering, min_ref returns reference to smaller value.
-// Both borrow arguments to avoid ownership transfer.
+// Usage: Borrow arguments for comparison without taking ownership.
 let ord = compare(&5, &10); // Ordering::Less
 let min = min_ref(&"apple", &"banana"); // &"apple"
 ```
@@ -187,8 +183,7 @@ impl<T: Copy + std::ops::Add<Output = T>> Point<T> {
     }
 }
 
-// Usage: Point<T> works with integers, floats, or any type supporting the required ops.
-// The add method requires T: Copy + Add<Output = T>.
+// Usage: Same struct works with i32, f64, or any addable type.
 let p1 = Point::new(1, 2);
 let p2 = Point::new(3, 4);
 let sum = p1.add(&p2); // Point { x: 4, y: 6 }
@@ -211,8 +206,7 @@ impl<T, U> Pair<T, U> {
     }
 }
 
-// Usage: Pair<T, U> holds two different types. swap() exchanges them.
-// mix() combines first from self with second from other.
+// Usage: Different type parameters allow heterogeneous pairs.
 let p = Pair::new(42, "hello"); // Pair<i32, &str>
 let swapped = p.swap(); // Pair<&str, i32>
 ```
@@ -264,8 +258,7 @@ impl<T: Ord> BinaryTree<T> {
     }
 }
 
-// Usage: BinaryTree<T: Ord> maintains sorted order via insert().
-// contains() uses binary search for O(log n) lookups.
+// Usage: Generic tree works with any Ord type.
 let mut tree = BinaryTree::new();
 tree.insert(5);
 tree.insert(3);
@@ -288,7 +281,7 @@ impl<T> Wrapper<T> {
     fn as_ref(&self) -> Wrapper<&T> { Wrapper { value: &self.value } }
 }
 
-// Usage: Wrapper<T> provides map() to transform inner type, into_inner() to extract.
+// Usage: map transforms inner value; type changes if closure returns different type.
 let w = Wrapper::new(5);
 let doubled = w.map(|x| x * 2); // Wrapper { value: 10 }
 ```
@@ -313,8 +306,7 @@ impl<T: std::ops::Mul<Output = T> + Copy> Point<T> {
     }
 }
 
-// Usage: distance_from_origin() only exists for Point<f64>.
-// scale() works for any T: Mul<Output = T> + Copy.
+// Usage: f64-specific method only available on Point<f64>.
 let p = Point { x: 3.0_f64, y: 4.0_f64 };
 let dist = p.distance_from_origin(); // 5.0 (Pythagorean theorem)
 ```
@@ -331,8 +323,7 @@ impl<'a, T> Ref<'a, T> {
     fn get(&self) -> &T { self.value }
 }
 
-// Usage: Ref<'a, T> holds a reference with explicit lifetime.
-// The lifetime parameter connects the wrapper to the referenced data's validity.
+// Usage: Lifetime ensures Ref doesn't outlive referenced data.
 let num = 42;
 let r = Ref::new(&num);
 let value = r.get(); // &42
@@ -367,8 +358,7 @@ use std::fmt::Debug;
 fn print_debug<T: Debug>(value: T) { println!("{:?}", value); }
 fn clone_it<T: Clone>(value: &T) -> T { value.clone() }
 
-// Usage: print_debug requires T: Debug, clone_it requires T: Clone.
-// Bounds checked at compile time for each concrete type.
+// Usage: Bounds unlock specific operations on generic types.
 print_debug(vec![1, 2, 3]); // Prints "[1, 2, 3]"
 let cloned = clone_it(&vec![1, 2, 3]); // Returns cloned Vec
 ```
@@ -392,9 +382,9 @@ where
     println!("T: {:?}, U: {}", t.clone(), u);
 }
 
-// Usage: compare_and_show needs PartialOrd + Display, complex_operation uses where clause.
-compare_and_show(1, 2); // Prints "1 < 2"
-complex_operation(42, "hello"); // Uses Clone, Debug, AsRef<str>, Display
+// Usage: Multiple bounds combined with + or where clause.
+compare_and_show(1, 2);
+complex_operation(42, "hello");
 ```
 
 ### Example: Bounds on Associated Types
@@ -412,7 +402,7 @@ fn print_all<I>(iter: I) where I: Iterator, I::Item: Display {
     for item in iter { println!("{}", item); }
 }
 
-// Usage: sum_iterator requires Iterator<Item = i32>, print_all requires I::Item: Display.
+// Usage: Constrain iterator's Item type for specific operations.
 let sum = sum_iterator(vec![1, 2, 3].into_iter()); // 6
 print_all(vec!["a", "b", "c"]); // Prints each item
 ```
@@ -430,11 +420,10 @@ fn spawn_task<T: Send + 'static>(value: T) {
     std::thread::spawn(move || { drop(value); });
 }
 
-// Usage: T: 'a means T contains no references shorter than 'a.
-// T: Send + 'static is required for thread spawning (no borrowed data).
+// Usage: T: 'static required for spawning threads with owned data.
 let num = 42;
 let mut storage: Option<&i32> = None;
-store_ref(&mut storage, &num); // Stores reference with matching lifetime
+store_ref(&mut storage, &num);
 ```
 
 ### Example: Conditional Method Implementation
@@ -459,8 +448,7 @@ impl<T: Clone> Wrapper<T> {
     fn duplicate(&self) -> Self { Wrapper(self.0.clone()) }
 }
 
-// Usage: display() only available when T: Display, duplicate() when T: Clone.
-// Methods appear based on inner type's traits.
+// Usage: Methods appear only when inner type has required traits.
 let w = Wrapper::new(42);
 w.display(); // Works because i32: Display
 let dup = w.duplicate(); // Works because i32: Clone
@@ -481,8 +469,7 @@ fn print_str<T: AsRef<str> + ?Sized>(s: &T) {
     println!("{}", s.as_ref());
 }
 
-// Usage: takes_sized requires known size at compile time (default).
-// takes_unsized with ?Sized accepts str, [T], dyn Trait through references.
+// Usage: ?Sized accepts dynamically-sized types via reference.
 takes_sized(42); // i32 has known size
 let size = takes_unsized("hello"); // 5 bytes (str is unsized)
 ```
@@ -503,8 +490,7 @@ trait Printable: Display + Debug {
 impl Printable for i32 {}
 impl Printable for String {}
 
-// Usage: Printable: Display + Debug requires implementors to have both traits.
-// The print() method can use methods from both supertraits.
+// Usage: Supertrait methods available via the subtrait.
 let num: i32 = 42;
 num.print(); // Prints "Display: 42, Debug: 42"
 ```
@@ -522,7 +508,7 @@ fn transform<T: Clone>(items: impl IntoIterator<Item = T>) -> Vec<T> {
     items.into_iter().collect()
 }
 
-// Usage: impl Trait in return hides concrete type. In arguments, it's sugar for generics.
+// Usage: impl Trait hides concrete type while exposing capabilities.
 let evens: Vec<_> = make_iterator().collect(); // [0, 2, 4, 6, 8]
 let v = transform(vec![1, 2, 3]); // Works with Vec
 let v2 = transform([4, 5, 6]); // Also works with array
@@ -566,8 +552,7 @@ impl<T> Container for Vec<T> {
 
 fn first_item<C: Container>(c: &C) -> Option<&C::Item> { c.get(0) }
 
-// Usage: Associated type Item is determined by the implementor (Vec<T> → T).
-// first_item uses C::Item without extra generic parameters.
+// Usage: Associated type inferred from container; no turbofish needed.
 let v = vec![1, 2, 3];
 let first = first_item(&v); // Some(&1)
 ```
@@ -586,8 +571,7 @@ impl Convertible<f64> for i32 {
     fn convert(&self) -> f64 { *self as f64 }
 }
 
-// Usage: i32 implements Convertible<String> and Convertible<f64> separately.
-// Turbofish disambiguates which implementation to use.
+// Usage: Same type converts to multiple targets; turbofish selects which.
 let n: i32 = 42;
 let s: String = Convertible::<String>::convert(&n); // "42"
 let f: f64 = Convertible::<f64>::convert(&n); // 42.0
@@ -616,8 +600,7 @@ impl Summable for Numbers {
     fn items(&self) -> &[i32] { &self.0 }
 }
 
-// Usage: Item: Add + Default + Copy constrains what concrete types implementors can use.
-// The default sum() method uses these bounds.
+// Usage: Bounded associated type enables default sum() implementation.
 let nums = Numbers(vec![1, 2, 3, 4, 5]);
 let total = nums.sum(); // 15
 ```
@@ -645,8 +628,7 @@ impl<'a, T> LendingIterator for WindowsMut<'a, T> {
     }
 }
 
-// Usage: GAT type Item<'a> allows returning references tied to each call.
-// Each window borrows from the iterator, enabling lending iteration.
+// Usage: GAT enables lending iterator returning borrowed windows.
 let mut data = vec![1, 2, 3, 4];
 let mut windows = WindowsMut { slice: &mut data, pos: 0 };
 if let Some(w) = windows.next() { /* w is &mut [1, 2] */ }
@@ -669,8 +651,7 @@ fn create_member<F: Family>() -> F::Member where F::Member: Default {
     F::Member::default()
 }
 
-// Usage: Family trait maps marker types to their member types.
-// create_member::<IntFamily>() returns i32, ::<StringFamily>() returns String.
+// Usage: Type family maps marker type to its associated member type.
 let int_val: i32 = create_member::<IntFamily>(); // 0 (default)
 let str_val: String = create_member::<StringFamily>(); // "" (empty)
 ```
@@ -706,8 +687,7 @@ impl<T: Display> Printable for T {
     fn print(&self) { println!("{}", self); }
 }
 
-// Usage: Any type implementing Display automatically gets Printable.
-// Blanket impl applies to i32, &str, f64, String, and all future Display types.
+// Usage: Any Display type automatically gets print() method.
 42.print(); // Works via blanket impl
 "hello".print(); // Same blanket impl applies
 ```
@@ -729,9 +709,10 @@ impl<I: Iterator> IteratorExt for I {
     }
 }
 
-// Usage: IteratorExt adds count_where() to all iterators via blanket impl.
-let evens = (0..10).count_where(|x| x % 2 == 0); // 5
-let positives = vec![-2, -1, 0, 1, 2].into_iter().count_where(|x| *x > 0); // 2
+// Usage: Extension adds count_where() to all iterators.
+let evens = (0..10).count_where(|x| x % 2 == 0);
+let pos = vec![-2, -1, 0, 1, 2].into_iter()
+    .count_where(|x| *x > 0);
 ```
 
 ### Example: Into from From (Std Library Pattern)
@@ -751,8 +732,7 @@ impl MyFrom<f64> for Meters {
     fn my_from(value: f64) -> Self { Meters(value) }
 }
 
-// Usage: Implement MyFrom<f64> for Meters, and MyInto<Meters> for f64 comes free.
-// Blanket impl creates automatic trait relationships.
+// Usage: Implement From, get Into free via blanket impl.
 let m: Meters = 5.0.my_into(); // Uses blanket impl
 ```
 
@@ -775,8 +755,7 @@ impl<T: Process> Process for Box<T> {
     fn process(&self) -> String { (**self).process() }
 }
 
-// Usage: Process impl for i32 extends to &i32 and Box<i32> via blanket impls.
-// Trait methods work through references and smart pointers.
+// Usage: Trait works on value, reference, and Box transparently.
 let num = 42;
 num.process(); // Direct call
 (&num).process(); // Through reference
@@ -806,8 +785,7 @@ impl Display for MyType {
 
 // NOT ALLOWED: impl Display for Vec<i32> { ... }
 
-// Usage: Your trait on foreign types (blanket impl) and foreign traits on your types work.
-// Cannot impl foreign trait on foreign type (orphan rule).
+// Usage: Your trait on foreign types OK; foreign trait on yours OK.
 42.my_method(); // Your trait via blanket impl
 let mt = MyType;
 format!("{}", mt); // Display (foreign) on MyType (yours)
@@ -865,8 +843,7 @@ impl Connection<Authenticated> {
     fn send(&mut self, _data: &[u8]) { /* only auth'd can send */ }
 }
 
-// Usage: State transitions consume self and return new state type.
-// send() only exists on Authenticated—invalid states won't compile.
+// Usage: Type state ensures send() only callable after authentication.
 let conn = Connection::<Disconnected>::new();
 let conn = conn.connect("localhost:8080"); // → Connected
 let mut conn = conn.authenticate("secret"); // → Authenticated
@@ -897,8 +874,7 @@ impl<T: Add<Output = T>, Unit> Add for Quantity<T, Unit> {
     }
 }
 
-// Usage: Quantity<f64, Meters> and Quantity<f64, Feet> are distinct types.
-// Addition only compiles for matching units—mismatched units are compile errors.
+// Usage: Phantom unit type prevents adding incompatible quantities.
 let m1: Quantity<f64, Meters> = Quantity::new(10.0);
 let m2: Quantity<f64, Meters> = Quantity::new(5.0);
 let m3 = m1 + m2; // 15.0 meters
@@ -949,8 +925,7 @@ impl UserBuilder<HasName, HasEmail> {
     }
 }
 
-// Usage: build() only exists when both HasName and HasEmail are set.
-// Forgetting required fields is a compile error, not runtime panic.
+// Usage: build() only available when all required fields are set.
 let (name, email) = UserBuilder::new()
     .name("Alice")
     .email("a@b.com")
@@ -959,7 +934,7 @@ let (name, email) = UserBuilder::new()
 
 ### Example: FFI Ownership Marker
 
-Phantom types distinguish owned vs borrowed pointers at the type level. Only `CString<Owned>` implements `Drop` to free memory. `CString<Borrowed>` has no drop—we don't own the data.
+Phantom types distinguish owned vs borrowed pointers at the type level. Only `OwnedBuffer<Owned>` implements `Drop` to free memory. `OwnedBuffer<Borrowed>` has no drop—we don't own the data.
 
 ```rust
 use std::marker::PhantomData;
@@ -967,35 +942,40 @@ use std::marker::PhantomData;
 struct Owned;
 struct Borrowed;
 
-struct CString<Ownership> {
-    ptr: *mut i8,
+struct OwnedBuffer<Ownership> {
+    ptr: *mut u8,
+    len: usize,
     _ownership: PhantomData<Ownership>,
 }
 
-impl CString<Owned> {
-    fn new(s: &str) -> Self {
-        let ptr = Box::into_raw(s.to_string().into_boxed_str()) as *mut i8;
-        CString { ptr, _ownership: PhantomData }
+impl OwnedBuffer<Owned> {
+    fn new(data: &[u8]) -> Self {
+        let boxed = data.to_vec().into_boxed_slice();
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed) as *mut u8;
+        OwnedBuffer { ptr, len, _ownership: PhantomData }
     }
 }
 
-impl Drop for CString<Owned> {
+impl Drop for OwnedBuffer<Owned> {
     fn drop(&mut self) {
-        unsafe { drop(Box::from_raw(self.ptr)); }
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(self.ptr, self.len);
+            drop(Box::from_raw(slice));
+        }
     }
 }
 
-impl CString<Borrowed> {
-    unsafe fn from_ptr(ptr: *mut i8) -> Self {
-        CString { ptr, _ownership: PhantomData }
+impl OwnedBuffer<Borrowed> {
+    unsafe fn from_ptr(ptr: *mut u8, len: usize) -> Self {
+        OwnedBuffer { ptr, len, _ownership: PhantomData }
     }
     // No Drop - we don't own it
 }
 
-// Usage: CString<Owned> implements Drop to free memory; CString<Borrowed> doesn't.
-// Phantom type distinguishes ownership at compile time with zero runtime cost.
-let owned = CString::<Owned>::new("hello"); // Drop frees memory
-// CString<Borrowed> has no Drop—we don't own the data
+// Usage: Owned has Drop to free memory; Borrowed doesn't.
+let owned = OwnedBuffer::<Owned>::new(b"hello"); // Drop frees memory
+// OwnedBuffer<Borrowed> has no Drop—we don't own the data
 ```
 
 **Phantom type benefits:**
@@ -1033,8 +1013,7 @@ where
     f(&local)  // 'a is lifetime of local
 }
 
-// Usage: for<'a> means closure must work for ANY lifetime, not a specific one.
-// Essential when function creates local values and passes references to closure.
+// Usage: Closure must handle any lifetime the function provides.
 let len = call_with_ref(|s| s.len()); // 5
 let count = call_with_ref(|s| s.chars().count()); // 5
 ```
@@ -1064,7 +1043,7 @@ where
     f(&local).to_string()  // f must work with local
 }
 
-// Usage: Regular lifetime—caller chooses. HRTB—function chooses, closure handles any.
+// Usage: Regular lifetime from caller; HRTB for internal temporaries.
 let s = "test";
 let r = with_lifetime(s, |x| x); // Caller's lifetime
 let result = with_hrtb(|x| x); // Function's internal lifetime
@@ -1088,8 +1067,7 @@ where
     f("hi");
 }
 
-// Usage: Fn(&str) desugars to for<'a> Fn(&'a str) automatically.
-// Both forms are equivalent—sugar makes common patterns ergonomic.
+// Usage: Fn(&str) is sugar for for<'a> Fn(&'a str).
 let count = Cell::new(0);
 takes_fn_sugar(|_| count.set(count.get() + 1));
 takes_fn_explicit(|_| count.set(count.get() + 1)); // Same as above
@@ -1111,8 +1089,7 @@ where
     f(&s1, &s2)  // Different lifetimes
 }
 
-// Usage: for<'a, 'b> quantifies over multiple independent lifetimes.
-// Each reference parameter can have a completely different lifetime.
+// Usage: Multiple independent lifetimes in closure parameters.
 let equal = call_with_two(|a, b| a == b); // false ("hello" != "world")
 let longer = call_with_two(|a, b| a.len() > b.len()); // false
 ```
@@ -1147,10 +1124,11 @@ impl<Output> BoxedParser<Output> {
     }
 }
 
-// Usage: HRTB in trait object allows storing parsers that work with any input lifetime.
-// Parser combinators commonly use this pattern.
+// Usage: HRTB in stored closure handles varying input lifetimes.
 let digit = BoxedParser::new(|s: &str| {
-    s.chars().next().filter(|c| c.is_ascii_digit()).map(|c| (c, &s[1..]))
+    s.chars().next()
+        .filter(|c| c.is_ascii_digit())
+        .map(|c| (c, &s[1..]))
 });
 digit.parse("123"); // Some(('1', "23"))
 ```
@@ -1180,7 +1158,7 @@ impl<I: Iterator> IteratorExt for I {
     }
 }
 
-// Usage: for_each_ref passes references to items; HRTB ensures closure handles any lifetime.
+// Usage: HRTB lets closure borrow items with any lifetime.
 let mut sum = 0;
 vec![1, 2, 3].into_iter().for_each_ref(|x| sum += x); // sum = 6
 ```
@@ -1219,7 +1197,7 @@ impl EventEmitter {
     }
 }
 
-// Usage: EventEmitter stores callbacks with HRTB—each callback works with any event lifetime.
+// Usage: Stored callbacks work with events of any lifetime.
 let mut emitter = EventEmitter::new();
 emitter.on(|event| println!("Got: {}", event));
 emitter.emit("click"); // Calls all registered callbacks
@@ -1250,8 +1228,7 @@ where
     let _ = f(&local);  // local's lifetime unknown
 }
 
-// Usage: Don't need HRTB when lifetime comes from parameter (map_ref).
-// DO need HRTB when function creates internal values (create_and_process).
+// Usage: HRTB only needed when function creates internal temporaries.
 let v = 42;
 let doubled = map_ref(&v, |x| x * 2); // No HRTB needed
 create_and_process(|s| s); // HRTB needed
@@ -1300,7 +1277,7 @@ impl<T, const N: usize> Array<T, N> {
     }
 }
 
-// Usage: Array<i32, 5> and Array<i32, 10> are distinct types. N is known at compile time.
+// Usage: Size N is part of type; Array<i32, 5> differs from Array<i32, 10>.
 let arr: Array<i32, 5> = Array::new();
 let len = arr.len(); // 5 (compile-time constant)
 let first = arr.get(0); // Some(&0)
@@ -1328,7 +1305,7 @@ impl<T, const N: usize> NonEmpty<T, N> {
     }
 }
 
-// Usage: const assert ensures N > 0 at compile time. first() is always safe.
+// Usage: Const assertion prevents N=0 at compile time.
 let valid: NonEmpty<i32, 3> = NonEmpty::new([1, 2, 3]);
 let first = valid.first(); // &1, always safe
 // NonEmpty::<i32, 0>::new([]); // Compile error!
@@ -1387,10 +1364,10 @@ where
     }
 }
 
-// Usage: Matrix<2, 3> * Matrix<3, 4> = Matrix<2, 4>. Dimension mismatch is compile error.
+// Usage: Dimension mismatch is compile error; result dimensions inferred.
 let a: Matrix<i32, 2, 3> = Matrix::new();
 let b: Matrix<i32, 3, 4> = Matrix::new();
-let c: Matrix<i32, 2, 4> = a.multiply(&b); // Dimensions checked at compile time
+let c: Matrix<i32, 2, 4> = a.multiply(&b);
 ```
 
 ### Example: Fixed-Size Ring Buffer
@@ -1436,8 +1413,8 @@ impl<T: Copy, const N: usize> RingBuffer<T, N> {
     fn capacity(&self) -> usize { N }
 }
 
-// Usage: RingBuffer<i32, 3> has capacity baked into the type. No heap allocation.
-let mut buf: RingBuffer<i32, 3> = RingBuffer::new();
+// Usage: Capacity is part of the type; no heap allocation needed.
+let mut buf = RingBuffer::<i32, 3>::new();
 buf.push(1); // Ok
 buf.push(2); // Ok
 buf.push(3); // Ok
@@ -1460,7 +1437,7 @@ fn double_array<T: Copy + Default, const N: usize>(
     result
 }
 
-// Usage: Return type [T; N * 2] computes size at compile time.
+// Usage: Output size N*2 computed at compile time from input size N.
 let doubled = double_array([1, 2, 3]); // [1, 2, 3, 1, 2, 3]
 // Array size 6 determined at compile time
 ```
@@ -1493,7 +1470,7 @@ type SmallFrame = Frame<64>;
 type LargeFrame = Frame<1024>;
 type JumboFrame = Frame<9000>;
 
-// Usage: Frame<64>, Frame<1024>, Frame<9000> are distinct types for different frame sizes.
+// Usage: Type aliases make common frame sizes convenient.
 let small = SmallFrame::new([0u8; 64]);
 let size = small.total_size(); // 4 + 64 + 4 = 72
 ```
@@ -1515,7 +1492,7 @@ where
     (iter.next().unwrap(), iter.next().unwrap())
 }
 
-// Usage: [(); N - 2]: where clause asserts N >= 2 at compile time.
+// Usage: Const bound [(); N - 2] asserts N >= 2 at compile time.
 let (a, b) = requires_at_least_two([1, 2, 3]); // (1, 2)
 // requires_at_least_two([1]); // Compile error: N < 2
 ```
