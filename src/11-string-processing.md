@@ -1004,11 +1004,10 @@ For user-facing text, truncate at grapheme cluster boundaries to avoid breaking 
 ```rust
 use unicode_segmentation::UnicodeSegmentation;
 
-fn truncate_at_grapheme(s: &str, max_graphemes: usize) -> &str {
+fn truncate_at_grapheme(s: &str, max_graphemes: usize) -> String {
     s.graphemes(true)
         .take(max_graphemes)
-        .collect::<String>()
-        .as_str()
+        .collect()
 }
 ```
 
@@ -1831,14 +1830,16 @@ impl Rope {
 
     // Insert string at position
     fn insert(&mut self, pos: usize, text: &str) {
-        let (left, right) = self.split(pos);
+        let current = std::mem::replace(self, Rope::Leaf(String::new()));
+        let (left, right) = current.split(pos);
         let inner = Rope::concat(left, Rope::from_str(text));
         *self = Rope::concat(inner, right);
     }
 
     // Delete range
     fn delete(&mut self, start: usize, end: usize) {
-        let (left, rest) = self.split(start);
+        let current = std::mem::replace(self, Rope::Leaf(String::new()));
+        let (left, rest) = current.split(start);
         let (_, right) = rest.split(end - start);
         *self = Rope::concat(left, right);
     }
@@ -2213,7 +2214,7 @@ The key insight: each text character is examined at most once. The `j` variable 
 
 ---
 
-## Pattern 12: Boyer-Moore String Search
+## Pattern 11: Boyer-Moore String Search
 
 **Problem**: KMP scans every text character left-to-right, no skipping possible. Can we do better?
 

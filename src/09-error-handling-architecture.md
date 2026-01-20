@@ -22,6 +22,8 @@ The key insight is that error handling in Rust is not just about reporting failu
 This shows a basic error enum for a parsing function. Each variant represents a specific reason the parsing could fail.
 
 ```rust
+use std::io;
+use std::num::ParseIntError;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -38,7 +40,6 @@ fn parse_number(input: &str) -> Result<i32, ParseError> {
     if input.is_empty() {
         return Err(ParseError::EmptyInput);
     }
-
     input.parse().map_err(|_| ParseError::InvalidFormat)
 }
 
@@ -51,17 +52,16 @@ pub enum DataError {
 }
 
 fn load_and_parse_number(path: &str) -> Result<i32, DataError> {
-    // `?` auto-converts io::Error and ParseIntError into DataError
-    // because of the `#[from]` attributes.
     let content = std::fs::read_to_string(path)?;
     let number = content.trim().parse()?;
     Ok(number)
 }
 // Usage: match on specific error variants
 match parse_number("") {
-    Err(ParseError::EmptyInput) => {}, _ => {}
+    Err(ParseError::EmptyInput) => println!("Input was empty"),
+    Err(ParseError::InvalidFormat) => println!("Invalid format"),
+    _ => {}
 }
-let num = load_and_parse_number("config.txt")?;
 ```
 
 ### Example: `#[non_exhaustive]` for Library Stability
@@ -69,6 +69,8 @@ let num = load_and_parse_number("config.txt")?;
 When publishing a library, you may want to add new error variants in the future without it being a breaking change. The `#[non_exhaustive]` attribute tells users of your library that they must include a wildcard `_` arm in their match statements, ensuring their code won't break if you add a new variant.
 
 ```rust
+use thiserror::Error;
+
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum ApiError {
@@ -76,10 +78,16 @@ pub enum ApiError {
     NetworkError,
     #[error("the request timed out")]
     Timeout,
-    // A new variant could be added here in a future version.
+    // New variants can be added without breaking downstream code
 }
 // Usage: handle known errors with wildcard for future variants
-match err { ApiError::Timeout => retry(), _ => fail() }
+fn handle_error(err: ApiError) {
+    match err {
+        ApiError::Timeout => println!("Retrying..."),
+        ApiError::NetworkError => println!("Check connection"),
+        _ => println!("Unknown error"), // Required due to #[non_exhaustive]
+    }
+}
 ```
 
 ## Pattern 2: `anyhow` for Application-Level Errors
@@ -100,6 +108,8 @@ match err { ApiError::Timeout => retry(), _ => fail() }
 Complex errors often need multiple pieces of context to be actionable—an HTTP error isn't useful without the URL, method, and status code. Using a struct with named fields instead of an enum variant keeps all relevant information together. The `#[source]` attribute links to the underlying cause, preserving the full error chain for debugging.
 
 ```rust
+use thiserror::Error;
+
 #[derive(Error, Debug)]
 #[error("HTTP request failed: {method} {url} (status: {status})")]
 pub struct HttpError {
@@ -112,9 +122,10 @@ pub struct HttpError {
 }
 // Usage: create an HTTP error with full context
 let err = HttpError {
-    method: "GET".into(), url: "/api".into(),
-    status: 404, body: None, source: None
+    method: "GET".into(), url: "/api/users".into(),
+    status: 404, body: Some("Not found".into()), source: None
 };
+println!("{}", err); // "HTTP request failed: GET /api/users (status: 404)"
 ```
 
 ### Example: Error Builder for Complex Errors
@@ -182,7 +193,7 @@ let err = HttpErrorBuilder::new("POST", "/users", 500)
 - **Libraries**: Specific error types, no context loss, caller decides handling
 - **Applications**: Opaque errors (anyhow), focus on diagnostics, fail fast
 
-## Pattern 2: Error Propagation Strategies
+## Pattern 3: Error Propagation Strategies
 
 **Problem**: Explicit error handling with `match` and `if let` at every fallible call creates deeply nested code and obscures business logic. Transforming errors manually (wrapping `io::Error` in your `AppError`) is repetitive.
 
@@ -211,21 +222,23 @@ let name = read_username("user.txt")?;
 Using `#[from]` attribute with `thiserror` implements `From` for automatic error conversion. When `?` is applied, the error is automatically converted to the function's return type. This lets you mix different error types in one function without manual conversion.
 
 ```rust
+use thiserror::Error;
+
 #[derive(Error, Debug)]
 enum AppError {
-    #[error("IO error")]
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Parse error")]
+    #[error("Parse error: {0}")]
     Parse(#[from] ParseError),
 }
 
 fn process_file(path: &str) -> Result<i32, AppError> {
-    let content = std::fs::read_to_string(path)?;
-    let number = parse_number(&content)?;
+    let content = std::fs::read_to_string(path)?; // io::Error -> AppError
+    let number = parse_number(&content)?;         // ParseError -> AppError
     Ok(number)
 }
 // Usage: mix error types with automatic conversion
-let n = process_file("number.txt")?;
+// process_file("number.txt") returns Result<i32, AppError>
 ```
 
 ### Example: Manual Error Mapping
@@ -233,12 +246,22 @@ let n = process_file("number.txt")?;
 When automatic conversion isn't enough, `map_err` transforms errors with custom logic. This is useful for adding context like file paths or enriching errors with domain-specific information. The closure receives the original error and returns your custom error type.
 
 ```rust
-fn read_and_validate(path: &str) -> Result<String, IoError> {
-    std::fs::read_to_string(path).map_err(|e| IoError::ReadFailed {
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+enum FileError {
+    #[error("failed to read {path}")]
+    ReadFailed { path: String, #[source] source: std::io::Error },
+}
+
+fn read_and_validate(path: &str) -> Result<String, FileError> {
+    let content = std::fs::read_to_string(path).map_err(|e| FileError::ReadFailed {
         path: path.to_string(), source: e
     })?;
-    Ok("valid".to_string())
+    Ok(content)
 }
+// Usage: read file with custom error containing path context
+// read_and_validate("config.txt") -> Err(FileError::ReadFailed { path: "config.txt", ... })
 ```
 
 ### Example: Fallible Iterator Processing
@@ -276,14 +299,26 @@ let nums = parse_all_lenient(vec!["1", "bad", "3"]);
 Using `anyhow::Error` with `.context()` handles mixed error types elegantly in application code. Each `?` propagates a different error type, but `context()` wraps them all in `anyhow::Error`. The context strings create a chain explaining what operation failed at each level.
 
 ```rust
-fn complex_operation(path: &str) -> Result<String, anyhow::Error> {
+use anyhow::{Context, Result};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Config { name: String, port: u16 }
+
+fn validate_config(config: &Config) -> Result<()> {
+    if config.port == 0 { anyhow::bail!("Port cannot be 0"); }
+    Ok(())
+}
+
+fn complex_operation(path: &str) -> Result<String> {
     let data = std::fs::read_to_string(path)
         .context("Failed to read input file")?;
     let parsed: Config = serde_json::from_str(&data)
         .context("Failed to parse JSON")?;
-    validate_config(&parsed).context("Config validation")?;
-    Ok("success".to_string())
+    validate_config(&parsed).context("Config validation failed")?;
+    Ok(format!("Loaded config: {}", parsed.name))
 }
+// Usage: each ? adds context to the error chain
 ```
 
 ### Example: Recovering from Specific Errors
@@ -334,16 +369,20 @@ where
 `with_context` takes a closure that builds context strings lazily—only allocating if an error occurs. The `bail!` macro creates an error and returns immediately, useful for validation failures. This builds a rich error chain that explains exactly what went wrong.
 
 ```rust
+use anyhow::{Context, Result, bail};
+
 fn process_with_context(path: &str) -> Result<i32> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path))?;
-    let number = parse_number(&content)
-        .with_context(|| format!("Failed to parse {}", path))?;
+    let number: i32 = content.trim().parse()
+        .with_context(|| format!("Failed to parse number in {}", path))?;
     if number < 0 {
-        anyhow::bail!("Number must be positive, got: {}", number);
+        bail!("Number must be positive, got: {}", number);
     }
     Ok(number)
 }
+// Usage: lazy context strings only allocate on error
+// Error: "Number must be positive, got: -5"
 ```
 
 ### Example: Partition Results into Successes and Failures
@@ -351,14 +390,18 @@ fn process_with_context(path: &str) -> Result<i32> {
 `partition_map` from `itertools` separates a collection of `Result`s into two vectors in one pass. `Either::Left` collects successes, `Either::Right` collects errors. This is useful when you want to process all items and report all failures together.
 
 ```rust
+use itertools::{Itertools, Either};
+
 fn partition_results<T, E>(results: Vec<Result<T, E>>) -> (Vec<T>, Vec<E>) {
     results.into_iter().partition_map(|r| match r {
-        Ok(v) => itertools::Either::Left(v),
-        Err(e) => itertools::Either::Right(e),
+        Ok(v) => Either::Left(v),
+        Err(e) => Either::Right(e),
     })
 }
-// Usage: separate successes and failures
-let (ok, err) = partition_results(vec![Ok(1), Err("bad"), Ok(2)]);
+// Usage: separate successes and failures in one pass
+let (ok, err): (Vec<i32>, Vec<&str>) = partition_results(
+    vec![Ok(1), Err("bad"), Ok(2)]);
+// ok = [1, 2], err = ["bad"]
 ```
 
 **Propagation strategies:**
@@ -375,7 +418,7 @@ let (ok, err) = partition_results(vec![Ok(1), Err("bad"), Ok(2)]);
 - Batch processing: Collect all errors
 - Network operations: Retry with backoff
 
-## Pattern 3: Custom Error Types with Context
+## Pattern 4: Custom Error Types with Context
 
 **Problem**: Generic errors like "parse error" or "database query failed" provide no actionable information. Was it line 47 or line 1832?
 
@@ -472,6 +515,8 @@ impl QueryError {
 A generic wrapper adds context to any error type without modifying it. The `add_context` builder method accumulates explanations as the error bubbles up. Implementing `source()` preserves the error chain for debugging tools.
 
 ```rust
+use std::fmt;
+
 pub struct ErrorContext<E> {
     error: E,
     context: Vec<String>,
@@ -488,11 +533,32 @@ impl<E: std::error::Error> ErrorContext<E> {
     }
 }
 
+impl<E: fmt::Display> fmt::Display for ErrorContext<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.error)?;
+        for ctx in &self.context {
+            write!(f, "\n  Context: {}", ctx)?;
+        }
+        Ok(())
+    }
+}
+
+impl<E: fmt::Debug> fmt::Debug for ErrorContext<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ErrorContext")
+            .field("error", &self.error)
+            .field("context", &self.context)
+            .finish()
+    }
+}
+
 impl<E: std::error::Error + 'static> std::error::Error for ErrorContext<E> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.error)
     }
 }
+// Usage: wrap any error and add context as it bubbles up
+let err = ErrorContext::new(io_error).add_context("reading config");
 ```
 
 ### Example: Error with Suggestions
@@ -548,15 +614,21 @@ impl MultiError {
     }
 }
 
-fn validate_all(items: Vec<Item>) -> Result<(), MultiError> {
+fn validate_all(values: Vec<i32>) -> Result<(), MultiError> {
     let mut errors = MultiError::new();
-    for item in items {
-        if let Err(e) = validate_item(&item) {
-            errors.add(Box::new(e));
+    for value in values {
+        if value < 0 {
+            errors.add(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("negative value: {}", value)
+            )));
         }
     }
     errors.into_result(())
 }
+// Usage: collect all validation errors
+let result = validate_all(vec![1, -2, 3, -4]);
+// Err(MultiError) with 2 errors for -2 and -4
 ```
 
 **Context best practices:**
@@ -573,7 +645,7 @@ fn validate_all(items: Vec<Item>) -> Result<(), MultiError> {
 - Too much context (stack of 20+ context strings)
 - Context that's obvious from source code
 
-## Pattern 4: Recoverable vs Unrecoverable Errors
+## Pattern 5: Recoverable vs Unrecoverable Errors
 
 **Problem**: Using `Result` for everything forces callers to handle programmer errors (bugs) that should never occur, cluttering code with defensive checks. Using `panic!` for recoverable errors (file not found, network timeout) makes software brittle—crashes instead of graceful degradation.
 
@@ -588,11 +660,15 @@ fn validate_all(items: Vec<Item>) -> Result<(), MultiError> {
 Indexing directly into a slice panics on out-of-bounds access—this is intentional because such access indicates a caller bug. The panic message includes the index and length, making the bug obvious during development. If the caller could provide an invalid index, use `get()` instead.
 
 ```rust
+struct User { id: u64, name: String }
+
 fn get_user(users: &[User], index: usize) -> &User {
     &users[index]  // Panics on out-of-bounds - caller bug
 }
 // Usage: access user by index (panics if invalid)
-let user = get_user(&users, 0); // Panics if users is empty
+let users = vec![User { id: 1, name: "Alice".into() }];
+let user = get_user(&users, 0); // OK
+// get_user(&users, 5); // Would panic: index out of bounds
 ```
 
 ### Example: Result for Expected Failures
@@ -604,7 +680,12 @@ fn find_user(users: &[User], id: u64) -> Option<&User> {
     users.iter().find(|u| u.id == id)  // None is expected
 }
 // Usage: search for user, handling absence gracefully
-if let Some(user) = find_user(&users, 42) { /* ... */ }
+let users = vec![User { id: 1, name: "Alice".into() }];
+if let Some(user) = find_user(&users, 1) {
+    println!("Found: {}", user.name);
+} else {
+    println!("User not found"); // Normal case, not an error
+}
 ```
 
 ### Example: Expect with Informative Message
@@ -612,9 +693,14 @@ if let Some(user) = find_user(&users, 42) { /* ... */ }
 `.expect()` panics with a custom message, making failures easier to diagnose than bare `.unwrap()`. Use it for errors that indicate setup problems or invariant violations. The message should explain what was expected, not just that something failed.
 
 ```rust
+fn load_config() -> Result<String, std::io::Error> {
+    std::fs::read_to_string("config.toml")
+}
+
 fn initialize() {
     let config = load_config()
-        .expect("Failed to load config.toml");
+        .expect("Failed to load config.toml - file must exist");
+    // If config.toml is missing, panic with descriptive message
 }
 ```
 
@@ -649,12 +735,22 @@ fn compute_checksum(data: &[u8]) -> u32 {
 Applications should verify all dependencies (config files, databases, network) before starting to serve requests. Using `?` in `main()` propagates errors up and exits with a non-zero status. This prevents partially-initialized services from accepting traffic.
 
 ```rust
+use anyhow::Result;
+
+struct Config { db_url: String }
+struct Database;
+
+fn load_config() -> Result<Config> { Ok(Config { db_url: "postgres://...".into() }) }
+fn connect_database(_: &Config) -> Result<Database> { Ok(Database) }
+fn run_server(_: Database) -> Result<()> { Ok(()) }
+
 fn main() -> Result<()> {
     let config = load_config()?;         // Fail if config missing
     let db = connect_database(&config)?; // Fail if DB unreachable
     run_server(db)?;                     // Only start if init succeeds
     Ok(())
 }
+// Startup fails fast - no partial initialization
 ```
 
 ### Example: Graceful Degradation
@@ -662,6 +758,15 @@ fn main() -> Result<()> {
 Long-running services should degrade gracefully rather than crash on transient failures. This pattern tries cache first, falls back to database, and returns a default if both fail. Each fallback is logged so operators can investigate.
 
 ```rust
+struct User { id: u64, name: String }
+
+fn fetch_user_from_cache(id: u64) -> Result<User, &'static str> {
+    Err("cache miss") // Simulated cache miss
+}
+fn fetch_user_from_db(id: u64) -> Result<User, &'static str> {
+    Ok(User { id, name: format!("User{}", id) })
+}
+
 fn get_user_with_fallback(id: u64) -> User {
     match fetch_user_from_cache(id) {
         Ok(user) => user,
@@ -673,6 +778,8 @@ fn get_user_with_fallback(id: u64) -> User {
         }
     }
 }
+// Usage: try cache -> DB -> default, never fails
+let user = get_user_with_fallback(42);
 ```
 
 ### Example: Mutex Poisoning Recovery
@@ -680,6 +787,8 @@ fn get_user_with_fallback(id: u64) -> User {
 When a thread panics while holding a mutex, the mutex becomes "poisoned" to prevent access to potentially corrupted state. You can recover by calling `into_inner()` on the poison error if you're confident the data is still valid. This decision should be made carefully based on what the panicking thread was doing.
 
 ```rust
+use std::sync::Mutex;
+
 fn update_counter(counter: &Mutex<i32>) -> Result<(), String> {
     match counter.lock() {
         Ok(mut c) => { *c += 1; Ok(()) }
@@ -691,6 +800,9 @@ fn update_counter(counter: &Mutex<i32>) -> Result<(), String> {
         }
     }
 }
+// Usage: recover from mutex poisoning if data is still valid
+let counter = Mutex::new(0);
+update_counter(&counter).unwrap();
 ```
 
 ### Example: Abort on Critical Errors
@@ -698,12 +810,16 @@ fn update_counter(counter: &Mutex<i32>) -> Result<(), String> {
 For data-critical applications, `std::process::abort()` is safer than `panic!` because it can't be caught with `catch_unwind`. Use this when continuing could cause data corruption or when the error indicates a fundamental system problem. The process terminates immediately without running destructors.
 
 ```rust
+use anyhow::Result;
+
 fn write_checkpoint(data: &[u8]) -> Result<()> {
-    std::fs::write("checkpoint.dat", data).map_err(|e| {
+    if let Err(e) = std::fs::write("checkpoint.dat", data) {
         eprintln!("CRITICAL: Failed to write checkpoint: {}", e);
-        std::process::abort();
-    })
+        std::process::abort(); // Immediate termination, no unwinding
+    }
+    Ok(())
 }
+// Use abort() when continuing could cause data corruption
 ```
 
 ### Example: Catch Unwind for FFI Boundaries
@@ -711,14 +827,22 @@ fn write_checkpoint(data: &[u8]) -> Result<()> {
 Panics must not cross FFI boundaries—unwinding into C code is undefined behavior. `catch_unwind` captures panics and converts them to normal return values. The `AssertUnwindSafe` wrapper marks closures as safe to unwind, since the compiler can't verify this automatically.
 
 ```rust
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
+fn risky_computation(input: i32) -> i32 {
+    if input < 0 { panic!("negative input"); }
+    input * 2
+}
+
 #[no_mangle]
 pub extern "C" fn safe_compute(input: i32) -> i32 {
     let result = catch_unwind(AssertUnwindSafe(|| risky_computation(input)));
     match result {
         Ok(value) => value,
-        Err(_) => { eprintln!("Computation panicked"); 0 }
+        Err(_) => { eprintln!("Computation panicked"); -1 } // Return error code
     }
 }
+// Usage: safe_compute(-5) returns -1 instead of unwinding into C
 ```
 
 **Decision tree: Result vs Panic**
@@ -740,7 +864,7 @@ Use `Option` when:
 - No error context needed
 - Simpler than Result<T, ()>
 
-## Pattern 5: Error Handling in Async Contexts
+## Pattern 6: Error Handling in Async Contexts
 
 **Problem**: Async operations introduce failure modes absent in synchronous code: timeouts (operation took too long), cancellation (task dropped before completion), concurrent failures (10 out of 100 requests failed), and cascading failures (one service down brings down dependent services). Naive async error handling leads to unbounded waits, resource leaks from cancelled operations, and unclear error reporting when multiple concurrent operations fail.
 
@@ -755,13 +879,25 @@ Use `Option` when:
 The `?` operator works in async functions just like sync ones, enabling clean error propagation across `.await` points. Each await can fail independently, and errors bubble up through the call chain. The function signature's `Result` type documents all possible failure modes.
 
 ```rust
+use anyhow::Result;
+
+struct User { id: u64, name: String }
+struct Response { body: String }
+
+async fn make_http_request(id: u64) -> Result<Response> {
+    Ok(Response { body: format!(r#"{{"id":{},"name":"User{}"}}"#, id, id) })
+}
+async fn parse_response(resp: Response) -> Result<User> {
+    Ok(User { id: 1, name: "Alice".into() }) // Simplified
+}
+
 async fn fetch_user_data(id: u64) -> Result<User> {
     let response = make_http_request(id).await?;
     let user = parse_response(response).await?;
     Ok(user)
 }
 // Usage: propagate errors across async boundaries
-let user = fetch_user_data(42).await?;
+// let user = fetch_user_data(42).await?;
 ```
 
 ### Example: Timeout with Context
@@ -769,14 +905,18 @@ let user = fetch_user_data(42).await?;
 Wrapping async operations in `tokio::time::timeout` prevents unbounded waits that can hang your service. The timeout returns `Err(Elapsed)` which you convert to a domain error with context. Always set timeouts on network calls, database queries, and external service calls.
 
 ```rust
+use anyhow::Result;
+use std::time::Duration;
+
 async fn fetch_with_timeout(id: u64) -> Result<User> {
-    let timeout = Duration::from_secs(5);
-    tokio::time::timeout(timeout, fetch_user_data(id))
+    let timeout_duration = Duration::from_secs(5);
+    tokio::time::timeout(timeout_duration, fetch_user_data(id))
         .await
-        .map_err(|_| anyhow::anyhow!("Timeout fetching user {id}"))?
+        .map_err(|_| anyhow::anyhow!("Timeout fetching user {}", id))?
 }
 // Usage: fetch with 5-second timeout
-let user = fetch_with_timeout(42).await?;
+// let user = fetch_with_timeout(42).await?;
+// Returns Err if operation takes longer than 5 seconds
 ```
 
 ### Example: Concurrent Operations with try_join
@@ -784,12 +924,17 @@ let user = fetch_with_timeout(42).await?;
 `try_join_all` runs multiple futures concurrently and returns the first error, cancelling remaining futures. This fail-fast behavior is appropriate when all results are needed. For partial success scenarios, use `join_all` and handle each `Result` individually.
 
 ```rust
+use anyhow::{Context, Result};
+use futures::future::try_join_all;
+
 async fn fetch_multiple_users(ids: Vec<u64>) -> Result<Vec<User>> {
     let futures = ids.into_iter().map(fetch_user_data);
-    futures::future::try_join_all(futures)
+    try_join_all(futures)
         .await
         .context("Failed to fetch all users")
 }
+// Usage: fetch users 1, 2, 3 concurrently, fail if any fails
+// let users = fetch_multiple_users(vec![1, 2, 3]).await?;
 ```
 
 ### Example: Race Multiple Operations
@@ -797,12 +942,25 @@ async fn fetch_multiple_users(ids: Vec<u64>) -> Result<Vec<User>> {
 `tokio::select!` races multiple futures, returning when the first one completes. This is useful for redundant requests where you want the fastest response. The losing branch is cancelled, so ensure your operations are cancellation-safe.
 
 ```rust
+use anyhow::Result;
+
+async fn fetch_from_primary(id: u64) -> Result<User> {
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    Ok(User { id, name: "Primary".into() })
+}
+async fn fetch_from_secondary(id: u64) -> Result<User> {
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    Ok(User { id, name: "Secondary".into() })
+}
+
 async fn fetch_with_fallback(id: u64) -> Result<User> {
     tokio::select! {
         result = fetch_from_primary(id) => result,
         result = fetch_from_secondary(id) => result,
     }
 }
+// Usage: returns whichever source responds first
+// let user = fetch_with_fallback(42).await?; // Gets "Secondary" (faster)
 ```
 
 ### Example: Error Recovery in Stream Processing
@@ -810,14 +968,24 @@ async fn fetch_with_fallback(id: u64) -> Result<User> {
 Processing streams item-by-item lets you handle errors without aborting the entire stream. Log or record each failure, then continue with the next item. This lenient approach is appropriate for data pipelines where partial results are useful.
 
 ```rust
-async fn process_stream(mut stream: impl Stream<Item = Result<i32>> + Unpin) {
+use anyhow::Result;
+use futures::stream::BoxStream;
+use futures::StreamExt;
+
+async fn process_stream(mut stream: BoxStream<'_, Result<i32>>) {
     while let Some(result) = stream.next().await {
         match result {
             Ok(value) => println!("Processed: {}", value),
-            Err(e) => eprintln!("Error in stream: {}", e), // Continue
+            Err(e) => eprintln!("Error in stream: {}", e), // Log and continue
         }
     }
 }
+
+// Create stream with .boxed() to satisfy Unpin requirement
+let stream = futures::stream::iter(vec![Ok(1), Err(anyhow::anyhow!("fail")), Ok(3)])
+    .boxed();
+process_stream(stream).await;
+// Output: Processed: 1, Error in stream: fail, Processed: 3
 ```
 
 ### Example: Aggregating Errors from Concurrent Tasks
@@ -825,19 +993,25 @@ async fn process_stream(mut stream: impl Stream<Item = Result<i32>> + Unpin) {
 When validating many items in parallel, collect all errors rather than failing on the first. Spawn tasks with `tokio::spawn`, await all handles, and accumulate failures into a `MultiError`. This provides a complete picture of what went wrong.
 
 ```rust
-async fn parallel_validation(items: Vec<Item>) -> Result<(), MultiError> {
-    let handles: Vec<_> = items.into_iter()
-        .map(|item| tokio::spawn(async move { validate_item(&item) }))
+async fn validate_item_async(value: i32) -> Result<(), String> {
+    if value < 0 { Err(format!("invalid: {}", value)) } else { Ok(()) }
+}
+
+async fn parallel_validation(values: Vec<i32>) -> Result<(), MultiError> {
+    let handles: Vec<_> = values.into_iter()
+        .map(|v| tokio::spawn(async move { validate_item_async(v).await }))
         .collect();
 
     let mut errors = MultiError::new();
     for handle in handles {
         if let Ok(Err(e)) = handle.await {
-            errors.add(Box::new(e));
+            errors.add(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput, e)));
         }
     }
     errors.into_result(())
 }
+// Usage: validate [1, -2, 3, -4] returns MultiError with 2 failures
 ```
 
 ### Example: Graceful Shutdown on Error
@@ -845,6 +1019,12 @@ async fn parallel_validation(items: Vec<Item>) -> Result<(), MultiError> {
 Long-running workers should listen for shutdown signals while processing work. `tokio::select!` lets you race the shutdown channel against work tasks. Non-fatal errors are logged and processing continues; fatal errors trigger a clean exit.
 
 ```rust
+use anyhow::Result;
+use tokio::sync::broadcast;
+
+async fn do_work() -> Result<()> { Ok(()) }
+fn is_fatal(e: &anyhow::Error) -> bool { false }
+
 async fn run_worker(mut shutdown: broadcast::Receiver<()>) -> Result<()> {
     loop {
         tokio::select! {
@@ -855,12 +1035,13 @@ async fn run_worker(mut shutdown: broadcast::Receiver<()>) -> Result<()> {
             result = do_work() => {
                 if let Err(e) = result {
                     if is_fatal(&e) { return Err(e); }
-                    eprintln!("Work failed: {}", e);
+                    eprintln!("Work failed: {}", e); // Log and continue
                 }
             }
         }
     }
 }
+// Usage: worker processes tasks until shutdown signal received
 ```
 
 ### Example: Retry with Exponential Backoff
@@ -868,8 +1049,14 @@ async fn run_worker(mut shutdown: broadcast::Receiver<()>) -> Result<()> {
 Transient failures (network blips, temporary overload) often succeed on retry. Exponential backoff increases delay between attempts to avoid hammering a struggling service. Cap the maximum attempts and include attempt count in the final error.
 
 ```rust
+use anyhow::{Context, Result};
+use std::future::Future;
+use std::time::Duration;
+
 async fn retry_with_backoff<F, Fut, T>(f: F, max_attempts: usize) -> Result<T>
-where F: Fn() -> Fut, Fut: Future<Output = Result<T>>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T>>
 {
     let mut attempt = 0;
     let mut delay = Duration::from_millis(100);
@@ -878,16 +1065,17 @@ where F: Fn() -> Fut, Fut: Future<Output = Result<T>>
         match f().await {
             Ok(value) => return Ok(value),
             Err(e) if attempt >= max_attempts => {
-                return Err(e.context(format!("Failed after {attempt} tries")));
+                return Err(e.context(format!("Failed after {} attempts", attempt)));
             }
             Err(e) => {
-                eprintln!("Attempt {attempt}: {e}");
+                eprintln!("Attempt {}: {}", attempt, e);
                 tokio::time::sleep(delay).await;
-                delay *= 2;
+                delay *= 2; // Exponential backoff: 100ms, 200ms, 400ms...
             }
         }
     }
 }
+// Usage: retry_with_backoff(|| fetch_data(), 3).await
 ```
 
 ### Example: Cancellation-Safe Operations
@@ -895,13 +1083,18 @@ where F: Fn() -> Fut, Fut: Future<Output = Result<T>>
 If a task is cancelled mid-operation, partially-written files can corrupt data. Write to a temporary file first, then atomically rename. The rename is fast enough that cancellation during it is unlikely, and if it fails, the original file is untouched.
 
 ```rust
-async fn cancellation_safe_write(data: &[u8]) -> Result<()> {
-    let temp_path = "temp_file.tmp";
-    let final_path = "final_file.dat";
-    tokio::fs::write(temp_path, data).await.context("Write temp")?;
-    tokio::fs::rename(temp_path, final_path).await.context("Rename")?;
+use anyhow::{Context, Result};
+
+async fn cancellation_safe_write(path: &str, data: &[u8]) -> Result<()> {
+    let temp_path = format!("{}.tmp", path);
+    // Write to temp file first
+    tokio::fs::write(&temp_path, data).await.context("Write temp file")?;
+    // Atomic rename - if cancelled here, temp file exists but original untouched
+    tokio::fs::rename(&temp_path, path).await.context("Rename to final")?;
     Ok(())
 }
+// Usage: safe even if task is cancelled mid-write
+// cancellation_safe_write("data.bin", &bytes).await?;
 ```
 
 ### Example: Circuit Breaker Pattern
@@ -909,21 +1102,33 @@ async fn cancellation_safe_write(data: &[u8]) -> Result<()> {
 A circuit breaker prevents cascading failures by failing fast when a downstream service is unhealthy. After a threshold of failures, requests immediately return an error without attempting the call. Success resets the counter, gradually restoring normal operation.
 
 ```rust
+use anyhow::Result;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::future::Future;
+
 struct CircuitBreaker {
     failure_count: Arc<AtomicUsize>,
     threshold: usize,
 }
 
 impl CircuitBreaker {
+    fn new(threshold: usize) -> Self {
+        CircuitBreaker {
+            failure_count: Arc::new(AtomicUsize::new(0)),
+            threshold,
+        }
+    }
+
     async fn call<F, Fut, T>(&self, f: F) -> Result<T>
     where F: FnOnce() -> Fut, Fut: Future<Output = Result<T>>
     {
         if self.failure_count.load(Ordering::Relaxed) >= self.threshold {
-            anyhow::bail!("Circuit breaker open");
+            anyhow::bail!("Circuit breaker open - service unavailable");
         }
         match f().await {
             Ok(v) => {
-                self.failure_count.store(0, Ordering::Relaxed);
+                self.failure_count.store(0, Ordering::Relaxed); // Reset on success
                 Ok(v)
             }
             Err(e) => {
@@ -933,6 +1138,9 @@ impl CircuitBreaker {
         }
     }
 }
+// Usage: after 5 failures, circuit opens and rejects requests immediately
+// let breaker = CircuitBreaker::new(5);
+// breaker.call(|| fetch_from_service()).await?;
 ```
 
 **Async error handling principles:**
@@ -943,7 +1151,7 @@ impl CircuitBreaker {
 5. **Circuit breakers**: Fail fast when downstream is unavailable
 6. **Retry with backoff**: Transient failures should retry with exponential backoff
 
-## Pattern 6: Error Handling Anti-Patterns
+## Pattern 7: Error Handling Anti-Patterns
 
 ```rust
 // ❌ Swallowing errors

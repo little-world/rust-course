@@ -171,7 +171,8 @@ fn count_long_strings(strings: &[&str]) -> usize {
         .fold(0, |n, &s| if s.len() > 10 { n + 1 } else { n })
 }
 // Usage: count strings longer than 10 characters
-let count = count_long_strings(&["short", "a]long string"]);
+let count = count_long_strings(&["short", "a long string here"]);
+// count = 1 (only "a long string here" has len > 10)
 ```
 
 **Zero-allocation principles:**
@@ -295,6 +296,7 @@ where
 }
 // Usage: alternate elements from two iterators
 let merged: Vec<_> = interleave([1, 3], [2, 4]).collect();
+// merged = [1, 2, 3, 4]
 ```
 
 ### Example: Cartesian product
@@ -312,6 +314,7 @@ fn cartesian_product<T: Clone>(
 }
 // Usage: generate all pairs from two slices
 let pairs: Vec<_> = cartesian_product(&[1, 2], &[3, 4]).collect();
+// pairs = [(1, 3), (1, 4), (2, 3), (2, 4)]
 ```
 
 ### Example: Group by key
@@ -333,6 +336,7 @@ where
 }
 // Usage: group numbers by even/odd
 let grouped = group_by(vec![1, 2, 3, 4], |x| x % 2);
+// grouped = {0: [2, 4], 1: [1, 3]}
 ```
 
 ### Example: Scan for cumulative operations
@@ -381,6 +385,12 @@ let (h, b) = extract_header_body(&lines);
 Wrapping an iterator in `.peekable()` lets you inspect the next element without consuming it. This is essential for parsers and tokenizers that need lookahead to decide how to proceed. The `peek()` method returns `Option<&Item>` while `next()` advances normally.
 
 ```rust
+#[derive(Debug)]
+enum Token {
+    Number(i32),
+    Op(char),
+}
+
 fn parse_tokens(input: &str) -> Vec<Token> {
     let mut chars = input.chars().peekable();
     let mut tokens = Vec::new();
@@ -409,12 +419,9 @@ fn parse_tokens(input: &str) -> Vec<Token> {
 
     tokens
 }
-
-#[derive(Debug)]
-enum Token {
-    Number(i32),
-    Op(char),
-}
+// Usage: tokenize mathematical expression
+let tokens = parse_tokens("12 + 34 * 5");
+// tokens = [Number(12), Op('+'), Number(34), Op('*'), Number(5)]
 ```
 
 **Adapter composition principles:**
@@ -456,6 +463,8 @@ fn count_lines_matching(
         .filter(|line| line.contains(pattern))
         .count())
 }
+// Usage: count lines containing "ERROR" in a log file
+let errors = count_lines_matching("/var/log/app.log", "ERROR")?;
 ```
 
 ### Example: Streaming average calculation
@@ -592,6 +601,9 @@ fn sliding_window_sum(
         }
     })
 }
+// Usage: compute rolling sums with window size 3
+let sums: Vec<_> = sliding_window_sum([1, 2, 3, 4, 5].into_iter(), 3).collect();
+// sums = [6, 9, 12]  (1+2+3, 2+3+4, 3+4+5)
 ```
 
 ### Example: Streaming deduplication
@@ -654,6 +666,11 @@ impl<I: Iterator> Iterator for RateLimited<I> {
         Some(item)
     }
 }
+// Usage: throttle API calls to one per second
+let api_calls = vec!["request1", "request2", "request3"];
+for call in RateLimited::new(api_calls.into_iter(), Duration::from_secs(1)) {
+    println!("Making: {}", call);
+}
 ```
 
 ### Example: Buffered batch processing
@@ -684,6 +701,11 @@ fn process_in_batches<T, F>(
         process_batch(batch);
     }
 }
+// Usage: process database records in batches of 100
+process_in_batches((0..250).collect::<Vec<_>>().into_iter(), 100, |batch| {
+    println!("Processing batch of {} items", batch.len());
+});
+// Output: "Processing batch of 100 items" (x2), then "Processing batch of 50 items"
 ```
 
 ### Example: Streaming merge of sorted iterators
@@ -723,6 +745,12 @@ fn merge_sorted<T: Ord>(
         (None, None) => None,
     })
 }
+// Usage: merge two sorted streams into one
+let merged: Vec<_> = merge_sorted(
+    [1, 3, 5].into_iter(),
+    [2, 4, 6].into_iter()
+).collect();
+// merged = [1, 2, 3, 4, 5, 6]
 ```
 
 ### Example: CSV parsing with streaming
@@ -782,7 +810,7 @@ fn process_large_file(
 }
 ```
 
-## Pattern 4: Parallel Iteration with Rayon
+## Pattern 5: Parallel Iteration with Rayon
 
 **Problem**: Processing a large collection sequentially can be slow, leaving multiple CPU cores idle. Manually writing multi-threaded code to parallelize such tasks is complex, error-prone, and requires careful synchronization.
 
@@ -944,6 +972,11 @@ fn parallel_matrix_multiply(
         })
         .collect()
 }
+// Usage: multiply two matrices in parallel
+let a = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+let b = vec![vec![5.0, 6.0], vec![7.0, 8.0]];
+let c = parallel_matrix_multiply(&a, &b);
+// c = [[19.0, 22.0], [43.0, 50.0]]
 ```
 
 ### Example: Parallel bridge for converting sequential to parallel
@@ -994,6 +1027,10 @@ fn parallel_with_scope(data: &mut [i32]) {
         });
     });
 }
+// Usage: process left and right halves concurrently
+let mut data = vec![1, 2, 3, 4];
+parallel_with_scope(&mut data);
+// data = [2, 4, 9, 12]  (left *2, right *3)
 ```
 
 ### Example: Parallel map-reduce pattern
@@ -1076,6 +1113,9 @@ fn parallel_join_example(data: &[i32]) -> (i32, i32) {
     );
     (sum, product)
 }
+// Usage: compute sum and product concurrently
+let (sum, product) = parallel_join_example(&[1, 2, 3, 4]);
+// sum = 10, product = 24
 ```
 
 **Parallel iteration principles:**

@@ -80,8 +80,9 @@ use std::thread;
 fn thread_with_error_handling() {
     let handle = thread::spawn(|| {
         // Simulate a computation that might fail.
-        if rand::random::<bool>() {
-            Ok(42)
+        let value = 42;
+        if value > 0 {
+            Ok(value)
         } else {
             Err("Computation failed in thread!")
         }
@@ -184,6 +185,28 @@ fn process_files_parallel(paths: Vec<PathBuf>) -> Vec<ProcessResult> {
         .into_iter()
         .map(|h| h.join().unwrap())
         .collect()
+}
+
+fn main() {
+    // Process some files in parallel
+    let paths: Vec<PathBuf> = vec![
+        PathBuf::from("Cargo.toml"),
+        PathBuf::from("src/main.rs"),
+    ];
+
+    let results = process_files_parallel(paths);
+    for result in results {
+        match result.error {
+            Some(e) => println!("{}: Error - {}", result.path.display(), e),
+            None => println!(
+                "{}: {} lines, {} words, {} bytes",
+                result.path.display(),
+                result.line_count,
+                result.word_count,
+                result.byte_count
+            ),
+        }
+    }
 }
 ```
 
@@ -295,6 +318,14 @@ struct Image {
 }
 
 impl Image {
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            pixels: vec![128; width * height], // Gray image
+            width,
+            height,
+        }
+    }
+
     fn apply_filter_parallel(&mut self, filter: impl Fn(u8) -> u8 + Sync) {
         self.pixels.par_iter_mut().for_each(|pixel| {
             *pixel = filter(*pixel);
@@ -304,6 +335,21 @@ impl Image {
     fn brighten(&mut self, amount: u8) {
         self.apply_filter_parallel(|p| p.saturating_add(amount));
     }
+
+    fn invert(&mut self) {
+        self.apply_filter_parallel(|p| 255 - p);
+    }
+}
+
+fn main() {
+    let mut image = Image::new(1920, 1080); // Full HD image
+    println!("Original pixel[0]: {}", image.pixels[0]);
+
+    image.brighten(50);
+    println!("After brighten: {}", image.pixels[0]);
+
+    image.invert();
+    println!("After invert: {}", image.pixels[0]);
 }
 ```
 
@@ -422,7 +468,7 @@ The actor model is a concurrency pattern where "actors" are isolated entities th
 
 ```rust
 // Add `crossbeam = "0.8"` to Cargo.toml
-use crossbeam::channel::{unbounded, Sender, Receiver, select};
+use crossbeam::channel::{unbounded, Sender, Receiver};
 use std::thread;
 
 // Messages the actor can receive.

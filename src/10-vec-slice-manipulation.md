@@ -450,8 +450,12 @@ fn normalize_batches(data: &mut [f64], batch_size: usize) {
 
 `as_chunks` splits a slice into fixed-size arrays with compile-time size checking, returning both the aligned chunks and the remainder. This is essential for SIMD-optimized code. The const generic parameter ensures chunk size is known at compile time, enabling better optimization.
 
+> **Note**: `as_chunks` requires nightly Rust (`#![feature(slice_as_chunks)]`). On stable, use `chunks_exact` with manual array conversion.
+
 ```rust
-fn process_with_remainder(data: &[u8], chunk_size: usize) {
+#![feature(slice_as_chunks)]
+
+fn process_with_remainder(data: &[u8]) {
     let (chunks, remainder) = data.as_chunks::<8>();
 
     for chunk in chunks {
@@ -760,11 +764,14 @@ fn parse_packet(data: &[u8]) -> Result<Packet, ParseError> {
     let (&version, rest) = data.split_first()
         .ok_or(ParseError::Empty)?;
 
-    let (payload, &checksum) = rest.split_last()
+    // split_last returns (&last_element, &[rest])
+    let (&checksum, payload) = rest.split_last()
         .ok_or(ParseError::NoChecksum)?;
 
     Ok(Packet { version, payload, checksum })
 }
+// Usage: parse packet with version byte, payload, and checksum byte
+// Input: [0x01, 'H', 'i', 0xFF] -> version=1, payload="Hi", checksum=255
 ```
 
 ### Example: Iterating Without Collecting
@@ -896,27 +903,29 @@ impl<'a> HttpRequest<'a> {
 
 Processing data in fixed-size chunks enables the compiler to auto-vectorize, and provides a clear structure for manual SIMD optimization. The inner loop over a fixed-size array is especially optimization-friendly since the bounds are compile-time constants. Always handle the remainder separately to avoid bounds-check overhead in the hot path.
 
+> **Note**: `as_chunks` requires nightly Rust. This example shows the stable alternative using `chunks_exact`.
+
 ```rust
 fn sum_bytes(data: &[u8]) -> u64 {
-    let (chunks, remainder) = data.as_chunks::<8>();
-
+    let mut chunks = data.chunks_exact(8);
     let mut sum = 0u64;
 
     // Process 8 bytes at a time
-    for chunk in chunks {
+    for chunk in chunks.by_ref() {
         for &byte in chunk {
             sum += byte as u64;
         }
     }
 
     // Handle remainder
-    for &byte in remainder {
+    for &byte in chunks.remainder() {
         sum += byte as u64;
     }
 
     sum
 }
-
+// Usage: sum all bytes efficiently
+let total = sum_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]); // 55
 ```
 
 ### Example: Aligned Data Structures
@@ -961,7 +970,7 @@ fn add_vectors_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 
     // Handle remainder
     for ((a, b), result) in
-        a_remainder.iter().zip(b_remainder).zip(result_remainder)
+        a_remainder.iter().zip(b_remainder).zip(result_rem)
     {
         *result = a + b;
     }
@@ -973,22 +982,25 @@ fn add_vectors_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 Searching through large buffers can benefit from SIMD parallelism by checking multiple elements simultaneously. This example demonstrates the chunking pattern that enables SIMD optimization. Real SIMD search uses vector comparison instructions that check 16-32 bytes per instruction.
 
 ```rust
-fn find_byte_simd(haystack: &[u8], needle: u8) -> Option<usize> {
-    let (chunks, remainder) = haystack.as_chunks::<16>();
+fn find_byte_chunked(haystack: &[u8], needle: u8) -> Option<usize> {
+    let mut chunks = haystack.chunks_exact(16);
+    let mut offset = 0;
 
-    for (i, chunk) in chunks.iter().enumerate() {
+    for chunk in chunks.by_ref() {
         for (j, &byte) in chunk.iter().enumerate() {
             if byte == needle {
-                return Some(i * 16 + j);
+                return Some(offset + j);
             }
         }
+        offset += 16;
     }
 
-    let offset = chunks.len() * 16;
-    remainder.iter()
+    chunks.remainder().iter()
         .position(|&b| b == needle)
         .map(|pos| offset + pos)
 }
+// Usage: find byte position efficiently
+let pos = find_byte_chunked(b"hello world", b'w'); // Some(6)
 ```
 
 ### Example: SIMD Reduction Operations
@@ -997,21 +1009,22 @@ Reduction operations like sum benefit from SIMD by accumulating multiple lanes i
 
 ```rust
 fn sum_f32_vectorized(data: &[f32]) -> f32 {
-    let (chunks, remainder) = data.as_chunks::<8>();
-
+    let mut chunks = data.chunks_exact(8);
     let mut sums = [0.0f32; 8];
 
-    for chunk in chunks {
+    for chunk in chunks.by_ref() {
         for (i, &value) in chunk.iter().enumerate() {
             sums[i] += value;
         }
     }
 
     let chunk_sum: f32 = sums.iter().sum();
-    let remainder_sum: f32 = remainder.iter().sum();
+    let remainder_sum: f32 = chunks.remainder().iter().sum();
 
     chunk_sum + remainder_sum
 }
+// Usage: sum with multiple accumulators for better pipelining
+let total = sum_f32_vectorized(&[1.0, 2.0, 3.0, 4.0]); // 10.0
 ```
 
 ### Example: Combining Parallelism with SIMD
@@ -1051,25 +1064,27 @@ Dot products are fundamental linear algebra operations that benefit significantl
 
 ```rust
 fn dot_product_chunks(a: &[f32], b: &[f32]) -> f32 {
-    let (a_chunks, a_rem) = a.as_chunks::<4>();
-    let (b_chunks, b_rem) = b.as_chunks::<4>();
+    let mut a_chunks = a.chunks_exact(4);
+    let mut b_chunks = b.chunks_exact(4);
 
     let mut sum = 0.0;
 
     // Process 4 elements at a time
-    for (a_chunk, b_chunk) in a_chunks.iter().zip(b_chunks) {
+    for (a_chunk, b_chunk) in a_chunks.by_ref().zip(b_chunks.by_ref()) {
         for i in 0..4 {
             sum += a_chunk[i] * b_chunk[i];
         }
     }
 
     // Handle remainder
-    for (a_val, b_val) in a_rem.iter().zip(b_rem) {
+    for (a_val, b_val) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
         sum += a_val * b_val;
     }
 
     sum
 }
+// Usage: compute dot product of two vectors
+let dot = dot_product_chunks(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]); // 32.0
 ```
 
 ### Example: Image Processing Pipeline

@@ -1479,7 +1479,7 @@ struct DirectedGraph<T> {
 
 impl<T> DirectedGraph<T>
 where
-    T: Eq + Hash + Clone,
+    T: Eq + Hash + Clone + std::fmt::Debug,
 {
     fn new() -> Self {
         Self {
@@ -2589,11 +2589,11 @@ struct ThreadPool {
 impl ThreadPool {
     fn new(num_threads: usize) -> Self {
         use std::sync::atomic::AtomicBool;
-        let task_queue = UnboundedWorkQueue::new();
+        let task_queue: UnboundedWorkQueue<Task> = UnboundedWorkQueue::new();
         let shutdown = Arc::new(AtomicBool::new(false));
         let mut workers = Vec::new();
 
-        for id in 0..num_threads {
+        for _id in 0..num_threads {
             let queue_clone = task_queue.clone_handle();
             let shutdown_clone = Arc::clone(&shutdown);
 

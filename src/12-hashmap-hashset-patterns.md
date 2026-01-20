@@ -103,27 +103,23 @@ impl<K: Eq + Hash + Clone> LruCache<K, V> {
     }
 
     fn put(&mut self, key: K, value: V) {
-        use std::collections::hash_map::Entry;
-
-        match self.map.entry(key.clone()) {
-            Entry::Occupied(mut entry) => {
-                // Key already exists, update the value.
-                entry.insert(value);
-                // Move it to the front of the usage queue.
-                self.order.retain(|k| k != &key);
-                self.order.push_back(key);
-            }
-            Entry::Vacant(entry) => {
-                // Key is new. First, check if we need to evict an old entry.
-                if self.map.len() >= self.capacity {
-                    if let Some(lru_key) = self.order.pop_front() {
-                        self.map.remove(&lru_key);
-                    }
+        // Check if key already exists
+        if self.map.contains_key(&key) {
+            // Key already exists, update the value.
+            self.map.insert(key.clone(), value);
+            // Move it to the back of the usage queue (most recent).
+            self.order.retain(|k| k != &key);
+            self.order.push_back(key);
+        } else {
+            // Key is new. First, check if we need to evict an old entry.
+            if self.map.len() >= self.capacity {
+                if let Some(lru_key) = self.order.pop_front() {
+                    self.map.remove(&lru_key);
                 }
-                // Insert the new value and add it to the front of the usage queue.
-                entry.insert(value);
-                self.order.push_back(key);
             }
+            // Insert the new value and add it to the back of the usage queue.
+            self.map.insert(key.clone(), value);
+            self.order.push_back(key);
         }
     }
 }
@@ -395,7 +391,7 @@ A standard `HashMap` cannot be safely shared across multiple threads. While `Arc
 // Note: Add `dashmap = "5.5"` and `rayon = "1.8"` to Cargo.toml
 use dashmap::DashMap;
 use std::sync::Arc;
-use rayon::prelude::*
+use rayon::prelude::*;
 
 fn concurrent_request_counter() {
     let counters = Arc::new(DashMap::new());
