@@ -22,7 +22,9 @@ use std::io::{self, Read};
 ```
 
 ### Example: Read entire file to string (UTF-8)
-This example walks through how to read entire file to string (utf-8).
+
+One function call that opens, reads, and closes—pre-allocates based on file size to avoid reallocations.
+Returns an error if the file doesn't exist, lacks read permission, or contains invalid UTF-8. Best for config files and data under ~10 MB.
 
 ```rust
 fn read_to_string(path: &str) -> io::Result<String> {
@@ -30,12 +32,15 @@ fn read_to_string(path: &str) -> io::Result<String> {
     // Allocates a String big enough for the entire file
     // Returns Err if file doesn't exist, isn't readable, or isn't valid UTF-8
 }
-let content = read_to_string("config.json")?; // Reads entire file as UTF-8
 
+// Usage: Load configuration file
+let content = read_to_string("config.json")?;
 ```
 
 ### Example: Read entire file to bytes (binary)
-This example walks through how to read entire file to bytes (binary).
+
+Use `fs::read()` for binary files where UTF-8 validation would fail—returns raw bytes for parsers or image libraries.
+Pre-allocates based on file metadata like `read_to_string()`. Essential for images, executables, and compressed archives.
 
 ```rust
 fn read_to_bytes(path: &str) -> io::Result<Vec<u8>> {
@@ -43,12 +48,15 @@ fn read_to_bytes(path: &str) -> io::Result<Vec<u8>> {
     // Allocates a Vec<u8> and reads all bytes
     // Returns Err if file doesn't exist or isn't readable
 }
-let bytes = read_to_bytes("image.png")?; // Reads binary file
 
+// Usage: Load image for processing
+let bytes = read_to_bytes("image.png")?;
 ```
 
 ### Example: Manual reading with buffer control
-This example walks through manual reading with buffer control.
+
+Use when you need the `File` handle for metadata, seeking, or multiple operations after reading.
+The `read_to_string()` method reads until EOF, resizing the String as needed while keeping the file open.
 
 ```rust
 fn read_with_buffer(path: &str) -> io::Result<String> {
@@ -59,12 +67,15 @@ fn read_with_buffer(path: &str) -> io::Result<String> {
     file.read_to_string(&mut contents)?;
     Ok(contents)
 }
-let data = read_with_buffer("data.txt")?; // Manual control over File handle
 
+// Usage: Read file while keeping handle for metadata
+let data = read_with_buffer("data.txt")?;
 ```
 
 ### Example: Read exact number of bytes
-This example walks through how to read exact number of bytes.
+
+For fixed-size headers (PNG magic bytes, ZIP headers), `read_exact()` guarantees exactly N bytes or an error.
+Safer than `read()` which might return fewer bytes—critical for binary protocols where partial reads mean corruption.
 
 ```rust
 fn read_exact_bytes(path: &str, n: usize) -> io::Result<Vec<u8>> {
@@ -76,7 +87,9 @@ fn read_exact_bytes(path: &str, n: usize) -> io::Result<Vec<u8>> {
     file.read_exact(&mut buffer)?;
     Ok(buffer)
 }
-let header = read_exact_bytes("file.bin", 128)?; // Read fixed-size header
+
+// Usage: Read fixed-size file header
+let header = read_exact_bytes("file.bin", 128)?;
 ```
 
 
@@ -99,7 +112,9 @@ use std::io::{self, Write};
 ```
 
 ### Example: Write string to file (overwrites existing)
-This example walks through how to write string to file (overwrites existing).
+
+One function call that creates, truncates, writes, and closes—**erases existing content** before writing.
+Atomic at syscall level (all bytes or error). Use for output files and state where you want complete replacement.
 
 ```rust
 fn write_string(path: &str, content: &str) -> io::Result<()> {
@@ -108,23 +123,29 @@ fn write_string(path: &str, content: &str) -> io::Result<()> {
     // Truncates (erases) existing content
     // Writes all content in one operation
 }
-Usage: write_string("output.txt", "Hello, world!")?;
 
+// Usage: Save configuration
+write_string("output.txt", "Hello, world!")?;
 ```
 
 ### Example: Write bytes to file
-This example walks through how to write bytes to file.
+
+Accepts `&[u8]}` for binary files—images, serialized data, protocol buffers, or raw dumps.
+Generic over `AsRef<[u8]>` (accepts `&[u8]`, `Vec<u8>`, `String`, `&str`). Overwrites existing files completely.
 
 ```rust
 fn write_bytes(path: &str, content: &[u8]) -> io::Result<()> {
     std::fs::write(path, content)
 }
-write_bytes("data.bin", &[0x89, 0x50, 0x4E, 0x47])?; // Write binary
 
+// Usage: Write PNG magic bytes
+write_bytes("data.bin", &[0x89, 0x50, 0x4E, 0x47])?;
 ```
 
 ### Example: Manual writing with file handle
-This example walks through manual writing with file handle.
+
+Use when you need the handle for multiple writes, seeking, or explicit `flush()` to disk.
+`write_all()` loops until all bytes are written (unlike `write()` which might write fewer). Guarantees complete writes or error.
 
 ```rust
 fn write_with_handle(path: &str, content: &str) -> io::Result<()> {
@@ -135,12 +156,15 @@ fn write_with_handle(path: &str, content: &str) -> io::Result<()> {
     file.write_all(content.as_bytes())?;
     Ok(())
 }
-write_with_handle("output.txt", "data")?; // Manual File handle
 
+// Usage: Write with explicit file handle
+write_with_handle("output.txt", "data")?;
 ```
 
 ### Example: Append to file (preserves existing content)
-This example walks through how to append to file (preserves existing content).
+
+Essential for logs: `.append(true)` seeks to end before every write, `.create(true)` handles missing files.
+Multiple processes can safely append (atomic up to ~4KB). The `writeln!` macro adds newlines automatically.
 
 ```rust
 fn append_to_file(path: &str, content: &str) -> io::Result<()> {
@@ -154,7 +178,9 @@ fn append_to_file(path: &str, content: &str) -> io::Result<()> {
     writeln!(file, "{}", content)?;  // Adds newline automatically
     Ok(())
 }
-append_to_file("log.txt", "New entry")?; // Preserves existing content
+
+// Usage: Append log entry
+append_to_file("log.txt", "New entry")?;
 ```
 
 
@@ -257,7 +283,9 @@ use std::io::{self, BufRead, BufReader};
 ```
 
 ### Example: Process large files line by line (memory-efficient)
-This example walks through process large files line by line (memory-efficient).
+
+Stream gigabyte files without loading into memory—`BufReader` maintains an 8KB buffer, serving one line at a time.
+Memory usage is O(max line length), not O(file size). Each `line?` handles I/O errors individually.
 
 ```rust
 fn process_large_file(path: &str) -> io::Result<()> {
@@ -277,24 +305,29 @@ fn process_large_file(path: &str) -> io::Result<()> {
 
     Ok(())
 }
-process_large_file("access.log")?; // Memory-efficient line processing
 
+// Usage: Process large log file efficiently
+process_large_file("access.log")?;
 ```
 
 ### Example: Filter lines (e.g., only errors)
-This example walks through how to filter lines (e.g., only errors).
+
+Combine iterator adapters with buffered reading—`filter_map(|line| line.ok())` skips I/O errors silently.
+Chain filters for complex queries (search, exclude, transform). Collects matches into a `Vec`.
 
 ```rust
 fn process_errors_only(path: &str) -> io::Result<Vec<String>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
-    reader.lines()
+    Ok(reader.lines()
         .filter_map(|line| line.ok())  // Skip I/O errors
         .filter(|line| line.contains("ERROR"))
-        .collect()
+        .collect())
 }
-let errors = process_errors_only("app.log")?; // Extract error lines
+
+// Usage: Extract all error lines from log
+let errors = process_errors_only("app.log")?;
 ```
 
 
@@ -317,7 +350,9 @@ use std::io::{self, BufWriter, Write};
 ```
 
 ### Example: Buffered writing (essential for performance)
-This example walks through buffered writing (essential for performance).
+
+`BufWriter` accumulates writes in an 8KB buffer, transforming O(N) syscalls into O(N/8192)—50-100x speedup.
+Always call `flush()` at the end to ensure the final partial buffer reaches disk before closing.
 
 ```rust
 fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
@@ -331,12 +366,15 @@ fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     writer.flush()?;  // Ensure all buffered data written
     Ok(())
 }
-buffered_write("output.txt", &["line1", "line2"])?; // Fast bulk writes
 
+// Usage: Write many lines efficiently
+buffered_write("output.txt", &["line1", "line2"])?;
 ```
 
 ### Example: Append to log file (preserves existing)
-This example walks through how to append to log file (preserves existing).
+
+Combines append mode with buffering for efficient log writes. The explicit `flush()` is critical—without it, a crash loses buffered entries.
+This is the foundation of application logging: append-only, buffered, crash-aware.
 
 ```rust
 fn append_log(path: &str, message: &str) -> io::Result<()> {
@@ -352,7 +390,9 @@ fn append_log(path: &str, message: &str) -> io::Result<()> {
     writer.flush()?;  // Critical for logs
     Ok(())
 }
-append_log("app.log", "Server started")?; // Buffered log appending
+
+// Usage: Append log entry with flush
+append_log("app.log", "Server started")?;
 ```
 
 
@@ -372,17 +412,12 @@ append_log("app.log", "Server started")?; // Buffered log appending
 
 **Use Cases**: CLI tools (interactive prompts, menus), Unix filters (cat|grep|wc), progress indicators (stderr while stdout pipes data), logging, command-line argument parsing.
 
-###  Example: Interactive Prompts with stdin
 
-Read user input with prompts. Without flushing, prompts don't appear before input.
-
-```rust
-use std::io::{self, Write};
-
-```
 
 ### Example: Read with prompt
-This example walks through how to read with prompt.
+
+Classic interactive pattern: `print!` keeps cursor on same line, `flush()` is critical since `print!` is line-buffered.
+Without flush, the prompt might not appear before `read_line` blocks. Use `trim()` to remove the trailing newline.
 
 ```rust
 fn prompt(message: &str) -> io::Result<String> {
@@ -392,13 +427,16 @@ fn prompt(message: &str) -> io::Result<String> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_string())
-} 
-let name = prompt("Enter your name: ")?; // Interactive input
+}
 
+// Usage: Interactive prompt
+let name = prompt("Enter your name: ")?;
 ```
 
 ### Example: Interactive menu
-This example walks through interactive menu.
+
+Build CLIs with a loop: display options, read input, dispatch actions. Use `println!` for output, `eprintln!` for errors.
+The loop handles invalid input gracefully. This pattern is the basis of REPLs and configuration wizards.
 
 ```rust
 fn interactive_menu() -> io::Result<()> {
@@ -419,7 +457,9 @@ fn interactive_menu() -> io::Result<()> {
     }
     Ok(())
 }
-interactive_menu()?; // CLI menu loop with user input
+
+// Usage: Run interactive menu loop
+interactive_menu()?;
 ```
 
 
@@ -441,19 +481,11 @@ interactive_menu()?; // CLI menu loop with user input
 
 **Use Cases**: Databases (page-based storage), binary search in large files, memory-mapped data structures, shared memory IPC, large read-only assets, sparse file access.
 
-### Basic Memory Mapping
 
-Rust doesn't include mmap in the standard library (it's unsafe and platform-specific). The `memmap2` crate provides a safe abstraction.
+### Example: Memory-Mapped File Operations
 
-```rust
-// Note: Add to Cargo.toml:
-// [dependencies]
-// memmap2 = "0.9"
-
-```
-
-### Example: This is a conceptual example showing the API
-This example walks through this is a conceptual example showing the api.
+Memory mapping treats files as byte arrays—OS pages data in/out automatically. Provides O(1) random access vs O(N) seek+read.
+The `unsafe` is required because external processes could modify the mapped file, invalidating Rust's guarantees.
 
 ```rust
 #[cfg(feature = "memmap_example")]
@@ -522,7 +554,9 @@ mod memmap_examples {
 
         Ok(count)
     }
-    let count = process_large_file_mmap("huge.log")?; // Newline count via mmap
+
+    // Usage: Count lines via memory-mapped file
+    let count = process_large_file_mmap("huge.log")?;
 }
 ```
 
@@ -546,17 +580,11 @@ mod memmap_examples {
 
 **Use Cases**: Build systems (find .rs files), file search tools (find by name/pattern), disk usage analyzers, backup tools, batch file operations (chmod/chown recursively).
 
-### Example: Basic Directory Operations
-
-```rust
-use std::fs;
-use std::io;
-use std::path::Path;
-
-```
 
 ### Example: Create directory
-This example walks through how to create directory.
+
+Creates a single directory—parent must exist. Fails if directory already exists (unlike `create_dir_all`).
+Use when you expect the parent to exist and want to detect re-creation. For idempotent scripts, prefer `create_dir_all`.
 
 ```rust
 fn create_directory(path: &str) -> io::Result<()> {
@@ -564,12 +592,15 @@ fn create_directory(path: &str) -> io::Result<()> {
     // Fails if parent doesn't exist
     // Fails if directory already exists
 }
-create_directory("new_folder")?;
 
+// Usage: Create single directory
+create_directory("new_folder")?;
 ```
 
 ### Example: Create directory and all parent directories
-This example walks through how to create directory and all parent directories.
+
+Like `mkdir -p`—creates entire path including missing parents. Idempotent: succeeds if directory exists.
+Essential for setup scripts and build systems. Race-condition safe with concurrent creation.
 
 ```rust
 // Like mkdir -p in Unix
@@ -578,24 +609,30 @@ fn create_directory_all(path: &str) -> io::Result<()> {
     // Creates parent directories as needed
     // Succeeds if directory already exists
 }
-create_directory_all("a/b/c")?; // Creates all parents
 
+// Usage: Create nested directory structure
+create_directory_all("a/b/c")?;
 ```
 
 ### Example: Remove empty directory
-This example walks through remove empty directory.
+
+Removes directory only if empty—fails if files or subdirectories remain. Safe default preventing accidental deletion.
+Common pattern: delete files first, then `remove_dir` on empty parent. Prevents catastrophic data loss.
 
 ```rust
 fn remove_directory(path: &str) -> io::Result<()> {
     fs::remove_dir(path)
     // Fails if directory is not empty
 }
-remove_directory("empty_folder")?;
 
+// Usage: Remove empty directory only
+remove_directory("empty_folder")?;
 ```
 
 ### Example: Remove directory and all contents (dangerous!)
-This example walks through remove directory and all contents (dangerous!).
+
+Recursively deletes everything—equivalent to `rm -rf`. No trash bin, no undo. Data is gone forever.
+Validate paths carefully; a bug passing `/` or `$HOME` is catastrophic. Consider user confirmation or trash libraries.
 
 ```rust
 fn remove_directory_all(path: &str) -> io::Result<()> {
@@ -603,49 +640,50 @@ fn remove_directory_all(path: &str) -> io::Result<()> {
     // Recursively deletes everything
     // Like rm -rf in Unix
 }
-remove_directory_all("temp")?; // DANGEROUS: deletes recursively
 
+// Usage: DANGEROUS - recursively delete everything
+remove_directory_all("temp")?;
 ```
 
 ### Example: Check if path exists
-This example walks through check if path exists.
+
+Works for files, directories, and symlinks (following to target). Returns `false` for broken symlinks.
+Note: TOCTOU race possible—file could be deleted after check. For atomic ops, use `create_new(true)`.
 
 ```rust
 fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
     // Returns false for broken symlinks
 }
-if path_exists("config.toml") { ... }
 
+// Usage: Check before processing
+if path_exists("config.toml") { /* load config */ }
 ```
 
 ### Example: Check if path is directory
-This example walks through check if path is directory.
+
+Essential before `read_dir()` or recursion. Follows symlinks (symlink to directory returns `true`).
+Returns `false` if path doesn't exist—no separate existence check needed.
 
 ```rust
 fn is_directory(path: &str) -> bool {
     Path::new(path).is_dir()
     // Follows symlinks
 }
+
+// Usage: Only walk directories
 if is_directory("src") { walk_it(); }
 ```
 
 
 **Safety note**: `remove_dir_all` is dangerous. It's equivalent to `rm -rf`. There's no trash bin, no undo. Many programs ask for confirmation before using this.
 
-### Example: Reading Directory Contents
 
-Listing a directory is simple, but the iterator-based API requires careful error handling.
-
-```rust
-use std::fs;
-use std::io;
-use std::path::PathBuf;
-
-```
 
 ### Example: List directory contents
-This example walks through list directory contents.
+
+Reads all entries (files, subdirectories, symlinks). Each `DirEntry` can fail independently; order not guaranteed.
+Does not recurse—for recursive listing, see the walk pattern below. Sort explicitly if needed.
 
 ```rust
 fn list_directory(path: &str) -> io::Result<Vec<PathBuf>> {
@@ -658,12 +696,15 @@ fn list_directory(path: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(entries)
 }
-let entries = list_directory("src")?; // All files and dirs
 
+// Usage: Get all entries in directory
+let entries = list_directory("src")?;
 ```
 
 ### Example: List only files (skip directories)
-This example walks through list only files (skip directories).
+
+Filter to regular files only—`file_type()` avoids extra stat syscall by using cached `DirEntry` metadata.
+Common pattern for "find all files" without recursion. Symlinks to files return `is_file() == true`.
 
 ```rust
 fn list_files_only(path: &str) -> io::Result<Vec<PathBuf>> {
@@ -678,12 +719,15 @@ fn list_files_only(path: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(files)
 }
-let files = list_files_only("docs")?; // Only files, no dirs
 
+// Usage: Get only files, not directories
+let files = list_files_only("docs")?;
 ```
 
 ### Example: List files with specific extension
-This example walks through list files with specific extension.
+
+Foundation of build tools—`extension()` returns `None` for no extension, excludes the dot (e.g., "rs" not ".rs").
+Case-sensitive on most platforms. Combine with recursive walking for "find all .rs files in project".
 
 ```rust
 // Use this for: Finding all .rs files, .txt files, etc.
@@ -701,12 +745,15 @@ fn list_by_extension(path: &str, ext: &str) -> io::Result<Vec<PathBuf>> {
 
     Ok(files)
 }
-let rs_files = list_by_extension("src", "rs")?;
 
+// Usage: Find all Rust source files
+let rs_files = list_by_extension("src", "rs")?;
 ```
 
 ### Example: Get directory entries with metadata
-This example walks through get directory entries with metadata.
+
+Retrieve sizes, timestamps, permissions for `ls -l` style listings. `metadata()` uses cached `DirEntry` data when available.
+Essential for sorting by size or date. Returns symlink target metadata; use `symlink_metadata()` for symlink itself.
 
 ```rust
 // Use this for: Sorting by size, filtering by date, etc.
@@ -721,25 +768,19 @@ fn list_with_metadata(path: &str) -> io::Result<Vec<(PathBuf, fs::Metadata)>> {
 
     Ok(entries)
 }
-let items = list_with_metadata(".")?; // Files with size, dates, etc.
+
+// Usage: Get files with size and timestamps
+let items = list_with_metadata(".")?;
 ```
 
 
 **Error handling**: `read_dir()` can fail (directory doesn't exist, no permission). Each call to `entry?` can also fail (permission denied on individual files). Handle both.
 
-### Example: Recursive Directory Traversal
-
-Walking entire directory trees is common but requires careful handling of errors and cycles (symlink loops).
-
-```rust
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-
-```
 
 ### Example: Recursive file listing
-This example walks through recursive file listing.
+
+Classic depth-first search—recurses into subdirectories, collecting files while skipping directories.
+Uses mutable Vec by reference to avoid allocations. Warning: doesn't detect symlink cycles.
 
 ```rust
 // Classic depth-first search pattern
@@ -758,11 +799,12 @@ fn walk_directory(path: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
     }
     Ok(())
 }
-
 ```
 
 ### Example: Get all files recursively
-This example walks through get all files recursively.
+
+Convenience wrapper that creates the Vec and calls the recursive walker—caller doesn't manage accumulator.
+For millions of files, consider returning an iterator instead of collecting. Pre-allocate if count is known.
 
 ```rust
 fn get_all_files(path: &str) -> io::Result<Vec<PathBuf>> {
@@ -770,12 +812,15 @@ fn get_all_files(path: &str) -> io::Result<Vec<PathBuf>> {
     walk_directory(Path::new(path), &mut files)?;
     Ok(files)
 }
-let all_files = get_all_files("project")?; // Recursive file list
 
+// Usage: Get all files in project recursively
+let all_files = get_all_files("project")?;
 ```
 
 ### Example: Recursive directory tree printer (visual tree)
-This example walks through recursive directory tree printer (visual tree).
+
+Produces Unix `tree`-like output with box-drawing characters. Sorts entries alphabetically for consistency.
+Tracks last-entry status for correct connectors (└── vs ├──). Prefix accumulates to show nesting depth.
 
 ```rust
 // Produces output like the `tree` command
@@ -799,12 +844,15 @@ fn print_tree(path: &Path, prefix: &str) -> io::Result<()> {
 
     Ok(())
 }
-print_tree(Path::new("src"), "")?; // Visual tree like `tree` command
 
+// Usage: Print directory tree like `tree` command
+print_tree(Path::new("src"), "")?;
 ```
 
 ### Example: Find files matching pattern (like find command)
-This example walks through find files matching pattern (like find command).
+
+Implements `find . -name '*pattern*'`—combines recursive walking with filename matching.
+Uses `contains()` for substring matching; use regex or glob crates for full patterns. Returns all matches.
 
 ```rust
 fn find_files(root: &Path, pattern: &str) -> io::Result<Vec<PathBuf>> {
@@ -831,7 +879,9 @@ fn find_files(root: &Path, pattern: &str) -> io::Result<Vec<PathBuf>> {
     search(root, pattern, &mut matches)?;
     Ok(matches)
 }
-let matches = find_files(Path::new("."), "test")?; // Like `find . -name *test*`
+
+// Usage: Find all files containing "test" in name
+let matches = find_files(Path::new("."), "test")?;
 ```
 
 
@@ -853,16 +903,10 @@ let matches = find_files(Path::new("."), "test")?; // Like `find . -name *test*`
 **Use Cases**: Build scripts (invoke compilers), test runners (execute programs and check output), automation tools, implementing Unix pipelines (cat|grep|wc), subprocess orchestration.
 
 
-### Example: Basic Process Execution
-
-```rust
-use std::process::{Command, Stdio};
-use std::io::{self, Write};
-
-```
-
 ### Example: Run command and capture output
-This example walks through run command and capture output.
+
+Simplest approach—`output()` blocks until exit, returning stdout, stderr, and status in memory.
+Use `String::from_utf8_lossy` for potentially invalid UTF-8. Best for short commands; use `spawn()` for long-running ones.
 
 ```rust
 fn run_command() -> io::Result<()> {
@@ -876,12 +920,15 @@ fn run_command() -> io::Result<()> {
 
     Ok(())
 }
-run_command()?; // Runs ls -la and prints output
 
+// Usage: Run command and get all output
+run_command()?;
 ```
 
 ### Example: Check if command succeeded
-This example walks through check if command succeeded.
+
+When you only care about success/failure—`status()` inherits streams so users see output in real-time.
+Returns exit status only; use `success()` for boolean or `code()` for exit code. Ideal for builds and tests.
 
 ```rust
 fn run_command_check() -> io::Result<()> {
@@ -897,12 +944,15 @@ fn run_command_check() -> io::Result<()> {
 
     Ok(())
 }
-run_command_check()?; // Run cargo build, check exit status
 
+// Usage: Run command, check exit status
+run_command_check()?;
 ```
 
 ### Example: Run with environment variables
-This example walks through run with environment variables.
+
+Standard Unix pattern—`.env()` adds or overrides variables; child inherits others from parent.
+Use `.env_clear()` for minimal environment. Essential for builds (`CC`, `CFLAGS`) and databases.
 
 ```rust
 fn run_with_env() -> io::Result<()> {
@@ -914,12 +964,15 @@ fn run_with_env() -> io::Result<()> {
     println!("{}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
-run_with_env()?; // Sets custom environment variables
 
+// Usage: Set environment variables for child process
+run_with_env()?;
 ```
 
 ### Example: Run in specific directory
-This example walks through run in specific directory.
+
+Run in a different working directory without changing parent's. Essential for build tools.
+Directory must exist or `spawn()` fails. Combine with `.env()` and `.arg()` for full configuration.
 
 ```rust
 fn run_in_directory() -> io::Result<()> {
@@ -930,7 +983,9 @@ fn run_in_directory() -> io::Result<()> {
     println!("Working directory: {}", String::from_utf8_lossy(&output.stdout));
     Ok(())
 }
-run_in_directory()?; // Runs command in /tmp
+
+// Usage: Run command in different directory
+run_in_directory()?;
 ```
 
 
@@ -950,7 +1005,9 @@ use std::io::{self, BufRead, BufReader};
 ```
 
 ### Example: Stream stdout in real-time
-This example walks through stream stdout in real-time.
+
+For long-running commands, `spawn()` returns immediately with `Child` handle; `Stdio::piped()` captures stdout.
+Wrap in `BufReader` for line-by-line iteration. Call `wait()` after reading to get exit status.
 
 ```rust
 fn stream_output() -> io::Result<()> {
@@ -973,12 +1030,15 @@ fn stream_output() -> io::Result<()> {
 
     Ok(())
 }
-stream_output()?; // Real-time output from long-running command
 
+// Usage: Stream command output in real-time
+stream_output()?;
 ```
 
 ### Example: Capture both stdout and stderr separately
-This example walks through capture both stdout and stderr separately.
+
+Reading both streams requires threads—reading one while the other fills causes deadlock.
+Spawn separate threads for each stream, join both before `wait()`. Essential for separating output from errors.
 
 ```rust
 // Requires threading to avoid deadlock
@@ -1020,7 +1080,9 @@ fn capture_both_streams() -> io::Result<()> {
 
     Ok(())
 }
-capture_both_streams()?; // Reads stdout/stderr concurrently with threads
+
+// Usage: Read stdout and stderr concurrently
+capture_both_streams()?;
 ```
 
 
@@ -1028,16 +1090,8 @@ capture_both_streams()?; // Reads stdout/stderr concurrently with threads
 
 ### Example: Piping Between Processes
 
-Unix pipelines (`cat file | grep pattern | wc -l`) chain processes, streaming data without intermediate files.
-
-```rust
-use std::process::{Command, Stdio};
-use std::io::{self, Write};
-
-```
-
-### Example: Pipe output from one command to another (ls | grep txt)
-This example walks through pipe output from one command to another (ls | grep txt).
+Implement Unix pipelines—`Stdio::from()` connects one process's stdout to another's stdin without temp files.
+Data streams through OS pipe buffer; OS manages backpressure (writer blocks when buffer fills).
 
 ```rust
 fn pipe_commands() -> io::Result<()> {
@@ -1056,12 +1110,15 @@ fn pipe_commands() -> io::Result<()> {
 
     Ok(())
 }
-pipe_commands()?; // ls | grep txt
 
+// Usage: Pipe ls output to grep (ls | grep txt)
+pipe_commands()?;
 ```
 
 ### Example: Complex pipeline: cat file | grep pattern | wc -l
-This example walks through complex pipeline: cat file | grep pattern | wc -l.
+
+Chain multiple processes—each runs concurrently with data flowing through as produced.
+Use `wait_with_output()` on final process. Scales to any number of stages by chaining stdin/stdout.
 
 ```rust
 fn complex_pipeline(file: &str, pattern: &str) -> io::Result<()> {
@@ -1087,7 +1144,9 @@ fn complex_pipeline(file: &str, pattern: &str) -> io::Result<()> {
 
     Ok(())
 }
-complex_pipeline("log.txt", "ERROR")?; // cat | grep | wc -l
+
+// Usage: Count lines matching pattern (cat | grep | wc -l)
+complex_pipeline("log.txt", "ERROR")?;
 ```
 
 

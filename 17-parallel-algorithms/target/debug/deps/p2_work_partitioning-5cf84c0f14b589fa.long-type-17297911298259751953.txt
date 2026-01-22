@@ -1,0 +1,1 @@
+rayon::iter::FlatMap<rayon::slice::Chunks<'_, i32>, {closure@p2_work_partitioning.rs:41:19: 41:26}>

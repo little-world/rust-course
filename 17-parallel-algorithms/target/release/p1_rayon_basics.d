@@ -1,0 +1,1 @@
+/Users/littleworld/RustroverProjects/rust-course-pdf/src/17-parallel-algorithms/target/release/p1_rayon_basics: /Users/littleworld/RustroverProjects/rust-course-pdf/src/17-parallel-algorithms/p1_rayon_basics.rs

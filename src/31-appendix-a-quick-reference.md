@@ -702,7 +702,7 @@ let chars = vec!['h', 'e', 'l', 'l', 'o'];
 let word: String = chars.into_iter().collect();
 // "hello"
 
-// partition: Split into two collections //======================================
+// partition: Split into two collections
 let numbers = vec![1, 2, 3, 4, 5];
 let (evens, odds): (Vec<_>, Vec<_>) = numbers.into_iter()
     .partition(|&x| x % 2 == 0);

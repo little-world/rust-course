@@ -1,0 +1,1 @@
+std::iter::Map<std::slice::Iter<'_, i32>, {closure@p2_work_partitioning.rs:41:44: 41:48}>: IntoParallelIterator

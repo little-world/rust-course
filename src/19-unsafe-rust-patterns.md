@@ -45,7 +45,8 @@ Raw pointers (`*const T` and `*mut T`) are Rust's unmanaged pointers. Unlike ref
 
 ### Example: Raw Pointer Usage
 
-Creating raw pointers is safe—it's just taking an address. The danger comes when you dereference them, because you're asserting "this memory is valid and properly aligned," and the compiler can't verify that claim.
+Creating raw pointers is safe—it's just taking an address. The danger comes when you dereference them, asserting "this memory is valid and properly aligned."
+Dereferencing requires `unsafe` because the compiler can't verify that claim; arbitrary address pointers are UB unless they point to valid memory.
 
 ```rust
 fn raw_pointer_basics() {
@@ -62,14 +63,19 @@ fn raw_pointer_basics() {
         // Dereferencing r3 would be UB - it points to random memory!
     }
 }
-raw_pointer_basics(); // Demonstrates safe pointer creation, unsafe dereferencing
+
+// Usage: Create pointer from reference, dereference in unsafe block
+let x = 42;
+let ptr: *const i32 = &x;
+unsafe { println!("Value: {}", *ptr); }
 ```
 
 **Why this pattern exists**: Sometimes you need to store pointers in data structures where the borrow checker can't track the relationships. A tree node with a parent pointer, for example—the parent outlives the child, but Rust's borrow checker can't express that bidirectional relationship without causing issues.
 
 ### Example: Pointer Arithmetic
 
-Pointer arithmetic lets you navigate through memory by calculating offsets. This is fundamental for implementing custom collections and working with contiguous memory layouts. However, it's also where many C bugs come from—off-by-one errors lead to buffer overruns, corrupted data, and security vulnerabilities.
+Pointer arithmetic lets you navigate memory—`ptr.add(n)` advances by `n * size_of::<T>()` bytes, fundamental for custom collections and contiguous layouts.
+Going out of bounds is undefined behavior even without dereferencing; the compiler assumes it never happens and optimizes accordingly.
 
 ```rust
 fn pointer_arithmetic() {
@@ -88,7 +94,10 @@ fn pointer_arithmetic() {
         // ptr.add(10) would be UB - out of bounds!
     }
 }
-pointer_arithmetic(); // Prints array elements via pointer offsets
+
+// Usage: Iterate array via pointer offset
+let data = [10, 20, 30];
+unsafe { println!("Second: {}", *data.as_ptr().add(1)); }
 ```
 
 **The critical rule**: Pointer arithmetic must stay within the bounds of the original allocation (or one byte past the end). Going beyond is undefined behavior even if you don't dereference. The CPU's memory protection won't save you—UB means the compiler can assume it never happens and optimize accordingly, leading to bizarre bugs.
@@ -97,9 +106,8 @@ pointer_arithmetic(); // Prints array elements via pointer offsets
 
 ### Example: Building a Raw Vec-like Structure
 
-Let's build a simplified vector to understand how raw pointers, allocation, and unsafe come together. This pattern appears in countless Rust libraries that need custom memory management.
-
-The strategy: separate allocation from element storage. `RawVec` handles raw memory, while a higher-level `Vec` (not shown) would track initialization.
+This pattern separates allocation from element storage—`RawVec` handles raw memory while higher-level code tracks initialization.
+This separation of concerns, used by `std::vec::Vec` and custom allocators, makes unsafe code easier to audit and maintain.
 
 ```rust
 use std::alloc::{alloc, dealloc, realloc, Layout};
@@ -192,7 +200,8 @@ v.grow(); // Doubles capacity to 20
 
 ### Example: Null Pointer Optimization with NonNull
 
-`NonNull<T>` is a raw pointer wrapper that guarantees non-nullness. This enables the "null pointer optimization"—`Option<NonNull<T>>` has the same size as `*mut T` because it can use null as the `None` representation.
+`NonNull<T>` guarantees non-nullness, enabling the null pointer optimization: `Option<NonNull<T>>` is the same size as `*mut T`.
+This saves 8 bytes per pointer in linked structures with millions of nodes, and unlike `*mut T`, `NonNull<T>` is covariant for lifetime subtyping.
 
 ```rust
 use std::ptr::NonNull;
@@ -294,7 +303,8 @@ The challenge: C has no concept of Rust's ownership, borrowing, or lifetimes. A 
 
 ### Example: Basic C Function Binding
 
-Declaring external C functions is straightforward, but calling them requires `unsafe` because Rust can't verify their contracts.
+Declare external C functions with `extern "C"` blocks; calling them requires `unsafe` since Rust can't verify their contracts.
+Use `c_int`, `c_char`, `c_void` from `std::os::raw` for portability—the `libc` crate provides standard C library bindings.
 
 ```rust
 //=========================================================
@@ -322,7 +332,10 @@ fn use_c_functions() {
         }
     }
 }
-use_c_functions(); // Calls abs(), strlen(), malloc/free from libc
+
+// Usage: Call C's abs() function
+extern "C" { fn abs(n: i32) -> i32; }
+let result = unsafe { abs(-42) }; // Returns 42
 ```
 
 **Why unsafe?** The compiler can't verify that:
@@ -334,7 +347,8 @@ These are contracts you must uphold, documented in C headers and man pages.
 
 ### Example: Working with C Strings
 
-C strings are null-terminated byte arrays. Rust strings are UTF-8 slices with explicit length. Converting between them requires care to avoid buffer overruns and encoding issues.
+C strings are null-terminated byte arrays; `CString` owns one for passing to C, while `CStr` borrows one (like `&str` for C).
+Use `CString::new()` to create (panics on interior nulls) and `CStr::to_string_lossy()` to handle invalid UTF-8 gracefully.
 
 ```rust
 use std::ffi::{CStr, CString};
@@ -378,6 +392,11 @@ fn c_string_example() {
         free_rust_c_string(c_str);
     }
 }
+
+// Usage: Convert Rust string to C, pass to C function, convert back
+let c_str = CString::new("hello").unwrap();
+extern "C" { fn puts(s: *const c_char); }
+unsafe { puts(c_str.as_ptr()); }
 ```
 
 **Critical pattern**: Ownership transfer must be explicit. `into_raw()` says "Rust, stop tracking this." `from_raw()` says "Resume tracking so you can drop it." Missing either causes memory leaks or double-frees.
@@ -386,7 +405,8 @@ fn c_string_example() {
 
 ### Example: C Struct Interop
 
-When passing structs between Rust and C, memory layout must match exactly. `#[repr(C)]` tells Rust to use C's layout rules instead of optimizing field order.
+`#[repr(C)]` ensures Rust uses C's memory layout (field order, padding, alignment) instead of Rust's optimized default.
+Use `c_int`, `c_char` from `std::os::raw` for portability; enums need `#[repr(C)]` or `#[repr(u8)]` for explicit discriminants.
 
 ```rust
 use std::os::raw::{c_int, c_char};
@@ -430,14 +450,21 @@ fn use_c_structs() {
         println!("Result: {}", result);
     }
 }
+
+// Usage: Create C-compatible struct and pass pointer to C
+#[repr(C)] struct Vec2 { x: f32, y: f32 }
+let v = Vec2 { x: 1.0, y: 2.0 };
+// Pass &v as *const Vec2 to C functions
 ```
+
 **Why `#[repr(C)]`?** Rust can reorder struct fields for optimization. C can't—field order is part of the ABI contract. `#[repr(C)]` locks in C's layout.
 
 **Common pitfall**: Using Rust types (`String`, `&str`, `Option<T>`) in `#[repr(C)]` structs. These have Rust-specific layouts. Use raw pointers and C-compatible types instead.
 
-### Exmple: Creating a Safe Wrapper for C Libraries
+### Example: Creating a Safe Wrapper for C Libraries
 
-Raw FFI is unsafe and error-prone. The pattern: create a safe Rust wrapper that encapsulates the unsafe calls and maintains invariants.
+Create a safe Rust wrapper that encapsulates unsafe FFI: `Drop` handles cleanup, `Result` handles errors, and users never see `unsafe`.
+The public API hides raw pointers and maintains invariants automatically—callers get a safe, idiomatic Rust interface.
 
 ```rust
 use std::ffi::CString;
@@ -494,8 +521,10 @@ impl Drop for Context {
     }
 }
 
-let ctx = Context::new().unwrap(); 
-ctx.do_work("data").unwrap();
+// Usage: Safe Rust API wrapping unsafe C calls
+let mut ctx = Context::new().expect("Failed to create context");
+ctx.do_work("process this").expect("Work failed");
+// ctx automatically cleaned up when dropped
 ```
 
 **This pattern solves multiple problems:**
@@ -506,9 +535,10 @@ ctx.do_work("data").unwrap();
 
 **When to use**: Every time you wrap a C library. Users should never see `unsafe` in the public API unless absolutely necessary.
 
-### Exmple: Callback Functions (C to Rust)
+### Example: Callback Functions (C to Rust)
 
-Sometimes C libraries need to call back into your code. Callbacks must use the C calling convention and can't panic (unwinding across FFI is undefined behavior).
+Callbacks must use `extern "C"` for the C calling convention and must never panic (unwinding across FFI is undefined behavior).
+C libraries pass a `void*` user data pointer through callbacks; cast it back to your Rust type to maintain state without globals.
 
 ```rust
 use std::os::raw::c_int;
@@ -565,6 +595,10 @@ fn callback_with_state_example() {
 
     println!("State after callback: {}", state);
 }
+
+// Usage: Define callback with C calling convention
+extern "C" fn on_event(code: c_int) -> c_int { code * 2 }
+// Pass on_event as function pointer to C library
 ```
 
 **Critical rules for callbacks:**
@@ -595,7 +629,8 @@ The problem: Rust's safety model assumes all values are initialized. Reading uni
 
 ### Example: Using MaybeUninit for Arrays
 
-Large arrays on the stack can overflow it if initialized naively. `MaybeUninit` lets you initialize elements one at a time without paying upfront cost.
+Large stack arrays can overflow if initialized naively; `MaybeUninit` lets you allocate space without initializing, then fill elements individually.
+`MaybeUninit<T>` is the same size as `T` but tells the compiler "this might not be valid yet"; `assume_init()` asserts initialization is complete.
 
 ```rust
 use std::mem::MaybeUninit;
@@ -625,6 +660,11 @@ fn create_array_uninit_safe() -> [i32; 1000] {
 
     unsafe { MaybeUninit::array_assume_init(arr) }
 }
+
+// Usage: Create large array without stack overflow
+let mut uninit: MaybeUninit<[u8; 10000]> = MaybeUninit::uninit();
+unsafe { (*uninit.as_mut_ptr()).fill(0); } // Initialize all bytes
+let arr = unsafe { uninit.assume_init() };
 ```
 
 **Why this works**: `MaybeUninit<T>` is the same size as `T`, but Rust knows it might not be initialized. Operations on it are safe until you call `assume_init()`, which asserts "I promise this is initialized."
@@ -633,7 +673,8 @@ fn create_array_uninit_safe() -> [i32; 1000] {
 
 ### Example: Partial Initialization
 
-Sometimes you need to initialize a struct field-by-field, perhaps because constructing one field depends on earlier fields, or because you're reading from a stream.
+`MaybeUninit` enables field-by-field struct initialization using `addr_of_mut!` to get field pointers without creating references.
+Critical: creating a reference (`&mut`) to uninitialized memory is instant UB—use `addr_of_mut!` then `write()` for each field.
 
 ```rust
 use std::mem::MaybeUninit;
@@ -657,6 +698,10 @@ fn initialize_complex_struct() -> ComplexStruct {
         uninit.assume_init()
     }
 }
+
+// Usage: Initialize struct field-by-field
+let s = initialize_complex_struct();
+println!("{}, {:?}, {}", s.field1, s.field2, s.field3);
 ```
 
 **Critical detail**: Use `addr_of_mut!` to get field pointers without creating references. Creating a `&mut T` to uninitialized memory is UB, even if you don't read it. `addr_of_mut!` avoids this.
@@ -665,7 +710,8 @@ fn initialize_complex_struct() -> ComplexStruct {
 
 ### Example: Reading Uninitialized Memory (What NOT to Do)
 
-Let's be crystal clear: reading uninitialized memory is undefined behavior. The compiler can assume it never happens and optimize based on that assumption.
+Reading uninitialized memory is undefined behavior—the compiler might delete your code, produce garbage, or cause bugs elsewhere.
+Even creating a reference to uninitialized memory is UB; use Miri (`cargo +nightly miri test`) to detect these issues.
 
 ```rust
 use std::mem::MaybeUninit;
@@ -685,6 +731,11 @@ fn actual_undefined_behavior() {
     // ❌ UB: Reading uninitialized memory!
     // let value = unsafe { uninit.assume_init() };  // DON'T DO THIS
 }
+
+// Usage: Correct pattern - write before assume_init
+let mut x = MaybeUninit::uninit();
+x.write(42);
+let val = unsafe { x.assume_init() }; // Safe: was initialized
 ```
 
 **What "undefined behavior" means**: Not just "might crash." The compiler can:
@@ -697,7 +748,8 @@ Miri (Rust's interpreter for detecting UB) will catch these issues. Use it: `car
 
 ### Example: Out-Parameter Pattern for C FFI
 
-Many C functions write results through pointer arguments instead of returning them. `MaybeUninit` handles this pattern safely.
+Many C functions write results through pointer arguments; `MaybeUninit` handles this by creating uninitialized storage to pass to C.
+Only call `assume_init()` if C indicates success—this avoids initializing memory that C will immediately overwrite.
 
 ```rust
 use std::mem::MaybeUninit;
@@ -732,7 +784,8 @@ if let Some(val) = call_out_parameter_function() { println!("{}", val); }
 
 ### Example: Initializing Arrays from External Functions
 
-When filling a buffer from external sources, `MaybeUninit` prevents double-initialization and enables efficient bulk operations.
+`MaybeUninit` prevents wasteful double-initialization when filling buffers from external sources (files, sockets, hardware).
+Create `Vec<MaybeUninit<u8>>`, pass its pointer to C, then transmute to `Vec<u8>`—safe because layouts are identical and C initialized the bytes.
 
 ```rust
 use std::mem::MaybeUninit;
@@ -797,7 +850,8 @@ if let Some(data) = read_into_buffer(1024) { process(&data); }
 
 ### Example: Basic Transmute
 
-The simplest uses: converting between types that have the same size and compatible representations.
+`transmute` reinterprets bits of one type as another—no conversion, just reinterpretation between same-sized types.
+Prefer safe alternatives when they exist: `f32::to_bits()`, `f32::from_bits()`, integer `as` casts.
 
 ```rust
 use std::mem;
@@ -818,6 +872,10 @@ fn transmute_basics() {
     let f2 = f32::from_bits(bits);
     assert_eq!(f, f2);
 }
+
+// Usage: Get raw float bits (prefer to_bits() in real code)
+let pi: f32 = 3.14159;
+let bits = pi.to_bits(); // Safe alternative to transmute
 ```
 
 **Rule**: If a safe alternative exists (`.to_bits()`, `.from_bits()`, `as` casts), use it. Transmute should be a last resort.
@@ -826,7 +884,8 @@ fn transmute_basics() {
 
 ### Example: Transmuting References (Dangerous!)
 
-Transmuting references is one of the easiest ways to create undefined behavior. The compiler assumes references point to valid data of their type.
+Transmuting references breaks compiler assumptions about alignment, validity, and aliasing—instant UB if alignments differ.
+Prefer explicit pointer casts through raw pointers; they make reinterpretation visible and don't accidentally change lifetimes.
 
 ```rust
 use std::mem;
@@ -852,6 +911,10 @@ fn safe_conversion() {
     let y = x as u32;  // Sign-extends negative values
     println!("Converted: {}", y);
 }
+
+// Usage: Safe integer reinterpretation via as cast
+let signed: i32 = -1;
+let unsigned: u32 = signed as u32; // 4294967295 (0xFFFFFFFF)
 ```
 
 **Why pointer casting is better**: It's explicit about what you're doing and doesn't accidentally change const-ness or lifetimes.
@@ -862,7 +925,8 @@ fn safe_conversion() {
 
 ### Example: Converting Between Slice Types
 
-Reinterpreting slices is common in binary protocol parsing and numerical computing, but requires careful size calculations.
+Reinterpreting slices uses `slice::from_raw_parts()` with careful size calculation; alignment matters or it's instant UB.
+The `bytemuck` crate provides `cast_slice()` which only compiles if the transmutation is proven safe at compile time.
 
 ```rust
 use std::slice;
@@ -880,6 +944,12 @@ fn slice_transmute() {
     println!("Bytes: {:?}", bytes);
     // Reverse: bytes to u32 (must ensure alignment!)
 }
+
+// Usage: View u32 slice as bytes for serialization
+let numbers: [u32; 2] = [1, 2];
+let bytes: &[u8] = unsafe {
+    std::slice::from_raw_parts(numbers.as_ptr() as *const u8, 8)
+};
 ```
 
 **Size calculation must be exact**: `data.len()` elements × `size_of::<u32>()` bytes per element.
@@ -888,7 +958,8 @@ fn slice_transmute() {
 
 ### Example: Enum Discrimination
 
-Getting an enum's discriminant (which variant it is) as a raw number.
+Getting an enum's discriminant as a raw number via pointer cast is fragile—enums can have "niches" used for optimization.
+Prefer `match` for known values or `std::mem::discriminant()` for opaque comparison—both are safe alternatives.
 
 ```rust
 use std::mem;
@@ -926,7 +997,8 @@ let disc = enum_discriminant_safe(&MyEnum::B); // Returns 1
 
 ### Example: Type Punning for Optimized Code
 
-Type punning—reinterpreting data as a different type—is sometimes necessary for bit manipulation and numerical tricks. Unions provide a safer alternative to transmute.
+Unions provide a safer alternative to transmute for type punning: write one field, read another with explicit intent.
+Reading inactive union fields is unsafe (bits might be invalid for that type); prefer safe `to_bits()`/`from_bits()` for floats.
 
 ```rust
 union FloatUnion {
@@ -953,7 +1025,8 @@ let bits = fast_float_bits(3.14); // Gets raw bits of float via union
 
 ### Example: When NOT to Use Transmute
 
-Some uses of transmute are always wrong. Here are the common mistakes:
+Some transmute uses are always wrong: extending lifetimes creates dangling references, changing mutability violates aliasing rules.
+Transmute only checks size equality at compile time—if you're using it to "fix" borrow checker errors, you're creating bugs.
 
 ```rust
 // WRONG: Extending lifetimes
@@ -1013,7 +1086,8 @@ This pattern is everywhere in the standard library: `Vec`, `String`, `Arc`, `Mut
 
 ### Example: Building a Safe Vec
 
-Let's implement a simplified vector to see how unsafe internals create safe APIs. This teaches the principles of invariant maintenance and careful boundary design.
+The public API (`push`, `pop`, `get`) is completely safe; all unsafe code is encapsulated in private implementation details.
+We maintain invariants: `ptr` valid when `cap > 0`, elements `0..len` initialized, `len <= cap`—unsafe foundations, safe interfaces.
 
 ```rust
 use std::ptr;
@@ -1121,6 +1195,11 @@ impl<T> Drop for MyVec<T> {
 // Safety: MyVec<T> can be sent to another thread if T can
 unsafe impl<T: Send> Send for MyVec<T> {}
 unsafe impl<T: Sync> Sync for MyVec<T> {}
+
+// Usage: Safe API, unsafe internals hidden
+let mut v = MyVec::new();
+v.push(1); v.push(2); v.push(3);
+assert_eq!(v.pop(), Some(3));
 ```
 
 **Invariants we maintain**:
@@ -1135,7 +1214,8 @@ unsafe impl<T: Sync> Sync for MyVec<T> {}
 
 ###  Example: Invariants and Documentation
 
-When writing unsafe code, document your invariants clearly. Future maintainers (including yourself) need to know what assumptions the code relies on.
+Every `unsafe fn` needs a `# Safety` section; every `unsafe` block needs a `// SAFETY:` comment explaining correctness.
+Type invariants should be documented on the struct—without this documentation, nobody can safely modify or verify the code.
 
 ```rust
 /// A slice type that is guaranteed to be non-empty.
@@ -1190,7 +1270,8 @@ println!("{}", s.first());
 
 ###  Example: PhantomData for Type Safety
 
-`PhantomData` is a zero-sized type that tells the compiler "I logically own a `T`" without actually storing one. This affects drop checking and variance.
+`PhantomData` is zero-sized but tells the compiler "I logically own a `T`"—affects drop checking and variance.
+Use `PhantomData<T>` for ownership, `PhantomData<*const T>` for covariance without ownership, `PhantomData<fn(T)>` for contravariance.
 
 ```rust
 use std::marker::PhantomData;
@@ -1243,7 +1324,8 @@ println!("{}", p.as_ref()); // Owned heap value
 
 ###  Example: Building Safe APIs with Unsafe Internals
 
-Here's a complete example: a spinlock that uses unsafe internally but exposes a safe API through RAII guards.
+A spinlock using unsafe internally but exposing safe RAII guards: users call `lock()`, get access, and auto-release on drop.
+The unsafe parts (`UnsafeCell`, atomics) are hidden; `Acquire`/`Release` ordering ensures cross-thread memory visibility.
 
 ```rust
 use std::cell::UnsafeCell;
@@ -1314,84 +1396,11 @@ let lock = SpinLock::new(0);
 
 **Ordering matters**: `Acquire` on lock, `Release` on unlock. This ensures memory writes before unlock are visible after lock on other threads.
 
-###  Example: Compile-Time Type-State Programming
-
-Type-state uses phantom types to encode state machine transitions at compile-time, preventing invalid state transitions.
-
-```rust
-use std::marker::PhantomData;
-
-// Type states
-struct Locked;
-struct Unlocked;
-
-/// A lock that uses the type system to ensure correct usage.
-/// Can only access data when in the Locked state.
-pub struct TypeStateLock<T, State = Unlocked> {
-    data: *mut T,
-    _state: PhantomData<State>,
-}
-
-impl<T> TypeStateLock<T, Unlocked> {
-    pub fn new(data: T) -> Self {
-        TypeStateLock {
-            data: Box::into_raw(Box::new(data)),
-            _state: PhantomData,
-        }
-    }
-
-    /// Locks the data, transitioning to Locked state.
-    pub fn lock(self) -> TypeStateLock<T, Locked> {
-        TypeStateLock {
-            data: self.data,
-            _state: PhantomData,
-        }
-    }
-}
-
-impl<T> TypeStateLock<T, Locked> {
-    /// Unlocks the data, transitioning back to Unlocked state.
-    pub fn unlock(self) -> TypeStateLock<T, Unlocked> {
-        TypeStateLock {
-            data: self.data,
-            _state: PhantomData,
-        }
-    }
-
-    /// Accesses the data (only available when locked).
-    pub fn access(&mut self) -> &mut T {
-        unsafe { &mut *self.data }
-    }
-}
-
-impl<T, State> Drop for TypeStateLock<T, State> {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = Box::from_raw(self.data);
-        }
-    }
-}
-
-// Usage
-fn typestate_example() {
-    let lock = TypeStateLock::new(vec![1, 2, 3]);
-
-    // Can't access unlocked data - no access() method!
-    let mut locked = lock.lock();
-    locked.access().push(4);  // OK, we're in Locked state
-
-    let unlocked = locked.unlock();
-    // Can't access again - back to Unlocked state
-}
-```
-
-**Power of type-state**: Impossible states are unrepresentable. You can't access unlocked data because there's no `access()` method in that state.
-
-**Real-world use**: Builder APIs that require certain methods be called (typestate ensures required fields are set), protocol state machines, resource lifecycle management.
 
 ###  Example: Testing Unsafe Code
 
-Unsafe code requires rigorous testing, including tests specifically designed to trigger potential UB.
+Unsafe code requires rigorous testing: use `DropCounter` to verify no leaks/double-frees, test concurrent access with multiple threads.
+Run `cargo +nightly miri test` to detect undefined behavior that compiles fine but is wrong.
 
 ```rust
 #[cfg(test)]

@@ -208,9 +208,7 @@ struct Config {
     port: u16,
 }
 
-=====
 // Compile-time error if required fields missing
-=====
 // let config = ConfigBuilder::new().build(); // Error: no method `build`
 let config = ConfigBuilder::new()
     .host("localhost".to_string())
@@ -395,9 +393,7 @@ impl<'a> UserService<'a> {
     }
 }
 
-========
 // Explicit dependencies, testable, no global state
-========
 let db = Database::new("postgres://localhost".to_string());
 let service = UserService::new(&db);
 ```
@@ -489,9 +485,7 @@ let original = SharedData {
 };
 
 let cloned = original.clone();
-===
 // cache is shared (reference count increased)
-===
 // user_id is copied
 assert_eq!(Rc::strong_count(&original.cache), 2);
 ```
@@ -520,9 +514,7 @@ trait MediaPlayer {
     fn play(&self, filename: &str);
 }
 
-=============
 // Existing third-party library with different interface
-=============
 struct VlcPlayer;
 impl VlcPlayer {
     fn play_vlc(&self, file_path: &str) {
@@ -588,9 +580,7 @@ impl<T: PlayVlc> MediaPlayer for GenericAdapter<T> {
     }
 }
 
-===============
 // No trait object overhead, monomorphized at compile-time
-===============
 ```
 
 **Trade-offs**:
@@ -812,9 +802,7 @@ println!("Converted: {}", output);
 **Motivation**: Type aliases provide no safety—a `UserId` alias for `u64` can be accidentally mixed with `ProductId`. Newtypes create distinct types at compile-time with zero runtime cost, preventing bugs and enabling custom trait implementations.
 
 ```rust
-==
 // Problem: Type aliases don't prevent mixing
-==
 type Meters = f64;
 type Feet = f64;
 
@@ -855,9 +843,7 @@ fn calculate_distance_safe(m: Meters) -> Meters {
 }
 
 let feet = Feet::new(10.0);
-======================
 // let result = calculate_distance_safe(feet);  // Compile error!
-======================
 let meters = feet.to_meters();
 let result = calculate_distance_safe(meters);  // OK
 ```
@@ -869,9 +855,7 @@ Rust's orphan rule prevents implementing external traits for external types, but
 ```rust
 use std::fmt;
 
-===================
 // Can't implement Display for Vec<i32> directly (orphan rule)
-===================
 // impl fmt::Display for Vec<i32> { }  // Error!
 
 // Newtype enables custom implementation
@@ -988,9 +972,7 @@ impl<S: CompressionStrategy> StaticCompressor<S> {
     }
 }
 
-===========
 // Compile-time strategy selection, no heap allocation
-===========
 let compressor = StaticCompressor::new(ZipCompression);
 compressor.compress_file(&data);
 ```
@@ -1381,8 +1363,6 @@ impl Iterator for Fibonacci {
     }
 }
 
-==
-==
 let fibs: Vec<u64> = Fibonacci::new().take(10).collect();
 println!("{:?}", fibs);  // [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 ```
@@ -1531,9 +1511,7 @@ for i in 0..10 {
 ```rust
 use rayon::prelude::*;
 
-================
 // Parallel iterator (much simpler than manual thread pool)
-================
 let numbers: Vec<i32> = (0..1000).collect();
 let sum: i32 = numbers.par_iter().map(|&x| x * 2).sum();
 ```

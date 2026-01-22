@@ -37,7 +37,7 @@ proc-macro2 = "1.0"
 **Use Cases**: serde Serialize/Deserialize (JSON/binary), Clone/Debug/PartialEq derives, builder patterns (derive_builder crate), ORM models (Diesel, SeaORM), command-line parsers (clap), error types (thiserror), validation (validator), getters/setters.
 
 ### Example: Basic Derive Pattern
- Create simple derive macro for custom trait.
+This demonstrates the fundamental derive macro workflow. The `parse_macro_input!` macro converts the raw TokenStream into a structured `DeriveInput` AST. Extract the type name via `input.ident` and use `quote!` to generate the trait implementation with `stringify!` for compile-time reflection.
 
 ```rust
 //=====================
@@ -91,6 +91,7 @@ MyStruct::hello_world(); // Prints "Hello, World! My name is MyStruct"
 ```
 
 ### Example: Derive Macro with Field Access
+This shows how to inspect struct fields at compile time. Pattern-match on `Data::Struct` to extract fields, then handle `Fields::Named`, `Fields::Unnamed`, and `Fields::Unit` variants. Use `#(...)*` repetition in `quote!` for iteration and `syn::Index::from` for tuple struct indices.
 
 ```rust
 use proc_macro::TokenStream;
@@ -175,9 +176,7 @@ pub fn describe_derive(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 trait Describe {
     fn describe(&self) -> String;
 }
@@ -205,6 +204,7 @@ person.describe(); // Returns "Person { name: "Alice", age: 30 }"
 ```
 
 ### Example: Derive Macro with Attributes
+This implements the builder pattern via derive macro. Register helper attributes using `attributes(builder)` in proc_macro_derive. The generated builder struct wraps fields in `Option<T>` for incremental construction, with fluent setters returning `Self` and `build()` validating all required fields.
 
 ```rust
 use proc_macro::TokenStream;
@@ -320,9 +320,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[derive(Builder)]
 struct User {
     username: String,
@@ -342,6 +340,7 @@ User::builder().username("alice").email("a@b.com").age(30).build()?
 ```
 
 ### Example: Derive Macro for Enums
+This demonstrates enum introspection at compile time. Extract variant information from `Data::Enum` via `DataEnum` destructuring, then collect identifiers into a vector. The generated `variants()` returns a static slice of values, while `variant_names()` provides strings. This pattern powers strum and enum-iterator.
 
 ```rust
 use proc_macro::TokenStream;
@@ -385,9 +384,7 @@ pub fn enum_iter_derive(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[derive(Debug, Copy, Clone, EnumIter)]
 enum Color {
     Red,
@@ -418,8 +415,7 @@ Color::variants() returns &[Color::Red, Color::Green, Color::Blue]
 **Use Cases**: tokio::main/test (async runtime), tracing::instrument (automatic logging), web framework routes (actix, axum, rocket), test fixtures, memoization/caching, error handling wrappers, performance timing, authorization checks.
 
 ### Example: Attribute Macro Pattern
-
-Wrap function with timing/logging without modifying its body.
+This shows how attribute macros wrap functions with instrumentation. The macro receives two TokenStreams: attribute arguments and the annotated item. Parse using `ItemFn`, preserving signature, visibility, and attributes. The closure pattern `(|| #fn_block)()` captures returns for before/after measurement.
 
 ```rust
 use proc_macro::TokenStream;
@@ -452,9 +448,7 @@ pub fn timing(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[timing]
 fn slow_function() {
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -467,6 +461,7 @@ slow_function(); // Auto-prints elapsed time after execution
 ```
 
 ### Example: Attribute Macro with Parameters
+This demonstrates parameterized attribute macros with custom argument parsing. Implement the `Parse` trait for a `LogArgs` struct to extract the `LitStr` prefix. The parsed value interpolates via `#prefix` in `quote!`, enabling configurable per-call-site behavior used extensively in logging crates.
 
 ```rust
 use proc_macro::TokenStream;
@@ -510,9 +505,7 @@ pub fn log(attr: TokenStream, item: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[log("[INFO]")]
 fn my_function() {
     println!("Doing work...");
@@ -529,6 +522,7 @@ my_function(); // Logs entry/exit with [INFO] prefix
 ```
 
 ### Example: Method Attribute Macro
+This shows attribute macros applied to methods within impl blocks. Parse using `ImplItemFn` instead of `ItemFn` for method-specific syntax. The generated code wraps the method body with a `lazy_static!` cache for memoization using `Mutex<HashMap>`. This pattern powers cached and lru_cache crates.
 
 ```rust
 use proc_macro::TokenStream;
@@ -569,6 +563,7 @@ pub fn cache(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ```
 
 ### Example: Struct Attribute Macro
+This demonstrates modifying struct definitions with attribute macros. Parse using `ItemStruct` then mutate the fields collection to inject a new `_debug_info: String` field. The technique `Field::parse_named.parse2(quote!{...})` creates AST nodes from tokens for programmatic field insertion and accessor generation.
 
 ```rust
 use proc_macro::TokenStream;
@@ -605,9 +600,7 @@ pub fn add_debug_info(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[add_debug_info]
 struct MyStruct {
     value: i32,
@@ -634,7 +627,7 @@ s.debug_info(); // Returns the _debug_info string
 **Use Cases**: SQL DSLs (sqlx, diesel—type-checked queries), HTML templates (yew html!, maud), configuration DSLs, query builders, compile-time regex validation, format string checking, JSON literals with validation, embedded language DSLs.
 
 ### Example: Function-like Macro Pattern
-Create SQL-like macro with custom parsing.
+This demonstrates function-like macros that accept arbitrary syntax. Unlike derive and attribute macros, input tokens need not be valid Rust. Implement `Parse` to define custom grammar rules for your DSL, enabling compile-time SQL validation in sqlx and type-safe HTML in yew.
 
 ```rust
 use proc_macro::TokenStream;
@@ -671,9 +664,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 fn main() {
     let query = sql!("SELECT * FROM users WHERE age > 18");
     println!("Query: {}", query);
@@ -682,6 +673,7 @@ let q = sql!("SELECT * FROM users"); // Compile-time SQL validation
 ```
 
 ### Example: Complex Function-like Macro
+This creates a hashmap literal macro with custom `key => value` syntax. Parse the fat arrow using `Token![=>]` from syn. The `Punctuated` type with `parse_terminated` handles comma-separated pairs. Define structs mirroring grammar structure and implement `Parse` for each component.
 
 ```rust
 use proc_macro::TokenStream;
@@ -746,9 +738,7 @@ hashmap! { "key" => "value" }
 ```
 
 ```rust
-//======
 // Usage
-//======
 fn main() {
     let map = hashmap! {
         "name" => "Alice",
@@ -762,6 +752,7 @@ let m = hashmap!{ "a" => 1, "b" => 2 }; // HashMap with 2 entries
 ```
 
 ### Example: DSL Function-like Macro
+This builds a route definition DSL similar to web frameworks. Parse `METHOD, "/path" => handler` syntax with semicolon-separated routes. The macro generates a closure that pattern-matches requests against registered routes, powering actix-web, axum, and rocket endpoint definitions.
 
 ```rust
 use proc_macro::TokenStream;
@@ -850,8 +841,7 @@ routes!(GET, "/users" => handle_users; POST, "/users" => create_user)
 **Use Cases**: Custom DSL parsers (syntax not in syn), performance-critical macros (skip syn overhead), advanced derive scenarios, token filters/transformers, macro composition, debugging token structure, embedded language parsers.
 
 ### Example: Direct TokenStream Pattern
-
- Manipulate tokens directly without syn parsing.
+This demonstrates low-level token manipulation without syn parsing. Collect input into `Vec<TokenTree>` for direct manipulation, then collect back into TokenStream. The four `TokenTree` variants are `Group`, `Ident`, `Punct`, and `Literal`. Useful for simple transforms or unsupported syntax.
 
 ```rust
 use proc_macro::{TokenStream, TokenTree, Delimiter, Group, Punct, Spacing};
@@ -867,6 +857,7 @@ reverse_tokens!(a b c)
 ```
 
 ### Example: Token Inspection
+This shows how to debug macro inputs by inspecting token structure. Use `eprintln!` for compile-time debug output. Groups contain delimiters; Idents are identifiers; Puncts have spacing (Joint or Alone); Literals hold strings and numbers. Clone TokenStream before iteration to preserve the original.
 
 ```rust
 use proc_macro::TokenStream;
@@ -898,6 +889,7 @@ inspect_tokens!(my code here)
 ```
 
 ### Example: Building TokenStream from Scratch
+This demonstrates constructing token streams programmatically without quote. Create identifiers using `Ident::new` with `Span::call_site()` for error reporting. Groups wrap tokens in delimiters like Brace. While verbose, this enables fully dynamic code generation and precise span manipulation.
 
 ```rust
 use proc_macro::{TokenStream, TokenTree, Ident, Span, Literal};
@@ -929,6 +921,7 @@ struct MyStruct { value: i32 }
 ```
 
 ### Example: Span Manipulation
+This shows how to preserve spans for accurate compiler error messages. When creating derived identifiers, copy the span from original tokens to maintain error positioning. The `call_site()` points to macro invocation, while `mixed_site()` provides limited hygiene. Propagate spans for better debugging.
 
 ```rust
 use proc_macro::TokenStream;
@@ -978,8 +971,7 @@ let prefixed_foo = "foo";
 **Use Cases**: All proc macros (syn+quote ubiquitous), derive macros (syn::DeriveInput), attribute parsing (darling), testing macros (proc_macro2), custom parsing (syn::parse::Parse), code generation (quote!), field iteration, type inspection.
 
 ### Example: syn Parsing Pattern
-
- Parse Rust syntax from TokenStream into typed AST.
+This demonstrates custom parsing with syn by defining types mirroring syntax structure. The `braced!` macro extracts brace content into a ParseStream. Use `parse_terminated` for comma-separated lists. Syn provides `DeriveInput`, `ItemFn`, `ItemStruct` for common constructs; custom Parse enables arbitrary grammars.
 
 ```rust
 use syn::{
@@ -988,9 +980,7 @@ use syn::{
     braced, punctuated::Punctuated,
 };
 
-//==========================
 // Parse a struct definition
-//==========================
 struct StructDef {
     vis: Visibility,
     _struct_token: Token![struct],
@@ -1032,6 +1022,7 @@ pub struct Foo { x: i32, y: String } // into StructDef AST
 ```
 
 ### Example: Using quote for Code Generation
+This demonstrates the quote crate for template-based code generation. Use `#variable` to interpolate values and `#(...)*` to repeat patterns for iterators. The `format_ident!` macro creates dynamic identifiers from strings. Quote produces TokenStreams with correct spans and hygiene automatically.
 
 ```rust
 use quote::{quote, format_ident};
@@ -1067,6 +1058,7 @@ generate_multiple_methods("MyStruct", 3)
 ```
 
 ### Example: Advanced syn Features
+This shows advanced attribute parsing using syn's meta types. Match on `Meta::NameValue` for key-value attributes, then destructure through `Expr::Lit` and `Lit::Str` for string values. Doc comments become `#[doc = "..."]` internally. Essential for serde-style field attributes and clap configuration.
 
 ```rust
 use syn::{
@@ -1099,6 +1091,7 @@ get_doc_comments(&item.attrs)
 ```
 
 ### Example: Combining syn and quote
+This demonstrates the standard procedural macro workflow combining syn and quote. Parse input with syn to extract structured data, transform by iterating fields with `.map()`, then generate code using quote interpolation. The `format_ident!` creates dynamic identifiers like `set_field` for setters.
 
 ```rust
 use proc_macro::TokenStream;
@@ -1156,6 +1149,7 @@ pub fn getter_setter_derive(input: TokenStream) -> TokenStream {
 ```
 
 ### Example: Error Handling in Procedural Macros
+This shows proper error handling for user-friendly compiler messages. Use `Error::new_spanned` to create errors pointing to problematic code with accurate spans. Call `.to_compile_error()` to convert errors into displayable TokenStreams. Use `Error::combine()` for reporting multiple validation failures at once.
 
 ```rust
 use proc_macro::TokenStream;
@@ -1195,6 +1189,7 @@ pub fn validated_derive(input: TokenStream) -> TokenStream {
 ```
 
 ### Example: Custom Parse Implementation
+This demonstrates recursive parsing for tree-structured configuration DSLs. Use `peek()` for lookahead without consuming tokens. The `braced!` macro extracts nested content for recursion. The `ConfigValue` enum represents either `LitStr` terminals or nested items, enabling hierarchical configurations with arbitrary depth.
 
 ```rust
 use syn::{
@@ -1243,6 +1238,7 @@ impl Parse for ConfigItem {
 ```
 
 ### Example: Using proc_macro2
+This shows proc_macro2, which provides an identical API to proc_macro but works outside proc-macro crates. This enables unit testing macro logic in regular test modules. Quote generates proc_macro2 TokenStreams by default, converting to proc_macro via `.into()` at macro boundaries.
 
 ```rust
 use proc_macro2::{TokenStream, Span, Ident};
@@ -1278,6 +1274,7 @@ fn convert_token_streams(input: TokenStream1) -> TokenStream1 {
 ```
 
 ### Example: Complete Example: JSON Serialization Macro
+This implements a JSON serialization derive macro similar to serde. Iterate over named fields to extract identifiers for access and strings for JSON keys. The generated `to_json()` formats fields using debug formatting, demonstrating compile-time struct inspection with zero runtime overhead.
 
 ```rust
 use proc_macro::TokenStream;
@@ -1324,9 +1321,7 @@ pub fn to_json_derive(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//======
 // Usage
-//======
 #[derive(ToJson)]
 struct Person {
     name: String,
@@ -1344,6 +1339,7 @@ person.to_json(); // Returns { "name": "Alice", "age": 30 }
 ```
 
 ### Example: Testing Procedural Macros
+This demonstrates testing strategies for procedural macros. Integration tests apply macros to sample code and verify behavior via assertions. Use trybuild for compile-fail tests verifying error messages. Unit test with proc_macro2 types. Run `cargo expand` to inspect generated code during development.
 
 ```rust
 #[test]

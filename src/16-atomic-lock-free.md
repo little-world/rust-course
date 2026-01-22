@@ -83,9 +83,13 @@ Locks are:
 
 
 ### Example: Relaxed - No ordering guarantees (fastest)
-This example shows how to use Relaxed to no ordering guarantees (fastest) without over-synchronizing.
+
+`Relaxed` provides only atomicity—no guarantees about when other threads see updates or operation ordering. Use for counters where you only care about the final result; never use when the atomic signals that other data is ready.
 
 ```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 // Use for: Counters where exact ordering doesn't matter
 fn relaxed_ordering_example() {
@@ -115,9 +119,13 @@ relaxed_ordering_example(); // Output: Counter (Relaxed): 10000
 ```
 
 ### Example: Acquire/Release - Synchronization without sequential consistency
-This example shows how to use Acquire/Release to synchronization without sequential consistency without over-synchronizing.
+
+`Release` on store publishes all prior writes; `Acquire` on load sees those writes. The workhorse of lock-free synchronization: producer sets flag with Release after preparing data, consumer uses Acquire to see all the data. Weaker than SeqCst but sufficient for most synchronization.
 
 ```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::thread;
 
 // Use for: Producer-consumer, message passing
 fn acquire_release_ordering() {
@@ -156,9 +164,13 @@ fn acquire_release_ordering() {
 ```
 
 ### Example: SeqCst - Sequential consistency (slowest, easiest to reason about)
-This example shows how to use SeqCst to sequential consistency (slowest, easiest to reason about) without over-synchronizing.
+
+`SeqCst` creates a single global total order—all threads see operations in the exact same order. Use when multiple atomics must appear coordinated or when correctness matters more than performance; can be 10-100x slower than Relaxed on ARM/POWER.
 
 ```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 // Use for: When correctness is critical and performance is secondary
 fn seq_cst_ordering() {
@@ -201,9 +213,13 @@ fn seq_cst_ordering() {
 ```
 
 ### Example: AcqRel - Combine Acquire and Release
-This example shows how to use AcqRel to combine acquire and release without over-synchronizing.
+
+`AcqRel` combines Acquire (read) and Release (write) for read-modify-write operations like `fetch_add` and `compare_exchange`. Use for spinlocks and counters used for synchronization; pure loads use Acquire, pure stores use Release.
 
 ```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::thread;
 
 // Use for: Read-modify-write operations
 fn acq_rel_ordering() {
@@ -263,17 +279,22 @@ impl Spinlock {
 }
 
  let lock = Spinlock::new(); 
-lock.lock(); 
-/* critical section */ 
+lock.lock();
+/* critical section */
 lock.unlock();
 ```
 
 ### Example: Double-checked locking for lazy initialization
 
+DCL avoids locking on every access: fast path checks `initialized.load(Acquire)`, slow path uses CAS to compete for initialization. Tricky to get right—prefer `std::sync::OnceLock` or `once_cell::OnceCell` which handle ordering correctly.
+
 ```rust
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+
 struct LazyInit<T> {
     data: AtomicUsize, // Actually *mut T
     initialized: AtomicBool,
+    _marker: std::marker::PhantomData<T>,
 }
 
 impl<T> LazyInit<T> {
@@ -281,6 +302,7 @@ impl<T> LazyInit<T> {
         Self {
             data: AtomicUsize::new(0),
             initialized: AtomicBool::new(false),
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -336,9 +358,13 @@ impl<T> LazyInit<T> {
 
 
 ### Example: Fence for non-atomic data
-This example shows how to fence for non-atomic data in practice, emphasizing why it works.
+
+A `fence` establishes ordering even for non-atomic data. Pattern: write data → Release fence → Relaxed store (producer); Relaxed load → Acquire fence → read data (consumer). Use for FFI, MMIO, DMA, or batching ordering guarantees for multiple operations.
 
 ```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering, fence};
+use std::thread;
 
 fn fence_with_non_atomic() {
     let mut data = 0u64;
@@ -378,9 +404,11 @@ fn fence_with_non_atomic() {
 ```
 
 ### Example: Compiler fence (prevents compiler reordering only)
-This example shows how to compiler fence (prevents compiler reordering only) in practice, emphasizing why it works.
+
+`compiler_fence` prevents compiler reordering but emits no CPU instruction—CPU can still reorder. Use for signal handlers or x86 where CPU ordering suffices. On ARM/POWER, NOT sufficient for inter-thread synchronization.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn compiler_fence_example() {
     let x = AtomicUsize::new(0);
@@ -399,7 +427,11 @@ fn compiler_fence_example() {
 
 ### Example: Memory barrier for DMA/MMIO
 
+For DMA/MMIO, barriers ensure CPU writes are visible to devices and vice versa. Pattern: write data → Release fence → signal (producer); check flag → Acquire fence → read (consumer). Used in network drivers, GPU programming, embedded systems.
+
 ```rust
+use std::sync::atomic::{AtomicBool, Ordering, fence};
+
 #[repr(C)]
 struct DmaBuffer {
     data: [u8; 4096],
@@ -446,9 +478,11 @@ impl DmaBuffer {
 **Use Cases**: Lock-free stacks and queues, atomic max/min tracking, conditional increments (rate limiting), version tracking, optimistic updates, retry logic.
 
 ### Example: Basic CAS loop
-This example walks through the basics of cas loop, highlighting each step so you can reuse the pattern.
+
+CAS atomically compares and swaps if value matches expected. Loop pattern: load current, compute new, CAS to update (retry if failed). Foundation of all lock-free algorithms—optimistic concurrency that's faster than locking under low contention.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn cas_increment(counter: &AtomicUsize) {
     loop {
@@ -478,9 +512,11 @@ cas_increment(&counter);
 ```
 
 ### Example: compare_exchange vs compare_exchange_weak
-This example shows how to compare_exchange vs compare_exchange_weak in practice, emphasizing why it works.
+
+`compare_exchange` always succeeds if value matches; `compare_exchange_weak` may spuriously fail (on ARM/POWER). Use weak in retry loops (2-3x faster on ARM), use strong for single attempts where you need the true result.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn compare_exchange_variants() {
     let value = AtomicUsize::new(0);
@@ -510,9 +546,11 @@ fn compare_exchange_variants() {
 ```
 
 ### Example: CAS with data transformation
-This example shows how to cAS with data transformation in practice, emphasizing why it works.
+
+Generic CAS loop applying any transformation: load, apply function, CAS, retry on failure. Key optimization: use the current value returned by failed CAS instead of reloading. Use for custom operations not covered by built-in fetch_* operations.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn cas_update<F>(counter: &AtomicUsize, f: F)
 where
@@ -537,7 +575,11 @@ where
 ```
 
 ### Example: Lock-free max tracking
+
+No `fetch_max` instruction exists—implement with CAS: load current, compare, CAS if larger. Early exit when `value <= current` avoids contention. Use for metrics collection, finding extremes in parallel algorithms.
+
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct MaxTracker {
     max: AtomicUsize,
@@ -580,8 +622,12 @@ impl MaxTracker {
 let tracker = MaxTracker::new(); tracker.update(50); tracker.update(30); println!("{}", tracker.get()); // 50
 ```
 
-### Example:  Lock-free accumulator
+### Example: Lock-free accumulator
+
+Maintains running sum and count for averages with separate atomics. `average()` may read slightly inconsistent values (acceptable for approximate stats). The `reset()` pattern atomically swaps to 0 for "collect and reset" metrics.
+
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Accumulator {
     sum: AtomicUsize,
@@ -622,7 +668,11 @@ impl Accumulator {
 
 ### Example: Conditional update
 
+Increments counter only if below threshold—returns success/failure. Implements rate limiting, connection limits, bounded counters without locks. Multiple threads may race; only one wins CAS, others retry and may find threshold reached.
+
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 struct ConditionalCounter {
     value: AtomicUsize,
 }
@@ -740,7 +790,7 @@ fn main() {
 
 ### Example: ABA Problem and Solutions
 
-Detect and prevent the ABA problem where a value changes from A to B back to A, fooling CAS.
+ABA: value changes A→B→A, CAS succeeds but state is different (use-after-free in stacks). Solutions: tagged pointers with version counter, epoch-based reclamation, hazard pointers. Use crossbeam-epoch in production—ABA is hard to get right.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
@@ -983,8 +1033,7 @@ fn main() {
 
 ### Example: Treiber Stack (Lock-Free Stack)
 
-*A lock-free stack that allows concurrent push/pop operations.
-
+Simplest lock-free structure: push/pop via CAS on head pointer. Multiple threads race; losers retry, progress guaranteed. Leaks nodes without reclamation—real implementations use hazard pointers or epoch-based reclamation.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -1234,7 +1283,7 @@ fn main() {
 
 ### Example: Lock-Free Queue (MPSC)
 
-A multi-producer single-consumer lock-free queue.
+FIFO queue with multiple producers (CAS-based) and single consumer. Uses sentinel node to avoid empty-queue edge cases. Helping mechanism: threads advance stale tail pointers to prevent blocking. SPSC variant needs no CAS—just Acquire/Release.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, AtomicBool, Ordering, AtomicUsize};
@@ -1499,7 +1548,7 @@ fn main() {
 
 ### Example: Hazard Pointer Implementation
 
-Safely reclaim memory in lock-free structures without use-after-free.
+Solves memory reclamation: threads publish pointers they're accessing, reclaimers scan before freeing. Protect→verify→use→unprotect pattern. Better than epoch-based for real-time (bounded memory), worse for high thread counts. Use `haphazard` crate.
 
 ```rust
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
@@ -1811,7 +1860,8 @@ fn main() {
 **Use Cases**: Game entity positions/state, real-time sensor data, network statistics and metrics, configuration that changes rarely, performance counters, dashboard data, time-series snapshots, read-heavy caches.
 
 ### Example: Seqlock Implementation
-Allow fast, lock-free reads with occasional writes for small data structures.
+
+Fast reads with occasional writes via sequence counter: even=stable, odd=writing. Readers retry if sequence changed mid-read. Best when reads >> writes, data is small, T: Copy required. Single writer only.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2027,9 +2077,11 @@ fn seqlock_stats_example() {
 ```
 
 ### Example: Versioned seqlock (track writes)
-This example shows versioned seqlock (track writes) to illustrate where the pattern fits best.
+
+Extends seqlock to expose version number (seq/2 = write count). Use for cache invalidation ("changed since last read?"), optimistic UI, change detection. Readers can skip processing if version unchanged.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct VersionedSeqLock<T> {
     seqlock: SeqLock<T>,
@@ -2088,8 +2140,7 @@ fn main() {
 
 ### Example: Advanced Atomic Patterns
 
-Specialized concurrent patterns using atomics.
-
+**Overview**: These patterns address specific performance and correctness challenges in concurrent programming: reducing contention, handling failures gracefully, and building higher-level primitives from atomics.
 
 ```rust
 use std::sync::atomic::{AtomicU64, AtomicUsize, AtomicBool, Ordering};
@@ -2100,9 +2151,11 @@ use std::time::{Duration, Instant};
 ```
 
 ### Example: Striped counter (reduce contention)
-This example shows how to striped counter (reduce contention) while calling out the practical trade-offs.
+
+Spread updates across multiple stripes by thread ID to reduce cache-line contention (ping-pong is 100+ cycles vs ~1 uncontended). More memory, slower reads (sum all stripes), but much faster writes under contention.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct StripedCounter {
     stripes: Vec<AtomicUsize>,
@@ -2139,9 +2192,12 @@ println!("{}", counter.get());
 ```
 
 ### Example: Exponential backoff
-This example shows how to exponential backoff in practice, emphasizing why it works.
+
+On CAS failure, wait progressively longer (doubling delay) instead of tight spinning which wastes cycles and generates cache traffic. Use `spin_loop()` hint for CPU power savings. Reduces contention in CAS loops, spinlocks, lock-free structures.
 
 ```rust
+use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Backoff {
     current: Duration,
@@ -2195,9 +2251,11 @@ fn cas_with_backoff(counter: &AtomicUsize) {
 ```
 
 ### Example: Atomic min/max
-This example shows how to atomic min/max while calling out the practical trade-offs.
+
+CAS-based min/max tracking: load current, exit if no improvement, CAS to update, retry on failure. Initialize min=MAX, max=0. Rust 1.70+ has `fetch_min/fetch_max` doing this in one instruction.
 
 ```rust
+use std::sync::atomic::{AtomicU64, Ordering};
 
 struct AtomicMinMax {
     min: AtomicU64,
@@ -2255,9 +2313,11 @@ impl AtomicMinMax {
 ```
 
 ### Example: Once flag for initialization
-This example shows how to once flag for initialization in practice, emphasizing why it works.
+
+Ensures function runs exactly once: state machine INCOMPLETE→RUNNING→COMPLETE. First thread CAS to RUNNING executes, others spin. For long init, use `std::sync::Once` which parks threads. Use for singleton init, lazy statics.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct OnceFlag {
     state: AtomicUsize,
@@ -2316,9 +2376,11 @@ impl OnceFlag {
 ```
 
 ### Example: Atomic swap chain
-This example shows how to atomic swap chain while calling out the practical trade-offs.
+
+Atomically swap heap pointers: allocate new, swap with AcqRel, free old. Zero overhead on `load()` vs Arc's refcounting. Use for config hot-reload, double-buffering, RCU-style updates. Production code needs epoch-based reclamation.
 
 ```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct SwapChain<T> {
     value: AtomicUsize, // Actually *mut T

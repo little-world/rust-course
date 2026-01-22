@@ -23,7 +23,8 @@ Create macros that accept different syntax patterns.
 - Multiple patterns create different "overloads" for different invocation styles
 
 ### Example: Simple macro without arguments
-This example walks through simple macro without arguments.
+The empty `()` pattern matches `say_hello!()` with no arguments; the body after `=>` is the generated code.
+Invocations are replaced by expanded code at compile time with zero runtime overhead.
 
 ```rust
 macro_rules! say_hello {
@@ -35,7 +36,8 @@ say_hello!(); // Prints "Hello, World!"
 ```
 
 ### Example: Macro with a single argument
-This example walks through macro with a single argument.
+The `$name:expr` syntax captures any Rust expression; inside the body, `$name` expands to the passed value.
+The `:expr` fragment specifier tells the parser what syntax to expect, enabling type-safe code generation.
 
 ```rust
 // $name:expr means "match any expression, call it $name"
@@ -48,7 +50,8 @@ greet!("Alice"); // Prints "Hello, Alice!"
 ```
 
 ### Example: Macro with multiple patterns
-This example walks through macro with multiple patterns.
+Multiple patterns separated by semicolons create overloaded behavior; patterns are tried in order until one matches.
+Literal tokens like `add`, `sub`, `mul` must appear exactly as written, creating a mini DSL syntax.
 
 ```rust
 // This demonstrates how one macro can have different "overloads"
@@ -98,8 +101,6 @@ Fragment specifiers tell the macro what kind of syntax to expect. Each specifier
 - `item`: An item (function, struct, impl, etc.)
 - `tt`: Token tree (a single token or group in delimiters)
 
-### Example: Different fragment types
-This example walks through different fragment types.
 
 ```rust
 macro_rules! fragment_examples {
@@ -180,7 +181,8 @@ Repetitions are the most powerful feature of declarative macros. They let you ma
 Creating `vec![1, 2, 3]` or `println!("{} {}", a, b)` requires matching an arbitrary number of elements—impossible without repetitions.
 
 ### Example: Basic repetition with *
-This example walks through basic repetition with *.
+The `$(...)*` syntax matches zero or more comma-separated occurrences; in the expansion, code repeats for each element.
+This is exactly how the standard library's `vec!` macro works internally.
 
 ```rust
 // This is how vec! works internally
@@ -203,7 +205,8 @@ let v = create_vec![1, 2, 3]; // Creates Vec containing [1, 2, 3]
 ```
 
 ### Example: Repetition with + (one or more)
-This example walks through repetition with + (one or more).
+The `+` repetition requires at least one match, unlike `*` which accepts zero; `sum!()` becomes a compile error.
+Choose `+` when an empty invocation doesn't make semantic sense, providing better error messages.
 
 ```rust
 // Requires at least one argument, unlike *
@@ -222,7 +225,8 @@ let total = sum!(1, 2, 3, 4); // Returns 10
 ```
 
 ### Example: Optional repetition with ?
-This example walks through optional repetition with ?.
+The `?` repetition matches zero or one occurrence; here `$(, $default:expr)?` allows an optional second argument.
+In the expansion, `.or(Some($default))` only appears if provided, enabling different argument counts.
 
 ```rust
 // Allows an optional second argument
@@ -236,7 +240,8 @@ let v = optional_value!(42, 100); // Some(42).or(Some(100))
 ```
 
 ### Example: Multiple repetitions
-This example walks through multiple repetitions.
+Multiple metavariables in one repetition group like `$key:expr => $val:expr` capture key-value pairs together.
+The `$(,)?` allows optional trailing commas; this pattern is the foundation for HashMap literal macros.
 
 ```rust
 // This is how HashMap literals could work
@@ -283,11 +288,9 @@ Nested repetitions allow matching multi-dimensional structures like matrices or 
 - Creating multiple related items with shared structure
 
 ```rust
-//========================================
 // Matrix creation with nested repetitions
 // Outer repetition: rows
 // Inner repetition: elements in each row
-//=======================================
 macro_rules! matrix {
     ($([$($elem:expr),*]),* $(,)?) => {
         vec![
@@ -301,7 +304,8 @@ let m = matrix![[1,2,3], [4,5,6]]; // Creates Vec<Vec<i32>>
 ```
 
 ### Example: Multiple types of repetitions
-This example walks through multiple types of repetitions.
+Nested repetitions use multiple `$(...)*` patterns—outer for functions, inner for parameters with matching structure.
+This technique generates multiple complete function definitions from a single macro invocation.
 
 ```rust
 // Generate multiple functions from a template
@@ -355,11 +359,9 @@ Counting elements in a macro requires recursive expansion—declarative macros d
 Use recursion to add 1 for each element until you hit the base case (empty).
 
 ```rust
-//==========================================
 // Count arguments using recursive expansion
 // How it works:
 // count!(a b c) → 1 + count!(b c) → 1 + 1 + count!(c) → 1 + 1 + 1 + count!() → 1 + 1 + 1 + 0 → 3
-//=========================================================================================================
 macro_rules! count {
     () => (0);  // Base case: no tokens = 0
     ($head:tt $($tail:tt)*) => (1 + count!($($tail)*));  // Recursive: 1 + count(rest)
@@ -368,7 +370,8 @@ const N: usize = count!(a b c d e); // N = 5 at compile time
 ```
 
 ### Example: Generate indexed names
-This example walks through how to generate indexed names.
+The `ident` fragment captures identifiers that become field names; each `$name` creates a separate `i32` field.
+This pattern generates structs with user-specified field names, fully type-checked after expansion.
 
 ```rust
 // Creates a struct with the specified field names
@@ -382,10 +385,10 @@ macro_rules! create_fields {
     };
 }
 
-//=======================
-// Tuple indexing pattern
+
+ Tuple indexing pattern
 // Manually provides accessors for tuple elements
-//=======================
+======================
 macro_rules! tuple_access {
     ($tuple:expr, 0) => { $tuple.0 };
     ($tuple:expr, 1) => { $tuple.1 };
@@ -416,7 +419,8 @@ Pattern matching in macros can match specific literals or any syntax, giving you
 - Combine both for flexible yet constrained syntax
 
 ### Example: Match specific literals
-This example walks through match specific literals.
+Literal patterns like `(true)` and `(false)` match exact tokens, not expressions evaluating to those values.
+Specific literals should come before general `$other:expr` catch-alls since patterns are tested in order.
 
 ```rust
 macro_rules! match_literal {
@@ -428,7 +432,8 @@ match_literal!(true); // Returns "It's true!"
 ```
 
 ### Example: Match different types of expressions
-This example walks through match different types of expressions.
+The `stringify!` macro converts code to a string literal at compile time, invaluable for debugging.
+Double braces `{{ }}` create a block expression, letting you add logging around any expression.
 
 ```rust
 // stringify! turns code into a string literal
@@ -442,7 +447,8 @@ let x = describe_expr!(2 + 2); // Prints "Expression: 2 + 2", returns 4
 ```
 
 ### Example: Complex pattern matching
-This example walks through complex pattern matching.
+Operators like `+`, `-`, `*`, `/` are matched as literal tokens, creating natural syntax: `operation!(10, +, 5)`.
+Each pattern generates different code; this is the foundation for expression DSLs and calculator languages.
 
 ```rust
 macro_rules! operation {
@@ -489,7 +495,8 @@ pattern_matching_examples(); // Shows literal matching and operator DSL
 Generate temporary variables without colliding with user code.
 
 ### Example: Macro-generated variables are hygienic
-This example walks through macro-generated variables are hygienic.
+Rust's macro hygiene means variables inside macros exist in a separate "syntax context"—no collisions with outer scope.
+The compiler renames macro-generated identifiers internally, a major improvement over C's `#define` bugs.
 
 ```rust
 // The 'x' inside the macro is separate from the 'x' outside
@@ -522,7 +529,8 @@ Sometimes you *want* to create or modify variables in the caller's scope. Use `i
 - Code generation patterns where the user expects side effects
 
 ### Example: Intentionally capture variables from caller's scope
-This example walks through intentionally capture variables from caller's scope.
+The `ident` fragment passes identifiers without hygiene protection, creating variables in the caller's scope.
+Use this pattern for DSLs that need to define variables, like `let_mut!` or test setup macros.
 
 ```rust
 // The ident fragment specifier creates a variable in the outer scope
@@ -559,7 +567,8 @@ Unlike functions, macros must be defined *before* they're used. Macros are expan
 - `#[macro_export]` makes a macro available to other crates
 
 ### Example: Macros must be defined before use
-This example walks through macros must be defined before use.
+Macros are expanded during parsing in a single pass—they must be defined textually before invocation.
+This is why macros are placed at the top of files; use `#[macro_use]` to import from other modules.
 
 ```rust
 macro_rules! early_macro {
@@ -572,10 +581,10 @@ fn can_use_early() {
     early_macro!(); // Works - macro defined above
 }
 
-//================================================
+===============================================
 // This won't compile if called before definition:
 // late_macro!();  // ERROR: macro not yet defined
-//================================================
+===============================================
 macro_rules! late_macro {
     () => {
         println!("Defined late");
@@ -598,7 +607,8 @@ Macros have special visibility rules compared to other items.
 - Importing macros requires special syntax in older Rust editions
 
 ### Example: Macros can be exported from modules
-This example walks through macros can be exported from modules.
+The `#[macro_export]` attribute makes a macro available at the crate root, not the defining module.
+Non-exported macros are private to their module; functions can use private macros for encapsulation.
 
 ```rust
 mod macros {
@@ -625,7 +635,8 @@ mod macros {
 ```
 
 ### Example: Can use public_macro anywhere in the crate
-This example walks through can use public_macro anywhere in the crate.
+Exported macros work anywhere without path qualification; private macros error outside their module.
+Wrap private macro usage in public functions to expose functionality without exposing the macro itself.
 
 ```rust
 fn visibility_example() {
@@ -644,10 +655,10 @@ Macros can intentionally capture context to provide convenient DSLs.
 Create a scope with predefined variables that the user's code can access.
 
 ```rust
-//==================================================
+=================================================
 // Capture context intentionally
 // Provides a 'context' variable to the user's block
-//==================================================
+=================================================
 macro_rules! with_context {
     ($name:ident, $body:block) => {
         {
@@ -682,7 +693,8 @@ context_example(); // Macro provides 'ctx' variable to the block
 Create readable query syntax that compiles to efficient iterator code.
 
 ### Example: SQL-like query syntax compiled to iterator chains
-This example walks through sql-like query syntax compiled to iterator chains.
+Literal tokens `from` and `where` create SQL-like keywords; `$($field:ident),+` captures SELECT fields.
+The expansion generates `filter()` for WHERE and `map()` for SELECT—efficient, type-checked iterator code.
 
 ```rust
 macro_rules! select {
@@ -729,10 +741,8 @@ sql_dsl_example(); // SQL-like syntax: select!(field from table where cond)
 Create a structured configuration syntax that parses at compile time.
 
 ```rust
-//========================================
 // Configuration DSL with nested structure
 // section { key: value, key: value }
-//========================================
 macro_rules! config {
     {
         $(
@@ -787,7 +797,8 @@ config_dsl_example(); // Nested config syntax → HashMap<&str, HashMap<&str, St
 Generate HTML strings with XML-like syntax (simplified version of real templating engines).
 
 ### Example: HTML-like DSL (simplified)
-This example walks through html-like dsl (simplified).
+Multiple patterns handle self-closing tags, tags with content, and text; `<$tag:ident>` matches `<div>` or `<p>`.
+Recursive calls process nested elements; `$($element:tt)*` handles sibling elements concatenated together.
 
 ```rust
 macro_rules! html {
@@ -844,11 +855,9 @@ html_dsl_example(); // XML-like syntax compiles to HTML string
 Define state machines declaratively, compiling to efficient match-based transitions.
 
 ```rust
-//===========================================
 // State machine DSL
 // states: [State1, State2]
 // transitions: { State1 -> State2 on Event }
-//===========================================
 macro_rules! state_machine {
     (
         states: [$($state:ident),* $(,)?]
@@ -939,11 +948,11 @@ state_machine_example(); // Declarative state machine with type-safe transitions
 Implement same trait for many types without copy-paste.
 
 ### Example: Note: This example uses the `paste` crate for identifier concatenation
-This example walks through how to note: this example uses the `paste` crate for identifier concatenation.
+The `accessors!` macro generates struct definition plus getter/setter methods; `paste::paste!` enables identifier manipulation.
+For each field, three methods are generated: getter, mutable getter (`_mut`), and setter (`set_`).
 
 ```rust
 // Add to Cargo.toml: paste = "1.0"
-
 macro_rules! accessors {
     (
         struct $name:ident {
@@ -1002,12 +1011,10 @@ accessor_example(); // Auto-generated getters/setters via accessors! macro
 ```
 
 
-### Example: Trait Implementation Generation
-
-Generate repetitive trait implementations automatically.
 
 ### Example: Generate From implementations for enum variants
-This example walks through how to generate from implementations for enum variants.
+This macro generates `From<$from> for $to` trait implementations; `$variant:ident` captures the enum variant.
+Each invocation expands to a complete impl block—without it, you'd write identical code for every conversion.
 
 ```rust
 macro_rules! impl_from {
@@ -1030,7 +1037,8 @@ impl_from!(i64 => Value, Integer); // Generates From<i64> for Value
 ```
 
 ### Example: Generate From impls for each variant
-This example walks through how to generate from impls for each variant.
+Four invocations generate four `From` impls; after expansion `42i64.into()` creates `Value::Integer(42)`.
+Adding a new variant requires one `impl_from!` line instead of 10+ lines of boilerplate.
 
 ```rust
 impl_from!(i64 => Value, Integer);
@@ -1052,7 +1060,8 @@ trait_impl_example(); // Uses generated From impls: 42i64.into() → Value::Inte
 Generate test cases from a compact specification.
 
 ### Example: Generate multiple test functions from a template
-This example walks through how to generate multiple test functions from a template.
+This macro captures a function name and test cases; `$test_name: ($inputs) => $expected` matches each spec.
+The outer pattern groups tests for one function; `$(,)?` allows optional trailing commas.
 
 ```rust
 macro_rules! generate_tests {
@@ -1085,7 +1094,8 @@ fn add(a: i32, b: i32) -> i32 {
 ```
 
 ### Example: Generate 3 test functions
-This example walks through how to generate 3 test functions.
+Three lines of test specification expand into three complete `#[test]` functions with assert_eq! calls.
+Without this macro, you'd write 15+ lines of repetitive boilerplate—widely used to reduce test code.
 
 ```rust
 generate_tests! {
@@ -1095,12 +1105,12 @@ generate_tests! {
         test_add_zero: (0, 5) => 5,
     }
 }
-//================================================
+===============================================
 // Expands to:
 // #[test] fn test_add_positive() { assert_eq!(add(2, 3), 5); }
 // #[test] fn test_add_negative() { assert_eq!(add(-2, -3), -5); }
 // #[test] fn test_add_zero() { assert_eq!(add(0, 5), 5); }
-//================================================
+===============================================
 ```
 
 
@@ -1109,7 +1119,8 @@ generate_tests! {
 Generate bitflag types with operations (similar to the `bitflags` crate).
 
 ### Example: Simplified bitflags implementation
-This example walks through simplified bitflags implementation.
+This macro captures attributes, visibility, name, backing type, and flags; `$(#[$attr:meta])*` preserves doc comments.
+Each `const $flag` becomes an associated constant; `impl BitOr` enables `|` operator syntax.
 
 ```rust
 macro_rules! bitflags {
@@ -1218,7 +1229,8 @@ cargo expand --color always
 Force a compile error that shows the macro input—useful for understanding what the macro receives.
 
 ### Example: Debug macro by showing its input as a compile error
-This example walks through debug macro by showing its input as a compile error.
+The `$($tt:tt)*` pattern captures all input as token trees; `compile_error!` with `stringify!` shows them at compile time.
+This technique reveals mismatches between what you intended and what the macro actually captured.
 
 ```rust
 macro_rules! debug_macro {
@@ -1227,11 +1239,11 @@ macro_rules! debug_macro {
     };
 }
 
-//===============================================
+==============================================
 // This will show the exact input at compile time
 // debug_macro!(some input here);
 // Compile error: "Macro input: some input here"
-//===============================================
+==============================================
 ```
 
 
@@ -1240,7 +1252,8 @@ macro_rules! debug_macro {
 Print macro inputs at runtime to trace execution.
 
 ### Example: Trace macro invocations at runtime
-This example walks through trace macro invocations at runtime.
+Unlike `compile_error!`, this logs input at runtime via `eprintln!` to stderr while still executing the code.
+The block wraps everything so the macro returns the expression's value—debug without stopping compilation.
 
 ```rust
 macro_rules! trace {
@@ -1262,10 +1275,9 @@ tracing_example(); // Logs macro input to stderr, then executes
 ```
 
 
-### Example: Common Debugging Patterns
-
 ### Example: 1. Echo pattern - see what the macro receives
-This example walks through 1. echo pattern - see what the macro receives.
+The echo pattern prints exactly what tokens the macro receives via `stringify!`, then executes them unchanged.
+Using `$($tt:tt)*` captures any valid Rust syntax—the simplest debugging macro for any code.
 
 ```rust
 macro_rules! echo {
@@ -1280,7 +1292,8 @@ echo!(let x = 5); // Prints input, then executes it
 ```
 
 ### Example: 2. Type introspection
-This example walks through 2. type introspection.
+This macro reveals the concrete type at runtime using `std::any::type_name` with generic type inference.
+The macro stores, prints the type, and returns the value—usable anywhere an expression is expected.
 
 ```rust
 macro_rules! show_type {
@@ -1299,7 +1312,8 @@ let v = show_type!(vec![1,2,3]); // Prints type, returns value
 ```
 
 ### Example: 3. Count token trees
-This example walks through 3. count token trees.
+This recursive macro peels off one `$odd:tt` at a time, adding 1 and recursing; base case `() => { 0 }`.
+The count evaluates at compile time as a `const` expression: `count_tts!(a b c d e)` becomes 5.
 
 ```rust
 macro_rules! count_tts {
@@ -1325,7 +1339,8 @@ debugging_patterns(); // Demonstrates echo, show_type, count_tts macros
 Provide helpful error messages when macro invocation is invalid.
 
 ### Example: Validate input and provide clear error messages
-This example walks through validate input and provide clear error messages.
+Pattern order matters—the first match wins; put specific cases like `(empty)` before general catch-alls.
+This creates "guard clauses" that reject invalid input with helpful compile-time error messages.
 
 ```rust
 macro_rules! validate_input {
@@ -1341,7 +1356,8 @@ macro_rules! validate_input {
 ```
 
 ### Example: Better error messages
-This example walks through better error messages.
+The `$lit:literal` pattern only matches compile-time literals; other expressions fall through.
+The catch-all uses `compile_error!` with `stringify!` to show clear "expected literal, got X" messages.
 
 ```rust
 macro_rules! require_literal {

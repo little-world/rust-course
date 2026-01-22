@@ -1,1088 +1,32 @@
-# Smart Pointer Patterns
-This chapter explores smart pointer patterns in Rust, covering heap allocation with Box, reference counting with Rc/Arc, preventing memory leaks with Weak references, implementing custom smart pointers, intrusive data structures, and optimization techniques.
+# Advanced Smart Pointer Patterns
 
-## Pattern 1: Box, Rc, Arc Usage Patterns
+You've used `Box`, `Rc`, and `Arc`. Now you want to know how they work—and when to build your own.
 
-**Problem**: Rust's default stack allocation breaks with recursive types (infinite size), large structs (stack overflow risk), and trait objects (size unknown at compile time). Need heap allocation with single ownership.
+This chapter goes beneath the standard library. You'll implement smart pointers from scratch, embed reference counts directly in your data structures, and optimize memory layout for cache efficiency. These are the techniques behind high-performance Rust libraries: `parking_lot`'s mutexes, `triomphe`'s Arc, Servo's DOM, and game engine ECS systems.
 
-**Solution**: Use `Box<T>` for single-ownership heap allocation—recursive types wrapped in Box, large structs on heap instead of stack. Use `Rc<T>` for single-threaded shared ownership—multiple Rc pointers to same data, automatic cleanup when last owner drops.
+This chapter covers:
+- **Building custom smart pointers** with `Deref`, `DerefMut`, and `Drop`—lazy initialization, access tracking, copy-on-write
+- **Intrusive data structures** where nodes contain their own links—the Linux kernel approach
+- **Memory layout optimization**: field ordering, cache alignment, struct-of-arrays
+- **Generational indices** for stable handles without reference counting—the ECS pattern
+- **Reference counting tricks** to squeeze out the last nanoseconds
 
-**Why It Matters**: Box enables recursive types (compiler error without it). Box prevents stack overflow: 1MB struct on stack crashes, Box reduces it to 8 bytes.
+These patterns require `unsafe` code and careful reasoning about invariants. If Chapter 1 taught you to work with the borrow checker, this chapter teaches you to work around it—safely.
 
-**Use Cases**: Box for binary trees, linked lists, large structs, trait object collections, AST nodes. Rc for graphs, DAGs, shared configuration, document versions, immutable shared data. Arc for thread pools, shared caches, concurrent config, work queues, parallel processing.
+## Pattern 1: Custom Smart Pointers
 
+**Problem**: Standard smart pointers (Box, Rc, Arc) are general-purpose. Some applications need specialized behavior: access tracking, lazy initialization, or domain-specific semantics.
 
-### Example: Box for Heap Allocation
+**Solution**: Implement `Deref`, `DerefMut`, and `Drop` traits to create custom pointer types with controlled access and cleanup.
 
- Store data on the heap for recursive types, large data, or trait objects.
+**Why It Matters**: Understanding how smart pointers work internally helps you debug memory issues, write unsafe code correctly, and create domain-specific abstractions. Libraries like `parking_lot`, `once_cell`, and `triomphe` all use these techniques.
 
-```rust
-use std::mem;
+### Example: Simple Custom Box
 
-```
-
-### Example: Recursive types require Box
-This example shows how to recursive types require Box in practice, emphasizing why it works.
-
-```rust
-
-#[derive(Debug)]
-enum List<T> {
-    Cons(T, Box<List<T>>),
-    Nil,
-}
-
-impl<T> List<T> {
-    fn new() -> Self {
-        List::Nil
-    }
-
-    fn prepend(self, elem: T) -> Self {
-        List::Cons(elem, Box::new(self))
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            List::Cons(_, tail) => 1 + tail.len(),
-            List::Nil => 0,
-        }
-    }
-
-    fn iter(&self) -> ListIter<T> {
-        ListIter { current: self }
-    }
-}
-
-struct ListIter<'a, T> {
-    current: &'a List<T>,
-}
-
-impl<'a, T> Iterator for ListIter<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.current {
-            List::Cons(value, tail) => {
-                self.current = tail;
-                Some(value)
-            }
-            List::Nil => None,
-        }
-    }
-}
-
-let list = List::new().prepend(3).prepend(2).prepend(1);
-for item in list.iter() { println!("{}", item); }
-```
-
-### Example: Large structs on heap
-This example shows how to large structs on heap in practice, emphasizing why it works.
-
-```rust
-
-struct LargeData {
-    buffer: [u8; 1024 * 1024], // 1MB
-}
-
-fn stack_overflow_risk() -> LargeData {
-    // This could overflow the stack!
-    LargeData {
-        buffer: [0; 1024 * 1024],
-    }
-}
-
-fn heap_allocation() -> Box<LargeData> {
-    // Safe: allocated on heap
-    Box::new(LargeData {
-        buffer: [0; 1024 * 1024],
-    })
-}
- 
-let data = heap_allocation(); // Only 8-byte pointer on stack
-```
-
-### Example: Trait objects require Box
-This example shows how to trait objects require Box in practice, emphasizing why it works.
-
-```rust
-
-trait Drawable {
-    fn draw(&self);
-}
-
-struct Circle {
-    radius: f64,
-}
-
-impl Drawable for Circle {
-    fn draw(&self) {
-        println!("Drawing circle with radius {}", self.radius);
-    }
-}
-
-struct Rectangle {
-    width: f64,
-    height: f64,
-}
-
-impl Drawable for Rectangle {
-    fn draw(&self) {
-        println!("Drawing rectangle {}x{}", self.width, self.height);
-    }
-}
-
-fn trait_objects() {
-    let shapes: Vec<Box<dyn Drawable>> = vec![
-        Box::new(Circle { radius: 5.0 }),
-        Box::new(Rectangle {
-            width: 10.0,
-            height: 20.0,
-        }),
-    ];
-
-    for shape in shapes {
-        shape.draw();
-    }
-}
-// Real-world: Binary tree
-#[derive(Debug)]
-struct TreeNode<T> {
-    value: T,
-    left: Option<Box<TreeNode<T>>>,
-    right: Option<Box<TreeNode<T>>>,
-}
-
-impl<T: Ord> TreeNode<T> {
-    fn new(value: T) -> Self {
-        Self {
-            value,
-            left: None,
-            right: None,
-        }
-    }
-
-    fn insert(&mut self, value: T) {
-        if value < self.value {
-            match &mut self.left {
-                Some(node) => node.insert(value),
-                None => self.left = Some(Box::new(TreeNode::new(value))),
-            }
-        } else {
-            match &mut self.right {
-                Some(node) => node.insert(value),
-                None => self.right = Some(Box::new(TreeNode::new(value))),
-            }
-        }
-    }
-
-    fn contains(&self, value: &T) -> bool {
-        if value == &self.value {
-            true
-        } else if value < &self.value {
-            self.left.as_ref().map_or(false, |node| node.contains(value))
-        } else {
-            self.right.as_ref().map_or(false, |node| node.contains(value))
-        }
-    }
-
-    fn inorder_iter(&self) -> Vec<&T> {
-        let mut result = Vec::new();
-
-        if let Some(left) = &self.left {
-            result.extend(left.inorder_iter());
-        }
-
-        result.push(&self.value);
-
-        if let Some(right) = &self.right {
-            result.extend(right.inorder_iter());
-        }
-
-        result
-    }
-}
-let mut tree = TreeNode::new(5).insert(3).insert(7);
- println!("Contains 3: {}", tree.contains(&3));
-
-```
-
-### Example: Box for ownership transfer
-This example shows how to box for ownership transfer in practice, emphasizing why it works.
-
-```rust
-
-fn process_large_data(data: Box<LargeData>) {
-    // Takes ownership without copying
-    println!("Processing {} bytes", data.buffer.len());
-}
-
-fn main() {
-    println!("=== Linked List ===\n");
-
-    let list = List::new()
-        .prepend(3)
-        .prepend(2)
-        .prepend(1);
-
-    println!("List length: {}", list.len());
-    println!("List items: {:?}", list.iter().collect::<Vec<_>>());
-
-    println!("\n=== Stack vs Heap ===\n");
-
-    println!("LargeData size: {} bytes", mem::size_of::<LargeData>());
-    println!("Box<LargeData> size: {} bytes", mem::size_of::<Box<LargeData>>());
-
-    let heap_data = heap_allocation();
-    process_large_data(heap_data);
-
-    println!("\n=== Trait Objects ===\n");
-    trait_objects();
-
-    println!("\n=== Binary Tree ===\n");
-
-    let mut tree = TreeNode::new(5);
-    for value in [3, 7, 1, 4, 6, 9] {
-        tree.insert(value);
-    }
-
-    println!("Tree contains 4: {}", tree.contains(&4));
-    println!("Tree contains 8: {}", tree.contains(&8));
-    println!("Inorder: {:?}", tree.inorder_iter());
-}
-```
-
-**Box Use Cases**:
-- **Recursive types**: Lists, trees, graphs
-- **Large data**: Avoid stack overflow
-- **Trait objects**: Dynamic dispatch
-- **Ownership transfer**: Move without copying
-
-
-
-### Example: Rc for Shared Ownership
-
-Multiple owners need read-only access to the same data.
-
-
-### Example: Shared configuration
-This example shows shared configuration to illustrate where the pattern fits best.
-
-```rust
-struct Config {
-    database_url: String,
-    max_connections: usize,
-    timeout_ms: u64,
-}
-
-struct DatabasePool {
-    config: Rc<Config>,
-}
-
-struct CacheService {
-    config: Rc<Config>,
-}
-
-struct ApiServer {
-    config: Rc<Config>,
-}
-
-impl DatabasePool {
-    fn new(config: Rc<Config>) -> Self {
-        println!("DB Pool using: {}", config.database_url);
-        Self { config }
-    }
-}
-
-impl CacheService {
-    fn new(config: Rc<Config>) -> Self {
-        println!("Cache using timeout: {}ms", config.timeout_ms);
-        Self { config }
-    }
-}
-
-impl ApiServer {
-    fn new(config: Rc<Config>) -> Self {
-        println!("API Server max connections: {}", config.max_connections);
-        Self { config }
-    }
-}
-
-fn shared_config() {
-    let config = Rc::new(Config {
-        database_url: "postgresql://localhost/mydb".to_string(),
-        max_connections: 100,
-        timeout_ms: 5000,
-    });
-
-    println!("Initial ref count: {}", Rc::strong_count(&config));
-
-    let db_pool = DatabasePool::new(Rc::clone(&config));
-    println!("After DB pool: {}", Rc::strong_count(&config));
-
-    let cache = CacheService::new(Rc::clone(&config));
-    println!("After cache: {}", Rc::strong_count(&config));
-
-    let api = ApiServer::new(Rc::clone(&config));
-    println!("After API: {}", Rc::strong_count(&config));
-
-    // config, db_pool, cache, api all dropped at end of scope
-    // Reference count goes to 0, memory freed
-}
-```
-
-### Example: Shared data in graph
-This example shows shared data in graph to illustrate where the pattern fits best.
-
-```rust
-
-#[derive(Debug)]
-struct Node {
-    id: usize,
-    value: String,
-}
-
-struct Graph {
-    nodes: Vec<Rc<Node>>,
-    edges: Vec<(Rc<Node>, Rc<Node>)>,
-}
-
-impl Graph {
-    fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-        }
-    }
-
-    fn add_node(&mut self, id: usize, value: String) -> Rc<Node> {
-        let node = Rc::new(Node { id, value });
-        self.nodes.push(Rc::clone(&node));
-        node
-    }
-
-    fn add_edge(&mut self, from: Rc<Node>, to: Rc<Node>) {
-        self.edges.push((from, to));
-    }
-
-    fn print_edges(&self) {
-        for (from, to) in &self.edges {
-            println!("{} -> {}", from.value, to.value);
-        }
-    }
-}
-
-let a = graph.add_node(1, "A".to_string());
-let b = graph.add_node(2, "B".to_string());
-let c = graph.add_node(3, "C".to_string());
-
-graph.add_edge(Rc::clone(&a), Rc::clone(&b));
-graph.add_edge(Rc::clone(&b), Rc::clone(&c));
-graph.add_edge(Rc::clone(&a), Rc::clone(&c));
-
-graph.print_edges();
-```
-
-### Example: Version Control
-
-```rust
-// Real-world: Immutable data sharing
-#[derive(Debug, Clone)]
-struct Document {
-    content: String,
-    metadata: String,
-}
-
-struct DocumentVersion {
-    version: usize,
-    doc: Rc<Document>,
-}
-
-struct VersionControl {
-    versions: Vec<DocumentVersion>,
-}
-
-impl VersionControl {
-    fn new(initial_content: String) -> Self {
-        let doc = Rc::new(Document {
-            content: initial_content,
-            metadata: "v1".to_string(),
-        });
-
-        Self {
-            versions: vec![DocumentVersion { version: 1, doc }],
-        }
-    }
-
-    fn add_version(&mut self, content: String) {
-        let version = self.versions.len() + 1;
-        let doc = Rc::new(Document {
-            content,
-            metadata: format!("v{}", version),
-        });
-
-        self.versions.push(DocumentVersion { version, doc });
-    }
-
-    fn get_version(&self, version: usize) -> Option<Rc<Document>> {
-        self.versions
-            .get(version - 1)
-            .map(|v| Rc::clone(&v.doc))
-    }
-
-    fn compare_versions(&self, v1: usize, v2: usize) {
-        if let (Some(doc1), Some(doc2)) = (self.get_version(v1), self.get_version(v2)) {
-            println!("Version {}: {}", v1, doc1.content);
-            println!("Version {}: {}", v2, doc2.content);
-        }
-    }
-}
-let mut vc = VersionControl::new("Initial content".to_string());
-vc.add_version("Updated content".to_string());
-vc.add_version("Final content".to_string());
-vc.compare_versions(1, 3);
-```
-
-### Example: Rc with interior mutability
-This example shows how to rc with interior mutability while calling out the practical trade-offs.
-
-```rust
-
-use std::cell::RefCell;
-
-struct Sensor {
-    id: usize,
-    reading: RefCell<f64>,
-}
-
-struct SensorNetwork {
-    sensors: Vec<Rc<Sensor>>,
-}
-
-impl SensorNetwork {
-    fn new() -> Self {
-        Self {
-            sensors: Vec::new(),
-        }
-    }
-
-    fn add_sensor(&mut self, id: usize) -> Rc<Sensor> {
-        let sensor = Rc::new(Sensor {
-            id,
-            reading: RefCell::new(0.0),
-        });
-        self.sensors.push(Rc::clone(&sensor));
-        sensor
-    }
-
-    fn update_readings(&self) {
-        for sensor in &self.sensors {
-            *sensor.reading.borrow_mut() = rand::random::<f64>() * 100.0;
-        }
-    }
-
-    fn average_reading(&self) -> f64 {
-        let sum: f64 = self.sensors.iter().map(|s| *s.reading.borrow()).sum();
-        sum / self.sensors.len() as f64
-    }
-}
-
-let mut network = SensorNetwork::new();
-let sensor1 = network.add_sensor(1);
-let sensor2 = network.add_sensor(2);
-
-network.update_readings();
-println!("Sensor 1: {:.2}", sensor1.reading.borrow());
-println!("Sensor 2: {:.2}", sensor2.reading.borrow());
-println!("Average: {:.2}", network.average_reading());
-```
-
-### Example: Arc for Thread-Safe Sharing
-
- Share data across threads safely.
-
-
-```rust
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::time::Duration;
-
-```
-
-### Example: Shared read-only data across threads
-This example shows shared read-only data across threads to illustrate where the pattern fits best.
-
-```rust
-
-fn arc_readonly() {
-    let data = Arc::new(vec![1, 2, 3, 4, 5]);
-
-    let mut handles = vec![];
-
-    for i in 0..5 {
-        let data = Arc::clone(&data);
-        handles.push(thread::spawn(move || {
-            println!("Thread {}: sum = {}", i, data.iter().sum::<i32>());
-        }));
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
-    }
-}
-```
-
-### Example: Arc with Mutex for shared mutable state
-This example shows how to arc with Mutex for shared mutable state while calling out the practical trade-offs.
-
-```rust
-
-struct SharedCounter {
-    count: Arc<Mutex<usize>>,
-}
-
-impl SharedCounter {
-    fn new() -> Self {
-        Self {
-            count: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    fn increment(&self) {
-        let mut count = self.count.lock().unwrap();
-        *count += 1;
-    }
-
-    fn get(&self) -> usize {
-        *self.count.lock().unwrap()
-    }
-
-    fn clone_handle(&self) -> Self {
-        Self {
-            count: Arc::clone(&self.count),
-        }
-    }
-}
-
-fn arc_mutex_example() {
-    let counter = SharedCounter::new();
-    let mut handles = vec![];
-
-    for _ in 0..10 {
-        let counter = counter.clone_handle();
-        handles.push(thread::spawn(move || {
-            for _ in 0..1000 {
-                counter.increment();
-            }
-        }));
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
-    }
-
-    println!("Final count: {}", counter.get());
-}
-arc_mutex_example(); // 10 threads x 1000 increments = 10000
-```
-
-### Example: Arc with RwLock for read-heavy workloads
-This example shows how to arc with RwLock for read-heavy workloads while calling out the practical trade-offs.
-
-```rust
-
-struct Cache {
-    data: Arc<RwLock<std::collections::HashMap<String, String>>>,
-}
-
-impl Cache {
-    fn new() -> Self {
-        Self {
-            data: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        }
-    }
-
-    fn get(&self, key: &str) -> Option<String> {
-        self.data.read().unwrap().get(key).cloned()
-    }
-
-    fn set(&self, key: String, value: String) {
-        self.data.write().unwrap().insert(key, value);
-    }
-
-    fn clone_handle(&self) -> Self {
-        Self {
-            data: Arc::clone(&self.data),
-        }
-    }
-}
-
-fn arc_rwlock_example() {
-    let cache = Cache::new();
-
-    // Writer thread
-    let writer_cache = cache.clone_handle();
-    let writer = thread::spawn(move || {
-        for i in 0..100 {
-            writer_cache.set(format!("key_{}", i), format!("value_{}", i));
-            thread::sleep(Duration::from_millis(10));
-        }
-    });
-
-    // Reader threads
-    let mut readers = vec![];
-    for id in 0..5 {
-        let reader_cache = cache.clone_handle();
-        readers.push(thread::spawn(move || {
-            for i in 0..50 {
-                if let Some(value) = reader_cache.get(&format!("key_{}", i * 2)) {
-                    if id == 0 && i % 10 == 0 {
-                        println!("Reader {}: {}", id, value);
-                    }
-                }
-                thread::sleep(Duration::from_millis(5));
-            }
-        }));
-    }
-
-    writer.join().unwrap();
-    for reader in readers {
-        reader.join().unwrap();
-    }
-}
-```
-
-### Example: Thread pool with shared work queue
-
-```rust
-
-use std::sync::mpsc;
-
-struct ThreadPool {
-    workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
-}
-
-type Job = Box<dyn FnOnce() + Send + 'static>;
-
-struct Worker {
-    id: usize,
-    thread: Option<thread::JoinHandle<()>>,
-}
-
-impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Self {
-        let thread = thread::spawn(move || loop {
-            let job = receiver.lock().unwrap().recv();
-
-            match job {
-                Ok(job) => {
-                    println!("Worker {} executing job", id);
-                    job();
-                }
-                Err(_) => {
-                    println!("Worker {} shutting down", id);
-                    break;
-                }
-            }
-        });
-
-        Worker {
-            id,
-            thread: Some(thread),
-        }
-    }
-}
-
-impl ThreadPool {
-    fn new(size: usize) -> Self {
-        let (sender, receiver) = mpsc::channel();
-        let receiver = Arc::new(Mutex::new(receiver));
-
-        let mut workers = Vec::with_capacity(size);
-
-        for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)));
-        }
-
-        ThreadPool { workers, sender }
-    }
-
-    fn execute<F>(&self, f: F)
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        self.sender.send(Box::new(f)).unwrap();
-    }
-}
-
-impl Drop for ThreadPool {
-    fn drop(&mut self) {
-        for worker in &mut self.workers {
-            if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
-            }
-        }
-    }
-}
-
-fn main() {
-    println!("=== Arc Read-Only ===\n");
-    arc_readonly();
-
-    println!("\n=== Arc + Mutex ===\n");
-    arc_mutex_example();
-
-    println!("\n=== Arc + RwLock ===\n");
-    arc_rwlock_example();
-
-    println!("\n=== Thread Pool ===\n");
-
-    let pool = ThreadPool::new(4);
-
-    for i in 0..10 {
-        pool.execute(move || {
-            println!("Job {} executing", i);
-            thread::sleep(Duration::from_millis(100));
-        });
-    }
-
-    thread::sleep(Duration::from_secs(2));
-}
-```
-
-**Arc vs Rc**:
-- **Arc**: Atomic reference counting (thread-safe)
-- **Rc**: Non-atomic (single-threaded only)
-- **Performance**: Rc is faster (no atomic operations)
-- **Use case**: Arc for multi-threaded, Rc for single-threaded
-
-## Pattern 2: Weak References and Cycles
-
-**Problem**: Reference cycles cause memory leaks—parent and child both hold strong Rc pointers, reference count never reaches 0. Doubly-linked list with strong prev/next pointers leaks.
-
-**Solution**: Use `Weak<T>` for back-references—doesn't increment strong count, breaks cycles. Child holds Weak to parent, parent holds strong (Rc) to child.
-
-**Why It Matters**: Prevents production memory leaks. Tree with strong parent pointers: 100MB tree never freed.
-
-**Use Cases**: Tree parent pointers, doubly-linked lists (prev pointer), observer pattern, caches (entries can expire), breaking any reference cycle, temporary references.
-
-
-### Example: Breaking Reference Cycles
-
- Prevent memory leaks when data structures have circular references.
-
-```rust
-use std::rc::{Rc, Weak};
-use std::cell::RefCell;
-// Problem: This creates a reference cycle and leaks memory
-#[derive(Debug)]
-struct NodeWithCycle {
-    value: i32,
-    next: Option<Rc<RefCell<NodeWithCycle>>>,
-    prev: Option<Rc<RefCell<NodeWithCycle>>>, // Strong reference - BAD!
-}
-// Solution: Use Weak for back-references
-#[derive(Debug)]
-struct Node {
-    value: i32,
-    next: Option<Rc<RefCell<Node>>>,
-    prev: Option<Weak<RefCell<Node>>>, // Weak reference - GOOD!
-}
-
-impl Node {
-    fn new(value: i32) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Node {
-            value,
-            next: None,
-            prev: None,
-        }))
-    }
-}
-let node = Node::new(42); // Weak prev breaks reference cycles
-
-```
-
-### Example: Doubly-linked list with Weak
-This example shows doubly-linked list with Weak to illustrate where the pattern fits best.
-
-```rust
-
-struct DoublyLinkedList {
-    head: Option<Rc<RefCell<Node>>>,
-    tail: Option<Rc<RefCell<Node>>>,
-}
-
-impl DoublyLinkedList {
-    fn new() -> Self {
-        Self {
-            head: None,
-            tail: None,
-        }
-    }
-
-    fn push_back(&mut self, value: i32) {
-        let new_node = Node::new(value);
-
-        match self.tail.take() {
-            Some(old_tail) => {
-                old_tail.borrow_mut().next = Some(Rc::clone(&new_node));
-                new_node.borrow_mut().prev = Some(Rc::downgrade(&old_tail));
-                self.tail = Some(new_node);
-            }
-            None => {
-                self.head = Some(Rc::clone(&new_node));
-                self.tail = Some(new_node);
-            }
-        }
-    }
-
-    fn print_forward(&self) {
-        let mut current = self.head.as_ref().map(Rc::clone);
-
-        while let Some(node) = current {
-            print!("{} -> ", node.borrow().value);
-            current = node.borrow().next.as_ref().map(Rc::clone);
-        }
-        println!("None");
-    }
-
-    fn print_backward(&self) {
-        let mut current = self.tail.as_ref().map(Rc::clone);
-
-        while let Some(node) = current {
-            print!("{} -> ", node.borrow().value);
-            current = node
-                .borrow()
-                .prev
-                .as_ref()
-                .and_then(|weak| weak.upgrade());
-        }
-        println!("None");
-    }
-}
-let mut list = DoublyLinkedList::new();
-list.push_back(1);
-list.push_back(2);
-
-```
-
-### Example: Tree with parent pointers
-This example shows how to tree with parent pointers in practice, emphasizing why it works.
-
-```rust
-
-#[derive(Debug)]
-struct TreeNode {
-    value: i32,
-    parent: Option<Weak<RefCell<TreeNode>>>,
-    children: Vec<Rc<RefCell<TreeNode>>>,
-}
-
-impl TreeNode {
-    fn new(value: i32) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(TreeNode {
-            value,
-            parent: None,
-            children: Vec::new(),
-        }))
-    }
-
-    fn add_child(parent: &Rc<RefCell<TreeNode>>, child_value: i32) -> Rc<RefCell<TreeNode>> {
-        let child = TreeNode::new(child_value);
-        child.borrow_mut().parent = Some(Rc::downgrade(parent));
-        parent.borrow_mut().children.push(Rc::clone(&child));
-        child
-    }
-
-    fn print_path_to_root(node: &Rc<RefCell<TreeNode>>) {
-        let mut path = Vec::new();
-        let mut current = Some(Rc::clone(node));
-
-        while let Some(node_rc) = current {
-            path.push(node_rc.borrow().value);
-            current = node_rc
-                .borrow()
-                .parent
-                .as_ref()
-                .and_then(|weak| weak.upgrade());
-        }
-
-        println!("Path to root: {:?}", path);
-    }
-}
-// Real-world: Observer pattern with Weak
-trait Observer {
-    fn notify(&self, message: &str);
-}
-
-struct Subject {
-    observers: Vec<Weak<dyn Observer>>,
-}
-
-impl Subject {
-    fn new() -> Self {
-        Self {
-            observers: Vec::new(),
-        }
-    }
-
-    fn attach(&mut self, observer: Weak<dyn Observer>) {
-        self.observers.push(observer);
-    }
-
-    fn notify_all(&mut self, message: &str) {
-        // Clean up dead observers and notify living ones
-        self.observers.retain(|weak| {
-            if let Some(observer) = weak.upgrade() {
-                observer.notify(message);
-                true // Keep
-            } else {
-                false // Remove dead observer
-            }
-        });
-    }
-}
-
-
-struct ConcreteObserver {
-    id: usize,
-}
-
-impl Observer for ConcreteObserver {
-    fn notify(&self, message: &str) {
-        println!("Observer {} received: {}", self.id, message);
-    }
-}
-// Real-world: Cache with weak references
-struct WeakCache<K, V> {
-    cache: std::collections::HashMap<K, Weak<V>>,
-}
-
-impl<K, V> WeakCache<K, V>
-where
-    K: Eq + std::hash::Hash,
-{
-    fn new() -> Self {
-        Self {
-            cache: std::collections::HashMap::new(),
-        }
-    }
-
-    fn get(&mut self, key: &K) -> Option<Rc<V>> {
-        self.cache.get(key).and_then(|weak| weak.upgrade())
-    }
-
-    fn insert(&mut self, key: K, value: Rc<V>) {
-        self.cache.insert(key, Rc::downgrade(&value));
-    }
-
-    fn cleanup(&mut self) {
-        self.cache.retain(|_, weak| weak.strong_count() > 0);
-    }
-
-    fn len(&self) -> usize {
-        self.cache.len()
-    }
-}
-
-fn main() {
-    println!("=== Doubly-Linked List ===\n");
-
-    let mut list = DoublyLinkedList::new();
-    list.push_back(1);
-    list.push_back(2);
-    list.push_back(3);
-
-    print!("Forward: ");
-    list.print_forward();
-    print!("Backward: ");
-    list.print_backward();
-
-    println!("\n=== Tree with Parent Pointers ===\n");
-
-    let root = TreeNode::new(1);
-    let child1 = TreeNode::add_child(&root, 2);
-    let child2 = TreeNode::add_child(&root, 3);
-    let grandchild = TreeNode::add_child(&child1, 4);
-
-    TreeNode::print_path_to_root(&grandchild);
-    TreeNode::print_path_to_root(&child2);
-
-    println!("\n=== Observer Pattern ===\n");
-
-    let mut subject = Subject::new();
-
-    let observer1 = Rc::new(ConcreteObserver { id: 1 });
-    let observer2 = Rc::new(ConcreteObserver { id: 2 });
-
-    subject.attach(Rc::downgrade(&observer1));
-    subject.attach(Rc::downgrade(&observer2));
-
-    subject.notify_all("First message");
-
-    drop(observer1); // Observer 1 goes away
-
-    subject.notify_all("Second message"); // Only observer 2 gets this
-
-    println!("\n=== Weak Cache ===\n");
-
-    let mut cache = WeakCache::new();
-
-    {
-        let value = Rc::new("cached data".to_string());
-        cache.insert("key1", Rc::clone(&value));
-        println!("Cache size: {}", cache.len());
-
-        if let Some(cached) = cache.get(&"key1") {
-            println!("Found in cache: {}", cached);
-        }
-
-        // value dropped here
-    }
-
-    // Try to get after value is dropped
-    if cache.get(&"key1").is_none() {
-        println!("Cache entry expired");
-    }
-
-    cache.cleanup();
-    println!("Cache size after cleanup: {}", cache.len());
-}
-```
-
-**Weak Reference Patterns**:
-- **Parent-child**: Child holds Weak to parent
-- **Observers**: Subject holds Weak to observers
-- **Cache**: Cache holds Weak to values
-- **Breaking cycles**: Use Weak for back-references
-
----
-
-## Pattern 3: Custom Smart Pointers
-
-**Problem**: Need specialized pointer behavior beyond Box/Rc/Arc. Want to track access patterns (reads/writes) for debugging.
-
-**Solution**: Implement `Deref` trait for `*` operator and method calls. Implement `Drop` for cleanup logic.
-
-**Why It Matters**: Logging pointer reveals hot paths: 1000 reads, 10 writes → optimize for reads. Lazy initialization saves 500MB when feature unused.
-
-**Use Cases**: Logging pointers for debugging, lazy initialization for expensive resources, copy-on-write for shared-immutable patterns, custom allocation tracking, instrumentation and profiling, domain-specific ownership.
-
-
-### Example: Implementing Custom Smart Pointers
-
-Create custom pointer types with specialized behavior.
+Minimal Box using `Box::into_raw` for raw pointer and `Box::from_raw` in Drop for cleanup. Foundation for all custom smart pointers.
 
 ```rust
 use std::ops::{Deref, DerefMut};
-use std::fmt;
-
-```
-
-### Example: Simple custom Box
-This example keeps things simple while focusing on custom box to make the mechanics obvious.
-
-```rust
 
 struct MyBox<T> {
     data: *mut T,
@@ -1097,7 +41,6 @@ impl<T> MyBox<T> {
 
 impl<T> Deref for MyBox<T> {
     type Target = T;
-
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.data }
     }
@@ -1111,43 +54,46 @@ impl<T> DerefMut for MyBox<T> {
 
 impl<T> Drop for MyBox<T> {
     fn drop(&mut self) {
-        unsafe {
-            drop(Box::from_raw(self.data));
-        }
+        unsafe { drop(Box::from_raw(self.data)); }
     }
 }
-let mut b = MyBox::new(42); *b = 100; println!("{}", *b);
 
+// Usage
+let mut b = MyBox::new(42);
+*b = 100;
+println!("{}", *b); // 100
 ```
 
-### Example: Logging pointer (tracks access)
-This example shows logging pointer (tracks access) to illustrate where the pattern fits best.
+### Example: Logging Pointer (Access Tracking)
+
+Tracks every read/write for debugging or profiling using Cell for counter mutation through `&self`. Useful for finding hot paths or detecting unexpected access patterns.
 
 ```rust
+use std::ops::{Deref, DerefMut};
+use std::cell::Cell;
 
 struct LoggingPtr<T> {
     data: Box<T>,
-    reads: std::cell::Cell<usize>,
-    writes: std::cell::Cell<usize>,
+    reads: Cell<usize>,
+    writes: Cell<usize>,
 }
 
 impl<T> LoggingPtr<T> {
     fn new(value: T) -> Self {
         Self {
             data: Box::new(value),
-            reads: std::cell::Cell::new(0),
-            writes: std::cell::Cell::new(0),
+            reads: Cell::new(0),
+            writes: Cell::new(0),
         }
     }
 
-    fn get_stats(&self) -> (usize, usize) {
+    fn stats(&self) -> (usize, usize) {
         (self.reads.get(), self.writes.get())
     }
 }
 
 impl<T> Deref for LoggingPtr<T> {
     type Target = T;
-
     fn deref(&self) -> &Self::Target {
         self.reads.set(self.reads.get() + 1);
         &self.data
@@ -1160,31 +106,32 @@ impl<T> DerefMut for LoggingPtr<T> {
         &mut self.data
     }
 }
-let mut p = LoggingPtr::new(vec![1,2]); p.push(3); println!("{:?}", p.get_stats());
 
+// Usage: Profile hot paths
+let mut p = LoggingPtr::new(vec![1, 2, 3]);
+let _ = p.len();      // read
+let _ = p.len();      // read
+p.push(4);            // write
+println!("{:?}", p.stats()); // (2, 1)
 ```
 
-### Example: Lazy initialization pointer
-This example shows how to lazy initialization pointer in practice, emphasizing why it works.
+### Example: Lazy Initialization
+
+Defer expensive computation until first access using UnsafeCell for mutation through `&self`. For production, use `once_cell::Lazy` or `std::sync::LazyLock` for thread safety.
 
 ```rust
+use std::cell::UnsafeCell;
 
-struct Lazy<T, F>
-where
-    F: FnOnce() -> T,
-{
-    value: std::cell::UnsafeCell<Option<T>>,
-    init: std::cell::UnsafeCell<Option<F>>,
+struct Lazy<T, F: FnOnce() -> T> {
+    value: UnsafeCell<Option<T>>,
+    init: UnsafeCell<Option<F>>,
 }
 
-impl<T, F> Lazy<T, F>
-where
-    F: FnOnce() -> T,
-{
+impl<T, F: FnOnce() -> T> Lazy<T, F> {
     fn new(init: F) -> Self {
         Self {
-            value: std::cell::UnsafeCell::new(None),
-            init: std::cell::UnsafeCell::new(Some(init)),
+            value: UnsafeCell::new(None),
+            init: UnsafeCell::new(Some(init)),
         }
     }
 
@@ -1194,226 +141,178 @@ where
                 let init = (*self.init.get()).take().unwrap();
                 *self.value.get() = Some(init());
             }
-
             (*self.value.get()).as_ref().unwrap()
         }
     }
 }
-let lazy = Lazy::new(|| expensive_init()); let val = lazy.get();
-// Real-world: Reference-counted string (like Arc<str> but custom)
-struct RcStr {
-    data: *mut RcStrInner,
+
+// Usage: Expensive init runs only on first access
+fn expensive_init() -> Vec<i32> {
+    println!("Computing...");
+    (0..1000).collect()
 }
 
-struct RcStrInner {
-    ref_count: std::sync::atomic::AtomicUsize,
-    data: str,
-}
-
-impl RcStr {
-    fn new(s: &str) -> Self {
-        let layout = std::alloc::Layout::from_size_align(
-            std::mem::size_of::<std::sync::atomic::AtomicUsize>() + s.len(),
-            std::mem::align_of::<std::sync::atomic::AtomicUsize>(),
-        )
-        .unwrap();
-
-        unsafe {
-            let ptr = std::alloc::alloc(layout) as *mut RcStrInner;
-
-            std::ptr::write(
-                &mut (*ptr).ref_count,
-                std::sync::atomic::AtomicUsize::new(1),
-            );
-
-            let data_ptr = (&mut (*ptr).data) as *mut str as *mut u8;
-            std::ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, s.len());
-
-            RcStr { data: ptr }
-        }
-    }
-
-    fn as_str(&self) -> &str {
-        unsafe { &(*self.data).data }
-    }
-
-    fn ref_count(&self) -> usize {
-        unsafe { (*self.data).ref_count.load(std::sync::atomic::Ordering::Acquire) }
-    }
-}
-
-impl Clone for RcStr {
-    fn clone(&self) -> Self {
-        unsafe {
-            (*self.data)
-                .ref_count
-                .fetch_add(1, std::sync::atomic::Ordering::Release);
-        }
-        RcStr { data: self.data }
-    }
-}
-
-impl Drop for RcStr {
-    fn drop(&mut self) {
-        unsafe {
-            if (*self.data)
-                .ref_count
-                .fetch_sub(1, std::sync::atomic::Ordering::Release)
-                == 1
-            {
-                let layout = std::alloc::Layout::from_size_align(
-                    std::mem::size_of::<std::sync::atomic::AtomicUsize>() + (*self.data).data.len(),
-                    std::mem::align_of::<std::sync::atomic::AtomicUsize>(),
-                )
-                .unwrap();
-
-                std::alloc::dealloc(self.data as *mut u8, layout);
-            }
-        }
-    }
-}
-
-impl Deref for RcStr {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_str()
-    }
-}
-
-impl fmt::Display for RcStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-let s1 = RcStr::new("hello"); let s2 = s1.clone(); println!("{}", s1.ref_count());
-
+let lazy = Lazy::new(expensive_init);
+// Nothing computed yet
+let data = lazy.get(); // "Computing..." printed here
+let data2 = lazy.get(); // No print, returns cached value
 ```
 
-### Example: Owned-or-borrowed pointer
-This example shows owned-or-borrowed pointer to illustrate where the pattern fits best.
+### Example: Copy-on-Write Pointer
+
+Share data until mutation, then clone automatically. The `modify` method checks `strong_count`—if >1, clone before mutating. Avoids copies for read-heavy workloads.
 
 ```rust
+use std::rc::Rc;
+use std::ops::Deref;
 
-enum Cow<'a, T: 'a + ToOwned + ?Sized> {
-    Borrowed(&'a T),
-    Owned(<T as ToOwned>::Owned),
+struct CowPtr<T: Clone> {
+    data: Rc<T>,
 }
 
-impl<'a, T> Cow<'a, T>
-where
-    T: ToOwned + ?Sized,
-{
-    fn to_mut(&mut self) -> &mut <T as ToOwned>::Owned {
-        match self {
-            Cow::Owned(owned) => owned,
-            Cow::Borrowed(borrowed) => {
-                *self = Cow::Owned(borrowed.to_owned());
-                match self {
-                    Cow::Owned(owned) => owned,
-                    _ => unreachable!(),
-                }
+impl<T: Clone> CowPtr<T> {
+    fn new(data: T) -> Self {
+        CowPtr { data: Rc::new(data) }
+    }
+
+    fn modify<F: FnOnce(&mut T)>(&mut self, f: F) {
+        // Clone only if shared
+        if Rc::strong_count(&self.data) > 1 {
+            self.data = Rc::new((*self.data).clone());
+        }
+        f(Rc::get_mut(&mut self.data).unwrap());
+    }
+}
+
+impl<T: Clone> Deref for CowPtr<T> {
+    type Target = T;
+    fn deref(&self) -> &T { &self.data }
+}
+
+impl<T: Clone> Clone for CowPtr<T> {
+    fn clone(&self) -> Self {
+        CowPtr { data: Rc::clone(&self.data) }
+    }
+}
+
+// Usage: Clones share data until modification
+let original = CowPtr::new(vec![1, 2, 3]);
+let mut copy = original.clone();  // Cheap: shares Rc
+copy.modify(|v| v.push(4));       // Clone happens here
+assert_eq!(original.len(), 3);    // Original unchanged
+assert_eq!(copy.len(), 4);
+```
+
+## Pattern 2: Intrusive Reference Counting
+
+**Problem**: Standard Rc/Arc allocate the ref count separately from the data—two allocations, poor cache locality.
+
+**Solution**: Store the reference count inside the data structure itself. One allocation, better performance for many small objects.
+
+**Why It Matters**: When you have millions of small shared objects (graph nodes, AST nodes, cache entries), the overhead of standard Rc/Arc becomes significant. Intrusive reference counting is used in production systems like Servo's DOM implementation and Linux kernel data structures.
+
+### Example: Intrusive Rc
+
+Refcount lives inside the node, eliminating separate allocation. NonNull and PhantomData ensure proper pointer semantics. Single-allocation design improves memory usage and cache performance.
+
+```rust
+use std::ptr::NonNull;
+use std::marker::PhantomData;
+use std::cell::Cell;
+use std::ops::Deref;
+
+struct IntrusiveNode<T> {
+    refcount: Cell<usize>,
+    data: T,
+}
+
+struct IntrusiveRc<T> {
+    ptr: NonNull<IntrusiveNode<T>>,
+    _marker: PhantomData<T>,
+}
+
+impl<T> IntrusiveRc<T> {
+    fn new(data: T) -> Self {
+        let node = Box::new(IntrusiveNode {
+            refcount: Cell::new(1),
+            data,
+        });
+        IntrusiveRc {
+            ptr: unsafe { NonNull::new_unchecked(Box::into_raw(node)) },
+            _marker: PhantomData,
+        }
+    }
+
+    fn refcount(&self) -> usize {
+        unsafe { self.ptr.as_ref().refcount.get() }
+    }
+}
+
+impl<T> Clone for IntrusiveRc<T> {
+    fn clone(&self) -> Self {
+        let node = unsafe { self.ptr.as_ref() };
+        node.refcount.set(node.refcount.get() + 1);
+        IntrusiveRc { ptr: self.ptr, _marker: PhantomData }
+    }
+}
+
+impl<T> Drop for IntrusiveRc<T> {
+    fn drop(&mut self) {
+        unsafe {
+            let node = self.ptr.as_ref();
+            let count = node.refcount.get();
+            if count == 1 {
+                drop(Box::from_raw(self.ptr.as_ptr()));
+            } else {
+                node.refcount.set(count - 1);
             }
         }
     }
 }
 
-fn main() {
-    println!("=== Custom MyBox ===\n");
-
-    let mut my_box = MyBox::new(42);
-    println!("Value: {}", *my_box);
-    *my_box = 100;
-    println!("Updated: {}", *my_box);
-
-    println!("\n=== Logging Pointer ===\n");
-
-    let mut logged = LoggingPtr::new(String::from("hello"));
-
-    let _read1 = logged.len();
-    let _read2 = logged.chars().count();
-    logged.push_str(" world");
-
-    let (reads, writes) = logged.get_stats();
-    println!("Reads: {}, Writes: {}", reads, writes);
-    println!("Value: {}", *logged);
-
-    println!("\n=== Lazy Initialization ===\n");
-
-    let lazy = Lazy::new(|| {
-        println!("Initializing expensive computation...");
-        42
-    });
-
-    println!("Before access");
-    println!("Value: {}", lazy.get());
-    println!("Value again: {}", lazy.get()); // No re-initialization
-
-    println!("\n=== Custom RcStr ===\n");
-
-    let s1 = RcStr::new("Hello, world!");
-    println!("s1: {}", s1);
-    println!("s1 ref count: {}", s1.ref_count());
-
-    let s2 = s1.clone();
-    println!("s1 ref count after clone: {}", s1.ref_count());
-    println!("s2 ref count: {}", s2.ref_count());
-
-    drop(s2);
-    println!("s1 ref count after drop s2: {}", s1.ref_count());
+impl<T> Deref for IntrusiveRc<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { &self.ptr.as_ref().data }
+    }
 }
+
+// Usage: Single allocation for data + refcount
+let rc1 = IntrusiveRc::new(String::from("hello"));
+let rc2 = rc1.clone();
+assert_eq!(rc1.refcount(), 2);
+assert_eq!(*rc1, "hello");
 ```
 
-**Custom Smart Pointer Requirements**:
-- **Deref**: Enable `*` and method calls
-- **Drop**: Clean up resources
-- **Clone** (optional): For reference counting
-- **Send/Sync** (optional): For thread safety
+## Pattern 3: Intrusive Data Structures
 
----
+**Problem**: Standard linked lists allocate separate nodes pointing to data—two allocations per element, poor cache locality.
 
-## Pattern 4: Intrusive Data Structures
+**Solution**: Embed link pointers directly in data structures. One allocation per element, data and links are contiguous.
 
-**Problem**: Standard data structures waste memory with separate node allocations. Poor cache locality from scattered allocations.
+**Why It Matters**: Intrusive data structures are fundamental in systems programming. The Linux kernel uses them extensively for schedulers, filesystems, and drivers. When data needs to belong to multiple collections simultaneously or when allocation overhead matters, intrusive design is the answer.
 
-**Solution**: Embed pointers directly in data nodes. Use raw pointers (*mut T) for manual management.
+### Example: Intrusive Singly-Linked List
 
-**Why It Matters**: Intrusive LRU cache: 50% memory savings vs standard implementation. Better cache locality: 2x faster on sequential access.
-
-**Use Cases**: LRU caches (web servers, databases), kernel data structures (Linux intrusive lists), high-performance queues, embedded systems, memory pools, any cache-critical structure.
-
-
-### Example: Intrusive Linked Lists
-
-Efficient linked lists where the nodes are embedded in objects.
+Minimal list where each node contains data and next pointer. O(1) push_front/pop_front. Avoids double indirection of `Box<Node<Box<T>>>` in standard implementations.
 
 ```rust
 use std::ptr;
 use std::marker::PhantomData;
-
-```
-
-### Example: Intrusive singly-linked list
-This example shows how to intrusive singly-linked list while calling out the practical trade-offs.
-
-```rust
-
-struct IntrusiveList<T> {
-    head: *mut ListNode<T>,
-    _phantom: PhantomData<T>,
-}
 
 struct ListNode<T> {
     next: *mut ListNode<T>,
     data: T,
 }
 
+struct IntrusiveList<T> {
+    head: *mut ListNode<T>,
+    _phantom: PhantomData<T>,
+}
+
 impl<T> IntrusiveList<T> {
     fn new() -> Self {
-        Self {
-            head: ptr::null_mut(),
-            _phantom: PhantomData,
-        }
+        IntrusiveList { head: ptr::null_mut(), _phantom: PhantomData }
     }
 
     fn push_front(&mut self, data: T) {
@@ -1421,7 +320,6 @@ impl<T> IntrusiveList<T> {
             next: self.head,
             data,
         }));
-
         self.head = node;
     }
 
@@ -1429,7 +327,6 @@ impl<T> IntrusiveList<T> {
         if self.head.is_null() {
             return None;
         }
-
         unsafe {
             let node = Box::from_raw(self.head);
             self.head = node.next;
@@ -1437,11 +334,26 @@ impl<T> IntrusiveList<T> {
         }
     }
 
-    fn iter(&self) -> IntrusiveListIter<T> {
-        IntrusiveListIter {
-            current: self.head,
-            _phantom: PhantomData,
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        struct Iter<'a, T> {
+            current: *mut ListNode<T>,
+            _phantom: PhantomData<&'a T>,
         }
+        impl<'a, T> Iterator for Iter<'a, T> {
+            type Item = &'a T;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.current.is_null() {
+                    None
+                } else {
+                    unsafe {
+                        let data = &(*self.current).data;
+                        self.current = (*self.current).next;
+                        Some(data)
+                    }
+                }
+            }
+        }
+        Iter { current: self.head, _phantom: PhantomData }
     }
 }
 
@@ -1451,33 +363,23 @@ impl<T> Drop for IntrusiveList<T> {
     }
 }
 
-struct IntrusiveListIter<'a, T> {
-    current: *mut ListNode<T>,
-    _phantom: PhantomData<&'a T>,
+// Usage
+let mut list = IntrusiveList::new();
+list.push_front(3);
+list.push_front(2);
+list.push_front(1);
+for item in list.iter() {
+    println!("{}", item); // 1, 2, 3
 }
+```
 
-impl<'a, T> Iterator for IntrusiveListIter<'a, T> {
-    type Item = &'a T;
+### Example: LRU Cache with Intrusive Doubly-Linked List
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current.is_null() {
-            None
-        } else {
-            unsafe {
-                let data = &(*self.current).data;
-                self.current = (*self.current).next;
-                Some(data)
-            }
-        }
-    }
-}
-// Real-world: Intrusive doubly-linked list for LRU cache
-struct LruCache<K, V> {
-    map: std::collections::HashMap<K, *mut LruNode<K, V>>,
-    head: *mut LruNode<K, V>,
-    tail: *mut LruNode<K, V>,
-    capacity: usize,
-}
+O(1) lookup via HashMap plus O(1) eviction via doubly-linked list. HashMap stores node pointers directly; list tracks recency. Intrusive design: single allocation per entry in both structures.
+
+```rust
+use std::collections::HashMap;
+use std::ptr;
 
 struct LruNode<K, V> {
     key: K,
@@ -1486,13 +388,17 @@ struct LruNode<K, V> {
     next: *mut LruNode<K, V>,
 }
 
-impl<K, V> LruCache<K, V>
-where
-    K: Eq + std::hash::Hash + Clone,
-{
+struct LruCache<K, V> {
+    map: HashMap<K, *mut LruNode<K, V>>,
+    head: *mut LruNode<K, V>,  // Most recent
+    tail: *mut LruNode<K, V>,  // Least recent
+    capacity: usize,
+}
+
+impl<K: Eq + std::hash::Hash + Clone, V> LruCache<K, V> {
     fn new(capacity: usize) -> Self {
-        Self {
-            map: std::collections::HashMap::new(),
+        LruCache {
+            map: HashMap::new(),
             head: ptr::null_mut(),
             tail: ptr::null_mut(),
             capacity,
@@ -1501,12 +407,9 @@ where
 
     fn get(&mut self, key: &K) -> Option<&V> {
         let node_ptr = *self.map.get(key)?;
-
         unsafe {
-            // Move to front
             self.detach(node_ptr);
             self.attach_front(node_ptr);
-
             Some(&(*node_ptr).value)
         }
     }
@@ -1522,18 +425,16 @@ where
         }
 
         // Evict if at capacity
-        if self.map.len() >= self.capacity {
+        if self.map.len() >= self.capacity && !self.tail.is_null() {
             unsafe {
-                if !self.tail.is_null() {
-                    let tail_key = (*self.tail).key.clone();
-                    self.detach(self.tail);
-                    drop(Box::from_raw(self.tail));
-                    self.map.remove(&tail_key);
-                }
+                let tail_key = (*self.tail).key.clone();
+                let old_tail = self.tail;
+                self.detach(old_tail);
+                self.map.remove(&tail_key);
+                drop(Box::from_raw(old_tail));
             }
         }
 
-        // Create new node
         let node = Box::into_raw(Box::new(LruNode {
             key: key.clone(),
             value,
@@ -1542,26 +443,18 @@ where
         }));
 
         self.map.insert(key, node);
-        unsafe {
-            self.attach_front(node);
-        }
+        unsafe { self.attach_front(node); }
     }
 
     unsafe fn detach(&mut self, node: *mut LruNode<K, V>) {
         let prev = (*node).prev;
         let next = (*node).next;
 
-        if !prev.is_null() {
-            (*prev).next = next;
-        } else {
-            self.head = next;
-        }
+        if !prev.is_null() { (*prev).next = next; }
+        else { self.head = next; }
 
-        if !next.is_null() {
-            (*next).prev = prev;
-        } else {
-            self.tail = prev;
-        }
+        if !next.is_null() { (*next).prev = prev; }
+        else { self.tail = prev; }
 
         (*node).prev = ptr::null_mut();
         (*node).next = ptr::null_mut();
@@ -1569,17 +462,9 @@ where
 
     unsafe fn attach_front(&mut self, node: *mut LruNode<K, V>) {
         (*node).next = self.head;
-        (*node).prev = ptr::null_mut();
-
-        if !self.head.is_null() {
-            (*self.head).prev = node;
-        }
-
+        if !self.head.is_null() { (*self.head).prev = node; }
         self.head = node;
-
-        if self.tail.is_null() {
-            self.tail = node;
-        }
+        if self.tail.is_null() { self.tail = node; }
     }
 }
 
@@ -1596,151 +481,265 @@ impl<K, V> Drop for LruCache<K, V> {
     }
 }
 
-fn main() {
-    println!("=== Intrusive List ===\n");
+// Usage
+let mut cache = LruCache::new(2);
+cache.put("a", 1);
+cache.put("b", 2);
+cache.get(&"a");      // "a" becomes most recent
+cache.put("c", 3);    // Evicts "b" (least recent)
+assert!(cache.get(&"b").is_none());
+```
 
-    let mut list = IntrusiveList::new();
+## Pattern 4: Memory Layout Optimization
 
-    list.push_front(3);
-    list.push_front(2);
-    list.push_front(1);
+**Problem**: Poor struct layout wastes memory (padding) and hurts cache performance. False sharing destroys multi-threaded performance.
 
-    println!("List items:");
-    for item in list.iter() {
-        println!("  {}", item);
+**Solution**: Order fields by alignment, use repr attributes, pad to cache lines.
+
+**Why It Matters**: In high-performance code, memory layout directly impacts speed. A 50% size reduction means 50% more data fits in cache. Eliminating false sharing can provide 10x speedup in multi-threaded hot paths. These optimizations are essential for games, databases, and scientific computing.
+
+### Example: Field Ordering
+
+Order fields largest to smallest alignment to minimize padding. Without `#[repr(C)]` compiler may reorder, but explicit ordering documents intent. Can cut struct size by 30-50%.
+
+```rust
+// Bad: 24 bytes with padding
+#[repr(C)]
+struct Unoptimized {
+    a: u8,      // 1 byte + 7 padding
+    b: u64,     // 8 bytes
+    c: u8,      // 1 byte + 7 padding
+}               // Total: 24 bytes
+
+// Good: 16 bytes
+#[repr(C)]
+struct Optimized {
+    b: u64,     // 8 bytes (largest first)
+    a: u8,      // 1 byte
+    c: u8,      // 1 byte + 6 padding
+}               // Total: 16 bytes
+
+assert_eq!(std::mem::size_of::<Unoptimized>(), 24);
+assert_eq!(std::mem::size_of::<Optimized>(), 16);
+```
+
+### Example: Cache Line Alignment
+
+Prevent false sharing by padding to cache line boundaries (64 bytes on x86). False sharing: threads modify different variables on same cache line, causing bounce between cores—destroys parallel performance.
+
+```rust
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+const CACHE_LINE: usize = 64;
+
+#[repr(align(64))]
+struct Padded<T> {
+    value: T,
+}
+
+struct Counters {
+    counter1: Padded<AtomicUsize>,  // Own cache line
+    counter2: Padded<AtomicUsize>,  // Own cache line
+}
+
+// Usage: Threads can update counters without false sharing
+let counters = Counters {
+    counter1: Padded { value: AtomicUsize::new(0) },
+    counter2: Padded { value: AtomicUsize::new(0) },
+};
+
+// Thread 1 updates counter1, Thread 2 updates counter2
+// No cache line bouncing between cores
+counters.counter1.value.fetch_add(1, Ordering::Relaxed);
+```
+
+### Example: Optimizing Enum Size
+
+Enums sized to largest variant—one large variant bloats all. Box large variants to keep enum small. Important for recursive types and enums in collections.
+
+```rust
+// Bad: 1024+ bytes for every instance
+enum Large {
+    Small(u8),
+    Big([u8; 1024]),
+}
+
+// Good: ~16 bytes (pointer + discriminant)
+enum Optimized {
+    Small(u8),
+    Big(Box<[u8; 1024]>),
+}
+
+assert!(std::mem::size_of::<Large>() > 1024);
+assert!(std::mem::size_of::<Optimized>() <= 16);
+```
+
+### Example: Struct of Arrays (SoA) for Cache Efficiency
+
+When loops access single field across many objects, SoA maximizes cache utilization. AoS loads entire structs; SoA keeps fields contiguous for efficient CPU prefetching.
+
+```rust
+// Array of Structs: poor locality when accessing single field
+struct ParticleAoS {
+    position: [f32; 3],
+    velocity: [f32; 3],
+    mass: f32,
+}
+
+fn update_aos(particles: &mut [ParticleAoS]) {
+    for p in particles {
+        // CPU loads entire struct even though we only need position and velocity
+        p.position[0] += p.velocity[0];
     }
+}
 
-    while let Some(item) = list.pop_front() {
-        println!("Popped: {}", item);
+// Struct of Arrays: excellent locality
+struct ParticlesSoA {
+    positions_x: Vec<f32>,
+    velocities_x: Vec<f32>,
+}
+
+impl ParticlesSoA {
+    fn update(&mut self) {
+        // positions_x is contiguous; CPU prefetches efficiently
+        for i in 0..self.positions_x.len() {
+            self.positions_x[i] += self.velocities_x[i];
+        }
     }
-
-    println!("\n=== LRU Cache ===\n");
-
-    let mut cache = LruCache::new(3);
-
-    cache.put("a", 1);
-    cache.put("b", 2);
-    cache.put("c", 3);
-
-    println!("Get a: {:?}", cache.get(&"a"));
-    println!("Get b: {:?}", cache.get(&"b"));
-
-    cache.put("d", 4); // Evicts c (least recently used)
-
-    println!("Get c (evicted): {:?}", cache.get(&"c"));
-    println!("Get d: {:?}", cache.get(&"d"));
 }
 ```
 
-**Intrusive List Benefits**:
-- **No extra allocations**: Node is part of data
-- **Cache-friendly**: Better locality
-- **Constant-time removal**: No search needed
-- **Use case**: Kernel data structures, high-performance caches
+## Pattern 5: Generational Indices
 
----
+**Problem**: Vec indices are unstable—removing elements invalidates subsequent indices. Stale indices cause use-after-free bugs.
 
-## Pattern 5: Reference Counting Optimization
+**Solution**: Pair index with generation counter. When slot is reused, generation increments. Stale handles have wrong generation.
 
-**Problem**: Reference counting adds overhead—every Rc::clone increments counter, every drop decrements. Excessive cloning wastes CPU cycles.
+**Why It Matters**: Entity-Component-System (ECS) architectures, game engines, and object pools all need stable handles to objects that may be created and destroyed frequently. Generational indices provide safe, O(1) access without the overhead of Rc/Arc and without use-after-free bugs.
 
-**Solution**: Borrow (&Rc<T>) instead of clone when possible. Use try_unwrap to get owned data if sole owner.
+### Example: Generational Arena
 
-**Why It Matters**: Rc::clone costs ~10ns, borrow costs ~0ns. Hot loop with 1M iterations: Rc clone wastes 10ms, borrow is free.
+Handle contains index + generation counter. When slot reused, generation increments, invalidating old handles. Safe access without refcounting; catches stale handles at runtime.
 
-**Use Cases**: Hot loops (avoid clones), string interning (deduplication), temporary access (use borrows), sole ownership extraction (try_unwrap), conditional mutation (Cow), profiling-guided optimization.
+```rust
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Handle {
+    index: usize,
+    generation: u64,
+}
 
+struct Slot<T> {
+    value: Option<T>,
+    generation: u64,
+}
 
-### Example: Reference Counting Optimizations
- Reduce the overhead of reference counting operations.
+struct GenArena<T> {
+    slots: Vec<Slot<T>>,
+    free_list: Vec<usize>,
+}
 
+impl<T> GenArena<T> {
+    fn new() -> Self {
+        GenArena { slots: Vec::new(), free_list: Vec::new() }
+    }
+
+    fn insert(&mut self, value: T) -> Handle {
+        if let Some(index) = self.free_list.pop() {
+            let slot = &mut self.slots[index];
+            slot.generation += 1;
+            slot.value = Some(value);
+            Handle { index, generation: slot.generation }
+        } else {
+            let index = self.slots.len();
+            self.slots.push(Slot { value: Some(value), generation: 0 });
+            Handle { index, generation: 0 }
+        }
+    }
+
+    fn get(&self, handle: Handle) -> Option<&T> {
+        self.slots.get(handle.index)
+            .filter(|slot| slot.generation == handle.generation)
+            .and_then(|slot| slot.value.as_ref())
+    }
+
+    fn remove(&mut self, handle: Handle) -> Option<T> {
+        let slot = self.slots.get_mut(handle.index)?;
+        if slot.generation != handle.generation {
+            return None;
+        }
+        self.free_list.push(handle.index);
+        slot.value.take()
+    }
+}
+
+// Usage: Handles remain valid even after removals
+let mut arena = GenArena::new();
+let h1 = arena.insert("first");
+let h2 = arena.insert("second");
+
+arena.remove(h1);  // Slot 0 freed, generation incremented
+
+let h3 = arena.insert("third");  // Reuses slot 0 with new generation
+
+// Old handle is safely rejected
+assert!(arena.get(h1).is_none());  // Stale handle!
+assert_eq!(arena.get(h3), Some(&"third"));
+```
+
+## Pattern 6: Reference Counting Optimization
+
+**Problem**: Rc::clone costs ~10ns per call. In hot loops, unnecessary clones waste CPU.
+
+**Solution**: Borrow `&Rc<T>` instead of cloning when possible. Use try_unwrap to avoid clones when you're the sole owner.
+
+**Why It Matters**: In hot paths, even 10ns per operation adds up. A million unnecessary clones costs 10ms—noticeable in games running at 60fps (16ms budget) or in high-throughput servers. These micro-optimizations compound in real applications.
+
+### Example: Borrow Instead of Clone
+
+Borrow through Deref instead of cloning Rc when you only need to read. Rc::clone has ~10ns overhead (atomic for Arc). Reserve cloning for when you actually need shared ownership.
 
 ```rust
 use std::rc::Rc;
-use std::sync::Arc;
 
-```
-
-### Example: Avoid unnecessary clones
-This example shows how to avoid unnecessary clones in practice, emphasizing why it works.
-
-```rust
-
-fn inefficient_clones(data: &Rc<Vec<i32>>) {
-    // Bad: Clone for every operation
-    let clone1 = Rc::clone(data);
-    println!("Length: {}", clone1.len());
-
-    let clone2 = Rc::clone(data);
-    println!("First: {}", clone2[0]);
+// Bad: Clones on every call
+fn inefficient(data: &Rc<Vec<i32>>) {
+    let clone = Rc::clone(data);  // Unnecessary!
+    println!("{}", clone.len());
 }
 
-fn efficient_borrows(data: &Rc<Vec<i32>>) {
-    // Good: Borrow directly
-    println!("Length: {}", data.len());
-    println!("First: {}", data[0]);
+// Good: Borrow through Deref
+fn efficient(data: &Rc<Vec<i32>>) {
+    println!("{}", data.len());  // No clone needed
 }
 
+// Benchmark: 1M iterations
+// inefficient: ~10ms (clone + drop overhead)
+// efficient: ~1ms (just function calls)
 ```
 
-### Example: Make owned data when possible
-This example shows how to make owned data when possible in practice, emphasizing why it works.
+### Example: try_unwrap for Sole Owner
+
+`try_unwrap` returns inner value without cloning if refcount is 1. Falls back to clone only when shared—eliminates redundant copies in common cases.
 
 ```rust
+use std::rc::Rc;
 
 fn make_owned(data: Rc<Vec<i32>>) -> Vec<i32> {
-    // Try to unwrap if we're the only owner
+    // If we're the only owner, unwrap without cloning
     Rc::try_unwrap(data).unwrap_or_else(|rc| (*rc).clone())
 }
 
+// Usage
+let data = Rc::new(vec![1, 2, 3]);
+let owned = make_owned(data);  // No clone: we were sole owner
 ```
 
-### Example: Batch reference counting updates
-This example shows how to batch reference counting updates in practice, emphasizing why it works.
+### Example: String Interning
+
+Deduplicate strings so identical values share single allocation via map from content to Rc<str>. Common in compilers, JSON parsers, apps with repeated strings.
 
 ```rust
-
-fn batch_updates() {
-    let data = Rc::new(vec![1, 2, 3, 4, 5]);
-
-    // Bad: Multiple increments/decrements
-    {
-        let _clone1 = Rc::clone(&data);
-        let _clone2 = Rc::clone(&data);
-        let _clone3 = Rc::clone(&data);
-    }
-
-    // Better: Pass references when possible
-    {
-        process_data(&data);
-        process_data(&data);
-        process_data(&data);
-    }
-}
-
-fn process_data(data: &Rc<Vec<i32>>) {
-    println!("Processing {} items", data.len());
-}
-
-```
-
-### Example: Use Cow for clone-on-write
-This example shows how to use Cow for clone-on-write in practice, emphasizing why it works.
-
-```rust
-
-use std::borrow::Cow;
-
-fn process_string(s: Cow<str>) -> Cow<str> {
-    if s.contains("replace") {
-        // Need to modify - convert to owned
-        Cow::Owned(s.replace("replace", "replaced"))
-    } else {
-        // No modification - keep borrowed
-        s
-    }
-}
-// Real-world: String interning with Rc
+use std::rc::Rc;
 use std::collections::HashMap;
 
 struct StringInterner {
@@ -1749,44 +748,33 @@ struct StringInterner {
 
 impl StringInterner {
     fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
+        StringInterner { map: HashMap::new() }
     }
 
     fn intern(&mut self, s: &str) -> Rc<str> {
         if let Some(interned) = self.map.get(s) {
-            // Already interned - just clone Rc
             Rc::clone(interned)
         } else {
-            // Not interned - create new Rc<str>
             let rc: Rc<str> = Rc::from(s);
             self.map.insert(s.to_string(), Rc::clone(&rc));
             rc
         }
     }
-
-    fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    fn memory_saved(&self, total_strings: usize) -> usize {
-        // Estimate memory saved by interning
-        let unique = self.len();
-        let duplicates = total_strings - unique;
-        duplicates * std::mem::size_of::<String>()
-    }
 }
-let mut interner = StringInterner::new(); let s = interner.intern("hello");
 
+// Usage: Repeated strings share allocation
+let mut interner = StringInterner::new();
+let s1 = interner.intern("hello");
+let s2 = interner.intern("hello");  // Returns same Rc
+assert!(Rc::ptr_eq(&s1, &s2));      // Same allocation!
 ```
 
-### Example: Weak upgrades to avoid clones
-This example shows how to weak upgrades to avoid clones in practice, emphasizing why it works.
+### Example: Weak for Non-Owning References
+
+Weak observes without preventing deallocation. `upgrade()` returns None if data dropped. Essential for observer patterns, caches, breaking reference cycles.
 
 ```rust
-
-use std::rc::Weak;
+use std::rc::{Rc, Weak};
 
 struct Observer {
     subject: Weak<Vec<i32>>,
@@ -1794,182 +782,50 @@ struct Observer {
 
 impl Observer {
     fn observe(&self) {
-        // Upgrade temporarily, don't keep strong reference
-        if let Some(subject) = self.subject.upgrade() {
-            println!("Observing: {} items", subject.len());
+        // Temporarily upgrade to access data
+        if let Some(data) = self.subject.upgrade() {
+            println!("Observed: {} items", data.len());
         }
+        // Rc dropped immediately, no permanent ownership
     }
 }
-let data = Rc::new(vec![1,2,3]); let obs = Observer { subject: Rc::downgrade(&data) };
 
+// Usage
+let data = Rc::new(vec![1, 2, 3]);
+let observer = Observer { subject: Rc::downgrade(&data) };
+observer.observe();  // "Observed: 3 items"
+drop(data);
+observer.observe();  // Nothing (data is gone)
 ```
-
-### Example: Arc performance comparison
-This example shows how to arc performance comparison while calling out the practical trade-offs.
-
-```rust
-
-fn arc_performance_test() {
-    use std::time::Instant;
-
-    let data = Arc::new(vec![0; 1_000_000]);
-
-    // Test 1: Many Arc clones
-    let start = Instant::now();
-    let mut clones = Vec::new();
-    for _ in 0..1000 {
-        clones.push(Arc::clone(&data));
-    }
-    let clone_time = start.elapsed();
-
-    drop(clones);
-
-    // Test 2: Many borrows (no cloning)
-    let start = Instant::now();
-    for _ in 0..1000 {
-        let _borrow = &data;
-    }
-    let borrow_time = start.elapsed();
-
-    println!("Arc clone time: {:?}", clone_time);
-    println!("Borrow time: {:?}", borrow_time);
-    println!("Speedup: {:.2}x", clone_time.as_nanos() as f64 / borrow_time.as_nanos() as f64);
-}
-
-```
-
-### Example: Rc vs owned in hot loops
-This example shows how to rc vs owned in hot loops while calling out the practical trade-offs.
-
-```rust
-
-fn rc_vs_owned_benchmark() {
-    use std::time::Instant;
-
-    let data = vec![1, 2, 3, 4, 5];
-
-    // With Rc (reference counting overhead)
-    let start = Instant::now();
-    let rc_data = Rc::new(data.clone());
-    for _ in 0..1_000_000 {
-        let _clone = Rc::clone(&rc_data);
-    }
-    let rc_time = start.elapsed();
-
-    // With owned (no overhead but more memory)
-    let start = Instant::now();
-    for _ in 0..1_000_000 {
-        let _clone = data.clone();
-    }
-    let owned_time = start.elapsed();
-
-    println!("Rc clones: {:?}", rc_time);
-    println!("Owned clones: {:?}", owned_time);
-}
-```
-### Usage
-
-```rust
-fn main() {
-    println!("=== Efficient vs Inefficient ===\n");
-
-    let data = Rc::new(vec![1, 2, 3, 4, 5]);
-    println!("Ref count: {}", Rc::strong_count(&data));
-
-    efficient_borrows(&data);
-    println!("After borrows: {}", Rc::strong_count(&data));
-
-    println!("\n=== Make Owned ===\n");
-
-    let data = Rc::new(vec![1, 2, 3]);
-    println!("Initial ref count: {}", Rc::strong_count(&data));
-
-    let owned = make_owned(data);
-    println!("Owned data: {:?}", owned);
-
-    println!("\n=== String Interning ===\n");
-
-    let mut interner = StringInterner::new();
-
-    let strings = vec!["hello", "world", "hello", "rust", "world", "hello"];
-    let mut interned = Vec::new();
-
-    for s in &strings {
-        interned.push(interner.intern(s));
-    }
-
-    println!("Total strings: {}", strings.len());
-    println!("Unique strings: {}", interner.len());
-    println!("Memory saved: ~{} bytes", interner.memory_saved(strings.len()));
-
-    println!("\n=== Arc Performance ===\n");
-    arc_performance_test();
-
-    println!("\n=== Rc vs Owned ===\n");
-    rc_vs_owned_benchmark();
-}
-```
-
-**Optimization Strategies**:
-1. **Borrow instead of clone**: Use `&Rc<T>` instead of `Rc::clone()`
-2. **try_unwrap**: Get owned data if only owner
-3. **Weak references**: Avoid strong references when possible
-4. **String interning**: Share common strings
-5. **Cow**: Clone-on-write for conditional modification
-6. **Profile**: Measure before optimizing
 
 ---
 
-### Summary
+## Performance Summary
 
-This chapter covered smart pointer patterns in Rust:
+| Pattern | Allocation | Access | Best Use Case |
+|---------|------------|--------|---------------|
+| Custom Ptr | O(1) heap | O(1) | Logging, lazy init, specialized behavior |
+| Intrusive Rc | O(1) heap | O(1) + count | Many small shared objects |
+| Intrusive List | O(1) heap | O(1) | O(1) removal, cache locality |
+| GenArena | O(1) | O(1) | Stable handles, ECS patterns |
 
-1. **Box, Rc, Arc**: Heap allocation, single-threaded sharing, thread-safe sharing
-2. **Weak References**: Prevent cycles, observer pattern, caches
-3. **Custom Smart Pointers**: Deref, Drop, logging, lazy initialization
-4. **Intrusive Structures**: Embedded pointers, LRU cache, kernel-style lists
-5. **RC Optimization**: Avoid clones, try_unwrap, string interning, Cow
+## When to Use Each Pattern
 
-**Key Takeaways**:
-- **Box**: Heap allocation, recursive types, trait objects
-- **Rc**: Single-threaded shared ownership
-- **Arc**: Thread-safe shared ownership (atomic overhead)
-- **Weak**: Break cycles, prevent memory leaks
-- **Custom pointers**: Deref + Drop for domain logic
-- **Intrusive**: Embed pointers for efficiency
+| Pattern | Use When |
+|---------|----------|
+| Custom smart pointer | Need specialized behavior (logging, lazy init) |
+| Intrusive Rc | Many small objects, cache matters |
+| Intrusive list | Need O(1) removal, cache locality |
+| LRU cache | Fixed capacity, O(1) operations |
+| Memory alignment | Multi-threaded counters, SIMD |
+| SoA layout | Hot loops accessing single field |
+| Generational index | ECS, object pools, stable handles |
+| Rc optimization | Hot paths where clone overhead matters |
 
-**Smart Pointer Selection Guide**:
+## Safety Notes
 
-| Pattern | Use Case | Thread-Safe | Overhead |
-|---------|----------|-------------|----------|
-| Box | Heap allocation, recursion | No | Minimal |
-| Rc | Shared ownership (single-thread) | No | Reference counting |
-| Arc | Shared ownership (multi-thread) | Yes | Atomic RC |
-| Weak | Break cycles, observers | Depends | Weak counter |
-| RefCell + Rc | Interior mutability | No | Runtime checks |
-| Mutex + Arc | Shared mutable state | Yes | Lock overhead |
-
-**Common Patterns**:
-- **Rc<RefCell<T>>**: Single-threaded shared mutation
-- **Arc<Mutex<T>>**: Multi-threaded shared mutation
-- **Arc<RwLock<T>>**: Read-heavy multi-threaded
-- **Weak<T>**: Observer, cache, parent pointers
-
-**Performance Tips**:
-- Borrow `&Rc<T>` instead of cloning
-- Use `try_unwrap` to get owned data
-- Intern strings to reduce duplicates
-- Profile before optimizing RC
-- Consider `Cow` for conditional cloning
-
-**Memory Leak Prevention**:
-- Use Weak for back-references
-- Break cycles in Drop
-- Use Weak in observer pattern
-- Profile with valgrind/leak sanitizer
-
-**Safety**:
-- Smart pointers are safe (type-checked)
-- Custom pointers need unsafe (be careful!)
-- Rc/Arc prevent use-after-free
-- Weak prevents dangling pointers
+- Custom smart pointers require `unsafe`—ensure proper Drop implementation
+- Intrusive structures need careful lifetime management
+- Generational indices prevent use-after-free but not double-free
+- Memory layout changes can break FFI compatibility
+- Always test with Miri for undefined behavior detection

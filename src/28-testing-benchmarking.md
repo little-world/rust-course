@@ -13,6 +13,8 @@ This chapter explores Rust's testing ecosystem end-to-end: built-in unit tests, 
 
 ### Example: The Basics of Rust Testing
 
+ fundamental Rust testing with `#[test]` attribute and `assert_eq!` macro. Tests are organized in a module with `#[cfg(test)]` to exclude them from production builds. Run tests using `cargo test` command.
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -37,7 +39,7 @@ The `#[cfg(test)]` attribute ensures test modules only compile during testing. T
 
 ### Example: Assertion Macros
 
-Rust provides several assertion macros for different scenarios:
+This example showcases Rust's assertion macros: `assert_eq!` for equality, `assert_ne!` for inequality, and `assert!` for boolean conditions. Custom error messages provide debugging context when tests fail, making failures easier to diagnose.
 
 ```rust
 #[test]
@@ -62,7 +64,7 @@ The `assert_eq!` and `assert_ne!` macros provide better error messages than `ass
 
 ### Example: Testing Error Cases
 
-Good tests verify both success and failure paths. Rust makes this elegant:
+ testing Result-returning functions for both success and error paths. It uses `is_err()` for simple error checking and pattern matching for validating specific error messages. Testing error cases catches bugs in rarely-exercised failure branches.
 
 ```rust
 fn divide(a: i32, b: i32) -> Result<i32, String> {
@@ -101,7 +103,7 @@ Testing error cases is crucial—many bugs lurk in error paths because they're h
 
 ### Example: Testing Panics
 
-Some functions should panic in certain conditions. Test this with `#[should_panic]`:
+ how to test functions that should panic using `#[should_panic]` attribute. The `expected` parameter verifies the panic message contains specific text, ensuring panics occur for the correct reason rather than unrelated bugs.
 
 ```rust
 fn validate_age(age: u32) {
@@ -132,7 +134,7 @@ The `expected` parameter verifies that the panic message contains specific text,
 
 ### Example: Organizing Tests
 
-As codebases grow, test organization becomes important. Here are common patterns:
+ organizing tests using nested modules within `#[cfg(test)]`. Related tests are grouped by functionality (addition, multiplication), making large test suites easier to navigate, maintain, and selectively run using cargo test filters.
 
 ```rust
 pub fn add(a: i32, b: i32) -> i32 {
@@ -186,7 +188,7 @@ Nested modules help organize related tests, making the test suite easier to navi
 
 ### Example: Test Setup and Teardown
 
-Sometimes tests need setup or cleanup. Rust doesn't have built-in setup/teardown hooks, but you can use regular Rust patterns:
+This example implements test fixtures using RAII pattern with a `TestContext` struct. The `Drop` trait ensures automatic cleanup of temporary directories, even when tests panic. This pattern guarantees resources are released without explicit teardown calls.
 
 ```rust
 struct TestContext {
@@ -226,7 +228,7 @@ This pattern uses RAII (Resource Acquisition Is Initialization) for automatic cl
 
 ### Example: Ignoring and Filtering Tests
 
-During development, you might want to skip expensive or unfinished tests:
+ the `#[ignore]` attribute for skipping slow or incomplete tests during normal test runs. Ignored tests can include optional reason strings and are executed separately with `cargo test -- --ignored` flag.
 
 ```rust
 #[test]
@@ -257,7 +259,7 @@ cargo test math::tests::addition_tests
 
 ### Example: Testing Private Functions
 
-Tests in the same file can access private functions:
+ that tests within a `#[cfg(test)]` module can access private functions via `use super::*`. This deliberate design allows testing internal implementation details alongside public API verification, enabling thorough unit test coverage.
 
 ```rust
 fn internal_helper(x: i32) -> i32 {
@@ -297,7 +299,7 @@ This is a deliberate design decision. Tests in the same module are part of the i
 
 **Use Cases**: Pure functions, data-structure invariants, serialization round-trips, parsers, crypto/compression transforms, and deterministic state machines.
 
-## Example: Can do better
+### Example: Can do better
 ```rust
 fn sort(mut vec: Vec<i32>) -> Vec<i32> {
     vec.sort();
@@ -323,7 +325,7 @@ You could write tests for each case, but you'd still miss edge cases. Property-b
 
 ### Example: Introduction to proptest
 
-proptest is Rust's leading property-based testing library. It generates random test cases and verifies your properties hold:
+This example introduces proptest for property-based testing with the `proptest!` macro. It verifies sorting invariants: preserved length, sorted order, and element preservation. Proptest generates hundreds of random inputs and shrinks failures to minimal cases.
 
 ```rust
 // Add to Cargo.toml:
@@ -356,7 +358,7 @@ proptest generates hundreds of random vectors and verifies all three properties 
 
 ### Example: Shrinking: Finding Minimal Failing Cases
 
-Shrinking is proptest's killer feature. When a test fails, proptest tries smaller, simpler inputs to find the smallest case that still fails:
+ proptest's automatic shrinking feature. When `buggy_absolute_value(i32::MIN)` overflows, proptest reduces the failing input from a random large number to the minimal reproducer: `i32::MIN`, simplifying debugging significantly.
 
 ```rust
 fn buggy_absolute_value(x: i32) -> i32 {
@@ -380,7 +382,7 @@ This test fails because `buggy_absolute_value(i32::MIN)` panics (overflow). prop
 
 ### Example: Custom Generators
 
-Sometimes you need specific input patterns:
+ creating custom proptest generators using `prop_compose!` macro. It generates constrained vectors (length 1-100) and structured strings (email-like patterns) using regex syntax, enabling focused testing on realistic domain-specific inputs.
 
 ```rust
 use proptest::prelude::*;
@@ -422,14 +424,15 @@ Custom generators let you focus testing on realistic inputs while still getting 
 
 ### Example: Testing Invariants
 
-Property-based testing excels at verifying invariants—properties that should always hold:
+This example tests HashMap merging invariants with proptest: all keys preserved, values summed correctly, and identity with empty maps. These properties completely specify the function's behavior without enumerating specific test cases manually.
 
 ```rust
 use std::collections::HashMap;
 
 fn merge_maps(mut a: HashMap<String, i32>, b: HashMap<String, i32>) -> HashMap<String, i32> {
     for (k, v) in b {
-        *a.entry(k).or_insert(0) += v;
+        let entry = a.entry(k).or_insert(0);
+        *entry = entry.saturating_add(v);  // Prevent overflow
     }
     a
 }
@@ -447,9 +450,9 @@ proptest! {
             prop_assert!(merged.contains_key(key));
         }
 
-        // Property 2: Values are summed correctly
+        // Property 2: Values are summed correctly (with saturation)
         for key in merged.keys() {
-            let expected = a.get(key).unwrap_or(&0) + b.get(key).unwrap_or(&0);
+            let expected = a.get(key).unwrap_or(&0).saturating_add(*b.get(key).unwrap_or(&0));
             prop_assert_eq!(merged[key], expected);
         }
 
@@ -462,9 +465,9 @@ proptest! {
 
 These properties completely specify `merge_maps`' behavior without testing specific examples.
 
-### Example: QuickCheck 
+### Example: QuickCheck
 
-QuickCheck is another property-based testing library, inspired by Haskell's QuickCheck:
+ QuickCheck, an alternative property-based testing library using `#[quickcheck]` attribute. Properties return boolean values directly. It tests that reversing a vector twice yields the original and that concatenation preserves combined length.
 
 ```rust
 // Add to Cargo.toml:
@@ -520,6 +523,8 @@ It's less useful for:
 
 ### Example: Setting Up cargo-fuzz
 
+ initializing cargo-fuzz and creating a fuzz target. The `fuzz_target!` macro accepts raw bytes, attempts parsing, and verifies round-trip serialization. Crashes are saved to `fuzz/artifacts/` for later investigation and regression testing.
+
 ```bash
 cargo install cargo-fuzz
 cargo fuzz init
@@ -545,6 +550,8 @@ Run it with `cargo fuzz run parse_expr`. Crashes are saved in `fuzz/artifacts/pa
 
 ### Example: Fuzzing Structured Inputs with `arbitrary`
 
+ structured fuzzing using the `arbitrary` crate with `#[derive(Arbitrary)]`. Instead of raw bytes, the fuzzer generates typed `Request` structs with method, path, and body fields, enabling deeper protocol-level coverage.
+
 ```rust
 #![no_main]
 use arbitrary::Arbitrary;
@@ -566,7 +573,7 @@ The `arbitrary` derive creates structured random data (methods, paths, payloads)
 
 ### Example: Sanitizers and CI
 
-Enable sanitizers to catch undefined behavior:
+ enabling AddressSanitizer via RUSTFLAGS to detect memory errors during fuzzing. The `-max_total_time` flag bounds CI runs to 60 seconds. Corpus storage enables incremental progress across fuzzing sessions.
 
 ```bash
 RUSTFLAGS="-Zsanitizer=address" \
@@ -594,6 +601,8 @@ Store the corpus to reuse progress between runs.
 
 ### Example: cargo-mutants Workflow
 
+ mutation testing with cargo-mutants. The tool modifies operators (like `>` to `>=`) and reports which mutations survive your test suite. Surviving mutants reveal weak assertions that need strengthening.
+
 ```bash
 cargo install cargo-mutants
 cargo mutants
@@ -610,7 +619,7 @@ Add or strengthen tests until important mutants die, then re-run with `cargo mut
 
 ### Example: Targeted Mutants
 
-Focus on hot modules:
+ focused mutation testing on specific modules using `--mutate` flags. The `--list` option previews generated mutants before execution. Targeting critical paths like pricing and tax logic maximizes mutation testing effectiveness.
 
 ```bash
 cargo mutants --mutate src/pricing.rs --mutate src/tax.rs
@@ -620,7 +629,7 @@ Pair with `--list` to inspect generated mutants before running them.
 
 ### Example: Mutagen Annotations
 
-`mutagen` instruments code at compile time:
+ the mutagen crate for compile-time mutation testing. The `#[mutagen::mutate]` attribute instruments functions conditionally during tests. Running with `RUSTFLAGS="--cfg mutate"` generates and tests mutants automatically inline.
 
 ```rust
 // Cargo.toml
@@ -648,6 +657,8 @@ Running `cargo test` under `RUSTFLAGS="--cfg mutate"` generates mutants on the f
 
 ### Example: Verifying a Safe Add
 
+This example uses Kani model checker with `#[kani::proof]` to formally verify `checked_add`. The `kani::any()` function creates symbolic values representing all possible u32 inputs, proving the postcondition holds for every combination.
+
 ```rust
 // src/lib.rs
 pub fn checked_add(a: u32, b: u32) -> Option<u32> {
@@ -667,6 +678,8 @@ fn checked_add_never_wraps() {
 Run `cargo kani proofs/add.rs`. Kani symbolically explores all `u32` combinations and proves the postcondition.
 
 ### Example: Proving State Machines
+
+This example verifies a door state machine using Kani. The proof explores all boolean input combinations for two transitions, asserting the door never reaches an invalid state. Model checking guarantees correctness across all execution paths.
 
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -706,7 +719,7 @@ For more complex models, consider Prusti or Creusot for contract-based verificat
 
 ### Example: Trait-Based Mocking
 
-The most idiomatic approach uses traits:
+ idiomatic Rust mocking through trait abstraction. `EmailService` trait enables swapping `SmtpEmailService` (production) with `MockEmailService` (tests). The mock records sent emails for verification without external dependencies.
 
 ```rust
 // Define a trait for the dependency
@@ -799,7 +812,7 @@ This pattern is powerful: the real code uses `EmailService` trait, tests use `Mo
 
 ### Example: Using mockall for Advanced Mocking
 
-For complex mocking needs, the `mockall` crate provides a powerful framework:
+This example uses mockall's `#[automock]` attribute to auto-generate mock implementations. It demonstrates setting expectations with `expect_get_user()`, argument matching via `eq()`, call count verification with `times()`, and custom return values.
 
 ```rust
 // Add to Cargo.toml:
@@ -852,7 +865,7 @@ mockall automatically generates mock implementations and verifies expectations, 
 
 ### Example: Dependency Injection Patterns
 
-Dependency injection makes testing easier by making dependencies explicit:
+This example contrasts hard-coded dependencies with trait-based dependency injection. `PaymentProcessor<G: PaymentGateway>` accepts any gateway implementation, enabling `MockGateway` injection for testing success and failure scenarios without real API calls.
 
 ```rust
 // Poor: Hard to test
@@ -924,8 +937,8 @@ This pattern—using traits for dependencies and injecting implementations—is 
 
 ### Example: Test Doubles for I/O
 
-File system and network operations need special handling:
- 
+This example implements a `FileSystem` trait with `RealFileSystem` for production and `FakeFileSystem` using in-memory HashMap for testing. The fake provides fast, deterministic file operations without touching the actual filesystem.
+
 ```rust
 trait FileSystem {
     fn read_file(&self, path: &str) -> std::io::Result<String>;
@@ -1007,6 +1020,9 @@ This fake is fast, deterministic, and doesn't touch the actual file system.
 **Use Cases**: Web stacks (HTTP + DB + cache), CLI binaries, public libraries, migrations, multi-step business flows, and workspace crates that must interoperate.
 
 ### Example: Integration Tests Structure
+
+ The standard Rust project layout for integration tests. Files in `tests/` directory compile as separate crates with access only to public APIs. The `common/` subdirectory holds shared test utilities without being treated as tests.
+
 ```
 my_project/
 ├── src/
@@ -1036,7 +1052,7 @@ Integration tests only have access to your crate's public API, just like externa
 
 ### Example: Common Test Code
 
-Shared test utilities go in `tests/common/`:
+ Sharing test utilities via `tests/common/mod.rs`. Helper functions like `setup_test_database()` and `create_test_user()` are imported with `mod common;`. The `mod.rs` naming prevents Rust from treating common as a test file.
 
 ```rust
 // tests/common/mod.rs
@@ -1072,7 +1088,7 @@ The `common/mod.rs` pattern prevents Rust from treating `common` as a test file.
 
 ### Example: Testing Binary Crates
 
-Binary crates can be tested by moving logic to a library:
+ The library extraction pattern for testing binaries. Business logic lives in `lib.rs` as testable functions, while `main.rs` remains a thin wrapper. Integration tests in `tests/` can then import and verify application logic directly.
 
 ```
 my_binary/
@@ -1112,7 +1128,7 @@ This structure makes the binary testable while keeping `main.rs` simple.
 
 ### Example: Database Integration Tests
 
-Testing with real databases requires setup and teardown:
+ Database integration testing with sqlx. Setup connects to a test database, runs migrations, and truncates tables. Transaction-based isolation wraps each test in a rollback, enabling parallel execution without cleanup overhead.
 
 ```rust
 use sqlx::PgPool;
@@ -1192,7 +1208,7 @@ This pattern runs tests in isolation without slow database cleanup.
 
 ### Example: HTTP Integration Tests
 
-Testing HTTP servers requires starting a test server:
+ HTTP integration testing with axum. The `oneshot()` method tests handlers without starting a server. For end-to-end tests, `TcpListener::bind("127.0.0.1:0")` allocates a random port for full HTTP request testing.
 
 ```rust
 use axum::{Router, routing::get};
@@ -1271,6 +1287,8 @@ async fn test_full_server() {
 
 ### Example: Basic Criterion Benchmarks
 
+ Criterion benchmarking setup with `criterion_group!` and `criterion_main!` macros. The `black_box` function prevents compiler optimizations. Criterion runs multiple iterations, removes outliers, and reports statistical timing results.
+
 ```rust
 // Add to Cargo.toml:
 // [dev-dependencies]
@@ -1308,7 +1326,7 @@ The `black_box` function prevents the compiler from optimizing away the computat
 
 ### Example: Comparing Implementations
 
-Benchmark multiple implementations to choose the best:
+This example benchmarks three sum implementations: explicit loop, iterator `sum()`, and `fold()`. Using `BenchmarkId` within a benchmark group enables side-by-side comparison. Criterion generates graphs showing which implementation performs fastest.
 
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
@@ -1357,7 +1375,7 @@ Criterion generates comparative graphs showing which implementation is fastest.
 
 ### Example: Parameterized Benchmarks
 
-Benchmark across different input sizes:
+ parameterized benchmarking across input sizes (10 to 10000 elements). Using `BenchmarkId::from_parameter` labels each run by size. This reveals algorithmic scaling behavior and helps identify performance cliffs at specific thresholds.
 
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
@@ -1387,7 +1405,7 @@ This reveals how performance scales with input size—crucial for understanding 
 
 ### Example: Throughput Measurement
 
-Measure operations per second or bytes per second:
+This example measures parsing throughput using `Throughput::Bytes`. Criterion reports both execution time and bytes-per-second metrics (e.g., "37.8 MiB/s"), useful for comparing I/O-bound operations and understanding data processing capacity.
 
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
@@ -1425,7 +1443,7 @@ parse_throughput/parse  time:   [1.2034 ms 1.2156 ms 1.2289 ms]
 
 ### Example: Profiling Integration
 
-Criterion can integrate with profilers:
+This example integrates Criterion with pprof profiler to generate flamegraphs. The `PProfProfiler` samples at 100Hz during benchmarks, producing visual call-stack profiles that reveal where time is spent within benchmarked functions.
 
 ```rust
 use pprof::criterion::{Output, PProfProfiler};
@@ -1448,7 +1466,7 @@ This generates flamegraphs showing where time is spent.
 
 ### Example: Regression Testing
 
-Criterion saves baseline measurements:
+ Criterion's baseline comparison workflow. Save current performance with `--save-baseline master`, make changes, then compare with `--baseline master`. Criterion reports whether performance regressed, improved, or remained statistically unchanged.
 
 ```bash
 # Save current performance as baseline

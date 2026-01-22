@@ -13,6 +13,9 @@ This chapter explores performance optimization: profiling to find bottlenecks, a
 
 
 ### Example: Which bottleneck
+
+Why does profiling matter. A data processing pipeline has multiple potential bottlenecks: validation iterating characters, transformation allocating strings, or collection resizing. Without measurement, optimization guesses are usually wrong.
+
 ```rust
 // Which is the bottleneck?
 fn process_data(items: Vec<String>) -> Vec<String> {
@@ -35,7 +38,7 @@ You might guess `transform` is slow because it allocates. Or maybe `validate` be
 
 ### Example: CPU Profiling with perf
 
-On Linux, `perf` is the gold standard for CPU profiling:
+ Linux CPU profiling with perf and flamegraph generation. Build with debug symbols in release mode, record samples with call graphs, then visualize. Wide flamegraph bars indicate expensive functions; the y-axis shows call stack depth.
 
 ```bash
 # Build with debug symbols in release mode
@@ -66,7 +69,7 @@ Look for wide bars at the top—those are your bottlenecks.
 
 ### Example: Using cargo-flamegraph
 
-For easier flamegraph generation:
+ cargo-flamegraph example for simplified profiling. One command generates an interactive SVG flamegraph showing CPU time distribution. It wraps perf/dtrace automatically, making profiling accessible without manual tool configuration.
 
 ```bash
 # Install
@@ -83,7 +86,7 @@ This generates `flamegraph.svg` automatically.
 
 ### Example: Profiling with Instruments (macOS)
 
-On macOS, use Instruments:
+ MacOS profiling using Instruments Time Profiler. The GUI provides interactive call trees, hotspot visualization, and timeline analysis. Build with debug symbols in release mode for meaningful function names in the profile.
 
 ```bash
 # Build with debug symbols
@@ -97,7 +100,7 @@ Instruments provides a GUI for exploring hotspots, viewing call trees, and drill
 
 ### Example: Profiling in Code with Benchmarks
 
-Criterion benchmarks provide detailed performance data:
+This example uses Criterion to benchmark individual pipeline components separately. By measuring validate, transform, and the full pipeline independently, you identify which specific function dominates execution time rather than guessing.
 ```rust
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -151,7 +154,7 @@ Run with `cargo bench`. Criterion shows which component is slow.
 
 ### Example: Memory Profiling with Valgrind
 
-Find memory allocations and leaks:
+ Memory profiling with Valgrind's massif tool and heaptrack. These tools track heap allocations over time, identify allocation hotspots, and detect memory leaks. Heaptrack provides a GUI for exploring allocation patterns visually.
 
 ```bash
 # Install valgrind
@@ -180,7 +183,7 @@ heaptrack_gui heaptrack.myapp.*.gz
 
 ### Example: Profiling Allocations in Rust
 
-Use `dhat` for Rust-specific allocation profiling:
+ dhat for Rust-native allocation profiling. The custom global allocator tracks every allocation with stack traces. The JSON output can be viewed in Firefox's DHAT viewer, showing exactly where allocations occur and how much memory they consume.
 
 ```rust
 // Add to Cargo.toml:
@@ -209,7 +212,7 @@ This generates `dhat-heap.json`, viewable in Firefox's DHAT viewer.
 
 ### Example: Micro-Benchmarking Best Practices
 
-When benchmarking specific code:
+ Micro-benchmarking with black_box to prevent dead code elimination. Comparing loop, iterator, and fold implementations reveals that the compiler often optimizes all three to identical machine code in release builds.
 
 ```rust
 use criterion::{black_box, Criterion};
@@ -255,6 +258,8 @@ Use `black_box` to prevent the optimizer from eliminating code. Without it, the 
 
 ### Example: Allocation vs Stack Allocation
 
+Benchmark heap allocation versus stack allocation. Creating a Vec allocates heap memory with potential mutex contention, while arrays live on the stack. The difference is often 10-100x, making allocation reduction a high-impact optimization.
+
 ```rust
 use std::time::Instant;
 
@@ -281,7 +286,7 @@ Allocating is often 10-100x slower than stack allocation. Reducing allocations c
 
 ### Example: Reusing Allocations
 
-Instead of allocating repeatedly, reuse buffers:
+ Progressive optimization from per-iteration allocation to buffer reuse to pre-allocation. Using clear() retains capacity, with_capacity() prevents resizing, and iterators enable the compiler to optimize the entire pipeline efficiently.
 
 ```rust
 // Bad: Allocates every iteration
@@ -334,7 +339,7 @@ fn process_best(items: &[String]) -> Vec<String> {
 
 ### Example: SmallVec: Stack-Allocated Small Collections
 
-`SmallVec` stores small collections on the stack:
+ SmallVec for stack-allocated small collections. When element count stays under the inline capacity (4 here), no heap allocation occurs. For larger sizes, it spills to heap transparently. Ideal when collections are usually small.
 
 ```rust
 // Add to Cargo.toml:
@@ -365,7 +370,7 @@ Use `SmallVec` when collections are usually small. The stack storage avoids allo
 
 ### Example: Cow: Clone-On-Write
 
-`Cow` defers allocation until mutation:
+ Cow (Clone-on-Write) for conditional allocation. When no modification is needed, it borrows the original data without allocation. When changes are required, it allocates an owned copy. This pattern avoids unnecessary cloning in read-heavy workloads.
 
 ```rust
 use std::borrow::Cow;
@@ -395,7 +400,7 @@ This pattern is common in APIs that sometimes need to modify data and sometimes 
 
 ### Example: Arena Allocation
 
-Arena as batch allocations for better performance:
+ Typed-arena batch allocation. Arena allocation is a simple pointer bump, individual deallocation is a no-op, and all memory frees when the arena drops. Ideal for tree structures, parsers, and graph algorithms.
 
 ```rust
 // Add to Cargo.toml:
@@ -441,7 +446,7 @@ Arenas are fast because:
 
 ### Example: String Interning
 
-Deduplicate strings to save memory:
+Implement string interning to deduplicate strings. Identical strings map to the same ID, eliminating duplicate allocations. Compilers use this for identifiers, and databases for repeated column values. Memory savings and comparison speed both improve.
 
 ```rust
 use std::collections::HashMap;
@@ -502,6 +507,8 @@ Use interning when you have many duplicate strings (like identifiers in a compil
 
 ### Example: Array-of-Structs vs Struct-of-Arrays
 
+This example contrasts AoS versus SoA memory layouts. AoS loads entire particles even when accessing only positions, wasting cache bandwidth. SoA stores positions contiguously, enabling efficient prefetching and SIMD operations. Often 2-3x faster for bulk operations.
+
 ```rust
 // Array of Structs (AoS) - bad for cache
 struct ParticleAoS {
@@ -551,7 +558,7 @@ SoA can be 2-3x faster for this access pattern because it uses cache lines effic
 
 ### Example: Cache Line Awareness
 
-Cache lines are typically 64 bytes. Accessing any byte in a cache line loads the entire line:
+ False sharing prevention with cache line alignment. When two threads write to the same 64-byte cache line, each write invalidates the other core's cache. Padding counters to separate cache lines eliminates this contention.
 
 ```rust
 #[repr(C, align(64))]
@@ -584,7 +591,7 @@ False sharing occurs when two threads write to different variables in the same c
 
 ### Example: Prefetching and Sequential Access
 
-Sequential access is dramatically faster than random access:
+Benchmarking sequential versus random memory access. Sequential access enables hardware prefetching, keeping data in cache. Random access causes cache misses on nearly every read. The difference is often 5-10x, dominating algorithm performance.
 
 ```rust
 use std::time::Instant;
@@ -629,7 +636,7 @@ Design data structures for sequential access when possible.
 
 ### Example: Linked Lists vs Vectors
 
-Linked lists are almost always slower than vectors due to poor cache behavior:
+Illustrating why vectors outperform linked lists. Vector iteration loads contiguous cache lines, while linked list traversal causes a cache miss per node. Use vectors unless you need O(1) mid-insertion, which is rare in practice.
 
 ```rust
 // Bad: Linked list
@@ -653,7 +660,9 @@ struct VecList<T> {
 
 Use vectors unless you need O(1) insertion in the middle (rare).
 
-### HashMap Optimization
+### Example: HashMap Optimization
+
+ HashMap optimizations: FxHashMap uses a faster hash function for integer keys (30% speedup but less DoS-resistant), and with_capacity pre-allocates to avoid resizing. FromIterator combines allocation and insertion efficiently.
 
 ```rust
 use std::collections::HashMap;
@@ -708,6 +717,8 @@ fn presized_hashmap() {
 
 ### Example: Understanding Branch Misprediction
 
+Compare branching versus branchless code with random data. When branch outcomes are unpredictable, the CPU's branch predictor fails frequently, causing 10-20 cycle penalties. Branchless arithmetic using conditionals as integers avoids this penalty.
+
 ```rust
 use std::time::Instant;
 
@@ -751,6 +762,8 @@ fn benchmark() {
 
 ### Example: Sorting for Branch Prediction
 
+ How does sorting improve branch prediction. After sorting, conditional checks become predictable: all negatives come first, then positives. The O(n log n) sort cost is amortized when iterating multiple times over the same data.
+
 ```rust
 fn sum_if_positive_unsorted(data: &[i32]) -> i32 {
     let mut sum = 0;
@@ -779,6 +792,8 @@ fn sum_if_positive_sorted(data: &mut [i32]) -> i32 {
 
 ### Example: Branch-Free Code with Bitwise Operations
 
+Implement branchless max using bit manipulation. The sign bit extracts whether the difference is negative, then masks accordingly. However, LLVM often converts simple if-else to branchless select instructions automatically in release builds.
+
 ```rust
 // With branch
 fn max_with_branch(a: i32, b: i32) -> i32 {
@@ -801,6 +816,8 @@ fn max_select(a: i32, b: i32) -> i32 {
 The compiler often optimizes simple `if` expressions to branchless code automatically.
 
 ### Example: Likely and Unlikely Hints
+
+ Branch prediction hints. The nightly likely/unlikely intrinsics tell the compiler which branch is common. The stable alternative uses #[cold] on error handlers, signaling that the error path is rare and optimizing the happy path.
 
 ```rust
 // Unstable feature - requires nightly
@@ -836,6 +853,8 @@ fn process_stable(x: i32) {
 The `#[cold]` attribute tells the compiler this code is rarely executed, improving branch prediction for the common path.
 
 ### Example: Pattern Matching Optimization
+
+ Match arm ordering for performance. Placing the most common variant first improves branch prediction. The compiler may reorder arms, but explicit ordering documents intent and helps when the compiler lacks profile-guided optimization data.
 
 ```rust
 enum Message {
@@ -885,7 +904,7 @@ Put common cases first in match statements to improve branch prediction.
 
 ### Example: Const Functions
 
-Const functions execute at compile time when possible:
+ Demo of const fn for compile-time computation. The factorial function executes at compile time when called in a const context, embedding the result directly in the binary. Runtime cost is zero since computation happens during compilation.
 
 ```rust
 const fn factorial(n: u32) -> u32 {
@@ -903,6 +922,8 @@ fn example() {
 ```
 
 ### Example: Const Generics for Compile-Time Values
+
+Const generics for compile-time matrix dimensions. The size is part of the type, enabling stack allocation and loop unrolling. The identity matrix is computed at compile time and embedded directly in the binary.
 
 ```rust
 struct Matrix<const N: usize> {
@@ -938,7 +959,7 @@ fn example() {
 
 ### Example: Lookup Tables
 
-Pre-compute lookup tables at compile time:
+Pre-compute lookup tables at compile time using const fn. Instead of calculating trigonometric functions at runtime, values are embedded in the binary. Lookup is O(1) versus expensive floating-point operations, trading binary size for speed.
 
 ```rust
 const fn generate_sin_table() -> [f64; 360] {
@@ -961,7 +982,7 @@ fn fast_sin(degrees: usize) -> f64 {
 
 ### Example: Static Assertions
 
-Verify invariants at compile time:
+`const` assertions to enforce invariants at compile time. The ring buffer requires power-of-two size for efficient modulo operations. Invalid sizes cause compilation failures, catching bugs before runtime without any performance cost.
 
 ```rust
 const fn is_power_of_two(n: usize) -> bool {
@@ -994,7 +1015,7 @@ let buffer = RingBuffer::<i32, 8>::new();
 
 ### Example: Build-Time Code Generation
 
-Use build scripts to generate code:
+ `build.rs` to generate code at build time. Complex computations like prime number generation run once during compilation, producing a static lookup table. The generated code is included via include! and compiled into the final binary.
 
 ```rust
 // build.rs
@@ -1036,6 +1057,8 @@ fn is_prime_fast(n: u32) -> bool {
 
 ### Example: Compile-Time String Processing
 
+ `const fn` for compile-time string operations. String length is computed during compilation, enabling fixed-size buffer allocation without runtime overhead. Useful for embedded systems and performance-critical code requiring static buffer sizes.
+
 ```rust
 const fn const_strlen(s: &str) -> usize {
     s.len()
@@ -1053,9 +1076,9 @@ fn example() {
 }
 ```
 
-### Type-Level Computation
+### Example: Type-Level Computation
 
-Use the type system for compile-time computation:
+Encode natural numbers in the type system using Peano arithmetic. Succ and Zero types represent numbers at compile time, with NatNum trait computing values. Useful for type-safe dimensional analysis and compile-time verified arithmetic.
 
 ```rust
 use std::marker::PhantomData;
@@ -1089,9 +1112,9 @@ fn example() {
 
 
 
-### SIMD (Single Instruction Multiple Data)
+### Example: SIMD (Single Instruction Multiple Data)
 
-Process multiple values simultaneously:
+ SIMD intrinsics for parallel data processing. AVX2 instructions load, add, and store 8 floats simultaneously. SIMD achieves 4-8x speedup for data-parallel operations. The remainder loop handles non-aligned array lengths.
 
 ```rust
 // Requires nightly and target features
@@ -1137,9 +1160,9 @@ unsafe fn add_arrays_simd(a: &[f32], b: &[f32], result: &mut [f32]) {
 // SIMD can be 4-8x faster for this operation
 ```
 
-### Inline Assembly
+### Example: Inline Assembly
 
-For absolute control (rarely needed):
+ Inline assembly for direct CPU instruction access. The asm! macro executes cpuid to query processor features. Inline assembly is rarely needed since LLVM generates excellent code, but enables access to special instructions unavailable through intrinsics.
 
 ```rust
 
@@ -1160,9 +1183,9 @@ unsafe fn cpuid(eax: u32) -> (u32, u32, u32, u32) {
 }
 ```
 
-### Link-Time Optimization
+### Example: Link-Time Optimization
 
-Enable in Cargo.toml:
+Enable LTO for cross-crate optimization. Full LTO with single codegen unit allows LLVM to inline across crate boundaries and eliminate dead code globally. Expect 10-20% speedup at the cost of significantly longer compile times.
 
 ```toml
 [profile.release]

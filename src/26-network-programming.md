@@ -14,8 +14,7 @@ This chapter covers network programming patterns—TCP/UDP for low-level protoco
 **Use Cases**: Chat servers (persistent connections per user), game servers (player connections), database protocols (Postgres, Redis), custom TCP protocols, proxy servers, load balancers, monitoring agents, message brokers, SSH servers.
 
 ### Example: Async TCP Server Pattern
-
-Handle thousands of concurrent TCP connections efficiently.
+Synchronous TCP echo server using `std::net::TcpListener` that blocks on each client connection. The `listener.incoming()` iterator accepts connections sequentially, while `handle_client` uses blocking I/O. Only one client served at a time, demonstrating why async patterns are essential.
 
 ```rust
 use std::net::{TcpListener, TcpStream};
@@ -72,8 +71,7 @@ simple_echo_server()?; // Blocks, handles one client at a time
 This simple server has a critical limitation: it can only handle one client at a time. While one client is connected, other clients attempting to connect will have to wait. For production use, we need concurrent handling.
 
 ### Example: Multi-threaded TCP Server
-
-To handle multiple clients simultaneously, we can spawn a thread for each connection. This allows the server to accept new connections while existing connections are being serviced:
+Spawns a dedicated OS thread per client using `std::thread::spawn`, consuming approximately 2MB stack space each. Handles concurrent connections but scales poorly—10K connections would require 20GB of memory. Thread context switching overhead motivates async approaches where lightweight tasks share fewer threads.
 
 ```rust
 use std::net::{TcpListener, TcpStream};
@@ -131,8 +129,7 @@ multithreaded_server()?; // One thread per connection
 While this works well for moderate numbers of clients, each thread consumes system resources. For high-concurrency scenarios, async I/O is more efficient.
 
 ### Example: Async TCP Server with Tokio
-
-Modern Rust networking typically uses async/await with Tokio. This allows handling thousands of concurrent connections efficiently because tasks are much lighter than threads:
+Tokio tasks consume only ~1KB versus ~2MB for OS threads, enabling 10K+ concurrent connections. The `tokio::spawn` function creates lightweight tasks, while each `.await` yields control to the runtime scheduler. Cooperative multitasking ensures slow clients never block others.
 
 ```rust
 use tokio::net::{TcpListener, TcpStream};
@@ -182,8 +179,7 @@ async_echo_server().await?; // Handles 10K+ concurrent connections
 The key advantage here is that `await` points yield control to the runtime, allowing other tasks to make progress. This means one slow client doesn't block others.
 
 ### Example: Line-based Protocol Server
-
-Many protocols are line-based (like HTTP, SMTP, FTP). Here's a server that reads line by line, which is more realistic than raw bytes:
+Uses `BufReader` wrapping the socket for efficient buffered I/O, with `read_line()` parsing newline-delimited commands common in HTTP, SMTP, and Redis protocols. The `into_split()` method separates read and write halves for concurrent bidirectional communication in text-based protocols.
 
 ```rust
 use tokio::net::{TcpListener, TcpStream};
@@ -250,8 +246,7 @@ line_based_server().await?; // Text protocol: HELLO → WORLD
 This pattern is extremely common in network programming. By reading line-by-line, you can implement simple command-response protocols efficiently.
 
 ### Example: TCP Client
-
-Now let's look at the client side. A TCP client connects to a server and exchanges data:
+Demonstrates the fundamental connect-send-receive pattern using `TcpStream::connect()` for establishing connections. The `write_all` method guarantees complete data transmission, while `read` returns available bytes. For interactive clients requiring simultaneous input and output, split into read/write halves using `into_split()`.
 
 ```rust
 use tokio::net::TcpStream;
@@ -334,8 +329,7 @@ interactive_client().await?; // Concurrent read/write from stdin
 This pattern—splitting reading and writing into separate tasks—is very powerful for building responsive network clients.
 
 ### Example: Connection Pooling
-
-For clients that make many connections to the same server, connection pooling can significantly improve performance:
+Reuses established connections to avoid expensive TCP handshakes and TLS negotiations on every request. The RAII wrapper `PooledConnection` implements `Drop` to automatically return connections to the pool. A `Mutex`-protected `VecDeque` manages available connections. For production, use `deadpool` or `bb8`.
 
 ```rust
 use tokio::net::TcpStream;
@@ -426,8 +420,7 @@ let pool = ConnectionPool::new("127.0.0.1:8080".into(), 10); let conn = pool.acq
 **Use Cases**: Gaming (player position/state updates), VoIP (audio packets), video streaming (RTP), DNS queries, service discovery (mDNS, SSDP), IoT sensor data, time synchronization (NTP), multicast notifications, DHCP, TFTP.
 
 ### Example: UDP Echo Server Pattern
-
- Build simple UDP server that receives and responds to datagrams.
+Connectionless protocol requiring no handshake or connection tracking—each datagram is independent with no guaranteed delivery or ordering. The `recv_from` method returns both received data and sender's socket address, enabling `send_to` to reply directly. Simpler than TCP with no per-client state needed.
 
 ```rust
 use tokio::net::UdpSocket;
@@ -459,6 +452,7 @@ udp_echo_server().await?; // Connectionless, echoes datagrams
 Notice how much simpler this is than TCP—no connection management, no accept loop. Each packet is independent.
 
 ### Example: UDP Client
+The `connect()` method sets a default destination address, allowing simpler `send/recv` calls instead of `send_to/recv_from`—note this doesn't establish an actual connection since UDP is connectionless. Production clients must implement timeouts and retry logic since delivery is not guaranteed.
 
 ```rust
 use tokio::net::UdpSocket;
@@ -489,8 +483,7 @@ udp_client_example().await?; // Send datagram, receive response
 ```
 
 ### Example: Broadcast and Multicast
-
-UDP supports broadcasting to multiple recipients. This is useful for service discovery and distributed systems:
+Calling `set_broadcast(true)` enables sending datagrams to the broadcast address (255.255.255.255), reaching all hosts on the local network. Essential for service discovery protocols like mDNS, SSDP, and DHCP where clients find servers without knowing their addresses beforehand.
 
 ```rust
 use tokio::net::UdpSocket;
@@ -535,8 +528,7 @@ udp_broadcast().await?; // Broadcast discovery message to 255.255.255.255
 ```
 
 ### Example: Reliable UDP Pattern
-
-Sometimes you want UDP's low latency but need some reliability. Here's a simple request-response pattern with retries:
+Adds application-layer reliability to UDP through timeouts and retry logic. The `tokio::time::timeout()` wrapper fails the operation if no response arrives within the specified duration. This pattern underpins DNS queries and forms the basis of QUIC. For complex requirements, use the `quinn` crate.
 
 ```rust
 use tokio::net::UdpSocket;
@@ -591,8 +583,7 @@ This pattern is the basis for protocols like QUIC and helps bridge the gap betwe
 **Use Cases**: REST API clients, web scraping, microservice communication, webhook consumers, OAuth authentication flows, file downloads, GraphQL clients, API testing/monitoring, service health checks, data synchronization.
 
 ### Example: Basic HTTP Client Pattern
-
-Make HTTP requests with JSON payloads efficiently.
+The reqwest crate provides a production-ready async HTTP client with automatic connection pooling, cookie handling, redirect following, and TLS support. The `reqwest::get()` function performs simple requests, while `.json::<T>()` deserializes JSON responses directly into Rust structs using serde.
 
 ```rust
 use reqwest;
@@ -635,8 +626,7 @@ simple_get_request().await?; // GET with headers, body, status
 The `.json()` method automatically deserializes the response body using serde, making it very convenient for API interactions.
 
 ### Example: POST Requests and Request Building
-
-For more complex requests, use the `Client` and `RequestBuilder`:
+Uses the builder pattern for constructing requests: `.json()` automatically serializes structs via serde and sets Content-Type to application/json, while `.form()` creates URL-encoded form data. Reuse a single `Client` instance to benefit from its internal connection pool.
 
 ```rust
 use reqwest::{Client, header};
@@ -698,8 +688,7 @@ create_user().await?; // POST JSON, deserialize response
 ```
 
 ### Example: Request Headers and Authentication
-
-Many APIs require authentication headers. Here's how to add them:
+Use `.header()` for per-request authentication headers, or configure `default_headers()` on `Client::builder()` to apply headers to all requests automatically. Supports Bearer tokens, HTTP Basic authentication, and API keys. The `HeaderMap` type provides type-safe header name constants.
 
 ```rust
 use reqwest::{Client, header};
@@ -749,8 +738,7 @@ client_with_defaults().await?; // All requests include Bearer token
 ```
 
 ### Example: Error Handling and Retries
-
-Robust HTTP clients need proper error handling and retry logic:
+Implements intelligent retry logic: exponential backoff for 5xx server errors allows services time to recover, fixed delays for 429 rate-limit responses respect throttling, and immediate failure on 4xx client errors avoids wasting retries. For production, consider `reqwest-retry` or `tower`.
 
 ```rust
 use reqwest::{Client, StatusCode};
@@ -815,8 +803,7 @@ request_with_retry(&client, "https://api.com/data", 3).await?;
 This pattern—exponential backoff with retry limits—is essential for building resilient network clients.
 
 ### Example: Downloading Files
-
-For downloading large files, streaming the response is more memory-efficient than loading everything into memory:
+Streams large files chunk-by-chunk using `bytes_stream()` from `futures_util::StreamExt`, avoiding loading entire files into memory. The `content_length()` method retrieves file size for progress calculations. Each chunk is written immediately using async file I/O, keeping memory usage constant.
 
 ```rust
 use reqwest::Client;
@@ -871,8 +858,7 @@ download_file("https://example.com/file.zip", "file.zip").await?;
 **Use Cases**: REST APIs, web applications, microservices, GraphQL servers (with async-graphql), webhook receivers, admin dashboards, file upload services, proxy/API gateway, authentication services, monitoring endpoints.
 
 ### Example: axum Server Pattern
-
-Build REST API with routing, JSON, and shared state.
+Type-safe framework built on tokio and hyper with declarative routing via the `Router` builder. Extractors like `Path`, `Query`, and `Json` automatically parse and validate request data at compile time—invalid input returns HTTP 400 before handler code executes.
 
 ```rust
 use axum::{
@@ -997,8 +983,7 @@ basic_axum_server(); // Routes: GET /, GET/POST /users, GET /users/:id
 Notice how axum uses extractors (like `Path`, `Query`, `Json`) to parse and validate request data at compile time. If the types don't match, you get a compile error.
 
 ### Example: Shared State in axum
-
-Most applications need shared state (database connections, caches, etc.). axum makes this easy with the `State` extractor:
+The `State` extractor provides access to application-wide data across all handlers, registered via `.with_state()`. For mutable shared state, wrap data in `Arc<RwLock<T>>`—`Arc` enables shared ownership across async tasks, while `RwLock` allows concurrent reads with exclusive writes.
 
 ```rust
 use axum::{
@@ -1066,8 +1051,7 @@ stateful_server(); // Shared Arc<RwLock<Database>> across handlers
 The `State` extractor ensures every handler has access to the application state without global variables.
 
 ### Example: Middleware in axum
-
-Middleware allows you to add cross-cutting concerns like logging, authentication, or CORS:
+Middleware wraps handlers to add cross-cutting concerns like logging, authentication, and CORS headers. The `next.run(request)` call invokes the next middleware or handler in the chain, enabling pre- and post-processing. Tower's ecosystem provides production-ready middleware for rate limiting and tracing.
 
 ```rust
 use axum::{
@@ -1131,8 +1115,7 @@ middleware_example(); // Timing + auth middleware on all routes
 Middleware composes nicely, allowing you to build complex request processing pipelines.
 
 ### Example: actix-web Server
-
-actix-web is known for being extremely fast and feature-rich. It uses the actor model internally:
+One of the fastest Rust web frameworks, using an actor-based architecture with thread-per-core design for optimal CPU cache locality. Routes are defined declaratively with `web::get()` and `web::post()`. Choose actix-web for maximum performance; prefer axum for tower middleware compatibility.
 
 ```rust
 use actix_web::{web, App, HttpServer, HttpResponse, Responder};
@@ -1204,8 +1187,7 @@ actix-web is slightly more imperative in style compared to axum's declarative ap
 **Use Cases**: Chat applications (real-time messages), live notifications (alerts, updates), collaborative editing (Google Docs-style), stock tickers (price updates), gaming (multiplayer state sync), dashboard updates (metrics, logs), IoT device control, video streaming signaling.
 
 ### Example: WebSocket Broadcast Pattern
-
- Broadcast messages from any client to all connected WebSocket clients.
+Implements full-duplex real-time chat using tokio's `broadcast` channel for fan-out messaging to all connected clients. The WebSocket connection is split into separate read and write tasks via `socket.split()`, enabling concurrent bidirectional communication. The `tokio::select!` macro monitors both tasks.
 
 ```rust
 use axum::{
@@ -1297,8 +1279,7 @@ websocket_server(); // Broadcast chat: all clients receive all messages
 This creates a simple chat server where all messages are broadcast to all connected clients. Each client gets two tasks: one for receiving broadcasts and one for sending messages.
 
 ### Example: WebSocket Client
-
-Here's a WebSocket client using tokio-tungstenite:
+Uses `tokio-tungstenite` for async WebSocket connections. The `connect_async()` function upgrades HTTP to WebSocket protocol. Split the stream into read/write halves for concurrent operations. Always send a `Close` frame for graceful disconnection to notify the server properly.
 
 ```rust
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
@@ -1351,8 +1332,7 @@ websocket_client().await?; // Connect, send 5 messages, close
 ```
 
 ### Example: Room-based WebSocket Pattern
-
-For more complex applications like chat rooms or game lobbies, you need to manage multiple rooms:
+Implements multiple chat rooms with independent broadcast channels. A `RwLock<HashMap>` enables concurrent reads across rooms while allowing exclusive writes when users join or leave. Rooms are created on-demand when the first user joins and garbage-collected when the last user leaves.
 
 ```rust
 use axum::extract::ws::{WebSocket, Message};
@@ -1432,8 +1412,7 @@ let server = ChatServer::new(); server.join_room("room1", "user1", "Alice").awai
 This pattern allows users to join specific rooms and only receive messages from those rooms, which is much more scalable than broadcasting everything to everyone.
 
 ### Example: Handling Ping/Pong for Keep-Alive
-
-WebSocket connections can silently die (network issues, etc.). Use ping/pong to detect dead connections:
+Ping/pong frames detect dead connections caused by NAT timeouts or crashes. Send Ping every 30 seconds; a missing Pong response indicates a dead connection that should be cleaned up. Most WebSocket libraries automatically respond to incoming Ping frames with Pong.
 
 ```rust
 use tokio::time::{interval, Duration};

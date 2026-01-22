@@ -35,7 +35,8 @@ Bare-metal STM32 development needs a `no_std` build, cross toolchain, and a flas
 ### Examples
 
 #### Example: Board Support Layer
-The BSP owns the device crate (here `stm32f4xx-hal`) and exports initialized peripherals using HAL traits.
+
+Board Support Package initializing hardware peripherals. The BSP owns vendor-specific code, configures clocks and GPIO, and exposes components through HAL traits. Application code receives ready-to-use peripherals without touching registers directly.
 
 ```rust
 #![no_std]
@@ -66,7 +67,7 @@ pub fn init() -> Board {
 ```
 
 #### Example: Driver Consuming HAL Traits
-Application code depends only on traits, so it can be tested with mocks.
+ A heartbeat driver using only embedded-hal traits. By depending on OutputPin and CountDown abstractions rather than concrete types, the same driver works on any platform. Replace with mocks for desktop unit testing.
 
 ```rust
 use embedded_hal::digital::v2::OutputPin;
@@ -99,7 +100,8 @@ where
 ```
 
 #### Example: Sensor Driver Abstracted Over SPI + Delay
-Complex peripherals (IMUs, radios) often need multiple traits. By expressing the driver in terms of `embedded-hal` traits, the same code runs on STM32, Nordic, or on-host mocks.
+
+ Portable IMU driver using SPI, GPIO, and delay traits. The driver manages chip select, transfers bytes, and handles timing delays. Identical code compiles for STM32, Nordic chips, or desktop mocks with fake SPI implementations.
 
 ```rust
 use embedded_hal::digital::v2::OutputPin;
@@ -148,7 +150,9 @@ where
 ```
 
 #### Example: Raspberry Pi HAL Wrapper
-On boards like the Raspberry Pi 4 running Linux, you can still implement `embedded-hal` traits by delegating to crates such as `rppal`. That lets your application reuse the same drivers as an STM32 target.
+
+
+ `rppal` GPIO as an embedded-hal OutputPin. Linux-based boards like Raspberry Pi can implement the same traits as bare-metal targets. The Heartbeat driver accepts this wrapper, enabling desktop prototyping before deploying to microcontrollers.
 
 ```rust
 use embedded_hal::digital::v2::OutputPin;
@@ -194,7 +198,8 @@ You can now feed `PiLed` into the `Heartbeat` example and run the exact same log
 ### Examples
 
 #### Example: Lock-Free Telemetry Queue
-`heapless::spsc::Queue` provides a single-producer single-consumer buffer without heap allocations.
+
+Heapless SPSC queue for interrupt-safe communication without heap allocation. The producer enqueues packets with atomic IDs, while the consumer dequeues without locks. Splitting into producer/consumer halves enables safe concurrent access from ISR and main loop.
 
 ```rust
 use heapless::spsc::Queue;
@@ -221,7 +226,9 @@ fn consumer_task() {
 ```
 
 #### Example: DMA Buffer Placement
-Long-running transfers often require buffers in SRAM domains accessible to both DMA and CPU. `#[link_section]` places the buffer without a linker script change.
+
+
+DMA buffer in a specific memory section using link_section attribute. DMA controllers require buffers in accessible SRAM regions. Static placement ensures correct alignment and memory domain without modifying linker scripts, while the buffer persists for transfer lifetime.
 
 ```rust
 #[link_section = ".dma_data"]
@@ -234,7 +241,8 @@ fn start_dma(adc: &mut AdcDma<'static>) {
 ```
 
 #### Example: Fixed-Capacity Command Log
-`heapless::Vec` provides a familiar `Vec` API with compile-time capacity. Store operational history without ever touching the heap.
+
+ Command history using heapless Vec with compile-time capacity of 32 entries. Critical sections protect concurrent access. When full, new commands are silently dropped. This pattern suits logging, telemetry buffers, and audit trails without dynamic allocation.
 
 ```rust
 use core::cell::RefCell;
@@ -263,7 +271,8 @@ pub fn latest() -> Option<Command> {
 ```
 
 #### Example: STM32 DMA Double Buffer
-Some STM32 families (F7/H7) support double-buffered DMA streams. Pre-allocate both halves so high-rate peripherals (audio, SDR) never wait for allocation.
+
+Configure a double-buffered DMA for continuous audio streaming. Two pre-allocated buffers alternate: while DMA fills one, the CPU processes the other. This ping-pong technique eliminates gaps in high-rate data streams like audio or software-defined radio applications.
 
 ```rust
 #[link_section = ".sram_d2"]
@@ -298,6 +307,8 @@ ISR handlers can then refill whichever half just completed without races or heap
 
 #### Example: Critical Section with `Mutex`
 
+Count button presses using cortex-m Mutex with RefCell. The free() function disables interrupts briefly while accessing shared state. Both ISR and main code use identical access patterns, preventing data races while keeping critical sections minimal for low latency.
+
 ```rust
 use core::cell::RefCell;
 use cortex_m::interrupt::{free, Mutex};
@@ -318,7 +329,8 @@ fn read_count() -> u32 {
 ```
 
 #### Example: Atomic Flag for Wake-Ups
-Use atomics for small pieces of state to avoid mutex overhead entirely.
+
+AtomicBool for lock-free ISR-to-main communication. The ADC interrupt sets the flag with Release ordering, main loop checks with AcqRel swap. WFI sleeps until interrupts arrive, saving power while maintaining responsiveness without critical section overhead.
 
 ```rust
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -341,7 +353,8 @@ fn main_loop() {
 ```
 
 #### Example: Sharing Buses with `critical_section::Mutex`
-When a driver must be callable from both interrupts and async tasks, wrap it in `critical_section::Mutex` to get `Send + Sync` access without global `unsafe`.
+
+ I2C sensor between contexts using critical_section::Mutex. The portable critical-section crate works across platforms, providing Send+Sync without unsafe blocks. Late initialization with Option allows hardware setup after boot while maintaining safe concurrent access patterns.
 
 ```rust
 use core::cell::RefCell;
@@ -369,7 +382,8 @@ fn read_temperature() -> Option<i16> {
 ```
 
 #### Example: Raspberry Pi GPIO Interrupt Counter
-On Raspberry Pi OS you can wire edge-triggered callbacks with `rppal`. Use atomics so the callback remains lock-free just like an ISR on bare metal.
+
+ GPIO interrupts on Raspberry Pi using rppal's async callback. AtomicU32 counts button presses lock-free, mirroring bare-metal ISR patterns. The callback triggers on falling edges, enabling responsive input handling while the main thread continues other work.
 
 ```rust
 use rppal::gpio::{Gpio, Trigger};
@@ -401,7 +415,8 @@ fn button_presses() -> u32 {
 ### Examples
 
 #### Example: RTIC Task Graph
-`rtic::app` wires interrupts, priorities, and shared resources without a heap.
+
+ RTIC framework managing motor control tasks. Shared rpm state is accessed via automatic locking based on task priorities. The sample task captures encoder readings while the higher-priority control task computes PWM duty cycles, all without heap allocation.
 
 ```rust
 #![no_std]
@@ -444,7 +459,8 @@ mod app {
 ```
 
 #### Example: Embassy Async Driver
-Embassy's async executors integrate timers and low-power `WFI` sleep automatically.
+
+ Embassy's async/await model for embedded systems. UART writes and timer delays use cooperative scheduling without blocking. The executor automatically enters low-power WFI sleep between async operations, combining ergonomic code with energy efficiency.
 
 ```rust
 #[embassy_executor::main]
@@ -462,7 +478,8 @@ async fn main(spawner: Spawner) {
 ```
 
 #### Example: Embassy Channels for Task Isolation
-Use `embassy_sync::channel` to decouple fast sampling tasks from slower processing, keeping deadlines intact.
+
+Decouple ADC sampling from filtering using Embassy channels. The sampler task sends readings at 2kHz into a bounded channel, while the filter task processes independently. Backpressure naturally throttles producers when consumers fall behind, preserving timing guarantees.
 
 ```rust
 use embassy_executor::{Spawner, task};

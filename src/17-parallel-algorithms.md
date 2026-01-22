@@ -14,33 +14,21 @@ This chapter explores parallel patterns using Rust's ecosystem, focusing on data
 
 ### Example: Parallel Iterator Basics
 
-Convert sequential operations to parallel execution with minimal code changes.
-
-```rust
-// Note: Add to Cargo.toml:
-// rayon = "1.8"
-
-use rayon::prelude::*;
-use std::time::Instant;
-
-```
-
-### Example: Basic par_iter
-This example walks through the basics of par_iter, highlighting each step so you can reuse the pattern.
+Replace `.iter()` with `.par_iter()` to distribute work across CPU cores using Rayon's work-stealing thread pool. Rayon balances load dynamically—threads that finish early steal work from slower threads. Avoid for small datasets (<1K items), I/O-bound work, or sequential dependencies.
 
 ```rust
 
 fn parallel_map_example() {
-    let numbers: Vec<i32> = (0..1_000_000).collect();
+    let numbers: Vec<i64> = (0..1_000_000).collect();
 
     // Sequential
     let start = Instant::now();
-    let sequential: Vec<i32> = numbers.iter().map(|&x| x * x).collect();
+    let sequential: Vec<i64> = numbers.iter().map(|&x| x * x).collect();
     let seq_time = start.elapsed();
 
     // Parallel
     let start = Instant::now();
-    let parallel: Vec<i32> = numbers.par_iter().map(|&x| x * x).collect();
+    let parallel: Vec<i64> = numbers.par_iter().map(|&x| x * x).collect();
     let par_time = start.elapsed();
 
     println!("Sequential: {:?}", seq_time);
@@ -53,7 +41,8 @@ fn parallel_map_example() {
 ```
 
 ### Example: par_iter vs par_iter_mut vs into_par_iter
-This example shows how to par_iter vs par_iter_mut vs into_par_iter in practice, emphasizing why it works.
+
+Three variants: `par_iter()` borrows immutably, `par_iter_mut()` borrows mutably for in-place modification, `into_par_iter()` consumes. Rayon ensures each thread accesses disjoint elements—no data races. Use `into_par_iter()` for expensive-to-clone types to avoid clone overhead.
 
 ```rust
 
@@ -79,7 +68,8 @@ fn iterator_variants() {
 ```
 
 ### Example: Parallel filter and map
-This example shows how to parallel filter and map while calling out the practical trade-offs.
+
+Chains `filter()` and `map()` with lazy evaluation—no intermediate collections, one fused pass. Filter early: `filter().map()` processes fewer elements than `map().filter()` when map is expensive. Rayon's work-stealing handles irregular workloads from filtering automatically.
 
 ```rust
 
@@ -98,7 +88,8 @@ fn parallel_filter_map() {
 ```
 
 ### Example: Parallel flat_map
-This example shows how to parallel flat_map while calling out the practical trade-offs.
+
+Flattens nested structures in parallel—each input produces multiple outputs combined into one collection. Essential for one-to-many transformations like directory traversal or tokenization. Nested `flat_map(|r| r.into_par_iter())` creates two-level parallelism. 
 
 ```rust
 
@@ -112,9 +103,14 @@ fn parallel_flat_map() {
 
     println!("Flattened {} items", flattened.len());
 }
+```
 
-// Usage: parallel_flat_map(); // Output: Flattened 30 items
-// Real-world: Image processing
+
+### Image Processing
+
+Parallel image ops on pixel data using `par_iter_mut()` and `par_chunks_mut()`. Grayscale processes RGB triplets; brightness adjusts each pixel. Perfect for data-parallel workloads where each pixel is independent.
+
+```rust
 struct Image {
     pixels: Vec<u8>,
     width: usize,
@@ -129,8 +125,6 @@ impl Image {
             height,
         }
     }
-
-    // Usage: let mut img = Image::new(1920, 1080); img.grayscale_parallel();
 
     fn apply_filter_parallel(&mut self, filter: fn(u8) -> u8) {
         self.pixels.par_iter_mut().for_each(|pixel| {
@@ -155,18 +149,17 @@ impl Image {
         });
     }
 }
-// Real-world: Data validation
-fn validate_emails_parallel(emails: Vec<String>) -> Vec<(String, bool)> {
-    emails
-        .into_par_iter()
-        .map(|email| {
-            let is_valid = email.contains('@') && email.contains('.');
-            (email, is_valid)
-        })
-        .collect()
-}
+//Usage
+let mut img = Image::new(1920, 1080);
+img.grayscale_parallel();
+img.brightness_parallel(10);
 
-// Real-world: Log parsing
+```
+### Log Parsing
+
+Parses log lines in parallel using `filter_map()` to skip invalid entries. Each line is parsed independently—perfect parallelism. Combine with `filter()` to select specific log levels.
+
+```rust
 #[derive(Debug)]
 struct LogEntry {
     timestamp: u64,
@@ -191,40 +184,6 @@ fn parse_logs_parallel(lines: Vec<String>) -> Vec<LogEntry> {
         })
         .collect()
 }
-
-fn main() {
-    println!("=== Parallel Map ===\n");
-    parallel_map_example();
-
-    println!("\n=== Iterator Variants ===\n");
-    iterator_variants();
-
-    println!("\n=== Filter Map ===\n");
-    parallel_filter_map();
-
-    println!("\n=== Image Processing ===\n");
-    let mut img = Image::new(1920, 1080);
-
-    let start = Instant::now();
-    img.grayscale_parallel();
-    println!("Grayscale: {:?}", start.elapsed());
-
-    let start = Instant::now();
-    img.brightness_parallel(10);
-    println!("Brightness: {:?}", start.elapsed());
-
-    println!("\n=== Email Validation ===\n");
-    let emails = vec![
-        "user@example.com".to_string(),
-        "invalid-email".to_string(),
-        "another@test.org".to_string(),
-    ];
-
-    let results = validate_emails_parallel(emails);
-    for (email, valid) in results {
-        println!("{}: {}", email, if valid { "✓" } else { "✗" });
-    }
-}
 ```
 
 **Rayon Benefits**:
@@ -235,23 +194,12 @@ fn main() {
 
 ---
 
-### Example: par_bridge for Dynamic Sources
-
-Parallelize iterators that don't implement `ParallelIterator` directly, or process items as they arrive.
-
-```rust
-use rayon::prelude::*;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
-
-```
 
 ### Example: Bridge from sequential iterator
-This example shows how to bridge from sequential iterator in practice, emphasizing why it works.
+
+Bridges a standard iterator into Rayon's parallel world—downstream ops run in parallel. If 90% of time is in the source, `par_bridge()` provides only 10% speedup. Order may not be preserved—use `enumerate()` and sort if needed.
 
 ```rust
-
 fn par_bridge_basic() {
     let iter = (0..1000).filter(|x| x % 2 == 0);
 
@@ -259,12 +207,11 @@ fn par_bridge_basic() {
     let sum: i32 = iter.par_bridge().map(|x| x * x).sum();
     println!("Sum: {}", sum);
 }
-
-// Usage: par_bridge_basic(); // Bridges sequential iterator to parallel processing
 ```
 
 ### Example: Bridge from channel receiver
-This example shows how to bridge from channel receiver in practice, emphasizing why it works.
+
+Parallelizes items from a channel—producer sends, workers process in parallel as items arrive. Decouples production from processing rate, reducing latency for streaming. Use `sync_channel(bound)` for backpressure.
 
 ```rust
 
@@ -292,12 +239,18 @@ fn par_bridge_from_channel() {
 
     println!("Channel sum: {}", sum);
 }
-// Real-world: File system traversal
+```
+
+### Example: File system traversal
+
+Recursively traverses directories using a sequential iterator, then processes files in parallel via `par_bridge()`. I/O-bound traversal runs single-threaded while CPU-bound filtering runs parallel.
+
+```rust
 use std::fs;
 use std::path::PathBuf;
 
 fn find_large_files_parallel(root: &str, min_size: u64) -> Vec<(PathBuf, u64)> {
-    fn visit_dirs(path: PathBuf) -> Box<dyn Iterator<Item = PathBuf>> {
+    fn visit_dirs(path: PathBuf) -> Box<dyn Iterator<Item = PathBuf> + Send> {
         let entries = match fs::read_dir(&path) {
             Ok(entries) => entries,
             Err(_) => return Box::new(std::iter::empty()),
@@ -328,9 +281,13 @@ fn find_large_files_parallel(root: &str, min_size: u64) -> Vec<(PathBuf, u64)> {
         })
         .collect()
 }
+```
 
-// Usage: let large_files = find_large_files_parallel("/home/user", 1024 * 1024); // Files > 1MB
-// Real-world: Database query results
+### Example: Database query results
+
+Custom iterator simulates database fetches, `par_bridge()` processes results in parallel as they arrive. Useful when query returns rows one-at-a-time but processing is expensive.
+
+```rust
 struct DatabaseIterator {
     current: usize,
     total: usize,
@@ -366,7 +323,12 @@ fn process_database_results() {
 
     println!("Database result sum: {}", sum);
 }
-// Real-world: Network stream processing
+```
+### Example: Network stream processing
+
+Processes network packets in parallel as they arrive via channel. Producer sends packets at network rate, consumers process them in parallel—decouples arrival from processing.
+
+```rust
 fn process_network_stream() {
     let (tx, rx) = mpsc::channel();
 
@@ -392,20 +354,6 @@ fn process_network_stream() {
 
     println!("Processed {} packets", processed.len());
 }
-
-fn main() {
-    println!("=== par_bridge Basic ===\n");
-    par_bridge_basic();
-
-    println!("\n=== par_bridge from Channel ===\n");
-    par_bridge_from_channel();
-
-    println!("\n=== Database Iterator ===\n");
-    process_database_results();
-
-    println!("\n=== Network Stream ===\n");
-    process_network_stream();
-}
 ```
 
 **par_bridge Use Cases**:
@@ -427,18 +375,9 @@ fn main() {
 **Use Cases**: Matrix operations (multiply, transpose, factorization), sorting algorithms (quicksort, mergesort), divide-and-conquer (tree traversal, expression evaluation), irregular workloads (graph algorithms), cache-sensitive operations (blocked algorithms).
 
 
-### Example: Chunking and Load Balancing
-
-Partition work efficiently across threads to minimize overhead and maximize CPU utilization.
-
-```rust
-use rayon::prelude::*;
-use std::time::Instant;
-
-```
-
 ### Example: Chunk sizes
-This example shows how to chunk sizes in practice, emphasizing why it works.
+
+Compares chunk sizes: default (Rayon adaptive), small (100), balanced (10K). Too-small chunks cause overhead; too-large causes imbalance. Start with defaults, tune if profiling shows issues.
 
 ```rust
 
@@ -471,18 +410,18 @@ fn chunk_size_comparison() {
 ```
 
 ### Example: Work splitting strategies
-This example shows how to work splitting strategies in practice, emphasizing why it works.
+
+Compares equal splits (N/threads items each) vs adaptive (Rayon work-stealing). Static is cache-friendly; adaptive handles irregular workloads. Use static for uniform work, adaptive for variable work.
 
 ```rust
-
 fn work_splitting_strategies() {
     let data: Vec<i32> = (0..100_000).collect();
 
     // Strategy 1: Equal splits (good for uniform work)
     let chunk_size = data.len() / rayon::current_num_threads();
     let result1: Vec<i32> = data
-        .par_chunks(chunk_size)
-        .flat_map(|chunk| chunk.iter().map(|&x| x * x))
+        .par_chunks(chunk_size.max(1))
+        .flat_map(|chunk| chunk.par_iter().map(|&x| x * x))
         .collect();
 
     // Strategy 2: Adaptive (good for non-uniform work)
@@ -490,7 +429,13 @@ fn work_splitting_strategies() {
 
     assert_eq!(result1.len(), result2.len());
 }
-// Real-world: Matrix multiplication with blocking
+```
+
+### Example: Matrix multiplication with blocking
+
+Processes matrices in blocks that fit L1/L2 cache for better memory access patterns. Partitions output by blocks; each thread processes assigned blocks. Achieves 5x+ speedup from cache efficiency.
+
+```rust
 struct Matrix {
     data: Vec<f64>,
     rows: usize,
@@ -548,7 +493,12 @@ impl Matrix {
         result
     }
 }
-// Real-world: Parallel merge sort with optimal grain size
+```
+### Example: Parallel merge sort with optimal grain size
+
+Parallelizes merge sort with `rayon::join()` for divide step. Switches to sequential `arr.sort()` below grain_size threshold to avoid overhead. Grain size of 1000-10000 typically optimal.
+
+```rust
 fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
     if arr.len() <= grain_size {
         arr.sort();
@@ -592,11 +542,15 @@ fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
         arr[i] = item;
     }
 }
-
+// Usage
+let mut data: Vec<i32> = (0..100_000).rev().collect();
+parallel_merge_sort(&mut data, 1000);
+println!("Sorted: {}", data.windows(2).all(|w| w[0] <= w[1]));
 ```
 
 ### Example: Dynamic load balancing
-This example shows how to dynamic load balancing in practice, emphasizing why it works.
+
+Demonstrates work-stealing on irregular workloads where each item has different cost. Rayon automatically rebalances—threads that finish early steal from others.
 
 ```rust
 
@@ -626,7 +580,8 @@ fn dynamic_load_balancing() {
 ```
 
 ### Example: Grain size tuning
-This example shows how to grain size tuning in practice, emphasizing why it works.
+
+Tests grain sizes (100, 1K, 10K, 100K) to find optimal balance. Larger grains reduce overhead; smaller grains improve load balance. Optimal depends on CPU cache and work complexity.
 
 ```rust
 
@@ -644,24 +599,6 @@ fn grain_size_tuning() {
         println!("Grain size {}: {:?}", grain_size, start.elapsed());
     }
 }
-
-fn main() {
-    println!("=== Chunk Size Comparison ===\n");
-    chunk_size_comparison();
-
-    println!("\n=== Dynamic Load Balancing ===\n");
-    dynamic_load_balancing();
-
-    println!("\n=== Grain Size Tuning ===\n");
-    grain_size_tuning();
-
-    println!("\n=== Parallel Merge Sort ===\n");
-    let mut data: Vec<i32> = (0..100_000).rev().collect();
-    let start = Instant::now();
-    parallel_merge_sort(&mut data, 1000);
-    println!("Sort time: {:?}", start.elapsed());
-    println!("Sorted: {}", data.windows(2).all(|w| w[0] <= w[1]));
-}
 ```
 
 **Work Partitioning Guidelines**:
@@ -672,17 +609,10 @@ fn main() {
 
 ---
 
-### Example: Recursive Parallelism
-
- Parallelize divide-and-conquer algorithms efficiently.
-
-```rust
-use rayon::prelude::*;
-
-```
 
 ### Example: Parallel quicksort
-This example shows how to parallel quicksort while calling out the practical trade-offs.
+
+Uses `rayon::join()` to sort partitions in parallel—divide step spawns two tasks. Switches to sequential sort below threshold to avoid overhead. Achieves near-linear speedup on multi-core CPUs.
 
 ```rust
 
@@ -702,7 +632,6 @@ fn parallel_quicksort<T: Ord + Send>(arr: &mut [T]) {
     );
 }
 
-// Usage: let mut data = vec![5, 2, 8, 1, 9]; parallel_quicksort(&mut data);
 
 fn partition<T: Ord>(arr: &mut [T]) -> usize {
     let len = arr.len();
@@ -720,11 +649,16 @@ fn partition<T: Ord>(arr: &mut [T]) -> usize {
     arr.swap(i, len - 1);
     i
 }
+// Usage
+let mut data: Vec<i32> = (0..100_000).rev().collect();
+parallel_quicksort(&mut data);
+println!("Sorted: {}", data.windows(2).all(|w| w[0] <= w[1]));
 
 ```
 
 ### Example: Parallel tree traversal
-This example shows how to parallel tree traversal while calling out the practical trade-offs.
+
+Traverses tree branches in parallel using `rayon::join()` for recursive descent. Returns vector of values in pre-order. Well-suited for balanced trees; unbalanced trees may cause work imbalance.
 
 ```rust
 
@@ -735,11 +669,11 @@ struct TreeNode<T> {
     right: Option<Box<TreeNode<T>>>,
 }
 
-impl<T: Send> TreeNode<T> {
+impl<T: Send + Sync> TreeNode<T> {
     fn parallel_map<F, U>(&self, f: &F) -> TreeNode<U>
     where
         F: Fn(&T) -> U + Sync,
-        U: Send,
+        U: Send + Sync,
     {
         let value = f(&self.value);
 
@@ -753,7 +687,7 @@ impl<T: Send> TreeNode<T> {
 
     fn parallel_sum(&self) -> T
     where
-        T: std::ops::Add<Output = T> + Default + Copy + Send,
+        T: std::ops::Add<Output = T> + Default + Copy + Send + Sync,
     {
         let mut sum = self.value;
 
@@ -766,11 +700,11 @@ impl<T: Send> TreeNode<T> {
         sum
     }
 }
-
 ```
 
 ### Example: Parallel Fibonacci (demonstrative, not efficient)
-This example shows how to parallel Fibonacci (demonstrative, not efficient) while calling out the practical trade-offs.
+
+Demonstrates recursive parallelism with sequential cutoff at n<20 to avoid overhead. Teaching example only—real Fibonacci uses iterative or matrix methods.
 
 ```rust
 
@@ -805,7 +739,16 @@ fn fib_sequential(n: u32) -> u64 {
     }
     b
 }
-// Real-world: Parallel directory size calculation
+// Usage
+let result = parallel_fib(35);
+
+```
+
+### Example: Parallel directory size calculation
+
+Recursively calculates directory sizes using `rayon::join()` for parallel subdirectory traversal. Sums file sizes at each level. I/O bound but parallelism helps on SSDs and networked storage.
+
+```rust
 use std::fs;
 use std::path::Path;
 
@@ -831,8 +774,14 @@ fn parallel_dir_size<P: AsRef<Path>>(path: P) -> u64 {
         .sum()
 }
 
-// Usage: let size = parallel_dir_size("/home/user/projects"); // bytes
-// Real-world: Parallel expression evaluation
+// Usage: 
+let size = parallel_dir_size("/home/user/projects"); // bytes
+``` 
+### Example Parallel expression evaluation
+
+Evaluates expression trees by computing sub-expressions in parallel via `rayon::join()`. Binary ops split left/right subtrees across threads. Speedup depends on tree structure and operation cost.
+
+```rust
 #[derive(Debug, Clone)]
 enum Expr {
     Num(i32),
@@ -871,19 +820,6 @@ impl Expr {
 }
 
 fn main() {
-    println!("=== Parallel Quicksort ===\n");
-    let mut data: Vec<i32> = (0..100_000).rev().collect();
-    let start = std::time::Instant::now();
-    parallel_quicksort(&mut data);
-    println!("Sort time: {:?}", start.elapsed());
-    println!("Sorted: {}", data.windows(2).all(|w| w[0] <= w[1]));
-
-    println!("\n=== Parallel Fibonacci ===\n");
-    let start = std::time::Instant::now();
-    let result = parallel_fib(35);
-    println!("fib(35) = {} in {:?}", result, start.elapsed());
-
-    println!("\n=== Expression Evaluation ===\n");
     let expr = Expr::Add(
         Box::new(Expr::Mul(
             Box::new(Expr::Num(5)),
@@ -918,26 +854,17 @@ fn main() {
 
 **Use Cases**: Statistics computation (mean, variance, stddev), histograms and frequency counting, word counting in text processing, aggregating results from parallel operations, merging sorted chunks, custom accumulators (sets, maps).
 
-### Example: Parallel Reduction Patterns
-
-Efficiently combine results from parallel operations.
-
-```rust
-use rayon::prelude::*;
-use std::collections::HashMap;
-
-```
 
 ### Example: Simple reduce (sum, min, max)
-This example keeps things simple while focusing on reduce (sum, min, max) to make the mechanics obvious.
+Built-in reductions `sum()`, `min()`, `max()`, `product()` work directly on parallel iterators. Each thread computes local result, then results merge. Watch for overflow with `product()`.
 
 ```rust
 
 fn simple_reductions() {
-    let numbers: Vec<i32> = (1..=1_000_000).collect();
+    let numbers: Vec<i64> = (1..=1_000_000).collect();
 
     // Sum
-    let sum: i32 = numbers.par_iter().sum();
+    let sum: i64 = numbers.par_iter().sum();
     println!("Sum: {}", sum);
 
     // Min/Max
@@ -946,16 +873,17 @@ fn simple_reductions() {
     println!("Min: {}, Max: {}", min, max);
 
     // Product (be careful of overflow!)
-    let small_numbers: Vec<i32> = (1..=10).collect();
-    let product: i32 = small_numbers.par_iter().product();
+    let small_numbers: Vec<i64> = (1..=10).collect();
+    let product: i64 = small_numbers.par_iter().product();
     println!("Product: {}", product);
 }
 
-// Usage: simple_reductions(); // Output: Sum: 500000500000, Min: 1, Max: 1000000, Product: 3628800
+// Usage: 
+simple_reductions(); // Output: Sum: 500000500000, Min: 1, Max: 1000000, Product: 3628800
 ```
 
 ### Example: Reduce with custom operation
-This example shows how to reduce with custom operation in practice, emphasizing why it works.
+Uses `reduce(|| identity, |a, b| combine)` for custom aggregations. Operation must be associative. Examples: string concatenation, finding closest element to target.
 
 ```rust
 
@@ -991,10 +919,9 @@ fn custom_reduce() {
 ```
 
 ### Example: fold vs reduce
-This example shows how to fold vs reduce in practice, emphasizing why it works.
+`fold()` creates per-thread accumulators, then requires `reduce()` to merge. Use fold when accumulator type differs from element type—essential for histograms, word counts, multi-field stats.
 
 ```rust
-
 fn fold_vs_reduce() {
     let numbers: Vec<i32> = (1..=1000).collect();
 
@@ -1014,7 +941,7 @@ fn fold_vs_reduce() {
 ```
 
 ### Example: fold_with for custom accumulators
-This example shows how to fold_with for custom accumulators in practice, emphasizing why it works.
+Collects multiple statistics (count, sum, min, max) in one parallel pass. Each thread maintains its own accumulator; `reduce()` merges at end. Much faster than multiple passes.
 
 ```rust
 
@@ -1061,7 +988,9 @@ fn fold_with_accumulator() {
     println!("Average: {:.2}", stats.sum as f64 / stats.count as f64);
     println!("Min: {}, Max: {}", stats.min, stats.max);
 }
-// Real-world: Parallel histogram
+```
+### Example: Parallel histogram
+```rust
 fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
     data.par_iter()
         .fold(
@@ -1081,9 +1010,18 @@ fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
             },
         )
 }
+fn main() {
+    let data: Vec<i32> = (0..10000).map(|i| i % 100).collect();
+    let histogram = parallel_histogram(data);
+    println!("Histogram buckets: {}", histogram.len());
+    println!("Bucket 50: {}", histogram.get(&50).unwrap_or(&0));
+}
+```
+### Example: Word frequency count
 
-// Usage: let hist = parallel_histogram(vec![1, 2, 2, 3, 3, 3]); // {1: 1, 2: 2, 3: 3}
-// Real-world: Word frequency count
+Splits text in parallel, builds per-thread HashMaps, merges with reduce. `par_split_whitespace()` handles tokenization. Pattern applies to any frequency counting task.
+
+```rust
 fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
     text.par_split_whitespace()
         .fold(
@@ -1103,9 +1041,20 @@ fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
             },
         )
 }
+fn main() {
+    let text = "the quick brown fox jumps over the lazy dog the fox".to_string();
+    let freq = word_frequency_parallel(text);
+    for (word, count) in freq.iter().take(5) {
+        println!("{}: {}", word, count);
+    }
+}
+```
 
-// Usage: let freq = word_frequency_parallel("the quick fox".into());
-// Real-world: Parallel variance calculation
+### Example: Parallel variance calculation
+
+Two-pass algorithm: first pass computes mean in parallel, second computes variance. More numerically stable than one-pass. Both passes use `par_iter()`.
+
+```rust
 fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
     // Two-pass algorithm (more numerically stable)
     let mean = numbers.par_iter().sum::<f64>() / numbers.len() as f64;
@@ -1118,9 +1067,17 @@ fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
 
     (mean, variance)
 }
+fn main() {
+    let numbers: Vec<f64> = (1..=100).map(|x| x as f64).collect();
+    let (mean, variance) = parallel_variance(&numbers);
+    println!("Mean: {:.2}, Variance: {:.2}, StdDev: {:.2}", mean, variance variance.sqrt());
+}
+```
+### Example Merge sorted chunks
 
-// Usage: let (mean, var) = parallel_variance(&[1.0, 2.0, 3.0, 4.0, 5.0]);
-// Real-world: Merge sorted chunks
+Merges sorted chunks in parallel using tree reduction—pairs merge concurrently, then merge results. Each iteration halves chunk count. O(log n) merge rounds with parallel work in each.
+
+```rust
 fn parallel_merge_reduce(mut chunks: Vec<Vec<i32>>) -> Vec<i32> {
     while chunks.len() > 1 {
         chunks = chunks
@@ -1157,35 +1114,6 @@ fn merge(a: &[i32], b: &[i32]) -> Vec<i32> {
     result.extend_from_slice(&b[j..]);
     result
 }
-
-fn main() {
-    println!("=== Simple Reductions ===\n");
-    simple_reductions();
-
-    println!("\n=== Custom Reduce ===\n");
-    custom_reduce();
-
-    println!("\n=== Fold with Accumulator ===\n");
-    fold_with_accumulator();
-
-    println!("\n=== Parallel Histogram ===\n");
-    let data: Vec<i32> = (0..10000).map(|i| i % 100).collect();
-    let histogram = parallel_histogram(data);
-    println!("Histogram buckets: {}", histogram.len());
-    println!("Bucket 50: {}", histogram.get(&50).unwrap_or(&0));
-
-    println!("\n=== Word Frequency ===\n");
-    let text = "the quick brown fox jumps over the lazy dog the fox".to_string();
-    let freq = word_frequency_parallel(text);
-    for (word, count) in freq.iter().take(5) {
-        println!("{}: {}", word, count);
-    }
-
-    println!("\n=== Variance ===\n");
-    let numbers: Vec<f64> = (1..=100).map(|x| x as f64).collect();
-    let (mean, variance) = parallel_variance(&numbers);
-    println!("Mean: {:.2}, Variance: {:.2}, StdDev: {:.2}", mean, variance, variance.sqrt());
-}
 ```
 
 **Reduction Patterns**:
@@ -1207,23 +1135,10 @@ fn main() {
 **Use Cases**: ETL (Extract-Transform-Load) data pipelines, image/video processing (decode→enhance→compress), log analysis (parse→enrich→filter→aggregate), data transformation chains, streaming data processing, multi-stage batch jobs.
 
 
-### Example: Multi-Stage Pipelines
-
-Process data through multiple transformation stages with different computational costs.:
-
-```rust
-use rayon::prelude::*;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
-
-```
-
 ### Example: Simple pipeline with channels
-This example keeps things simple while focusing on pipeline with channels to make the mechanics obvious.
+Three-stage pipeline: generate→transform→filter→consume with channels between stages. `par_bridge()` parallelizes each stage. `sync_channel(bound)` provides backpressure.
 
 ```rust
-
 fn simple_pipeline() {
     let (stage1_tx, stage1_rx) = mpsc::sync_channel(100);
     let (stage2_tx, stage2_rx) = mpsc::sync_channel(100);
@@ -1271,7 +1186,12 @@ fn simple_pipeline() {
 
     println!("Pipeline result: {}", result);
 }
-// Real-world: Image processing pipeline
+```
+### Example: Image processing pipeline
+
+Chains decode→enhance→compress stages using `into_par_iter().map().map().map()`. All images process through stages in parallel. Stages overlap—while one batch decodes, another enhances.
+
+```rust
 struct ImagePipeline;
 
 impl ImagePipeline {
@@ -1306,7 +1226,17 @@ impl ImagePipeline {
         data
     }
 }
-// Real-world: Log processing pipeline
+fn main() {
+    let images: Vec<Vec<u8>> = (0..100).map(|_| vec![128; 1000]).collect();
+    let start = std::time::Instant::now();
+    let processed = ImagePipeline::process_batch(images);
+}
+```
+### Example: Log processing pipeline
+
+Chains parse→filter→aggregate stages using parallel iterators. Each stage processes all items in parallel. Uses `filter_map()` to combine parse+filter, reducing intermediate allocations.
+
+```rust
 #[derive(Debug, Clone)]
 struct RawLog(String);
 
@@ -1356,11 +1286,19 @@ impl LogPipeline {
         }
     }
 }
+fn main() {
+    let logs: Vec<RawLog> = (0..1000)
+        .map(|i| RawLog(format!("{}|{}|message_{}", i, if i % 10 == 0 { "ERROR" } else { "INFO" }, i)))
+        .collect();
+    let errors = LogPipeline::process(logs);
+    println!("Found {} errors", errors.len());
+}
+
 
 ```
 
 ### Example: Parallel stages with different parallelism
-This example shows how to parallel stages with different parallelism while calling out the practical trade-offs.
+Three stages with different characteristics: light (high parallelism), heavy (larger chunks for cache), aggregation (parallel reduction). Tune chunk size per stage based on work.
 
 ```rust
 
@@ -1377,7 +1315,7 @@ fn multi_stage_parallel() {
     let stage2: Vec<i32> = stage1
         .par_chunks(100) // Larger chunks for heavy work
         .flat_map(|chunk| {
-            chunk.iter().map(|&x| {
+            chunk.par_iter().map(|&x| {
                 // Simulate heavy computation
                 let mut result = x;
                 for _ in 0..100 {
@@ -1393,7 +1331,13 @@ fn multi_stage_parallel() {
 
     println!("Multi-stage result: {}", sum);
 }
-// Real-world: ETL pipeline (Extract, Transform, Load)
+```
+
+### Example: ETL pipeline (Extract, Transform, Load)
+
+Classic data pipeline: read files in parallel (extract), transform content (transform), aggregate results (load). Each phase uses `par_iter()`. Order-independent stages maximize parallelism.
+
+```rust
 struct EtlPipeline;
 
 impl EtlPipeline {
@@ -1423,29 +1367,7 @@ impl EtlPipeline {
         ("transformed".to_string(), processed.len())
     }
 }
-
 fn main() {
-    println!("=== Simple Pipeline ===\n");
-    simple_pipeline();
-
-    println!("\n=== Image Processing Pipeline ===\n");
-    let images: Vec<Vec<u8>> = (0..100).map(|_| vec![128; 1000]).collect();
-    let start = std::time::Instant::now();
-    let processed = ImagePipeline::process_batch(images);
-    println!("Processed {} images in {:?}", processed.len(), start.elapsed());
-
-    println!("\n=== Log Processing Pipeline ===\n");
-    let logs: Vec<RawLog> = (0..1000)
-        .map(|i| RawLog(format!("{}|{}|message_{}", i, if i % 10 == 0 { "ERROR" } else { "INFO" }, i)))
-        .collect();
-
-    let errors = LogPipeline::process(logs);
-    println!("Found {} errors", errors.len());
-
-    println!("\n=== Multi-Stage Parallel ===\n");
-    multi_stage_parallel();
-
-    println!("\n=== ETL Pipeline ===\n");
     let files: Vec<String> = (0..100).map(|i| format!("file_{}.csv", i)).collect();
     let results = EtlPipeline::run(files);
     println!("Processed {} files", results.len());
@@ -1471,21 +1393,9 @@ fn main() {
 **Use Cases**: Matrix operations (multiply, transpose, dot product), image processing (convolution, filters), signal processing (FFT, filters), scientific computing (numerical methods), vector arithmetic, statistical computations.
 
 
-### Example: Portable SIMD with std::simd
-
-Vectorize operations across array elements for maximum throughput.
-
-```rust
-// Note: Requires nightly Rust
-// Add to Cargo.toml:
-// [dependencies]
-// packed_simd = "0.3"
-// For stable Rust, we'll use a portable SIMD approach
-
-```
 
 ### Example: Manual SIMD-friendly code
-This example shows how to manual SIMD-friendly code while calling out the practical trade-offs.
+Processes 4 elements at a time in separate accumulators, enabling auto-vectorization. Handle remainder separately. Pattern works for sum, dot product, and other reductions.
 
 ```rust
 
@@ -1509,11 +1419,12 @@ fn simd_friendly_sum(data: &[f32]) -> f32 {
     chunk_sum + remainder_sum
 }
 
-// Usage: let sum = simd_friendly_sum(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+let data: Vec<f32> = (0..1_000_000).map(|x| x as f32).collect();
+let sum = simd_friendly_sum(&data);
 ```
 
 ### Example: Array operations (SIMD-friendly)
-This example shows how to array operations (SIMD-friendly) in practice, emphasizing why it works.
+Element-wise `a[i] + b[i]` auto-vectorizes when arrays are contiguous. Combine with `par_iter()` for thread parallelism. Use `zip()` for multi-array operations.
 
 ```rust
 
@@ -1537,10 +1448,13 @@ fn vector_add_parallel(a: &[f32], b: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+let a: Vec<f32> = (0..1000).map(|x| x as f32).collect();
+let b: Vec<f32> = (0..1000).map(|x| (x * 2) as f32).collect();
+let result = vector_add_parallel(&a, &b);
 ```
 
 ### Example: Dot product (SIMD-friendly)
-This example shows how to dot product (SIMD-friendly) in practice, emphasizing why it works.
+Dot product (`Σ a[i]*b[i]`) is perfectly suited for SIMD—independent multiply-accumulate ops. Sequential version auto-vectorizes; parallel version adds thread-level parallelism.
 
 ```rust
 
@@ -1565,9 +1479,15 @@ fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
         .map(|(&x, &y)| x * y)
         .sum()
 }
+ 
+let result = dot_product_parallel(&big_vec_a, &big_vec_b);
+```
 
-// Usage: let result = dot_product_parallel(&big_vec_a, &big_vec_b);
-// Real-world: Matrix multiplication with SIMD hints
+### Matrix multiplication with SIMD hints
+
+Inner k-loop performs contiguous multiply-accumulate operations that compilers can auto-vectorize. Outer loops parallelize over rows with Rayon. Combines threading (row distribution) with SIMD (inner loop) for maximum throughput.
+
+```rust
 fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
     // Matrix dimensions: n x n
     assert_eq!(a.len(), n * n);
@@ -1608,11 +1528,19 @@ fn matrix_multiply_parallel_simd(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
 
     result
 }
+fn main() {
+    let n = 512;
+    let a: Vec<f32> = (0..n * n).map(|x| x as f32).collect();
+    let b: Vec<f32> = (0..n * n).map(|x| (x * 2) as f32).collect();
+
+    let result = matrix_multiply_parallel_simd(&a, &b, n);
+    println!("Result checksum: {}", result.iter().sum::<f32>());
+}
 
 ```
 
 ### Example: Blocked matrix operations (cache + SIMD friendly)
-This example shows blocked matrix operations (cache + SIMD friendly) to illustrate where the pattern fits best.
+Processes matrices in blocks that fit L1/L2 cache. Inner loops stay hot in cache. Achieves 5-10x speedup from cache efficiency alone before SIMD/threading.
 
 ```rust
 
@@ -1643,7 +1571,12 @@ fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, b
         }
     }
 }
-// Real-world: Image convolution
+```
+### Example: Image convolution
+
+Applies kernel filter to image—each output pixel computed from neighborhood sum. Outer loop over rows parallelizes with `par_iter()`. Inner kernel loop is SIMD-friendly multiply-accumulate.
+
+```rust
 fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kernel_size: usize) -> Vec<f32> {
     use rayon::prelude::*;
 
@@ -1672,14 +1605,12 @@ fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kerne
 
     result
 }
-
 ```
 
 ### Example: Reduction with SIMD
-This example shows how to reduction with SIMD in practice, emphasizing why it works.
+Combines threading (`par_chunks`) with SIMD-friendly chunk processing. Each chunk's `iter().sum()` auto-vectorizes. Achieves both 8x thread speedup and 4-8x SIMD speedup.
 
 ```rust
-
 fn parallel_sum_simd(data: &[f32]) -> f32 {
     use rayon::prelude::*;
 
@@ -1692,47 +1623,6 @@ fn parallel_sum_simd(data: &[f32]) -> f32 {
         .sum()
 }
 
-fn main() {
-    println!("=== SIMD-Friendly Sum ===\n");
-
-    let data: Vec<f32> = (0..1_000_000).map(|x| x as f32).collect();
-
-    let start = std::time::Instant::now();
-    let sum = simd_friendly_sum(&data);
-    println!("Sum: {} in {:?}", sum, start.elapsed());
-
-    println!("\n=== Vector Operations ===\n");
-
-    let a: Vec<f32> = (0..1000).map(|x| x as f32).collect();
-    let b: Vec<f32> = (0..1000).map(|x| (x * 2) as f32).collect();
-
-    let start = std::time::Instant::now();
-    let result = vector_add_parallel(&a, &b);
-    println!("Vector add: {} elements in {:?}", result.len(), start.elapsed());
-
-    println!("\n=== Dot Product ===\n");
-
-    let start = std::time::Instant::now();
-    let dot = dot_product_parallel(&a, &b);
-    println!("Dot product: {} in {:?}", dot, start.elapsed());
-
-    println!("\n=== Matrix Multiplication ===\n");
-
-    let n = 512;
-    let a: Vec<f32> = (0..n * n).map(|x| x as f32).collect();
-    let b: Vec<f32> = (0..n * n).map(|x| (x * 2) as f32).collect();
-
-    let start = std::time::Instant::now();
-    let result = matrix_multiply_parallel_simd(&a, &b, n);
-    println!("Matrix multiply ({}x{}): {:?}", n, n, start.elapsed());
-    println!("Result checksum: {}", result.iter().sum::<f32>());
-
-    println!("\n=== Parallel Sum with SIMD ===\n");
-
-    let start = std::time::Instant::now();
-    let sum = parallel_sum_simd(&data);
-    println!("Parallel sum: {} in {:?}", sum, start.elapsed());
-}
 ```
 
 **SIMD Optimization Tips**:
@@ -1744,19 +1634,10 @@ fn main() {
 
 ---
 
-### Example: Auto-Vectorization and Hints
-
-Help the compiler generate SIMD code effectively.
-
-```rust
-
-```
-
 ### Example: Iterator patterns that auto-vectorize
-This example shows how to iterator patterns that auto-vectorize in practice, emphasizing why it works.
+Simple `map(|x| x * 2.0)` and `zip().map()` auto-vectorize well. Avoid closures with captured state or complex control flow. Test in release builds only.
 
 ```rust
-
 fn auto_vectorize_examples() {
     let data: Vec<f32> = (0..10000).map(|x| x as f32).collect();
 
@@ -1776,14 +1657,12 @@ fn auto_vectorize_examples() {
         .map(|chunk| chunk.iter().sum())
         .collect();
 }
-
 ```
 
 ### Example: Explicit chunking for better vectorization
-This example shows how to explicit chunking for better vectorization in practice, emphasizing why it works.
+Process in chunks matching SIMD width (8 for AVX). Inner loop over chunk elements becomes single SIMD instruction. Match chunk size to CPU's vector width.
 
 ```rust
-
 fn chunked_operations(data: &[f32]) -> Vec<f32> {
     let mut result = Vec::with_capacity(data.len());
 
@@ -1798,11 +1677,10 @@ fn chunked_operations(data: &[f32]) -> Vec<f32> {
 
     result
 }
-
 ```
 
 ### Example: Struct of Arrays (SoA) vs Array of Structs (AoS)
-This example shows how to struct of Arrays (SoA) vs Array of Structs (AoS) in practice, emphasizing why it works.
+AoS (`Vec<Point>`) scatters x,y,z across memory—bad for SIMD. SoA stores each field contiguously, enabling vectorization. SoA can be 4-8x faster for SIMD workloads.
 
 ```rust
 
@@ -1836,9 +1714,21 @@ impl PointsSoA {
             .collect()
     }
 }
+fn main() {
+    let points_soa = PointsSoA {
+        x: (0..10000).map(|i| i as f32).collect(),
+        y: (0..10000).map(|i| (i * 2) as f32).collect(),
+        z: (0..10000).map(|i| (i * 3) as f32).collect(),
+    };
+    let sums = points_soa.process();
+}
 
-// Usage: let soa = PointsSoA { x: vec![1.0], y: vec![2.0], z: vec![3.0] }; let sums = soa.process();
-// Real-world: Parallel + SIMD Monte Carlo
+```
+### Example Parallel + SIMD Monte Carlo
+
+Estimates π using random points—threads process chunks while inner loops can auto-vectorize. Combines thread parallelism (chunk distribution) with SIMD-friendly point-in-circle calculation.
+
+```rust
 fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
     use rayon::prelude::*;
     use rand::Rng;
@@ -1866,11 +1756,11 @@ fn monte_carlo_pi_parallel_simd(samples: usize) -> f64 {
 
     4.0 * inside as f64 / samples as f64
 }
-
+let pi = monte_carlo_pi_parallel_simd(10_000_000);
 ```
 
 ### Example: Benchmarking SIMD effectiveness
-This example shows benchmarking SIMD effectiveness to illustrate where the pattern fits best.
+Compares loop, iterator (likely vectorized), and parallel versions. Speedup loop→iterator reveals SIMD benefit; iterator→parallel reveals threading benefit.
 
 ```rust
 
@@ -1901,33 +1791,6 @@ fn benchmark_vectorization() {
     println!("Parallel: {:?}", time3);
     println!("Speedup (iter vs loop): {:.2}x", time1.as_secs_f64() / time2.as_secs_f64());
     println!("Speedup (parallel vs iter): {:.2}x", time2.as_secs_f64() / time3.as_secs_f64());
-}
-
-fn main() {
-    println!("=== Auto-Vectorization ===\n");
-    auto_vectorize_examples();
-
-    println!("\n=== SoA vs AoS ===\n");
-
-    let points_soa = PointsSoA {
-        x: (0..10000).map(|i| i as f32).collect(),
-        y: (0..10000).map(|i| (i * 2) as f32).collect(),
-        z: (0..10000).map(|i| (i * 3) as f32).collect(),
-    };
-
-    let start = std::time::Instant::now();
-    let sums = points_soa.process();
-    println!("SoA processing: {:?}", start.elapsed());
-    println!("Checksum: {}", sums.iter().sum::<f32>());
-
-    println!("\n=== Monte Carlo Pi ===\n");
-
-    let start = std::time::Instant::now();
-    let pi = monte_carlo_pi_parallel_simd(10_000_000);
-    println!("Pi estimate: {} in {:?}", pi, start.elapsed());
-
-    println!("\n=== Vectorization Benchmark ===\n");
-    benchmark_vectorization();
 }
 ```
 

@@ -3,6 +3,8 @@ This chapter explores asynchronous programming patterns in Rust using async/awai
 
 
 
+
+
 ## Pattern 1: Future Composition
 
 **Problem**: Chaining async operations with nested `.await` calls creates deeply nested code (callback hell). Running multiple async operations concurrently with manual spawning is verbose.
@@ -13,25 +15,18 @@ This chapter explores asynchronous programming patterns in Rust using async/awai
 
 **Use Cases**: HTTP request batching (parallel API calls), database query composition (dependent queries), microservice orchestration, retry logic with fallbacks, concurrent file operations, fan-out/fan-in patterns.
 
-### Example: Future Combinators and Error Handling
 
-Compose multiple async operations, handle errors gracefully, and transform results without nested callbacks.
-
-```rust
-// Note: Add to Cargo.toml:
-// tokio = { version = "1.35", features = ["full"] }
-// reqwest = "0.11"
-// serde = { version = "1.0", features = ["derive"] }
-// serde_json = "1.0"
-
-use tokio;
-use std::time::Duration;
-
+### to Cargo.toml
+```toml
+tokio = { version = "1.35", features = ["full"] }
+reqwest = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 ```
 
 ### Example: Basic future composition with map
 
-Demonstrates the fundamental pattern of chaining async operations with synchronous transformations. The `fetch_user_name` function simulates an API call that returns a `Result`, while `get_user_name_uppercase` shows how to use `.map()` on the Result to transform the success value. The `.await` completes the async operation, then `.map()` transforms the result synchronously without another await. This keeps the code linear and readable rather than nested callbacks.
+Chain async operations with synchronous transformations using combinators. The `.await` keyword completes the async call first, then `.map()` transforms the `Result` synchronously without requiring another await. This pattern keeps transformation logic clean and composable.
 
 ```rust
 use std::time::Duration;
@@ -65,7 +60,7 @@ async fn main() {
 
 ### Example: Chaining async operations
 
-Shows how to chain multiple async operations where each depends on the previous result using the `?` operator. First fetches the user name, then fetches their posts—the second call can't happen until the first completes because we need the user data. The `?` operator provides early return on error, so if `fetch_user_name` fails, we immediately return that error without attempting to fetch posts. This is the async equivalent of sequential function calls in synchronous code.
+The `?` operator provides early return on error. If `fetch_user_name` fails, we immediately return that error without attempting to fetch posts. This pattern mirrors sequential function calls in synchronous code while maintaining clean error propagation.
 
 ```rust
 async fn fetch_user_posts(user_id: u64) -> Result<Vec<String>, String> {
@@ -92,7 +87,7 @@ async fn main() -> Result<(), String> {
 
 ### Example: Error conversion and propagation
 
-Demonstrates how to create a unified error type that can represent multiple failure modes (network errors, not found, invalid data) and automatically convert from library errors using `From` trait. The `reqwest::Error` automatically converts to `AppError::Network` via the `?` operator. This pattern is critical for production code where you need to handle errors from multiple sources (HTTP client, JSON parsing, business logic) in a consistent way.
+Create a unified error type implementing the `From` trait to automatically convert library-specific errors into your application error type. The `?` operator leverages these `From` implementations to convert `reqwest::Error` to `AppError::Network` automatically, enabling seamless error propagation.
 
 ```rust
 #[derive(Debug)]
@@ -130,21 +125,9 @@ async fn main() {
 }
 ```
 
-### Example: Combining multiple futures with different error types
-
-Shows how to sequence multiple async calls that share the same error type. Each call uses `?` for early return on failure. Note these calls are sequential—data2 waits for data1 to complete. For parallel execution, see `join!` examples below.
-
-```rust
-async fn complex_operation() -> Result<String, AppError> {
-    let data1 = fetch_json_data("https://api.example.com/data1").await?;
-    let data2 = fetch_json_data("https://api.example.com/data2").await?;
-    Ok(format!("Combined: {:?} and {:?}", data1, data2))
-}
-```
-
 ### Example: HTTP client with retries
 
-Implements a generic retry wrapper with exponential backoff (2^attempts seconds between failures). The closure-based design (`FnMut() -> Fut`) allows retrying any async operation. This pattern is essential for resilient distributed systems where transient failures are common.
+Generic retry wrapper implementing exponential backoff for resilient HTTP requests. The closure-based design using `FnMut() -> Fut` allows retrying any async operation with configurable maximum attempts and increasing delays between retries to prevent overwhelming failing services.
 
 ```rust
 async fn fetch_with_retry<F, Fut, T, E>(
@@ -201,7 +184,7 @@ async fn main() {
 
 ### Example: join! - wait for all futures
 
-Runs multiple independent futures concurrently and waits for ALL to complete. Unlike sequential `.await` chains, `join!` starts all futures simultaneously—if each takes 100ms, three sequential awaits take 300ms, but `join!` takes only ~100ms. Returns a tuple of all results regardless of completion order. Use when you need all results before proceeding (e.g., fetching user profile + settings + notifications in parallel).
+The `join!` macro runs futures concurrently, waiting for all to complete before continuing. Three independent 100ms operations finish in approximately 100ms total rather than 300ms sequentially. Returns a tuple containing all results in declaration order.
 
 ```rust
 async fn concurrent_fetch() {
@@ -223,7 +206,7 @@ async fn main() {
 
 ### Example: try_join! - wait for all, fail fast on error
 
-Like `join!` but for fallible futures (returning `Result`). If ANY future fails, `try_join!` cancels the remaining futures and returns immediately with that error—"fail fast" semantics. On success, unwraps all `Ok` values into a tuple. Use when all operations must succeed (e.g., loading required config files where any missing file is fatal).
+The `try_join!` macro works like `join!` but for `Result`-returning futures. If any future fails, it immediately cancels remaining futures and returns that error. On success, it unwraps all `Ok` values into a tuple for convenient destructuring.
 
 ```rust
 async fn concurrent_fetch_fail_fast() -> Result<(String, String, String), String> {
@@ -245,7 +228,7 @@ async fn main() -> Result<(), String> {
 
 ### Example: select! - race futures, take first to complete
 
-Races multiple futures and returns when the FIRST one completes, cancelling all others. Unlike `join!` which waits for all, `select!` is for "whichever finishes first wins" scenarios. The unfinished futures are dropped (cancelled). Use for timeouts (operation vs timer), redundant requests (first server to respond), or cancellation (work vs cancel signal). Note: cancelled futures stop at their next `.await` point.
+The `select!` macro races multiple futures concurrently, returning when the first one completes and automatically cancelling the others. This pattern is essential for implementing timeouts, redundant requests for reliability, and responding to cancellation signals.
 
 ```rust
 use tokio::time::sleep;
@@ -273,7 +256,7 @@ async fn main() {
 
 ### Example: Dynamic number of futures with FuturesUnordered
 
-When you have a dynamic (runtime-determined) number of futures, use `FuturesUnordered`. Unlike `join!` which requires compile-time fixed count, `FuturesUnordered` accepts any iterator of futures. Results stream out in completion order (not submission order)—the fastest responses arrive first. Use for batch API calls, parallel downloads, or any fan-out pattern where count varies.
+When the number of futures is determined at runtime, use `FuturesUnordered` to manage them efficiently. Results stream back in completion order with the fastest finishing first, rather than the original submission order, maximizing throughput.
 
 ```rust
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -297,6 +280,9 @@ async fn main() {
 
 ```
 ### Example: Parallel HTTP requests with limit
+
+Processes URLs in fixed-size batches to limit concurrent connections. Each chunk runs in parallel via `join_all`, but chunks themselves execute sequentially. This approach provides simple concurrency limiting without requiring semaphores or complex coordination logic.
+
 ```rust
 async fn fetch_urls_concurrently(
     urls: Vec<String>, max_concurrent: usize
@@ -320,11 +306,22 @@ async fn fetch_urls_concurrently(
 
     results
 }
+
+#[tokio::main]
+async fn main() {
+    let urls: Vec<_> = (0..10)
+        .map(|i| format!("https://httpbin.org/get?id={}", i))
+        .collect();
+    let results = fetch_urls_concurrently(urls, 3).await;
+    println!("Fetched {} URLs ({} succeeded)",
+        results.len(),
+        results.iter().filter(|r| r.is_ok()).count());
+}
 ```
 
 ### Example: Timeout wrapper
 
-Generic function to add timeout to any future. Returns `Ok(result)` if completed in time, `Err(Elapsed)` on timeout.
+A generic wrapper function that adds timeout capability to any future. Returns `Ok(result)` if the operation completes within the specified duration, or `Err(Elapsed)` if the timeout expires. The wrapped future is automatically cancelled when timeout occurs.
 
 ```rust
 async fn with_timeout<F, T>(
@@ -351,7 +348,7 @@ async fn main() {
 
 ### Example: Cancellation-safe write
 
-Atomic file write that either completes fully or not at all. Uses sync_all to ensure data is flushed to disk.
+Implements atomic file writes that either complete fully or leave no partial data. The `sync_all()` call ensures all data is flushed to disk before returning success. This prevents data corruption if the operation is cancelled or the system crashes mid-write.
 
 ```rust
 async fn cancellation_safe_write(data: String) -> Result<(), std::io::Error> {
@@ -395,12 +392,15 @@ async fn main() {
 
 ### Example: Creating streams
 
-Shows the three main ways to create async streams: from iterators (for known data), from channels (for producer-consumer patterns), and from intervals (for time-based events). `stream::iter()` converts any iterator into a stream. Channels let a spawned task push values into a stream. Interval streams fire periodically for polling, heartbeats, or rate limiting.
+Three primary ways to create async streams: from iterators using `stream::iter()` for known data, from channels enabling producer-consumer patterns with backpressure, and from intervals for time-based events. Each approach suits different use cases.
 
 ```rust
+use std::time::Duration;
+use futures::stream::{self, StreamExt};
+
 async fn create_streams() {
     // From iterator - instant conversion of known data
-    let s = stream::iter(vec![1, 2, 3, 4, 5]);
+    let _s = stream::iter(vec![1, 2, 3, 4, 5]);
 
     // From channel - producer task sends values over time
     let (tx, rx) = tokio::sync::mpsc::channel(10);
@@ -409,39 +409,55 @@ async fn create_streams() {
             tx.send(i).await.unwrap();
         }
     });
-    let s = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let _s = tokio_stream::wrappers::ReceiverStream::new(rx);
 
     // Interval stream - time-based events
-    let s = stream::StreamExt::take(
+    let _s = stream::StreamExt::take(
         tokio_stream::wrappers::IntervalStream::new(
             tokio::time::interval(Duration::from_millis(100))
         ),
         5,  // Stop after 5 ticks
     );
+
+    println!("Streams created successfully");
 }
 
+#[tokio::main]
+async fn main() {
+    create_streams().await;
+}
 ```
 
 ### Example: Map and filter
 
-Synchronous transformations on streams work like iterator combinators. `filter()` keeps elements matching a predicate, `map()` transforms each element. These are lazy—nothing happens until you consume the stream (with `.collect()`, `.next()`, etc.). Chain multiple operations for efficient pipelines without intermediate allocations.
+Stream combinators mirror iterator patterns: `filter()` retains elements matching a predicate, while `map()` transforms each element. Streams use lazy evaluation, processing elements only when consumed via `.collect()` or iterated with `.next()`.
 
 ```rust
+use futures::stream::{self, StreamExt};
+
 async fn transform_stream() {
     let stream = stream::iter(1..=10)
-        .filter(|x| x % 2 == 0)  // Keep evens: 2, 4, 6, 8, 10
+        .filter(|x| futures::future::ready(x % 2 == 0))  // Keep evens: 2, 4, 6, 8, 10
         .map(|x| x * 2);         // Double: 4, 8, 12, 16, 20
 
     let results: Vec<i32> = stream.collect().await;
     println!("Transformed: {:?}", results);  // [4, 8, 12, 16, 20]
 }
+
+#[tokio::main]
+async fn main() {
+    transform_stream().await;
+}
 ```
 
 ### Example: Then (async map)
 
-When your transformation itself is async (e.g., fetching data for each element), use `.then()` instead of `.map()`. The closure returns a Future that will be awaited. Elements are processed sequentially by default—each must complete before the next starts. For concurrent processing, combine with `.buffer_unordered()`.
+Use `.then()` when transformation requires async operations. The closure returns a Future that gets awaited for each element. Elements process sequentially by default; combine with `.buffer_unordered()` to enable concurrent processing of multiple elements.
 
 ```rust
+use std::time::Duration;
+use futures::stream::{self, StreamExt};
+
 async fn async_transform_stream() {
     let stream = stream::iter(1..=5)
         .then(|x| async move {
@@ -453,27 +469,41 @@ async fn async_transform_stream() {
     let results: Vec<i32> = stream.collect().await;
     println!("Async transformed: {:?}", results);  // [1, 4, 9, 16, 25]
 }
+
+#[tokio::main]
+async fn main() {
+    async_transform_stream().await;
+}
 ```
 
 ### Example: Fold and reduce
 
-Aggregates stream elements into a single value using an accumulator. `fold(initial, closure)` starts with initial value and applies the closure to each element. Unlike `collect()` which builds a collection, `fold()` computes a single result (sum, max, concatenation, etc.). The closure receives accumulator and current element, returns new accumulator.
+Aggregates an entire stream into a single accumulated value. The `fold(initial, closure)` method applies the closure to each element along with the current accumulator value, ultimately returning the final computed result after processing all elements.
 
 ```rust
+use futures::stream::{self, StreamExt};
+
 async fn aggregate_stream() {
     let sum = stream::iter(1..=100)
-        .fold(0, |acc, x| acc + x)  // Sum: 0+1+2+...+100
+        .fold(0, |acc, x| futures::future::ready(acc + x))  // Sum: 0+1+2+...+100
         .await;
 
     println!("Sum: {}", sum);  // 5050
+}
+
+#[tokio::main]
+async fn main() {
+    aggregate_stream().await;
 }
 ```
 
 ### Example: Take and skip
 
-Pagination primitives for streams. `skip(n)` discards the first n elements, `take(n)` stops after n elements. Combine for offset-based pagination: `skip(page * size).take(size)`. Efficient for infinite streams—`take(5)` on an infinite stream yields exactly 5 elements then stops.
+Pagination primitives for stream slicing: `skip(n)` discards the first n elements, while `take(n)` limits output to n elements then stops. Combine both for offset-based pagination using the pattern `skip(page * size).take(size)` for paged results.
 
 ```rust
+use futures::stream::{self, StreamExt};
+
 async fn limit_stream() {
     let results: Vec<i32> = stream::iter(1..=100)
         .skip(10)   // Skip first 10 (1-10)
@@ -483,11 +513,16 @@ async fn limit_stream() {
 
     println!("Limited: {:?}", results);  // [11, 12, 13, 14, 15]
 }
+
+#[tokio::main]
+async fn main() {
+    limit_stream().await;
+}
 ```
 
 ### Example: Rate Limiting
 
-Controls concurrency using a semaphore. The semaphore limits how many permits can be acquired simultaneously—here, max 5 concurrent requests. `buffer_unordered(10)` allows up to 10 futures to run, but only 5 can actually execute (semaphore-limited). Essential for respecting API rate limits, preventing server overload, or managing database connection pools.
+Semaphore-based rate limiting controls concurrent operations by limiting available permits. Here, the semaphore allows maximum 5 concurrent executions. While `buffer_unordered(10)` permits 10 futures in flight, the semaphore restricts actual parallel execution to 5.
 
 ```rust
 use std::sync::Arc;
@@ -521,7 +556,7 @@ async fn main() {
 
 ### Example: Batch processing
 
-Processes items in fixed-size batches. Useful for rate limiting bulk operations.
+Processes items in fixed-size batches for controlled throughput. The `chunks()` method divides input into batches, each processed sequentially with a delay between batches. This approach is useful for rate limiting bulk operations or respecting API quotas.
 
 ```rust
 async fn batch_process<T: std::fmt::Debug>(items: Vec<T>, batch_size: usize) {
@@ -539,14 +574,16 @@ async fn main() {
 
 ### Example: Stream merging
 
-Combines two streams into one, yielding elements interleaved as they become ready.
+Combines two independent streams into a single merged stream, yielding elements interleaved as they become ready from either source. The order of output depends on which stream produces values first, enabling efficient multiplexing of multiple data sources.
 
 ```rust
+use futures::stream;
+use tokio_stream::StreamExt;
+
 async fn merge_streams() {
-    use tokio_stream::StreamExt;
     let stream1 = stream::iter(vec![1, 2, 3]);
     let stream2 = stream::iter(vec![4, 5, 6]);
-    let merged = stream::StreamExt::merge(stream1, stream2);
+    let merged = StreamExt::merge(stream1, stream2);
     let results: Vec<i32> = merged.collect().await;
     println!("Merged: {:?}", results);
 }
@@ -568,7 +605,7 @@ async fn main() {
 
 ### Example: Stream from Async Generators
 
-Manual `Stream` implementation for full control over yielding behavior. Implement `poll_next()` which returns `Poll::Ready(Some(item))` for next value, `Poll::Ready(None)` when exhausted, or `Poll::Pending` to yield to runtime. This low-level approach is rarely needed—prefer channel-based streams for most cases. Use manual impl for zero-allocation streams or complex state machines.
+Manual `Stream` trait implementation requires `poll_next()` returning `Ready(Some(item))` to yield values, `Ready(None)` when exhausted, or `Pending` to signal waiting. While this provides full control, prefer channel-based patterns for most use cases.
 
 ```rust
 use std::pin::Pin;
@@ -612,7 +649,7 @@ async fn main() {
 
 ### Example: Async generator pattern using channels
 
-The practical way to create async generators: spawn a producer task that sends values through a channel, wrap the receiver as a stream. The producer runs independently, sending values as they become available. The channel provides backpressure—if consumer is slow, producer blocks on `send()`. Use this pattern for WebSocket messages, database cursors, or any producer-consumer scenario.
+Spawn a producer task that sends values through a bounded channel, then wrap the receiver as a stream. The channel automatically provides backpressure when the consumer processes slower than the producer generates, preventing memory overflow.
 
 ```rust
 async fn number_generator(max: u32) -> impl Stream<Item = u32> {
@@ -710,7 +747,7 @@ async fn main() {
 
 ### Example: Database query result stream
 
-Streams database rows without loading entire result set into memory.
+Streams database rows incrementally without loading the entire result set into memory. Each row is fetched and yielded individually through the channel, enabling processing of large query results with constant memory usage regardless of total row count.
 
 ```rust
 #[derive(Debug)]
@@ -739,7 +776,7 @@ async fn main() {
 
 ### Example: Interval-based stream
 
-Creates a stream that emits values at fixed time intervals.
+Creates a stream that emits sequential values at fixed time intervals. Each tick of the interval triggers emission of the next value through the channel. Useful for implementing periodic tasks, heartbeats, polling mechanisms, or time-series data generation.
 
 ```rust
 async fn ticker_stream(interval: Duration, count: usize) -> impl Stream<Item = u64> {
@@ -784,7 +821,7 @@ async fn main() {
 
 ### Example: Task Spawning and Structured Concurrency
 
-Spawn concurrent tasks, manage their lifecycle, and coordinate their completion.
+Demonstrates spawning concurrent tasks, managing their complete lifecycle, and coordinating their completion. Structured concurrency ensures all spawned work completes before the parent scope exits, preventing orphaned tasks and enabling proper resource cleanup.
 
 ```rust
 use tokio;
@@ -794,7 +831,7 @@ use std::time::Duration;
 
 ### Example: Basic task spawning
 
-`tokio::spawn()` creates independent tasks that run concurrently on the runtime's thread pool. Each spawn returns a `JoinHandle` that can be awaited to get the task's result. Unlike sequential `.await` chains, spawned tasks execute in parallel—two 100ms tasks complete in ~100ms total, not 200ms. Use `join!` to wait for multiple handles simultaneously. Spawned tasks are `'static`, meaning they can't borrow from the surrounding scope (use `Arc` or move ownership instead).
+The `tokio::spawn()` function creates concurrent tasks and returns a `JoinHandle` for awaiting results. Tasks execute in parallel across the thread pool. Spawned tasks require `'static` lifetime, so use `Arc` for shared data or move ownership.
 
 ```rust
 async fn spawn_basic_tasks() {
@@ -822,7 +859,7 @@ async fn main() {
 
 ### Example: Structured concurrency with JoinSet
 
-`JoinSet` manages a dynamic collection of spawned tasks, providing structured concurrency guarantees. Unlike loose `spawn()` calls, JoinSet tracks all tasks and ensures cleanup when dropped. `join_next()` returns results as tasks complete (not in spawn order), enabling efficient processing of variable-duration work. When JoinSet is dropped, all incomplete tasks are cancelled. This prevents task leaks and ensures proper resource cleanup—essential for long-running servers.
+`JoinSet` manages dynamic collections of spawned tasks with automatic cleanup when dropped. The `join_next()` method returns results in completion order, processing the fastest tasks first. Any incomplete tasks are automatically cancelled when the JoinSet is dropped.
 
 ```rust
 
@@ -856,7 +893,7 @@ async fn main() {
 
 ### Example: Scoped tasks with JoinSet (guaranteed completion)
 
-This pattern guarantees all spawned work completes before the function returns, similar to `std::thread::scope`. The `while let Some(result) = set.join_next().await` loop drains all tasks, blocking until every one finishes. Unlike fire-and-forget spawns, this ensures you have all results before proceeding. Use this for batch processing where you need to aggregate results, or when spawned tasks must complete before cleanup code runs.
+Guarantees all spawned work completes before the function returns. The `while let` loop drains all tasks from the JoinSet, collecting every result before proceeding. This pattern ensures no work is abandoned or left running unexpectedly.
 
 ```rust
 use tokio::task::JoinSet;
@@ -889,7 +926,7 @@ async fn main() {
 
 ### Example: Task cancellation
 
-`CancellationToken` enables cooperative cancellation across task hierarchies. The parent token can cancel all child tokens simultaneously. Tasks check for cancellation using `select!` between their work and `token.cancelled()`. Cancellation is cooperative—tasks stop at their next `.await` point, not immediately. This allows cleanup code to run. Use `child_token()` to create hierarchical cancellation: cancelling a parent cancels all children, but cancelling a child doesn't affect siblings or parent.
+`CancellationToken` enables cooperative task cancellation across async boundaries. Tasks monitor cancellation using `select!` with `token.cancelled()`. The `child_token()` method creates hierarchical cancellation, allowing parent cancellation to propagate to all child tasks automatically.
 
 ```rust
 
@@ -923,10 +960,11 @@ async fn main() {
 ```
 ### Example: Worker pool pattern
 
-A fixed pool of worker tasks that process jobs from a shared queue. Workers share the receiver via `Arc<Mutex<Receiver>>` since mpsc receivers aren't clonable. Each worker loops, acquiring the lock to receive a task, then releasing before execution. When the sender is dropped, `recv()` returns `None` and workers exit cleanly. This pattern bounds concurrency (fixed workers), provides backpressure (channel buffer fills), and enables graceful shutdown (drop sender to stop workers).
+Fixed-size worker pool processing tasks from a shared queue via `Arc<Mutex<Receiver>>`. Workers loop until the sender is dropped, signaling shutdown. This pattern bounds concurrency to a fixed number of workers while providing natural backpressure through the channel.
 
 ```rust
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 type Task = Box<dyn FnOnce() + Send + 'static>;
@@ -981,7 +1019,7 @@ async fn main() {
 ```
 ### Example: Supervisor pattern (restart on failure)
 
-Automatically restarts failed tasks up to N times, inspired by Erlang's supervisor trees. The supervisor spawns the task, awaits its completion, and on panic (JoinError), waits before restarting. The delay between restarts prevents tight restart loops from consuming resources. Use for critical background services (database connections, health monitors) that should recover from transient failures. Consider exponential backoff for production systems.
+Automatically restarts failed tasks up to N times with configurable delays between attempts. Inspired by Erlang supervisor trees, this pattern provides fault tolerance for critical background services that need automatic recovery from transient failures.
 
 ```rust
 async fn supervised_task<F, Fut>(
@@ -1018,7 +1056,7 @@ async fn main() {
 ```
 ### Example: Background task with graceful shutdown
 
-Uses a `watch` channel to broadcast shutdown signals to background tasks. The service loops with `select!`, handling either interval ticks (normal work) or shutdown signals. `watch::changed()` completes when the sender broadcasts a new value. Unlike `oneshot`, `watch` can notify multiple receivers and be checked multiple times. The service completes its current iteration before stopping—no work is interrupted mid-operation. Essential for servers that need clean shutdown without losing in-flight requests.
+Uses a `watch` channel to broadcast shutdown signals to multiple receivers. The service loops with `select!` monitoring both work and shutdown channels. When shutdown arrives, the current iteration completes gracefully before the service stops cleanly.
 
 ```rust
 async fn background_service(shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -1071,7 +1109,7 @@ async fn main() {
 
 ### Example: Result propagation with ?
 
-The `?` operator works seamlessly in async functions, propagating errors up the call stack. When `fetch_user_data` returns `Err`, the `?` immediately returns that error from `get_user_profile` without executing remaining code. This creates clean, linear error handling without nested `match` statements. The async function's return type determines what errors can propagate—here both functions use the same `String` error type, so `?` works directly.
+The `?` operator propagates errors up the async call stack, returning early when encountering an `Err` value. This creates clean, linear error handling code without deeply nested match expressions, making async error flows read like synchronous code.
 
 ```rust
 
@@ -1098,7 +1136,7 @@ async fn main() -> Result<(), String> {
 
 ### Example: Retry with exponential backoff
 
-Handles transient failures by retrying with increasing delays (100ms, 200ms, 400ms...). The exponential growth prevents overwhelming failing services while giving them time to recover. The generic signature accepts any async operation returning `Result`. Each failure doubles the delay until max retries exceeded. Use for network requests, database connections, and any operation that might fail temporarily but succeed on retry.
+Retries failed operations with exponentially increasing delays between attempts. Starting from an initial delay, each subsequent failure doubles the wait time until reaching maximum retries. This pattern prevents overwhelming failing services while allowing recovery time.
 
 ```rust
 
@@ -1142,7 +1180,7 @@ async fn main() {
 
 ### Example: Circuit breaker
 
-Prevents cascading failures by "tripping" after repeated errors. Three states: Closed (normal operation), Open (all requests fail fast), HalfOpen (testing if service recovered). After `failure_threshold` failures, circuit opens and rejects requests immediately without calling the failing service. After `timeout`, circuit enters half-open to test recovery. Success in half-open closes the circuit; failure reopens it. Essential for microservices to prevent one failing dependency from taking down the entire system.
+Implements three states: Closed for normal operation, Open to fail fast and reject requests, and HalfOpen to test recovery. The circuit opens after reaching a failure threshold, protecting downstream services. Essential for resilient microservice architectures.
 
 ```rust
 
@@ -1240,7 +1278,7 @@ async fn main() {
 
 ### Example: Fallback pattern
 
-Returns a default value when the primary operation fails, ensuring the system degrades gracefully rather than failing completely. The fallback value is pre-computed and ready to return immediately. Use for non-critical data: show cached content when API is down, use default settings when config service fails, return empty results instead of errors. Keeps the user experience intact even during partial outages.
+Returns a default value when the primary operation fails, enabling graceful degradation of service quality rather than complete failure. Ideal for non-critical data paths like cached content, default settings, or supplementary information that enhances but isn't essential.
 
 ```rust
 async fn fetch_with_fallback<F, Fut, T>(
@@ -1263,7 +1301,7 @@ where
 
 ### Example: Bulkhead pattern (resource isolation)
 
-Limits concurrent access to a resource using a semaphore, preventing one component from consuming all system resources. Named after ship bulkheads that contain flooding to one compartment. `try_acquire()` returns immediately with an error if no permits available, rather than waiting. This "fail fast" behavior prevents request queuing during overload. Use to isolate database pools, external API clients, or any shared resource that could bottleneck under load.
+Limits concurrent access to a resource using a semaphore for isolation. The `try_acquire()` method fails fast when no permits are available, rejecting excess requests immediately. This prevents one component from consuming all shared resources.
 
 ```rust
 struct Bulkhead {
@@ -1329,9 +1367,11 @@ async fn main() {
 
 ### Example: Select Patterns
 
-`select!` races multiple futures and executes the branch of whichever completes first. The other futures are dropped (cancelled). Here, two channels receive messages at different times—select returns as soon as either has data. Unlike `join!` which waits for all, `select!` is "first one wins." By default, branches are checked in random order for fairness. Use for multiplexing events from different sources into a single handler.
+The `select!` macro races multiple futures concurrently, executing whichever branch completes first while cancelling the others. Branches are checked in random order for fairness by default. Use this pattern for multiplexing events from different sources.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 async fn select_two_channels() {
     let (tx1, mut rx1) = mpsc::channel::<i32>(10);
@@ -1365,9 +1405,11 @@ async fn main() {
 
 ### Example: Select in a loop
 
-Event loop pattern: continuously `select!` over multiple sources until all are exhausted. The `if !done1` guards disable branches after their channel closes, preventing busy-polling on closed channels. The `else` branch fires when all guarded branches are disabled—signaling loop termination. This pattern is the foundation of async servers: loop over connections, requests, and shutdown signals, handling whichever arrives next.
+Implements an event loop using `select!` over multiple sources until all are exhausted. Guard conditions like `if !done` disable branches after their channels close. The `else` branch fires when all guarded branches become disabled, signaling loop termination.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 async fn select_loop() {
     let (tx1, mut rx1) = mpsc::channel::<i32>(10);
@@ -1393,11 +1435,17 @@ async fn select_loop() {
 
     loop {
         tokio::select! {
-            Some(num) = rx1.recv(), if !done1 => {
-                println!("Number: {}", num);
+            result = rx1.recv(), if !done1 => {
+                match result {
+                    Some(num) => println!("Number: {}", num),
+                    None => done1 = true,
+                }
             }
-            Some(msg) = rx2.recv(), if !done2 => {
-                println!("Message: {}", msg);
+            result = rx2.recv(), if !done2 => {
+                match result {
+                    Some(msg) => println!("Message: {}", msg),
+                    None => done2 = true,
+                }
             }
             else => {
                 println!("Both channels closed");
@@ -1415,9 +1463,11 @@ async fn main() {
 
 ### Example: Biased select (priority)
 
-`biased;` directive makes `select!` check branches in declaration order instead of randomly. The first ready branch always wins. Use for priority queues: high-priority messages are always processed before low-priority, even if both are ready. Without `biased`, Tokio randomizes to prevent starvation. Use biased select when you explicitly want priority ordering and accept that lower branches may starve under load.
+Adding `biased;` forces `select!` to check branches in declaration order rather than randomly. The first ready branch always wins, enabling priority-based handling. Use this for priority queues where certain event sources should take precedence over others.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 async fn biased_select() {
     let (tx_high, mut rx_high) = mpsc::channel::<String>(10);
@@ -1450,9 +1500,12 @@ async fn main() {
 ```
 ### Example: Request with cancellation
 
-Races a long-running request against a cancellation signal. If cancel arrives first, the request task is dropped (cancelled at its next `.await`). This pattern enables user-initiated cancellation: "Cancel" button sends to channel, select picks it up, background work stops. Note that spawned tasks aren't automatically cancelled when select completes—the JoinHandle is dropped but the task continues. For true cancellation, use `CancellationToken` inside the spawned task.
+Races an ongoing request against a cancellation signal using `select!`. If the cancellation arrives first, the request future is dropped and cancelled. For spawned tasks requiring true cooperative cancellation, use `CancellationToken` to signal tasks to stop gracefully.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
+
 async fn request_with_cancel() {
     let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
 
@@ -1483,9 +1536,12 @@ async fn main() {
 ```
 ### Example: Server with shutdown signal
 
-Classic server event loop: process requests until shutdown signal arrives. The loop `select!`s between incoming requests (normal work) and shutdown channel. On shutdown, break the loop and exit cleanly. Requests already being processed complete; new requests stop being accepted. This is graceful shutdown's foundation. Production servers add a timeout: if shutdown takes too long, force-exit to avoid hanging forever on stuck connections.
+Server event loop using `select!` to multiplex between incoming requests and a shutdown signal channel. When shutdown is received, the loop breaks and exits. Currently in-flight requests complete processing while new incoming requests are rejected.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
+
 async fn server_with_shutdown() {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     let (request_tx, mut request_rx) = mpsc::channel::<String>(10);
@@ -1526,9 +1582,12 @@ async fn server_with_shutdown() {
 
 ### Example: Select with default (non-blocking)
 
-The `else` branch in `select!` fires when all other branches can't make progress (channel empty/closed). Unlike normal `select!` which waits, this enables non-blocking checks: "give me data if available, otherwise continue immediately." Use for polling without blocking, combining with timeouts, or implementing try-recv patterns.
+The `else` branch in `select!` fires when all other branches cannot make progress. This enables non-blocking polling: check if data is immediately available and return it, otherwise continue execution immediately without waiting for any future.
 
 ```rust
+use std::time::Duration;
+use tokio::sync::mpsc;
+
 async fn select_with_default() {
     let (tx, mut rx) = mpsc::channel::<i32>(10);
 
@@ -1569,9 +1628,12 @@ async fn main() {
 
 ### Example: Basic timeout
 
-`tokio::time::timeout(duration, future)` wraps any future with a time limit. Returns `Ok(result)` if future completes in time, `Err(Elapsed)` if timeout fires first. The wrapped future is cancelled on timeout. Always use timeouts for external operations (network, file I/O) to prevent indefinite hangs.
+The `timeout(duration, future)` function wraps any future with a time limit. Returns `Ok(result)` if the operation completes within the duration, or `Err(Elapsed)` when time expires. The wrapped future is automatically cancelled when timeout occurs.
 
 ```rust
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
+
 async fn basic_timeout() {
     let operation = async {
         sleep(Duration::from_secs(2)).await;
@@ -1592,11 +1654,14 @@ async fn main() {
 
 ### Example: Timeout with retry
 
-Combines timeout and retry patterns. Each attempt gets a fresh timeout. Handle three outcomes: success, failure (operation error), and timeout (no response). Treat timeout as retriable error. Pattern handles both slow services and failing services with single code path.
+Combines timeout and retry patterns where each attempt receives a fresh timeout. Handles three outcomes: success, failure from operation error, and timeout from no response. Treating timeout as a retriable error handles both slow and failing services.
 
 ```rust
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
+
 async fn timeout_with_retry() {
-    for attempt in 1..=3 {
+    for attempt in 1..=3u64 {
         let operation = async {
             sleep(Duration::from_millis(attempt * 400)).await;
             if attempt < 3 {
@@ -1629,9 +1694,12 @@ async fn main() {
 
 ### Example: Deadline tracking
 
-Deadlines are absolute times ("finish by 2pm"), timeouts are relative durations ("finish in 5s"). Convert deadline to remaining duration with `deadline.saturating_duration_since(Instant::now())`. Deadlines are better for multi-step operations: each step shares the same deadline, automatically shrinking available time.
+Deadlines specify absolute completion times rather than relative durations. Convert deadline to remaining duration with `deadline.saturating_duration_since(Instant::now())`. Deadlines work better for multi-step operations where all steps must complete within a shared time budget.
 
 ```rust
+use std::time::Duration;
+use tokio::time::{sleep, timeout, Instant};
+
 async fn with_deadline<F, T>(
     future: F,
     deadline: Instant,
@@ -1669,9 +1737,12 @@ async fn main() {
 
 ### Example: Timeout for multiple operations
 
-Applies single timeout to a batch of operations. All operations must complete within the total timeout, not each one individually. If third operation takes too long, entire batch fails. Use when you need "all or nothing within time budget" semantics.
+Applies a single timeout encompassing an entire batch of operations. All operations must complete within the total allocated time. If any individual operation takes too long, the entire batch fails with a timeout error.
 
 ```rust
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
+
 async fn timeout_all() {
     let operations = vec![
         tokio::spawn(async {
@@ -1710,15 +1781,19 @@ async fn main() {
 
 ### Example: Rate limiter with timeout
 
-Token bucket rate limiter with automatic refill. Semaphore tracks available tokens, background task refills periodically. `acquire_with_timeout` fails fast if no tokens available within time limit—prevents request queuing forever when rate exceeded. Essential for API clients respecting server rate limits.
+Implements token bucket rate limiting using a semaphore with periodic refill. The `acquire_with_timeout` method fails fast if no tokens become available within the time limit, preventing indefinite waits. Essential for enforcing API rate limits.
 
 ```rust
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
+use tokio::time::timeout;
 
 struct RateLimiter {
     semaphore: Arc<Semaphore>,
+    #[allow(dead_code)]
     refill_amount: usize,
+    #[allow(dead_code)]
     refill_interval: Duration,
 }
 
@@ -1767,18 +1842,21 @@ async fn main() {
 
 ### Example: Health check with timeout
 
-Wraps an HTTP request in a timeout to detect unresponsive services. Health checks must complete quickly—a 30-second timeout defeats the purpose. The `?` after `timeout()` converts timeout error to the function's error type. Returns `Ok(true)` for healthy (2xx status), `Ok(false)` for unhealthy (4xx/5xx), and `Err` for timeout or network failure. Use in load balancers, service meshes, and monitoring systems.
+Performs HTTP health checks with timeout to detect unresponsive services quickly. Returns `Ok(true)` for healthy services responding with success status, `Ok(false)` for unhealthy responses, and `Err` for timeout or network failures.
 
 ```rust
-async fn health_check(url: &str) -> Result<bool, Box<dyn std::error::Error>> {
+use std::time::Duration;
+use tokio::time::timeout;
+
+async fn health_check(url: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let check = async {
         let response = reqwest::get(url).await?;
-        Ok(response.status().is_success())
+        Ok::<bool, Box<dyn std::error::Error + Send + Sync>>(response.status().is_success())
     };
 
     timeout(Duration::from_secs(5), check)
         .await
-        .map_err(|_| "Health check timed out".into())?
+        .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> { "Health check timed out".into() })?
 }
 
 #[tokio::main]
@@ -1792,9 +1870,12 @@ async fn main() {
 
 ### Example: Graceful timeout (finish current work)
 
-Waits for workers to complete, but gives up after a grace period. During shutdown, you want to finish in-flight work, but can't wait forever for hung tasks. The timeout provides an upper bound: workers get `grace_period` to finish, then we proceed regardless. In production, log which workers didn't complete and consider force-killing their resources. This balances clean shutdown against availability (new instance can't start until old one exits).
+Waits for all workers to complete with an upper time bound. Workers receive a grace period to finish their current work, then the system proceeds regardless of completion status. This balances clean shutdown requirements against service availability.
 
 ```rust
+use std::time::Duration;
+use tokio::time::timeout;
+
 async fn graceful_shutdown_with_timeout(
     workers: Vec<tokio::task::JoinHandle<()>>,
     grace_period: Duration,
@@ -1835,9 +1916,10 @@ async fn main() {
 
 ### Example: Multi-threaded runtime (default)
 
-`#[tokio::main]` creates a multi-threaded runtime by default, with worker threads equal to CPU cores. Spawned tasks are distributed across threads via work-stealing: idle threads steal tasks from busy threads' queues. Notice different thread IDs in output—tasks migrate between threads. This maximizes CPU utilization for I/O-bound workloads. The runtime handles all thread management; you just spawn tasks.
+The `#[tokio::main]` attribute creates a multi-threaded runtime with worker threads equal to CPU core count by default. Work-stealing scheduling automatically distributes tasks across threads, ensuring efficient load balancing and maximum CPU utilization.
 
 ```rust
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -1860,7 +1942,7 @@ async fn main() {
 
 ### Example: Single-threaded runtime
 
-`flavor = "current_thread"` runs all tasks on the main thread. No thread synchronization overhead, no `Send` requirement on spawned futures. All tasks share the same thread ID. Simpler and faster for I/O-bound workloads with few concurrent tasks. Ideal for CLI tools, embedded systems, WASM, or when you need `!Send` types like `Rc`. Drawback: one blocking operation stalls everything.
+Using `flavor = "current_thread"` runs all tasks on the main thread only. This removes the `Send` requirement for spawned futures. Ideal for CLI tools, WebAssembly targets, or when using `!Send` types like `Rc` and `RefCell`.
 
 ```rust
 
@@ -1882,9 +1964,11 @@ async fn main() {
 
 ### Example: Custom runtime configuration
 
-Build runtime manually for fine-grained control: worker thread count, thread names (for debugging), stack size, enabled features. Use `block_on()` to run async code on manually-built runtime. Useful for embedding Tokio in larger applications or tuning for specific workloads.
+Build the runtime manually using `Builder` for fine-grained control over configuration. Customize worker thread count, thread names, and stack sizes. Use `block_on()` to execute async code on the custom runtime from synchronous contexts.
 
 ```rust
+use std::time::Duration;
+
 fn custom_runtime_example() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
@@ -1915,9 +1999,11 @@ fn main() {
 
 ### Example: Blocking operations
 
-NEVER call blocking code directly in async context—it stalls the entire runtime. Use `spawn_blocking()` to run blocking code on dedicated thread pool, keeping async threads free. Essential for: file I/O (sync std::fs), CPU computation, blocking FFI, legacy libraries. Returns JoinHandle to await result.
+Never block the async runtime directly with synchronous operations. Use `spawn_blocking()` to run blocking code on a dedicated thread pool separate from async workers. Essential for synchronous I/O, CPU-intensive work, and blocking FFI calls.
 
 ```rust
+use std::time::Duration;
+
 async fn handle_blocking_operations() {
     // Bad: blocks the async runtime
     // std::thread::sleep(Duration::from_secs(1));
@@ -1939,7 +2025,7 @@ async fn main() {
 
 ### Example: Local task set (for !Send futures)
 
-`LocalSet` enables spawning `!Send` futures (containing Rc, RefCell, etc.) that can't cross thread boundaries. Tasks spawned with `spawn_local()` stay on current thread. Use for single-threaded async with non-Send data, WASM targets, or wrapping non-threadsafe libraries.
+`LocalSet` enables running `!Send` futures that use types like `Rc` and `RefCell`. Tasks spawned via `spawn_local()` are guaranteed to stay on the current thread. Use this for WebAssembly or when interfacing with non-threadsafe libraries.
 
 ```rust
 use tokio::task::LocalSet;
@@ -1968,7 +2054,7 @@ async fn main() {
 
 ### Example: CPU-bound work with rayon
 
-Combine Tokio (async I/O) with Rayon (parallel CPU). Wrap Rayon's parallel operations in `spawn_blocking()` to avoid blocking async runtime. Rayon uses work-stealing for CPU parallelism; Tokio handles I/O concurrency. Pattern: fetch data with Tokio, process with Rayon, store results with Tokio.
+Combine Tokio for async I/O operations with Rayon for parallel CPU-intensive computation. Wrap Rayon parallel operations inside `spawn_blocking()` to execute them on the blocking thread pool, preventing them from blocking the async runtime.
 
 ```rust
 use rayon::prelude::*;
@@ -1991,9 +2077,11 @@ async fn main() {
 
 ### Example: Mixed workload (I/O and CPU)
 
-Run I/O-bound and CPU-bound tasks concurrently. I/O task uses async sleep (yields to runtime), CPU task uses spawn_blocking with sync sleep (runs on blocking pool). `join!` waits for both. Neither blocks the other—true concurrent execution of heterogeneous workloads.
+Run I/O-bound and CPU-bound tasks concurrently using appropriate primitives. I/O tasks use async sleep on the runtime, while CPU tasks use `spawn_blocking` for the blocking pool. The `join!` macro waits for both without blocking.
 
 ```rust
+use std::time::Duration;
+
 async fn mixed_workload() {
     let io_task = tokio::spawn(async {
         for i in 0..5 {
@@ -2012,7 +2100,7 @@ async fn mixed_workload() {
         }
     });
 
-    tokio::join!(io_task, cpu_task);
+    let _ = tokio::join!(io_task, cpu_task);
 }
 
 #[tokio::main]
@@ -2024,7 +2112,7 @@ async fn main() {
 
 ### Example: Runtime Comparison and Interop
 
-Side-by-side comparison of Tokio and async-std syntax. APIs are similar: spawn tasks, sleep, collect results. Main differences: Tokio has more features and ecosystem; async-std mirrors std library more closely. Feature flags allow compiling same code for both runtimes.
+Tokio and async-std provide similar APIs for common async operations. Tokio has the larger ecosystem and more third-party library support, while async-std mirrors standard library patterns. Feature flags enable compiling the same code for both runtimes.
 
 ```rust
 // Tokio version
@@ -2056,7 +2144,7 @@ mod tokio_example {
 
 ### Example: async-std version
 
-Same logic as Tokio but using async-std APIs. Note: JoinHandle doesn't require `.unwrap()` (async-std tasks don't return Result). API names mirror std: `task::spawn`, `task::sleep`. Swap runtimes by changing feature flag and imports.
+Implements the same logic using async-std APIs instead of Tokio. The JoinHandle returns the value directly without needing `.unwrap()`. The API mirrors standard library naming conventions with `task::spawn` and `task::sleep`.
 
 ```rust
 #[cfg(feature = "async-std-runtime")]
@@ -2087,7 +2175,7 @@ mod async_std_example {
 
 ### Example: Runtime-agnostic code using futures
 
-Write library code that works with any runtime using the `futures` crate. Use generic `Future` trait instead of runtime-specific spawn. Callers provide the async transformation; this code only orchestrates. Essential pattern for reusable async libraries.
+Write portable library code that works with any async runtime using the `futures` crate. Use the generic `Future` trait and combinators instead of runtime-specific APIs like Tokio's spawn. Essential for creating reusable async libraries.
 
 ```rust
 mod runtime_agnostic {
@@ -2139,7 +2227,7 @@ async fn main() {
              
 ### Example: Performance comparison
 
-Benchmark task spawn/completion overhead. Spawn 1000 tasks with minimal work, measure total time. Results vary by workload: Tokio often faster for high-contention scenarios due to work-stealing; async-std may win for simpler workloads. Always benchmark your specific use case.
+Benchmarks spawn and completion overhead by creating 1000 concurrent tasks with minimal work. Results vary significantly based on workload characteristics and hardware. Always benchmark with your specific use case rather than relying on generic measurements.
 
 ```rust
 #[cfg(feature = "tokio-runtime")]
@@ -2201,7 +2289,7 @@ async fn main() {
 
 ### Example: using futures crate for compatibility
 
-`futures::executor::block_on` runs futures without any runtime—useful for tests, simple scripts, or one-off async operations. Not for production servers (no I/O reactor), but great for compatibility and testing. Combinators from `futures` crate work with any runtime.
+The `futures::executor::block_on` function runs futures without requiring a full async runtime. Useful for tests, simple scripts, and synchronous contexts. Combinators from the futures crate work with any runtime, enabling portable async code.
 
 ```rust
 use futures::executor::block_on;
