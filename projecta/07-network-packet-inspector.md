@@ -1273,7 +1273,7 @@ impl ConnectionKey {
         // TODO: Create a normalized version of the connection key so that packets
         // in both directions map to the same key. Compare IPs first, then ports if
         // IPs are equal. If current order is already canonical, return self.
-        // Otherwise, return a new ConnectionKey with src/dst swapped.
+        // Otherwise, return a new ConnectionKey with examples/dst swapped.
         todo!()
     }
 }
@@ -1545,7 +1545,7 @@ mod benchmarks {
     fn bench_packet_parsing() {
         let ethernet_data = vec![
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // dst
-            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, // src
+            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, // examples
             0x08, 0x00, // IPv4
             // Minimal IPv4 header
             0x45, 0x00, 0x00, 0x3C, 0x1C, 0x46, 0x40, 0x00,

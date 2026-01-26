@@ -1164,7 +1164,7 @@ version = "0.1.0"
 
         for i in 0..num_files {
             fs::write(
-                project_root.join(format!("src/module{}.rs", i)),
+                project_root.join(format!("examples/module{}.rs", i)),
                 format!(
                     r#"
 pub fn func{}(x: i32) -> i32 {{

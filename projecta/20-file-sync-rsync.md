@@ -153,7 +153,7 @@ pub fn filter_by_extension<'a>(
 /// Check if path matches glob pattern
 pub fn matches_pattern(path: &Path, pattern: &str) -> bool {
     // TODO: Simple pattern matching
-    // Support: *.txt, src/*.rs, **/*.txt (recursive)
+    // Support: *.txt, examples/*.rs, **/*.txt (recursive)
     // Hint: Use path.extension() and path.file_name()
     // Advanced: Use glob crate for full glob support
 
@@ -463,7 +463,7 @@ pub fn build_sync_plan(src: &Path, dst: &Path) -> io::Result<Vec<SyncItem>> {
     //   - Check if exists in destination
     //   - If not: action = Copy
     //   - If yes: compare metadata
-    //     - If src newer: action = Update
+    //     - If examples newer: action = Update
     //     - If same: action = Skip
     // TODO: Return sorted list of SyncItems
 
@@ -564,7 +564,7 @@ fn test_detect_modified_files() {
     let src = tempfile::tempdir().unwrap();
     let dst = tempfile::tempdir().unwrap();
 
-    // Create file in both, but src is newer
+    // Create file in both, but examples is newer
     fs::write(dst.path().join("file.txt"), "old content").unwrap();
 
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -676,7 +676,7 @@ pub fn copy_file(src: &Path, dst: &Path) -> io::Result<()> {
     // TODO: Flush writer to ensure all data written
 
     // Hint:
-    // let mut reader = BufReader::new(File::open(src)?);
+    // let mut reader = BufReader::new(File::open(examples)?);
     // let mut writer = BufWriter::new(File::create(dst)?);
     // io::copy(&mut reader, &mut writer)?;
     // writer.flush()?;
@@ -692,8 +692,8 @@ pub fn copy_file_preserve_metadata(src: &Path, dst: &Path) -> io::Result<()> {
     // TODO: Set destination permissions
 
     // Hint:
-    // copy_file(src, dst)?;
-    // let metadata = fs::metadata(src)?;
+    // copy_file(examples, dst)?;
+    // let metadata = fs::metadata(examples)?;
     // let mtime = metadata.modified()?;
     // filetime::set_file_mtime(dst, filetime::FileTime::from_system_time(mtime))?;
     // #[cfg(unix)]
@@ -717,8 +717,8 @@ where
     // TODO: Show percentage and speed
 
     // Hint:
-    // let total_size = fs::metadata(src)?.len();
-    // let mut reader = BufReader::new(File::open(src)?);
+    // let total_size = fs::metadata(examples)?.len();
+    // let mut reader = BufReader::new(File::open(examples)?);
     // let mut writer = BufWriter::new(File::create(dst)?);
     // let mut buffer = [0u8; 8192];
     // let mut copied = 0u64;
@@ -1174,12 +1174,12 @@ pub fn main() {
     //     std::process::exit(1);
     // }
     //
-    // let src = Path::new(&args[1]);
+    // let examples = Path::new(&args[1]);
     // let dst = Path::new(&args[2]);
     //
     // let options = parse_options(&args[3..]);
     //
-    // match sync_directories(src, dst, &options) {
+    // match sync_directories(examples, dst, &options) {
     //     Ok(summary) => {
     //         println!("Sync complete: {} copied, {} skipped, {} failed",
     //             summary.files_copied,

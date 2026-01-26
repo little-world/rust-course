@@ -22,8 +22,8 @@ Build a simple but functional build system that executes compilation pipelines, 
 **The Manual Build Problem**:
 ```bash
 # Manual build process - error-prone and slow
-$ rustc src/lib.rs
-$ rustc src/main.rs --extern mylib=libmylib.rlib
+$ rustc examples/lib.rs
+$ rustc examples/main.rs --extern mylib=libmylib.rlib
 $ cargo test
 # Problems:
 # - Must remember order of commands
@@ -1126,7 +1126,7 @@ pub enum Severity {
 
 pub fn parse_compiler_output(line: &str) -> Option<CompilerMessage> {
     // TODO: Parse patterns like:
-    // "src/main.rs:10:5: error: expected `;`"
+    // "examples/main.rs:10:5: error: expected `;`"
     // "warning: unused variable: `x`"
 
     // Simplified regex pattern

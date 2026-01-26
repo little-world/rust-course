@@ -603,7 +603,7 @@ impl TestRunner {
 
     fn compile_and_test(&self, code: &str) -> Result<bool, std::io::Error> {
         // TODO: Create temporary project directory
-        // TODO: Write code to src/lib.rs
+        // TODO: Write code to examples/lib.rs
         // TODO: Run `cargo test`
         // TODO: Parse exit code: 0 = pass, non-zero = fail
         // TODO: Return true if tests passed, false if failed
@@ -649,11 +649,11 @@ edition = "2021"
         )
         .unwrap();
 
-        // Create src directory
-        fs::create_dir(dir.path().join("src")).unwrap();
+        // Create examples directory
+        fs::create_dir(dir.path().join("examples")).unwrap();
 
         // Write code
-        fs::write(dir.path().join("src/lib.rs"), code).unwrap();
+        fs::write(dir.path().join("examples/lib.rs"), code).unwrap();
 
         dir
     }
@@ -1719,7 +1719,7 @@ mod tests {
 // - main.rs: CLI tool
 
 // Run mutation testing:
-// cargo run -- --source src/lib.rs --timeout 30 --parallel 8 --format html
+// cargo run -- --source examples/lib.rs --timeout 30 --parallel 8 --format html
 ```
 
 This complete mutation testing framework teaches:

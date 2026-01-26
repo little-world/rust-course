@@ -79,7 +79,7 @@ metadata.is_symlink()                               // Check if symbolic link
 metadata.modified()?                                 // Last modified time
 
 // File operations (async)
-fs::copy("src.txt", "dst.txt").await?               // Copy file, returns bytes copied
+fs::copy("examples.txt", "dst.txt").await?               // Copy file, returns bytes copied
 fs::rename("old.txt", "new.txt").await?             // Rename/move file
 fs::remove_file("file.txt").await?                  // Delete file
 fs::hard_link("original.txt", "link.txt").await?   // Create hard link
@@ -130,7 +130,7 @@ for item in items {
 writer.flush().await?;
 
 // Copy with progress
-let mut src = fs::File::open("src.txt").await?;
+let mut src = fs::File::open("examples.txt").await?;
 let mut dst = fs::File::create("dst.txt").await?;
 let mut buffer = [0u8; 8192];
 loop {

@@ -2154,7 +2154,7 @@ cargo new my_app
 # Creates:
 # my_app/
 # ├── Cargo.toml       # Manifest file
-# └── src/
+# └── examples/
 #     └── main.rs      # Binary entry point with fn main()
 
 # Create library project
@@ -2162,7 +2162,7 @@ cargo new my_lib --lib
 # Creates:
 # my_lib/
 # ├── Cargo.toml
-# └── src/
+# └── examples/
 #     └── lib.rs       # Library root
 
 # Initialize in existing directory

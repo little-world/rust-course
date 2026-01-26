@@ -40,7 +40,7 @@ proc-macro2 = "1.0"
 This demonstrates the fundamental derive macro workflow. The `parse_macro_input!` macro converts the raw TokenStream into a structured `DeriveInput` AST. Extract the type name via `input.ident` and use `quote!` to generate the trait implementation with `stringify!` for compile-time reflection.
 
 ```rust
-// my_macros/src/lib.rs
+// my_macros/examples/lib.rs
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};

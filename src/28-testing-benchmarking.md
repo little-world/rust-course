@@ -595,7 +595,7 @@ Add or strengthen tests until important mutants die, then re-run with `cargo mut
  focused mutation testing on specific modules using `--mutate` flags. The `--list` option previews generated mutants before execution. Targeting critical paths like pricing and tax logic maximizes mutation testing effectiveness.
 
 ```bash
-cargo mutants --mutate src/pricing.rs --mutate src/tax.rs
+cargo mutants --mutate examples/pricing.rs --mutate examples/tax.rs
 ```
 
 Pair with `--list` to inspect generated mutants before running them.
@@ -609,7 +609,7 @@ Pair with `--list` to inspect generated mutants before running them.
 [dev-dependencies]
 mutagen = "0.1"
 
-// src/lib.rs
+// examples/lib.rs
 #[cfg_attr(test, mutagen::mutate)]
 pub fn is_eligible(age: u8) -> bool {
     age >= 18
@@ -633,7 +633,7 @@ Running `cargo test` under `RUSTFLAGS="--cfg mutate"` generates mutants on the f
 This example uses Kani model checker with `#[kani::proof]` to formally verify `checked_add`. The `kani::any()` function creates symbolic values representing all possible u32 inputs, proving the postcondition holds for every combination.
 
 ```rust
-// src/lib.rs
+// examples/lib.rs
 pub fn checked_add(a: u32, b: u32) -> Option<u32> {
     a.checked_add(b)
 }
@@ -1025,12 +1025,12 @@ my_binary/
 ```
 
 ```rust
-// src/lib.rs
+// examples/lib.rs
 pub fn run(args: Args) -> Result<(), Error> {
     // Application logic
 }
 
-// src/main.rs
+// examples/main.rs
 fn main() {
     let args = parse_args();
     if let Err(e) = my_binary::run(args) {

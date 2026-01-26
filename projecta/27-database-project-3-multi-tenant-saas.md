@@ -177,7 +177,7 @@ Diesel generates Rust code from your actual database schema, ensuring perfect sy
 psql -c "CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255))"
 
 # 2. Generate Rust schema
-diesel print-schema > src/schema.rs
+diesel print-schema > examples/schema.rs
 
 # 3. Use in code
 use schema::users;
@@ -516,7 +516,7 @@ CREATE INDEX idx_users_org ON users(organization_id);
 
 **Generated Schema (diesel CLI)**:
 ```rust
-// src/schema.rs (auto-generated)
+// examples/schema.rs (auto-generated)
 diesel::table! {
     organizations (id) {
         id -> Int4,
@@ -1428,7 +1428,7 @@ ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'pending';
 **Updated Schema**:
 ```rust
 // After running migrations, regenerate schema:
-// diesel print-schema > src/schema.rs
+// diesel print-schema > examples/schema.rs
 
 // schema.rs now has new columns
 diesel::table! {

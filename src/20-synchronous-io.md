@@ -673,7 +673,7 @@ fn is_directory(path: &str) -> bool {
 }
 
 // Usage: Only walk directories
-if is_directory("src") { walk_it(); }
+if is_directory("examples") { walk_it(); }
 ```
 
 
@@ -699,7 +699,7 @@ fn list_directory(path: &str) -> io::Result<Vec<PathBuf>> {
 }
 
 // Usage: Get all entries in directory
-let entries = list_directory("src")?;
+let entries = list_directory("examples")?;
 ```
 
 ### Example: List only files (skip directories)
@@ -750,7 +750,7 @@ fn list_by_extension(
 }
 
 // Usage: Find all Rust source files
-let rs_files = list_by_extension("src", "rs")?;
+let rs_files = list_by_extension("examples", "rs")?;
 ```
 
 ### Example: Get directory entries with metadata
@@ -855,7 +855,7 @@ fn print_tree(path: &Path, prefix: &str) -> io::Result<()> {
 }
 
 // Usage: Print directory tree like `tree` command
-print_tree(Path::new("src"), "")?;
+print_tree(Path::new("examples"), "")?;
 ```
 
 ### Example: Find files matching pattern (like find command)

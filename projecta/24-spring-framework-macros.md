@@ -571,7 +571,7 @@ fn test_missing_component() {
 ```
 
 ```rust
-// myframework-macros/src/lib.rs
+// myframework-macros/examples/lib.rs
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, ItemStruct};
@@ -619,7 +619,7 @@ serde_json = "1.0"
 ```
 
 ```rust
-// myframework/src/lib.rs
+// myframework/examples/lib.rs
 pub use myframework_macros::*;
 
 mod container;
@@ -630,7 +630,7 @@ pub use lazy_static::lazy_static;
 ```
 
 ```rust
-// myframework/src/container.rs
+// myframework/examples/container.rs
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -723,7 +723,7 @@ pub trait Component {
 **Starter Code Extension**:
 
 ```rust
-// myframework-macros/src/lib.rs (updated)
+// myframework-macros/examples/lib.rs (updated)
 use syn::{Field, Fields};
 
 #[proc_macro_attribute]
@@ -876,7 +876,7 @@ fn test_inject_chain() {
 **Starter Code**:
 
 ```rust
-// myframework/src/http.rs
+// myframework/examples/http.rs
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -942,7 +942,7 @@ pub struct PathParam<T>(pub T);
 ```
 
 ```rust
-// myframework/src/routing.rs
+// myframework/examples/routing.rs
 use crate::http::*;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -1002,7 +1002,7 @@ pub fn match_path(pattern: &str, path: &str) -> Option<HashMap<String, String>> 
 ```
 
 ```rust
-// myframework-macros/src/lib.rs (add route macros)
+// myframework-macros/examples/lib.rs (add route macros)
 
 #[proc_macro_attribute]
 pub fn get(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -1154,7 +1154,7 @@ fn test_not_found() {
 **Starter Code Extension**:
 
 ```rust
-// myframework/src/http.rs (additions)
+// myframework/examples/http.rs (additions)
 use serde::{Serialize, Deserialize};
 
 /// JSON wrapper for automatic serialization/deserialization
@@ -1188,7 +1188,7 @@ impl Request {
 ```
 
 ```rust
-// myframework-macros/src/lib.rs (parameter extraction)
+// myframework-macros/examples/lib.rs (parameter extraction)
 
 /// Attribute for marking function parameter as request body
 #[proc_macro_attribute]
@@ -1369,7 +1369,7 @@ fn test_combined_parameters() {
 **Starter Code**:
 
 ```rust
-// myframework-macros/src/lib.rs (controller macro)
+// myframework-macros/examples/lib.rs (controller macro)
 
 #[proc_macro_attribute]
 pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -1423,7 +1423,7 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ```
 
 ```rust
-// myframework/src/lib.rs (application bootstrap)
+// myframework/examples/lib.rs (application bootstrap)
 
 pub struct Application;
 

@@ -1,4 +1,4 @@
-// src/bin/complete_06_zero_copy.rs
+// examples/bin/complete_06_zero_copy.rs
 
 pub struct ParserContext<'ctx> {
     keywords: &'ctx [&'ctx str],

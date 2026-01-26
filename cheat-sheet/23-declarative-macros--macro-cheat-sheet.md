@@ -301,7 +301,7 @@ macro_rules! lazy_static {
 
 // ===== DEBUGGING MACROS =====
 // dbg! - debug print and return value
-let x = dbg!(1 + 2);                               // Prints: [src/main.rs:42] 1 + 2 = 3
+let x = dbg!(1 + 2);                               // Prints: [examples/main.rs:42] 1 + 2 = 3
 
 // stringify! - convert to string literal
 let s = stringify!(1 + 2);                         // "1 + 2"
@@ -310,7 +310,7 @@ let s = stringify!(1 + 2);                         // "1 + 2"
 let s = concat!("Hello", " ", "World");            // "Hello World"
 
 // file! - current file name
-let file = file!();                                // "src/main.rs"
+let file = file!();                                // "examples/main.rs"
 
 // line! - current line number
 let line = line!();                                // line number

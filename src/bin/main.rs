@@ -54,7 +54,7 @@ fn process_file(path: &Path,
 fn main() -> io::Result<()> {
     // expect exactly one argument: the directory to scan
   
-    let dir = "./src/docs/std-util";
+    let dir = "./examples/docs/std-util";
 
     let entries = fs::read_dir(dir)?;
     println!("{:#?}", entries.collect::<Vec<_>>());

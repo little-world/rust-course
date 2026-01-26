@@ -965,7 +965,7 @@ fn is_prime(n: u32) -> bool {
 ```
 
 ```rust
-// src/lib.rs
+// examples/lib.rs
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 
 fn is_prime_fast(n: u32) -> bool {

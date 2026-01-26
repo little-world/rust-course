@@ -242,7 +242,7 @@ fn test_create_commit_object() {
 **Starter Code**:
 
 ```rust
-// src/objects.rs
+// examples/objects.rs
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
@@ -322,7 +322,7 @@ impl Commit {
 ```
 
 ```rust
-// src/hash.rs
+// examples/hash.rs
 use sha1::{Sha1, Digest};
 
 /// Compute SHA-1 hash of data
@@ -344,7 +344,7 @@ pub fn hash_with_type(obj_type: &str, data: &[u8]) -> String {
 ```
 
 ```rust
-// src/repository.rs
+// examples/repository.rs
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
@@ -523,16 +523,16 @@ fn test_add_directory() {
     let temp = tempfile::tempdir().unwrap();
     mygit::init(temp.path()).unwrap();
 
-    fs::create_dir(temp.path().join("src")).unwrap();
-    fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-    fs::write(temp.path().join("src/lib.rs"), "pub fn foo() {}").unwrap();
+    fs::create_dir(temp.path().join("examples")).unwrap();
+    fs::write(temp.path().join("examples/main.rs"), "fn main() {}").unwrap();
+    fs::write(temp.path().join("examples/lib.rs"), "pub fn foo() {}").unwrap();
 
     let repo = Repository::open(temp.path()).unwrap();
-    repo.add("src").unwrap();
+    repo.add("examples").unwrap();
 
     let index = repo.read_index().unwrap();
-    assert!(index.contains_key("src/main.rs"));
-    assert!(index.contains_key("src/lib.rs"));
+    assert!(index.contains_key("examples/main.rs"));
+    assert!(index.contains_key("examples/lib.rs"));
 }
 
 #[test]
@@ -584,26 +584,26 @@ fn test_build_tree_from_index() {
     mygit::init(temp.path()).unwrap();
     let repo = Repository::open(temp.path()).unwrap();
 
-    fs::create_dir_all(temp.path().join("src/utils")).unwrap();
+    fs::create_dir_all(temp.path().join("examples/utils")).unwrap();
     fs::write(temp.path().join("index.md"), "readme").unwrap();
-    fs::write(temp.path().join("src/main.rs"), "main").unwrap();
-    fs::write(temp.path().join("src/utils/helper.rs"), "helper").unwrap();
+    fs::write(temp.path().join("examples/main.rs"), "main").unwrap();
+    fs::write(temp.path().join("examples/utils/helper.rs"), "helper").unwrap();
 
     repo.add(".").unwrap(); // Add all files
 
     let tree_hash = repo.build_tree_from_index().unwrap();
     let tree = repo.read_tree(&tree_hash).unwrap();
 
-    // Root tree should have index.md and src/
+    // Root tree should have index.md and examples/
     assert!(tree.entries.contains_key("index.md"));
-    assert!(tree.entries.contains_key("src"));
+    assert!(tree.entries.contains_key("examples"));
 }
 ```
 
 **Starter Code Extension**:
 
 ```rust
-// src/index.rs
+// examples/index.rs
 use std::collections::HashMap;
 use std::path::Path;
 use std::io;
@@ -635,7 +635,7 @@ pub fn write_index(git_dir: &Path, index: &Index) -> io::Result<()> {
 ```
 
 ```rust
-// src/repository.rs (additions)
+// examples/repository.rs (additions)
 
 impl Repository {
     /// Add file(s) to staging area
@@ -673,13 +673,13 @@ impl Repository {
         // TODO: Convert flat index to tree hierarchy
         // Example index:
         //   "index.md" -> blob_hash1
-        //   "src/main.rs" -> blob_hash2
-        //   "src/lib.rs" -> blob_hash3
+        //   "examples/main.rs" -> blob_hash2
+        //   "examples/lib.rs" -> blob_hash3
         //
         // Should build:
         //   root_tree:
         //     index.md -> blob_hash1
-        //     src -> src_tree_hash
+        //     examples -> src_tree_hash
         //   src_tree:
         //     main.rs -> blob_hash2
         //     lib.rs -> blob_hash3
@@ -713,7 +713,7 @@ impl Repository {
 ```
 
 ```rust
-// src/refs.rs
+// examples/refs.rs
 use std::path::Path;
 use std::io;
 use std::fs;
@@ -894,22 +894,22 @@ fn test_checkout_directory_structure() {
     mygit::init(temp.path()).unwrap();
     let repo = Repository::open(temp.path()).unwrap();
 
-    fs::create_dir(temp.path().join("src")).unwrap();
-    fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
+    fs::create_dir(temp.path().join("examples")).unwrap();
+    fs::write(temp.path().join("examples/main.rs"), "fn main() {}").unwrap();
     fs::write(temp.path().join("index.md"), "# Project").unwrap();
 
     repo.add(".").unwrap();
     let commit = repo.commit("Initial", "Alice <alice@example.com>").unwrap();
 
     // Delete everything
-    fs::remove_dir_all(temp.path().join("src")).unwrap();
+    fs::remove_dir_all(temp.path().join("examples")).unwrap();
     fs::remove_file(temp.path().join("index.md")).unwrap();
 
     // Checkout
     repo.checkout(&commit).unwrap();
 
     // Everything should be restored
-    assert!(temp.path().join("src/main.rs").exists());
+    assert!(temp.path().join("examples/main.rs").exists());
     assert!(temp.path().join("index.md").exists());
 }
 ```
@@ -917,7 +917,7 @@ fn test_checkout_directory_structure() {
 **Starter Code Extension**:
 
 ```rust
-// src/repository.rs (additions)
+// examples/repository.rs (additions)
 
 #[derive(Debug)]
 pub struct LogEntry {
@@ -1212,7 +1212,7 @@ fn test_three_way_merge() {
 **Starter Code Extension**:
 
 ```rust
-// src/repository.rs (additions)
+// examples/repository.rs (additions)
 
 impl Repository {
     /// Create a new branch
@@ -1531,7 +1531,7 @@ fn test_push_transfers_objects() {
 **Final Implementation**:
 
 ```rust
-// src/repository.rs (additions)
+// examples/repository.rs (additions)
 
 impl Repository {
     /// Clone a repository

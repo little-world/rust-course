@@ -449,7 +449,7 @@ fn main() {
 cargo rustc --release -- --emit=asm -C "llvm-args=-x86-asm-syntax=intel"
 
 # Method 2: rustc directly
-rustc --emit=asm -C opt-level=3 -C "llvm-args=-x86-asm-syntax=intel" src/main.rs
+rustc --emit=asm -C opt-level=3 -C "llvm-args=-x86-asm-syntax=intel" examples/main.rs
 
 # Method 3: cargo-asm (install: cargo install cargo-asm)
 cargo asm --rust milestone_1::add

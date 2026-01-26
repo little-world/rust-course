@@ -106,7 +106,7 @@ The operation is atomic from the caller's perspective; for very large files or p
 async fn copy_file(src: &str, dst: &str) -> io::Result<u64> {
     tokio::fs::copy(src, dst).await // Uses OS-level copy optimizations
 }
-let bytes_copied = copy_file("src.txt", "dst.txt").await?;
+let bytes_copied = copy_file("examples.txt", "dst.txt").await?;
 
 ```
 
@@ -476,7 +476,7 @@ async fn buffered_copy(src: &str, dst: &str) -> io::Result<u64> {
     let mut writer = BufWriter::new(dst_file);
     tokio::io::copy(&mut reader, &mut writer).await // Efficient buffered copy
 }
-let bytes = buffered_copy("src.txt", "dst.txt").await?;
+let bytes = buffered_copy("examples.txt", "dst.txt").await?;
 ```
 
 

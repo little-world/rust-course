@@ -352,7 +352,7 @@ fn main() {
         .expect("Unable to generate bindings");
     
     bindings
-        .write_to_file("src/bindings.rs")
+        .write_to_file("examples/bindings.rs")
         .expect("Couldn't write bindings!");
 }
 */
@@ -367,7 +367,7 @@ fn main() {
 /*
 fn main() {
     cc::Build::new()
-        .file("src/helper.c")
+        .file("examples/helper.c")
         .compile("helper");
 }
 */

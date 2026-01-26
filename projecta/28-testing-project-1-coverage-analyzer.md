@@ -935,7 +935,7 @@ impl ProjectAnalyzer {
     }
 
     pub fn discover_source_files(&self) -> Vec<PathBuf> {
-        // TODO: Walk directory tree starting from src/
+        // TODO: Walk directory tree starting from examples/
         // TODO: Find all .rs files
         // TODO: Exclude test files if configured
         // TODO: Filter by exclude patterns
@@ -992,12 +992,12 @@ version = "0.1.0"
 "#
         ).unwrap();
 
-        // Create src directory
-        fs::create_dir(project_root.join("src")).unwrap();
+        // Create examples directory
+        fs::create_dir(project_root.join("examples")).unwrap();
 
         // Create lib.rs
         fs::write(
-            project_root.join("src/lib.rs"),
+            project_root.join("examples/lib.rs"),
             r#"
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
@@ -1017,7 +1017,7 @@ mod tests {
 
         // Create module file
         fs::write(
-            project_root.join("src/math.rs"),
+            project_root.join("examples/math.rs"),
             r#"
 pub fn multiply(a: i32, b: i32) -> i32 {
     a * b
@@ -1250,7 +1250,7 @@ mod tests {
                 let collector = Arc::clone(&coverage_collector);
                 std::thread::spawn(move || {
                     analyzer.analyze_file_parallel(
-                        &PathBuf::from("src/lib.rs"),
+                        &PathBuf::from("examples/lib.rs"),
                         collector
                     )
                 })
@@ -1834,7 +1834,7 @@ impl ProjectAnalyzer {
     }
 
     pub fn discover_source_files(&self) -> Vec<PathBuf> {
-        walkdir::WalkDir::new(self.project_root.join("src"))
+        walkdir::WalkDir::new(self.project_root.join("examples"))
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
@@ -1955,7 +1955,7 @@ fn main() {
 
     // Example 1: Analyze a single file
     println!("Example 1: Single File Analysis");
-    let source = SourceFile::parse_file(Path::new("src/lib.rs")).unwrap();
+    let source = SourceFile::parse_file(Path::new("examples/lib.rs")).unwrap();
     println!("Found {} functions", source.functions.len());
 
     let mut instrumentor = Instrumentor::new();

@@ -302,7 +302,7 @@ Moving gap involves copying memory. Optimizations:
 ```rust
 // Move gap from 5 to 8
 // Instead of: allocate temp buffer, copy, deallocate
-// Use: buffer.copy_within(src, dest)
+// Use: buffer.copy_within(examples, dest)
 
 buffer.copy_within(
     gap_end..gap_end + distance,  // Source: after gap

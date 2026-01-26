@@ -93,7 +93,7 @@ perms.set_readonly(true);                           // Set read-only
 fs::set_permissions("file.txt", perms)?             // Apply permissions
 
 // File operations
-fs::copy("src.txt", "dst.txt")?                     // Copy file, returns bytes copied
+fs::copy("examples.txt", "dst.txt")?                     // Copy file, returns bytes copied
 fs::rename("old.txt", "new.txt")?                   // Rename/move file
 fs::remove_file("file.txt")?                        // Delete file
 fs::hard_link("original.txt", "link.txt")?         // Create hard link
@@ -181,7 +181,7 @@ for item in items {
 writer.flush()?;
 
 // Copy with progress
-let mut src = fs::File::open("src.txt")?;
+let mut src = fs::File::open("examples.txt")?;
 let mut dst = fs::File::create("dst.txt")?;
 let mut buffer = [0u8; 8192];
 loop {

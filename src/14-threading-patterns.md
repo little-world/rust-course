@@ -193,7 +193,7 @@ fn main() {
     // Process some files in parallel
     let paths: Vec<PathBuf> = vec![
         PathBuf::from("Cargo.toml"),
-        PathBuf::from("src/main.rs"),
+        PathBuf::from("examples/main.rs"),
     ];
 
     let results = process_files_parallel(paths);

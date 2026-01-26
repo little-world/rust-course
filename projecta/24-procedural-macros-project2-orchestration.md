@@ -245,7 +245,7 @@ quote = "1.0"
 proc-macro2 = "1.0"
 */
 
-// orchestrate-macros/src/lib.rs
+// orchestrate-macros/examples/lib.rs
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Data, Fields, Attribute};
@@ -390,7 +390,7 @@ serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 */
 
-// orchestrate/src/lib.rs
+// orchestrate/examples/lib.rs
 pub use orchestrate_macros::*;
 
 use std::collections::HashMap;
@@ -738,7 +738,7 @@ fn extract_service_section(compose: &str, service_name: &str) -> String {
 ### Starter Code
 
 ```rust
-// orchestrate-macros/src/lib.rs (additions)
+// orchestrate-macros/examples/lib.rs (additions)
 
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, Token, braced};
@@ -875,7 +875,7 @@ fn generate_kubernetes_method(deployment: &DeploymentDef) -> proc_macro2::TokenS
 ```
 
 ```rust
-// orchestrate/src/lib.rs (additions)
+// orchestrate/examples/lib.rs (additions)
 
 use std::collections::{HashMap, HashSet};
 
@@ -1140,7 +1140,7 @@ fn test_cost_estimation() {
 ### Starter Code
 
 ```rust
-// orchestrate-macros/src/lib.rs (additions)
+// orchestrate-macros/examples/lib.rs (additions)
 
 #[proc_macro_attribute]
 pub fn llm_service(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -1215,7 +1215,7 @@ impl Parse for LLMServiceConfig {
 ```
 
 ```rust
-// orchestrate/src/llm.rs (new file)
+// orchestrate/examples/llm.rs (new file)
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -1539,7 +1539,7 @@ async fn test_llm_with_mcp() {
 ### Starter Code
 
 ```rust
-// orchestrate-macros/src/lib.rs (additions)
+// orchestrate-macros/examples/lib.rs (additions)
 
 #[proc_macro_attribute]
 pub fn mcp_server(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -1612,7 +1612,7 @@ impl Parse for MCPServerConfig {
 ```
 
 ```rust
-// orchestrate/src/mcp.rs (new file)
+// orchestrate/examples/mcp.rs (new file)
 
 use serde::{Deserialize, Serialize};
 use tokio::process::{Child, Command};
@@ -1956,7 +1956,7 @@ async fn test_error_handling() {
 ### Starter Code
 
 ```rust
-// orchestrate-macros/src/lib.rs (additions)
+// orchestrate-macros/examples/lib.rs (additions)
 
 #[proc_macro_attribute]
 pub fn system_tool(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -2026,7 +2026,7 @@ impl Parse for ToolConfig {
 ```
 
 ```rust
-// orchestrate/src/command.rs (new file)
+// orchestrate/examples/command.rs (new file)
 
 use tokio::process::Command;
 use std::path::PathBuf;
@@ -2399,7 +2399,7 @@ fn test_grafana_dashboard_generation() {
 ### Starter Code
 
 ```rust
-// orchestrate/src/health.rs (new file)
+// orchestrate/examples/health.rs (new file)
 
 use std::time::Duration;
 use tokio::time::sleep;
@@ -2581,7 +2581,7 @@ impl ResourceLimits {
 ```
 
 ```rust
-// orchestrate/src/monitoring.rs (new file)
+// orchestrate/examples/monitoring.rs (new file)
 
 use serde_json::json;
 use std::time::Duration;
