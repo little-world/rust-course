@@ -1,4 +1,4 @@
-# Appendix B: Design Pattern Catalog
+# Appendix A: Design Pattern Catalog
 
 **Creational Patterns:**
 
@@ -66,7 +66,6 @@ Creational patterns abstract the instantiation process, making systems independe
 ```rust
 
 // Problem: Too many constructor parameters
-
 struct HttpClient {
     base_url: String,
     timeout: Duration,
@@ -76,18 +75,9 @@ struct HttpClient {
     compression: bool,
 }
 
-// Unwieldy constructor
-impl HttpClient {
-    fn new(
-        base_url: String,
-        timeout: Duration,
-        user_agent: String,
-        max_retries: u32,
-        follow_redirects: bool,
-        compression: bool,
-    ) -> Self {
-        // ...
-    }
+impl HttpClient {  // Unwieldy: 6 parameters, hard to remember order
+    fn new(base_url: String, timeout: Duration, user_agent: String,
+           max_retries: u32, follow_redirects: bool, compression: bool) -> Self { unimplemented!() }
 }
 
 // Solution: Builder pattern
@@ -112,25 +102,10 @@ impl HttpClientBuilder {
         }
     }
 
-    fn timeout(mut self, duration: Duration) -> Self {
-        self.timeout = Some(duration);
-        self
-    }
-
-    fn user_agent(mut self, agent: impl Into<String>) -> Self {
-        self.user_agent = Some(agent.into());
-        self
-    }
-
-    fn max_retries(mut self, retries: u32) -> Self {
-        self.max_retries = Some(retries);
-        self
-    }
-
-    fn follow_redirects(mut self, follow: bool) -> Self {
-        self.follow_redirects = follow;
-        self
-    }
+    fn timeout(mut self, duration: Duration) -> Self { self.timeout = Some(duration); self }
+    fn user_agent(mut self, agent: impl Into<String>) -> Self { self.user_agent = Some(agent.into()); self }
+    fn max_retries(mut self, retries: u32) -> Self { self.max_retries = Some(retries); self }
+    fn follow_redirects(mut self, follow: bool) -> Self { self.follow_redirects = follow; self }
 
     fn build(self) -> HttpClient {
         HttpClient {
@@ -177,11 +152,7 @@ impl ConfigBuilder<Incomplete> {
         }
     }
 
-    fn host(mut self, host: String) -> Self {
-        self.host = Some(host);
-        self
-    }
-
+    fn host(mut self, host: String) -> Self { self.host = Some(host); self }
     fn port(self, port: u16) -> ConfigBuilder<Complete> {
         ConfigBuilder {
             host: self.host,
@@ -191,10 +162,7 @@ impl ConfigBuilder<Incomplete> {
     }
 }
 
-
-// build() only available on Complete state
-
-impl ConfigBuilder<Complete> {
+impl ConfigBuilder<Complete> {  // build() only on Complete
     fn build(self) -> Config {
         Config {
             host: self.host.unwrap(),
@@ -240,22 +208,14 @@ trait Button {
 // Concrete products
 struct WindowsButton;
 impl Button for WindowsButton {
-    fn render(&self) -> String {
-        "Rendering Windows button".to_string()
-    }
-    fn on_click(&self) {
-        println!("Windows click event");
-    }
+    fn render(&self) -> String { "Rendering Windows button".to_string() }
+    fn on_click(&self) { println!("Windows click event"); }
 }
 
 struct MacButton;
 impl Button for MacButton {
-    fn render(&self) -> String {
-        "Rendering Mac button".to_string()
-    }
-    fn on_click(&self) {
-        println!("Mac click event");
-    }
+    fn render(&self) -> String { "Rendering Mac button".to_string() }
+    fn on_click(&self) { println!("Mac click event"); }
 }
 
 // Factory interface
@@ -266,23 +226,17 @@ trait UIFactory {
 // Concrete factories
 struct WindowsFactory;
 impl UIFactory for WindowsFactory {
-    fn create_button(&self) -> Box<dyn Button> {
-        Box::new(WindowsButton)
-    }
+    fn create_button(&self) -> Box<dyn Button> { Box::new(WindowsButton) }
 }
 
 struct MacFactory;
 impl UIFactory for MacFactory {
-    fn create_button(&self) -> Box<dyn Button> {
-        Box::new(MacButton)
-    }
+    fn create_button(&self) -> Box<dyn Button> { Box::new(MacButton) }
 }
 
-// Client code
 fn render_ui(factory: &dyn UIFactory) {
     let button = factory.create_button();
-    println!("{}", button.render());
-    button.on_click();
+    println!("{}", button.render()); button.on_click();
 }
 
 let factory: Box<dyn UIFactory> = if cfg!(target_os = "windows") {
@@ -378,19 +332,12 @@ struct Database {
 }
 
 impl Database {
-    fn new(connection_string: String) -> Self {
-        Self { connection_string }
-    }
+    fn new(connection_string: String) -> Self { Self { connection_string } }
 }
 
-struct UserService<'a> {
-    db: &'a Database,
-}
-
+struct UserService<'a> { db: &'a Database }
 impl<'a> UserService<'a> {
-    fn new(db: &'a Database) -> Self {
-        Self { db }
-    }
+    fn new(db: &'a Database) -> Self { Self { db } }
 }
 
 // Explicit dependencies, testable, no global state
@@ -451,10 +398,7 @@ impl TemplateEngine {
     }
 }
 
-fn load_template(_name: &str) -> String {
-    // Expensive operation
-    String::from("template content")
-}
+fn load_template(_name: &str) -> String { String::from("template content") }  // Expensive
 
 let base_engine = TemplateEngine::new();  // Expensive
 
@@ -517,16 +461,12 @@ trait MediaPlayer {
 // Existing third-party library with different interface
 struct VlcPlayer;
 impl VlcPlayer {
-    fn play_vlc(&self, file_path: &str) {
-        println!("Playing VLC: {}", file_path);
-    }
+    fn play_vlc(&self, file_path: &str) { println!("Playing VLC: {}", file_path); }
 }
 
 struct Mp3Player;
 impl Mp3Player {
-    fn play_mp3(&self, file_name: &str) {
-        println!("Playing MP3: {}", file_name);
-    }
+    fn play_mp3(&self, file_name: &str) { println!("Playing MP3: {}", file_name); }
 }
 
 // Adapters to make them compatible
@@ -535,27 +475,15 @@ struct VlcAdapter {
 }
 
 impl MediaPlayer for VlcAdapter {
-    fn play(&self, filename: &str) {
-        self.player.play_vlc(filename);
-    }
+    fn play(&self, filename: &str) { self.player.play_vlc(filename); }
 }
 
-struct Mp3Adapter {
-    player: Mp3Player,
-}
-
+struct Mp3Adapter { player: Mp3Player }
 impl MediaPlayer for Mp3Adapter {
-    fn play(&self, filename: &str) {
-        self.player.play_mp3(filename);
-    }
+    fn play(&self, filename: &str) { self.player.play_mp3(filename); }
 }
 
-
-// Client code works with uniform interface
-
-fn play_media(player: &dyn MediaPlayer, file: &str) {
-    player.play(file);
-}
+fn play_media(player: &dyn MediaPlayer, file: &str) { player.play(file); }
 
 let vlc = VlcAdapter { player: VlcPlayer };
 let mp3 = Mp3Adapter { player: Mp3Player };
@@ -575,9 +503,7 @@ trait PlayVlc {
 }
 
 impl<T: PlayVlc> MediaPlayer for GenericAdapter<T> {
-    fn play(&self, filename: &str) {
-        self.inner.play_vlc(filename);
-    }
+    fn play(&self, filename: &str) { self.inner.play_vlc(filename); }
 }
 
 // No trait object overhead, monomorphized at compile-time
@@ -610,13 +536,8 @@ struct FileDataSource {
 }
 
 impl DataSource for FileDataSource {
-    fn read(&self) -> String {
-        self.contents.clone()
-    }
-
-    fn write(&mut self, data: &str) {
-        self.contents = data.to_string();
-    }
+    fn read(&self) -> String { self.contents.clone() }
+    fn write(&mut self, data: &str) { self.contents = data.to_string(); }
 }
 
 // Decorator: Encryption
@@ -653,9 +574,9 @@ impl DataSource for CompressionDecorator {
     }
 }
 
-fn encrypt(data: &str) -> String { format!("encrypted({})", data) }
+fn encrypt(data: &str) -> String { format!("encrypted({data})") }
 fn decrypt(data: &str) -> String { data.trim_start_matches("encrypted(").trim_end_matches(')').to_string() }
-fn compress(data: &str) -> String { format!("compressed({})", data) }
+fn compress(data: &str) -> String { format!("compressed({data})") }
 fn decompress(data: &str) -> String { data.trim_start_matches("compressed(").trim_end_matches(')').to_string() }
 
 let file = FileDataSource {
@@ -681,23 +602,9 @@ trait Read {
     fn read(&self) -> String;
 }
 
-impl Read for String {
-    fn read(&self) -> String {
-        self.clone()
-    }
-}
-
-impl<T: Read> Read for Encrypted<T> {
-    fn read(&self) -> String {
-        decrypt(&self.0.read())
-    }
-}
-
-impl<T: Read> Read for Compressed<T> {
-    fn read(&self) -> String {
-        decompress(&self.0.read())
-    }
-}
+impl Read for String { fn read(&self) -> String { self.clone() } }
+impl<T: Read> Read for Encrypted<T> { fn read(&self) -> String { decrypt(&self.0.read()) } }
+impl<T: Read> Read for Compressed<T> { fn read(&self) -> String { decompress(&self.0.read()) } }
 
 // Compile-time composition, zero-cost
 let data = String::from("data");
@@ -724,33 +631,17 @@ println!("{}", secure.read());
 mod video_processing {
     pub struct VideoDecoder;
     impl VideoDecoder {
-        pub fn decode(&self, _file: &str) -> Vec<u8> {
-            println!("Decoding video...");
-            vec![1, 2, 3]
-        }
+        pub fn decode(&self, _file: &str) -> Vec<u8> { println!("Decoding video..."); vec![1, 2, 3] }
     }
-
     pub struct AudioExtractor;
     impl AudioExtractor {
-        pub fn extract(&self, _data: &[u8]) -> Vec<u8> {
-            println!("Extracting audio...");
-            vec![4, 5, 6]
-        }
+        pub fn extract(&self, _data: &[u8]) -> Vec<u8> { println!("Extracting audio..."); vec![4, 5, 6] }
     }
-
     pub struct CodecManager;
-    impl CodecManager {
-        pub fn configure(&self) {
-            println!("Configuring codecs...");
-        }
-    }
-
+    impl CodecManager { pub fn configure(&self) { println!("Configuring codecs..."); } }
     pub struct FormatConverter;
     impl FormatConverter {
-        pub fn convert(&self, _data: &[u8], _format: &str) -> String {
-            println!("Converting format...");
-            "output.mp4".to_string()
-        }
+        pub fn convert(&self, _data: &[u8], _format: &str) -> String { println!("Converting..."); "output.mp4".to_string() }
     }
 }
 
@@ -819,28 +710,15 @@ struct Meters(f64);
 struct Feet(f64);
 
 impl Meters {
-    fn new(value: f64) -> Self {
-        Meters(value)
-    }
-
-    fn to_feet(self) -> Feet {
-        Feet(self.0 * 3.28084)
-    }
+    fn new(value: f64) -> Self { Meters(value) }
+    fn to_feet(self) -> Feet { Feet(self.0 * 3.28084) }
 }
-
 impl Feet {
-    fn new(value: f64) -> Self {
-        Feet(value)
-    }
-
-    fn to_meters(self) -> Meters {
-        Meters(self.0 / 3.28084)
-    }
+    fn new(value: f64) -> Self { Feet(value) }
+    fn to_meters(self) -> Meters { Meters(self.0 / 3.28084) }
 }
 
-fn calculate_distance_safe(m: Meters) -> Meters {
-    Meters(m.0 * 2.0)
-}
+fn calculate_distance_safe(m: Meters) -> Meters { Meters(m.0 * 2.0) }
 
 let feet = Feet::new(10.0);
 // let result = calculate_distance_safe(feet);  // Compile error!
@@ -904,28 +782,14 @@ trait CompressionStrategy {
 // Concrete strategies
 struct ZipCompression;
 impl CompressionStrategy for ZipCompression {
-    fn compress(&self, data: &[u8]) -> Vec<u8> {
-        println!("ZIP compressing {} bytes", data.len());
-        data.to_vec()  // Simplified
-    }
-
-    fn decompress(&self, data: &[u8]) -> Vec<u8> {
-        println!("ZIP decompressing {} bytes", data.len());
-        data.to_vec()
-    }
+    fn compress(&self, data: &[u8]) -> Vec<u8> { println!("ZIP compressing {} bytes", data.len()); data.to_vec() }
+    fn decompress(&self, data: &[u8]) -> Vec<u8> { println!("ZIP decompressing {} bytes", data.len()); data.to_vec() }
 }
 
 struct RarCompression;
 impl CompressionStrategy for RarCompression {
-    fn compress(&self, data: &[u8]) -> Vec<u8> {
-        println!("RAR compressing {} bytes", data.len());
-        data.to_vec()
-    }
-
-    fn decompress(&self, data: &[u8]) -> Vec<u8> {
-        println!("RAR decompressing {} bytes", data.len());
-        data.to_vec()
-    }
+    fn compress(&self, data: &[u8]) -> Vec<u8> { println!("RAR compressing {} bytes", data.len()); data.to_vec() }
+    fn decompress(&self, data: &[u8]) -> Vec<u8> { println!("RAR decompressing {} bytes", data.len()); data.to_vec() }
 }
 
 // Context
@@ -934,17 +798,9 @@ struct FileCompressor {
 }
 
 impl FileCompressor {
-    fn new(strategy: Box<dyn CompressionStrategy>) -> Self {
-        Self { strategy }
-    }
-
-    fn set_strategy(&mut self, strategy: Box<dyn CompressionStrategy>) {
-        self.strategy = strategy;
-    }
-
-    fn compress_file(&self, data: &[u8]) -> Vec<u8> {
-        self.strategy.compress(data)
-    }
+    fn new(strategy: Box<dyn CompressionStrategy>) -> Self { Self { strategy } }
+    fn set_strategy(&mut self, strategy: Box<dyn CompressionStrategy>) { self.strategy = strategy; }
+    fn compress_file(&self, data: &[u8]) -> Vec<u8> { self.strategy.compress(data) }
 }
 
 let data = vec![1, 2, 3, 4, 5];
@@ -963,13 +819,8 @@ struct StaticCompressor<S> {
 }
 
 impl<S: CompressionStrategy> StaticCompressor<S> {
-    fn new(strategy: S) -> Self {
-        Self { strategy }
-    }
-
-    fn compress_file(&self, data: &[u8]) -> Vec<u8> {
-        self.strategy.compress(data)
-    }
+    fn new(strategy: S) -> Self { Self { strategy } }
+    fn compress_file(&self, data: &[u8]) -> Vec<u8> { self.strategy.compress(data) }
 }
 
 // Compile-time strategy selection, no heap allocation
@@ -1037,19 +888,14 @@ struct TemperatureDisplay {
 }
 
 impl Observer for TemperatureDisplay {
-    fn update(&mut self, temperature: f32) {
-        println!("{} display: {}°C", self.name, temperature);
-    }
+    fn update(&mut self, temperature: f32) { println!("{} display: {}°C", self.name, temperature); }
 }
 
-struct TemperatureLogger {
-    log: Vec<f32>,
-}
-
+struct TemperatureLogger { log: Vec<f32> }
 impl Observer for TemperatureLogger {
     fn update(&mut self, temperature: f32) {
         self.log.push(temperature);
-        println!("Logged: {}°C (total: {} readings)", temperature, self.log.len());
+        println!("Logged: {}°C (total: {})", temperature, self.log.len());
     }
 }
 
@@ -1060,26 +906,11 @@ struct WeatherStation {
 }
 
 impl WeatherStation {
-    fn new() -> Self {
-        Self {
-            temperature: 0.0,
-            observers: Vec::new(),
-        }
-    }
-
-    fn attach(&mut self, observer: Arc<Mutex<dyn Observer + Send>>) {
-        self.observers.push(observer);
-    }
-
-    fn set_temperature(&mut self, temp: f32) {
-        self.temperature = temp;
-        self.notify();
-    }
-
+    fn new() -> Self { Self { temperature: 0.0, observers: Vec::new() } }
+    fn attach(&mut self, observer: Arc<Mutex<dyn Observer + Send>>) { self.observers.push(observer); }
+    fn set_temperature(&mut self, temp: f32) { self.temperature = temp; self.notify(); }
     fn notify(&self) {
-        for observer in &self.observers {
-            observer.lock().unwrap().update(self.temperature);
-        }
+        for observer in &self.observers { observer.lock().unwrap().update(self.temperature); }
     }
 }
 
@@ -1113,21 +944,11 @@ struct Publisher {
 }
 
 impl Publisher {
-    fn new() -> Self {
-        Self {
-            subscribers: Vec::new(),
-        }
-    }
-
+    fn new() -> Self { Self { subscribers: Vec::new() } }
     fn subscribe(&mut self) -> mpsc::Receiver<Event> {
-        let (tx, rx) = mpsc::channel();
-        self.subscribers.push(tx);
-        rx
+        let (tx, rx) = mpsc::channel(); self.subscribers.push(tx); rx
     }
-
-    fn publish(&self, event: Event) {
-        self.subscribers.retain(|tx| tx.send(event.clone()).is_ok());
-    }
+    fn publish(&self, event: Event) { self.subscribers.retain(|tx| tx.send(event.clone()).is_ok()); }
 }
 
 #[derive(Clone)]
@@ -1183,24 +1004,10 @@ struct TextEditor {
 }
 
 impl TextEditor {
-    fn new() -> Self {
-        Self {
-            content: String::new(),
-        }
-    }
-
-    fn write(&mut self, text: &str) {
-        self.content.push_str(text);
-    }
-
-    fn delete_last(&mut self, count: usize) {
-        let new_len = self.content.len().saturating_sub(count);
-        self.content.truncate(new_len);
-    }
-
-    fn get_content(&self) -> &str {
-        &self.content
-    }
+    fn new() -> Self { Self { content: String::new() } }
+    fn write(&mut self, text: &str) { self.content.push_str(text); }
+    fn delete_last(&mut self, count: usize) { self.content.truncate(self.content.len().saturating_sub(count)); }
+    fn get_content(&self) -> &str { &self.content }
 }
 
 // Concrete commands
@@ -1210,13 +1017,8 @@ struct WriteCommand {
 }
 
 impl Command for WriteCommand {
-    fn execute(&mut self) {
-        self.editor.borrow_mut().write(&self.text);
-    }
-
-    fn undo(&mut self) {
-        self.editor.borrow_mut().delete_last(self.text.len());
-    }
+    fn execute(&mut self) { self.editor.borrow_mut().write(&self.text); }
+    fn undo(&mut self) { self.editor.borrow_mut().delete_last(self.text.len()); }
 }
 
 struct DeleteCommand {
@@ -1248,33 +1050,16 @@ struct CommandHistory {
 }
 
 impl CommandHistory {
-    fn new() -> Self {
-        Self {
-            history: Vec::new(),
-            current: 0,
-        }
-    }
-
+    fn new() -> Self { Self { history: Vec::new(), current: 0 } }
     fn execute(&mut self, mut command: Box<dyn Command>) {
         command.execute();
-        // Discard any undone commands
-        self.history.truncate(self.current);
+        self.history.truncate(self.current);  // Discard undone commands
         self.history.push(command);
         self.current += 1;
     }
-
-    fn undo(&mut self) {
-        if self.current > 0 {
-            self.current -= 1;
-            self.history[self.current].undo();
-        }
-    }
-
+    fn undo(&mut self) { if self.current > 0 { self.current -= 1; self.history[self.current].undo(); } }
     fn redo(&mut self) {
-        if self.current < self.history.len() {
-            self.history[self.current].execute();
-            self.current += 1;
-        }
+        if self.current < self.history.len() { self.history[self.current].execute(); self.current += 1; }
     }
 }
 
@@ -1311,17 +1096,9 @@ struct FunctionalCommand {
 }
 
 impl FunctionalCommand {
-    fn new(execute_fn: Box<dyn FnMut()>, undo_fn: Box<dyn FnMut()>) -> Self {
-        Self { execute_fn, undo_fn }
-    }
-
-    fn execute(&mut self) {
-        (self.execute_fn)();
-    }
-
-    fn undo(&mut self) {
-        (self.undo_fn)();
-    }
+    fn new(execute_fn: Box<dyn FnMut()>, undo_fn: Box<dyn FnMut()>) -> Self { Self { execute_fn, undo_fn } }
+    fn execute(&mut self) { (self.execute_fn)(); }
+    fn undo(&mut self) { (self.undo_fn)(); }
 }
 ```
 
@@ -1347,9 +1124,7 @@ struct Fibonacci {
 }
 
 impl Fibonacci {
-    fn new() -> Self {
-        Self { current: 0, next: 1 }
-    }
+    fn new() -> Self { Self { current: 0, next: 1 } }
 }
 
 impl Iterator for Fibonacci {
@@ -1375,33 +1150,20 @@ struct MyCollection {
 }
 
 impl MyCollection {
-    fn new() -> Self {
-        Self { items: Vec::new() }
-    }
-
-    fn add(&mut self, item: String) {
-        self.items.push(item);
-    }
+    fn new() -> Self { Self { items: Vec::new() } }
+    fn add(&mut self, item: String) { self.items.push(item); }
 }
 
-// Owned iterator
-impl IntoIterator for MyCollection {
+impl IntoIterator for MyCollection {  // Owned
     type Item = String;
     type IntoIter = std::vec::IntoIter<String>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.items.into_iter()
-    }
+    fn into_iter(self) -> Self::IntoIter { self.items.into_iter() }
 }
 
-// Borrowed iterator
-impl<'a> IntoIterator for &'a MyCollection {
+impl<'a> IntoIterator for &'a MyCollection {  // Borrowed
     type Item = &'a String;
     type IntoIter = std::slice::Iter<'a, String>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.items.iter()
-    }
+    fn into_iter(self) -> Self::IntoIter { self.items.iter() }
 }
 
 let mut collection = MyCollection::new();
@@ -1511,9 +1273,8 @@ for i in 0..10 {
 ```rust
 use rayon::prelude::*;
 
-// Parallel iterator (much simpler than manual thread pool)
 let numbers: Vec<i32> = (0..1000).collect();
-let sum: i32 = numbers.par_iter().map(|&x| x * 2).sum();
+let sum: i32 = numbers.par_iter().map(|&x| x * 2).sum();  // Simpler than manual pool
 ```
 
 **Trade-offs**:
@@ -1536,22 +1297,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-// Producer
 fn producer(tx: mpsc::Sender<i32>) {
-    for i in 0..10 {
-        println!("Producing {}", i);
-        tx.send(i).unwrap();
-        thread::sleep(Duration::from_millis(100));
-    }
-    // Channel closes when tx is dropped
-}
+    for i in 0..10 { println!("Producing {}", i); tx.send(i).unwrap(); thread::sleep(Duration::from_millis(100)); }
+}  // Channel closes when tx dropped
 
-// Consumer
 fn consumer(rx: mpsc::Receiver<i32>) {
-    for item in rx {
-        println!("  Consuming {}", item);
-        thread::sleep(Duration::from_millis(200));  // Slower than producer
-    }
+    for item in rx { println!("  Consuming {}", item); thread::sleep(Duration::from_millis(200)); }  // Slower
 }
 
 let (tx, rx) = mpsc::channel();
@@ -1658,9 +1409,7 @@ println!("Sum: {}", total);
 ```rust
 use rayon::prelude::*;
 
-fn rayon_sum(data: &[i32]) -> i32 {
-    data.par_iter().sum()  // Automatically parallelizes
-}
+fn rayon_sum(data: &[i32]) -> i32 { data.par_iter().sum() }  // Auto-parallelizes
 
 // Parallel recursion with rayon
 fn quicksort<T: Ord + Send>(mut data: Vec<T>) -> Vec<T> {
@@ -1823,8 +1572,7 @@ use tokio;
 use std::time::Duration;
 
 async fn fetch_user(id: u64) -> String {
-    // Simulated async operation
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;  // Simulated
     format!("User {}", id)
 }
 

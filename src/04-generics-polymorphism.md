@@ -50,6 +50,7 @@ struct Tagged<T, Tag> {
 
 *   **Problem**: You need to write functions that perform the same operation on different types. Without generics, you'd either duplicate code for each type (error-prone, unmaintainable) or use dynamic typing with runtime casts (unsafe, slow).
 *   **Solution**: Define functions with type parameters `<T>` that can be instantiated with any concrete type. Add trait bounds to constrain `T` to types that support required operations. Monomorphization means generic code is as fast as hand-written specialized code—there's no vtable lookup, no boxing, no dynamic dispatch. The `Vec::push` you call on `Vec<i32>` is different compiled code than `Vec::push` on `Vec<String>`, each optimized for its type.
+*   **Why It Matters**: Generic functions eliminate code duplication while maintaining type safety and performance. One `largest<T>` function works for integers, floats, and custom types—no copy-paste needed. The compiler catches type mismatches at compile time, not runtime.
 
 ### Example: Basic Generic Function with Type Inference
 
@@ -250,8 +251,10 @@ impl<T: Ord> BinaryTree<T> {
             BinaryTree::Node { value, left, right } => {
                 match target.cmp(value) {
                     std::cmp::Ordering::Equal => true,
-                    std::cmp::Ordering::Less => left.contains(target),
-                    std::cmp::Ordering::Greater => right.contains(target),
+                    std::cmp::Ordering::Less =>
+                        left.contains(target),
+                    std::cmp::Ordering::Greater =>
+                        right.contains(target),
                 }
             }
         }
@@ -278,10 +281,12 @@ impl<T> Wrapper<T> {
     fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Wrapper<U> {
         Wrapper { value: f(self.value) }
     }
-    fn as_ref(&self) -> Wrapper<&T> { Wrapper { value: &self.value } }
+    fn as_ref(&self) -> Wrapper<&T> {
+        Wrapper { value: &self.value }
+    }
 }
 
-// Usage: map transforms inner value; type changes if closure returns different type.
+// map transforms inner value; type changes if closure changes it
 let w = Wrapper::new(5);
 let doubled = w.map(|x| x * 2); // Wrapper { value: 10 }
 ```
@@ -504,11 +509,13 @@ fn make_iterator() -> impl Iterator<Item = i32> {
     (0..10).filter(|x| x % 2 == 0)
 }
 
-fn transform<T: Clone>(items: impl IntoIterator<Item = T>) -> Vec<T> {
+fn transform<T: Clone>(
+    items: impl IntoIterator<Item = T>,
+) -> Vec<T> {
     items.into_iter().collect()
 }
 
-// Usage: impl Trait hides concrete type while exposing capabilities.
+// impl Trait hides concrete type while exposing capabilities
 let evens: Vec<_> = make_iterator().collect(); // [0, 2, 4, 6, 8]
 let v = transform(vec![1, 2, 3]); // Works with Vec
 let v2 = transform([4, 5, 6]); // Also works with array
@@ -552,7 +559,7 @@ impl<T> Container for Vec<T> {
 
 fn first_item<C: Container>(c: &C) -> Option<&C::Item> { c.get(0) }
 
-// Usage: Associated type inferred from container; no turbofish needed.
+// Associated type inferred from container; no turbofish needed
 let v = vec![1, 2, 3];
 let first = first_item(&v); // Some(&1)
 ```
@@ -571,7 +578,7 @@ impl Convertible<f64> for i32 {
     fn convert(&self) -> f64 { *self as f64 }
 }
 
-// Usage: Same type converts to multiple targets; turbofish selects which.
+// Same type converts to multiple targets; turbofish selects which
 let n: i32 = 42;
 let s: String = Convertible::<String>::convert(&n); // "42"
 let f: f64 = Convertible::<f64>::convert(&n); // 42.0
@@ -600,7 +607,7 @@ impl Summable for Numbers {
     fn items(&self) -> &[i32] { &self.0 }
 }
 
-// Usage: Bounded associated type enables default sum() implementation.
+// Bounded associated type enables default sum() implementation
 let nums = Numbers(vec![1, 2, 3, 4, 5]);
 let total = nums.sum(); // 15
 ```
@@ -647,11 +654,12 @@ impl Family for IntFamily { type Member = i32; }
 struct StringFamily;
 impl Family for StringFamily { type Member = String; }
 
-fn create_member<F: Family>() -> F::Member where F::Member: Default {
+fn create_member<F: Family>() -> F::Member
+where F::Member: Default {
     F::Member::default()
 }
 
-// Usage: Type family maps marker type to its associated member type.
+// Type family maps marker type to its associated member type
 let int_val: i32 = create_member::<IntFamily>(); // 0 (default)
 let str_val: String = create_member::<StringFamily>(); // "" (empty)
 ```
@@ -698,13 +706,18 @@ Define a trait extending another (`IteratorExt: Iterator`) and blanket-impl for 
 
 ```rust
 trait IteratorExt: Iterator {
-    fn count_where<P: FnMut(&Self::Item) -> bool>(self, p: P) -> usize
-    where Self: Sized;
+    fn count_where<P>(self, p: P) -> usize
+    where
+        Self: Sized,
+        P: FnMut(&Self::Item) -> bool;
 }
 
 impl<I: Iterator> IteratorExt for I {
-    fn count_where<P: FnMut(&Self::Item) -> bool>(self, mut p: P) -> usize
-    where Self: Sized {
+    fn count_where<P>(self, mut p: P) -> usize
+    where
+        Self: Sized,
+        P: FnMut(&Self::Item) -> bool,
+    {
         self.filter(|item| p(item)).count()
     }
 }
@@ -834,7 +847,8 @@ impl Connection<Disconnected> {
 }
 
 impl Connection<Connected> {
-    fn authenticate(self, _creds: &str) -> Connection<Authenticated> {
+    fn authenticate(self, _creds: &str)
+        -> Connection<Authenticated> {
         Connection { socket: self.socket, _state: PhantomData }
     }
 }
@@ -843,7 +857,7 @@ impl Connection<Authenticated> {
     fn send(&mut self, _data: &[u8]) { /* only auth'd can send */ }
 }
 
-// Usage: Type state ensures send() only callable after authentication.
+// Type state ensures send() only callable after authentication
 let conn = Connection::<Disconnected>::new();
 let conn = conn.connect("localhost:8080"); // → Connected
 let mut conn = conn.authenticate("secret"); // → Authenticated
@@ -864,7 +878,9 @@ struct Feet;
 struct Quantity<T, Unit> { value: T, _unit: PhantomData<Unit> }
 
 impl<T, Unit> Quantity<T, Unit> {
-    fn new(value: T) -> Self { Quantity { value, _unit: PhantomData } }
+    fn new(value: T) -> Self {
+        Quantity { value, _unit: PhantomData }
+    }
 }
 
 impl<T: Add<Output = T>, Unit> Add for Quantity<T, Unit> {
@@ -906,7 +922,9 @@ impl UserBuilder<NoName, NoEmail> {
 impl<E> UserBuilder<NoName, E> {
     fn name(self, n: &str) -> UserBuilder<HasName, E> {
         UserBuilder {
-            name: Some(n.into()), email: self.email, _state: PhantomData
+            name: Some(n.into()),
+            email: self.email,
+            _state: PhantomData
         }
     }
 }
@@ -914,7 +932,9 @@ impl<E> UserBuilder<NoName, E> {
 impl<N> UserBuilder<N, NoEmail> {
     fn email(self, e: &str) -> UserBuilder<N, HasEmail> {
         UserBuilder {
-            name: self.name, email: Some(e.into()), _state: PhantomData
+            name: self.name,
+            email: Some(e.into()),
+            _state: PhantomData
         }
     }
 }
@@ -960,7 +980,8 @@ impl OwnedBuffer<Owned> {
 impl Drop for OwnedBuffer<Owned> {
     fn drop(&mut self) {
         unsafe {
-            let slice = std::slice::from_raw_parts_mut(self.ptr, self.len);
+            let slice =
+                std::slice::from_raw_parts_mut(self.ptr, self.len);
             drop(Box::from_raw(slice));
         }
     }
@@ -974,7 +995,7 @@ impl OwnedBuffer<Borrowed> {
 }
 
 // Usage: Owned has Drop to free memory; Borrowed doesn't.
-let owned = OwnedBuffer::<Owned>::new(b"hello"); // Drop frees memory
+let owned = OwnedBuffer::<Owned>::new(b"hello"); // Drop frees mem
 // OwnedBuffer<Borrowed> has no Drop—we don't own the data
 ```
 
@@ -1043,7 +1064,7 @@ where
     f(&local).to_string()  // f must work with local
 }
 
-// Usage: Regular lifetime from caller; HRTB for internal temporaries.
+// Regular lifetime from caller; HRTB for internal temporaries
 let s = "test";
 let r = with_lifetime(s, |x| x); // Caller's lifetime
 let result = with_hrtb(|x| x); // Function's internal lifetime
@@ -1090,7 +1111,7 @@ where
 }
 
 // Usage: Multiple independent lifetimes in closure parameters.
-let equal = call_with_two(|a, b| a == b); // false ("hello" != "world")
+let equal = call_with_two(|a, b| a == b); // false
 let longer = call_with_two(|a, b| a.len() > b.len()); // false
 ```
 
@@ -1228,7 +1249,7 @@ where
     let _ = f(&local);  // local's lifetime unknown
 }
 
-// Usage: HRTB only needed when function creates internal temporaries.
+// HRTB only needed when function creates internal temporaries
 let v = 42;
 let doubled = map_ref(&v, |x| x * 2); // No HRTB needed
 create_and_process(|s| s); // HRTB needed
@@ -1277,7 +1298,7 @@ impl<T, const N: usize> Array<T, N> {
     }
 }
 
-// Usage: Size N is part of type; Array<i32, 5> differs from Array<i32, 10>.
+// Size N is part of type; Array<i32, 5> differs from Array<i32, 10>
 let arr: Array<i32, 5> = Array::new();
 let len = arr.len(); // 5 (compile-time constant)
 let first = arr.get(0); // Some(&0)
@@ -1364,7 +1385,7 @@ where
     }
 }
 
-// Usage: Dimension mismatch is compile error; result dimensions inferred.
+// Dimension mismatch is compile error; result dims inferred
 let a: Matrix<i32, 2, 3> = Matrix::new();
 let b: Matrix<i32, 3, 4> = Matrix::new();
 let c: Matrix<i32, 2, 4> = a.multiply(&b);
@@ -1437,7 +1458,7 @@ fn double_array<T: Copy + Default, const N: usize>(
     result
 }
 
-// Usage: Output size N*2 computed at compile time from input size N.
+// Output size N*2 computed at compile time from input size N
 let doubled = double_array([1, 2, 3]); // [1, 2, 3, 1, 2, 3]
 // Array size 6 determined at compile time
 ```

@@ -540,10 +540,10 @@ fn test_first_commit() {
     let temp = tempfile::tempdir().unwrap();
     mygit::init(temp.path()).unwrap();
 
-    fs::write(temp.path().join("README.md"), "# Project").unwrap();
+    fs::write(temp.path().join("index.md"), "# Project").unwrap();
 
     let repo = Repository::open(temp.path()).unwrap();
-    repo.add("README.md").unwrap();
+    repo.add("index.md").unwrap();
 
     let commit_hash = repo.commit("Initial commit", "Alice <alice@example.com>").unwrap();
 
@@ -585,7 +585,7 @@ fn test_build_tree_from_index() {
     let repo = Repository::open(temp.path()).unwrap();
 
     fs::create_dir_all(temp.path().join("src/utils")).unwrap();
-    fs::write(temp.path().join("README.md"), "readme").unwrap();
+    fs::write(temp.path().join("index.md"), "readme").unwrap();
     fs::write(temp.path().join("src/main.rs"), "main").unwrap();
     fs::write(temp.path().join("src/utils/helper.rs"), "helper").unwrap();
 
@@ -594,8 +594,8 @@ fn test_build_tree_from_index() {
     let tree_hash = repo.build_tree_from_index().unwrap();
     let tree = repo.read_tree(&tree_hash).unwrap();
 
-    // Root tree should have README.md and src/
-    assert!(tree.entries.contains_key("README.md"));
+    // Root tree should have index.md and src/
+    assert!(tree.entries.contains_key("index.md"));
     assert!(tree.entries.contains_key("src"));
 }
 ```
@@ -672,13 +672,13 @@ impl Repository {
 
         // TODO: Convert flat index to tree hierarchy
         // Example index:
-        //   "README.md" -> blob_hash1
+        //   "index.md" -> blob_hash1
         //   "src/main.rs" -> blob_hash2
         //   "src/lib.rs" -> blob_hash3
         //
         // Should build:
         //   root_tree:
-        //     README.md -> blob_hash1
+        //     index.md -> blob_hash1
         //     src -> src_tree_hash
         //   src_tree:
         //     main.rs -> blob_hash2
@@ -896,21 +896,21 @@ fn test_checkout_directory_structure() {
 
     fs::create_dir(temp.path().join("src")).unwrap();
     fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-    fs::write(temp.path().join("README.md"), "# Project").unwrap();
+    fs::write(temp.path().join("index.md"), "# Project").unwrap();
 
     repo.add(".").unwrap();
     let commit = repo.commit("Initial", "Alice <alice@example.com>").unwrap();
 
     // Delete everything
     fs::remove_dir_all(temp.path().join("src")).unwrap();
-    fs::remove_file(temp.path().join("README.md")).unwrap();
+    fs::remove_file(temp.path().join("index.md")).unwrap();
 
     // Checkout
     repo.checkout(&commit).unwrap();
 
     // Everything should be restored
     assert!(temp.path().join("src/main.rs").exists());
-    assert!(temp.path().join("README.md").exists());
+    assert!(temp.path().join("index.md").exists());
 }
 ```
 

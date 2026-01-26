@@ -31,28 +31,28 @@ Chain async operations with synchronous transformations using combinators. The `
 ```rust
 use std::time::Duration;
 
-async fn fetch_user_name(user_id: u64) -> Result<String, String> {
+async fn fetch_user_name(id: u64) -> Result<String, String> {
     // Simulate API call
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    if user_id == 0 {
+    if id == 0 {
         Err("Invalid user ID".to_string())
     } else {
-        Ok(format!("User_{}", user_id))
+        Ok(format!("User_{}", id))
     }
 }
 
-async fn get_user_name_uppercase(user_id: u64) -> Result<String, String> {
-    // Map over the result: await completes async, map transforms sync
-    fetch_user_name(user_id)
+async fn get_uppercase(id: u64) -> Result<String, String> {
+    // await completes async, map transforms sync
+    fetch_user_name(id)
         .await
         .map(|name| name.to_uppercase())
 }
 
 #[tokio::main]
 async fn main() {
-    match get_user_name_uppercase(42).await {
-        Ok(name) => println!("User: {}", name),  // "USER_42"
+    match get_uppercase(42).await {
+        Ok(name) => println!("User: {}", name), // "USER_42"
         Err(e) => println!("Error: {}", e),
     }
 }
@@ -63,17 +63,19 @@ async fn main() {
 The `?` operator provides early return on error. If `fetch_user_name` fails, we immediately return that error without attempting to fetch posts. This pattern mirrors sequential function calls in synchronous code while maintaining clean error propagation.
 
 ```rust
-async fn fetch_user_posts(user_id: u64) -> Result<Vec<String>, String> {
+async fn fetch_user_posts(id: u64) -> Result<Vec<String>, String> {
     tokio::time::sleep(Duration::from_millis(100)).await;
     Ok(vec![
-        format!("Post 1 by user {}", user_id),
-        format!("Post 2 by user {}", user_id),
+        format!("Post 1 by user {}", id),
+        format!("Post 2 by user {}", id),
     ])
 }
 
-async fn get_user_with_posts(user_id: u64) -> Result<(String, Vec<String>), String> {
-    let name = fetch_user_name(user_id).await?;  // Early return if fails
-    let posts = fetch_user_posts(user_id).await?;
+async fn get_user_with_posts(
+    id: u64
+) -> Result<(String, Vec<String>), String> {
+    let name = fetch_user_name(id).await?; // Early return on fail
+    let posts = fetch_user_posts(id).await?;
     Ok((name, posts))
 }
 
@@ -103,8 +105,8 @@ impl From<reqwest::Error> for AppError {
     }
 }
 
-async fn fetch_json_data(url: &str) -> Result<serde_json::Value, AppError> {
-    let response = reqwest::get(url).await?;  // Auto-converts reqwest::Error
+async fn fetch_json(url: &str) -> Result<serde_json::Value, AppError> {
+    let response = reqwest::get(url).await?; // Auto-converts
 
     if !response.status().is_success() {
         return Err(AppError::NotFound);
@@ -116,11 +118,12 @@ async fn fetch_json_data(url: &str) -> Result<serde_json::Value, AppError> {
 
 #[tokio::main]
 async fn main() {
-    match fetch_json_data("https://api.github.com/users/rust-lang").await {
+    let url = "https://api.github.com/users/rust-lang";
+    match fetch_json(url).await {
         Ok(data) => println!("Got: {}", data),
-        Err(AppError::Network(e)) => println!("Network error: {}", e),
-        Err(AppError::NotFound) => println!("Resource not found"),
-        Err(AppError::InvalidData(e)) => println!("Bad data: {}", e),
+        Err(AppError::Network(e)) => println!("Net err: {}", e),
+        Err(AppError::NotFound) => println!("Not found"),
+        Err(AppError::InvalidData(e)) => println!("Bad: {}", e),
     }
 }
 ```
@@ -149,27 +152,32 @@ where
                 if attempts >= max_retries {
                     return Err(e);
                 }
-                println!("Attempt {} failed: {}. Retrying...", attempts, e);
-                let delay = Duration::from_secs(2u64.pow(attempts as u32));
+                println!("Attempt {} failed: {}", attempts, e);
+                let delay = Duration::from_secs(
+                    2u64.pow(attempts as u32)
+                );
                 tokio::time::sleep(delay).await;
             }
         }
     }
 }
 
-// Usage: wrap any async operation with retry logic
-async fn fetch_data_with_retry(url: String) -> Result<String, reqwest::Error> {
+// Wrap any async operation with retry logic
+async fn fetch_data_retry(
+    url: String
+) -> Result<String, reqwest::Error> {
     fetch_with_retry(
         || async { reqwest::get(&url).await?.text().await },
-        3,  // max 3 attempts
+        3, // max 3 attempts
     ).await
 }
 
 #[tokio::main]
 async fn main() {
-    match fetch_data_with_retry("https://api.example.com/data".to_string()).await {
+    let url = "https://api.example.com/data".into();
+    match fetch_data_retry(url).await {
         Ok(data) => println!("Fetched: {}", data),
-        Err(e) => println!("Failed after retries: {}", e),
+        Err(e) => println!("Failed: {}", e),
     }
 }
 ```
@@ -188,14 +196,14 @@ The `join!` macro runs futures concurrently, waiting for all to complete before 
 
 ```rust
 async fn concurrent_fetch() {
-    // All three start immediately, complete in ~100ms total (not 300ms)
-    let (result1, result2, result3) = tokio::join!(
+    // All start immediately, complete in ~100ms (not 300ms)
+    let (r1, r2, r3) = tokio::join!(
         fetch_user_name(1),
         fetch_user_name(2),
         fetch_user_name(3),
     );
 
-    println!("Results: {:?}, {:?}, {:?}", result1, result2, result3);
+    println!("Results: {:?}, {:?}, {:?}", r1, r2, r3);
 }
 
 #[tokio::main]
@@ -209,7 +217,8 @@ async fn main() {
 The `try_join!` macro works like `join!` but for `Result`-returning futures. If any future fails, it immediately cancels remaining futures and returns that error. On success, it unwraps all `Ok` values into a tuple for convenient destructuring.
 
 ```rust
-async fn concurrent_fetch_fail_fast() -> Result<(String, String, String), String> {
+async fn concurrent_fail_fast(
+) -> Result<(String, String, String), String> {
     // If user 2 fails, user 3 is cancelled immediately
     tokio::try_join!(
         fetch_user_name(1),
@@ -220,7 +229,7 @@ async fn concurrent_fetch_fail_fast() -> Result<(String, String, String), String
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let (u1, u2, u3) = concurrent_fetch_fail_fast().await?;
+    let (u1, u2, u3) = concurrent_fail_fast().await?;
     println!("Users: {}, {}, {}", u1, u2, u3);
     Ok(())
 }
@@ -236,13 +245,13 @@ use tokio::time::sleep;
 async fn race_requests() -> String {
     tokio::select! {
         result = fetch_user_name(1) => {
-            format!("Server 1 responded first: {:?}", result)
+            format!("Server 1 first: {:?}", result)
         }
         result = fetch_user_name(2) => {
-            format!("Server 2 responded first: {:?}", result)
+            format!("Server 2 first: {:?}", result)
         }
         _ = sleep(Duration::from_secs(1)) => {
-            "Both servers too slow - timeout".to_string()
+            "Both servers too slow - timeout".into()
         }
     }
 }
@@ -261,14 +270,16 @@ When the number of futures is determined at runtime, use `FuturesUnordered` to m
 ```rust
 use futures::stream::{FuturesUnordered, StreamExt};
 
-async fn fetch_all_users(user_ids: Vec<u64>) -> Vec<Result<String, String>> {
-    // Works with any number of IDs - determined at runtime
-    let futures: FuturesUnordered<_> = user_ids
+async fn fetch_all_users(
+    ids: Vec<u64>
+) -> Vec<Result<String, String>> {
+    // Works with any number of IDs - runtime determined
+    let futures: FuturesUnordered<_> = ids
         .into_iter()
         .map(|id| fetch_user_name(id))
         .collect();
 
-    // Results arrive in completion order, not submission order
+    // Results arrive in completion order
     futures.collect().await
 }
 
@@ -284,8 +295,9 @@ async fn main() {
 Processes URLs in fixed-size batches to limit concurrent connections. Each chunk runs in parallel via `join_all`, but chunks themselves execute sequentially. This approach provides simple concurrency limiting without requiring semaphores or complex coordination logic.
 
 ```rust
-async fn fetch_urls_concurrently(
-    urls: Vec<String>, max_concurrent: usize
+async fn fetch_urls_concurrent(
+    urls: Vec<String>,
+    max_concurrent: usize
 ) -> Vec<Result<String, reqwest::Error>> {
     let mut results = Vec::new();
 
@@ -300,7 +312,8 @@ async fn fetch_urls_concurrently(
             })
             .collect();
 
-        let chunk_results = futures::future::join_all(futures).await;
+        let chunk_results =
+            futures::future::join_all(futures).await;
         results.extend(chunk_results);
     }
 
@@ -312,10 +325,9 @@ async fn main() {
     let urls: Vec<_> = (0..10)
         .map(|i| format!("https://httpbin.org/get?id={}", i))
         .collect();
-    let results = fetch_urls_concurrently(urls, 3).await;
-    println!("Fetched {} URLs ({} succeeded)",
-        results.len(),
-        results.iter().filter(|r| r.is_ok()).count());
+    let results = fetch_urls_concurrent(urls, 3).await;
+    let ok_count = results.iter().filter(|r| r.is_ok()).count();
+    println!("Fetched {} URLs ({} ok)", results.len(), ok_count);
 }
 ```
 
@@ -336,10 +348,11 @@ where
 
 #[tokio::main]
 async fn main() {
-    match with_timeout(
-        async { tokio::time::sleep(Duration::from_millis(50)).await; "done" },
-        Duration::from_millis(100),
-    ).await {
+    let work = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        "done"
+    };
+    match with_timeout(work, Duration::from_millis(100)).await {
         Ok(result) => println!("Completed: {}", result),
         Err(_) => println!("Timed out"),
     }
@@ -351,7 +364,7 @@ async fn main() {
 Implements atomic file writes that either complete fully or leave no partial data. The `sync_all()` call ensures all data is flushed to disk before returning success. This prevents data corruption if the operation is cancelled or the system crashes mid-write.
 
 ```rust
-async fn cancellation_safe_write(data: String) -> Result<(), std::io::Error> {
+async fn safe_write(data: String) -> Result<(), std::io::Error> {
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
 
@@ -363,7 +376,7 @@ async fn cancellation_safe_write(data: String) -> Result<(), std::io::Error> {
 
 #[tokio::main]
 async fn main() {
-    match cancellation_safe_write("Hello, World!".to_string()).await {
+    match safe_write("Hello, World!".into()).await {
         Ok(_) => println!("File written successfully"),
         Err(e) => println!("Write failed: {}", e),
     }
@@ -409,7 +422,8 @@ async fn create_streams() {
             tx.send(i).await.unwrap();
         }
     });
-    let _s = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let _s =
+        tokio_stream::wrappers::ReceiverStream::new(rx);
 
     // Interval stream - time-based events
     let _s = stream::StreamExt::take(
@@ -437,11 +451,11 @@ use futures::stream::{self, StreamExt};
 
 async fn transform_stream() {
     let stream = stream::iter(1..=10)
-        .filter(|x| futures::future::ready(x % 2 == 0))  // Keep evens: 2, 4, 6, 8, 10
-        .map(|x| x * 2);         // Double: 4, 8, 12, 16, 20
+        .filter(|x| futures::future::ready(x % 2 == 0)) // evens
+        .map(|x| x * 2); // double
 
     let results: Vec<i32> = stream.collect().await;
-    println!("Transformed: {:?}", results);  // [4, 8, 12, 16, 20]
+    println!("Transformed: {:?}", results); // [4, 8, 12, 16, 20]
 }
 
 #[tokio::main]
@@ -462,12 +476,13 @@ async fn async_transform_stream() {
     let stream = stream::iter(1..=5)
         .then(|x| async move {
             // Async operation per element
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            let dur = Duration::from_millis(10);
+            tokio::time::sleep(dur).await;
             x * x
         });
 
     let results: Vec<i32> = stream.collect().await;
-    println!("Async transformed: {:?}", results);  // [1, 4, 9, 16, 25]
+    println!("Transformed: {:?}", results); // [1, 4, 9, 16, 25]
 }
 
 #[tokio::main]
@@ -485,7 +500,7 @@ use futures::stream::{self, StreamExt};
 
 async fn aggregate_stream() {
     let sum = stream::iter(1..=100)
-        .fold(0, |acc, x| futures::future::ready(acc + x))  // Sum: 0+1+2+...+100
+        .fold(0, |acc, x| futures::future::ready(acc + x))
         .await;
 
     println!("Sum: {}", sum);  // 5050
@@ -511,7 +526,7 @@ async fn limit_stream() {
         .collect()
         .await;
 
-    println!("Limited: {:?}", results);  // [11, 12, 13, 14, 15]
+    println!("Limited: {:?}", results); // [11, 12, 13, 14, 15]
 }
 
 #[tokio::main]
@@ -529,19 +544,19 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 async fn rate_limited_requests(urls: Vec<String>) {
-    let semaphore = Arc::new(Semaphore::new(5)); // Max 5 concurrent
+    let sem = Arc::new(Semaphore::new(5)); // Max 5 concurrent
 
     let stream = stream::iter(urls)
         .map(|url| {
-            let permit = Arc::clone(&semaphore);
+            let permit = Arc::clone(&sem);
             async move {
-                let _permit = permit.acquire().await.unwrap();  // Wait for permit
+                let _p = permit.acquire().await.unwrap();
                 println!("Fetching: {}", url);
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 format!("Response from {}", url)
-            }  // Permit released when dropped
+            } // Permit released when dropped
         })
-        .buffer_unordered(10);  // Allow 10 in-flight, but semaphore limits to 5
+        .buffer_unordered(10); // 10 in-flight, sem limits to 5
 
     let results: Vec<String> = stream.collect().await;
     println!("Fetched {} URLs", results.len());
@@ -549,7 +564,9 @@ async fn rate_limited_requests(urls: Vec<String>) {
 
 #[tokio::main]
 async fn main() {
-    let urls: Vec<_> = (0..20).map(|i| format!("https://api.example.com/{}", i)).collect();
+    let urls: Vec<_> = (0..20)
+        .map(|i| format!("https://api.example.com/{}", i))
+        .collect();
     rate_limited_requests(urls).await;
 }
 ```
@@ -559,10 +576,14 @@ async fn main() {
 Processes items in fixed-size batches for controlled throughput. The `chunks()` method divides input into batches, each processed sequentially with a delay between batches. This approach is useful for rate limiting bulk operations or respecting API quotas.
 
 ```rust
-async fn batch_process<T: std::fmt::Debug>(items: Vec<T>, batch_size: usize) {
+async fn batch_process<T: std::fmt::Debug>(
+    items: Vec<T>,
+    batch_size: usize
+) {
     for (i, batch) in items.chunks(batch_size).enumerate() {
-        println!("Processing batch {}: {:?}", i, batch);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        println!("Batch {}: {:?}", i, batch);
+        let dur = Duration::from_millis(50);
+        tokio::time::sleep(dur).await;
     }
 }
 
@@ -627,13 +648,16 @@ impl CounterStream {
 impl Stream for CounterStream {
     type Item = u32;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>
+    ) -> Poll<Option<Self::Item>> {
         if self.count < self.max {
             let current = self.count;
             self.count += 1;
-            Poll::Ready(Some(current))  // Yield next value
+            Poll::Ready(Some(current)) // Yield next value
         } else {
-            Poll::Ready(None)  // Stream exhausted
+            Poll::Ready(None) // Stream exhausted
         }
     }
 }
@@ -642,7 +666,7 @@ impl Stream for CounterStream {
 async fn main() {
     let mut stream = CounterStream::new(5);
     while let Some(n) = stream.next().await {
-        println!("Count: {}", n);  // 0, 1, 2, 3, 4
+        println!("Count: {}", n); // 0, 1, 2, 3, 4
     }
 }
 ```
@@ -653,13 +677,14 @@ Spawn a producer task that sends values through a bounded channel, then wrap the
 
 ```rust
 async fn number_generator(max: u32) -> impl Stream<Item = u32> {
-    let (tx, rx) = tokio::sync::mpsc::channel(10);  // Buffer 10 items
+    let (tx, rx) = tokio::sync::mpsc::channel(10); // Buffer 10
 
     tokio::spawn(async move {
         for i in 0..max {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let dur = std::time::Duration::from_millis(10);
+            tokio::time::sleep(dur).await;
             if tx.send(i).await.is_err() {
-                break;  // Consumer dropped, stop producing
+                break; // Consumer dropped, stop
             }
         }
     });
@@ -672,27 +697,31 @@ async fn main() {
     use tokio_stream::StreamExt;
     let mut stream = number_generator(5).await;
     while let Some(n) = stream.next().await {
-        println!("Generated: {}", n);  // 0, 1, 2, 3, 4 (with delays)
+        println!("Generated: {}", n); // 0, 1, 2, 3, 4
     }
 }
 ```
 
 ### Example: File watcher stream
-```rust
 
-// Real-world: 
+This example bridges the synchronous `notify` crate with async Tokio streams. A blocking task watches the filesystem and forwards events through a channel that becomes an async stream.
+
+```rust
 use notify::{Watcher, RecursiveMode, Event};
 
-async fn file_watcher_stream(path: String) -> impl Stream<Item = notify::Result<Event>> {
+async fn file_watcher_stream(
+    path: String
+) -> impl Stream<Item = notify::Result<Event>> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
     tokio::task::spawn_blocking(move || {
-        let (notify_tx, notify_rx) = std::sync::mpsc::channel();
+        let (ntx, nrx) = std::sync::mpsc::channel();
+        let mut w = notify::recommended_watcher(ntx).unwrap();
+        w.watch(
+            path.as_ref(), RecursiveMode::Recursive
+        ).unwrap();
 
-        let mut watcher = notify::recommended_watcher(notify_tx).unwrap();
-        watcher.watch(path.as_ref(), RecursiveMode::Recursive).unwrap();
-
-        for event in notify_rx {
+        for event in nrx {
             if tx.blocking_send(event).is_err() {
                 break;
             }
@@ -701,7 +730,8 @@ async fn file_watcher_stream(path: String) -> impl Stream<Item = notify::Result<
 
     tokio_stream::wrappers::ReceiverStream::new(rx)
 }
-// Real-world: WebSocket message stream (simulation)
+
+// WebSocket stream (simulation)
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -712,7 +742,7 @@ enum WsMessage {
     Close,
 }
 
-async fn websocket_stream() -> impl Stream<Item = WsMessage> {
+async fn ws_stream() -> impl Stream<Item = WsMessage> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
 
     tokio::spawn(async move {
@@ -725,7 +755,8 @@ async fn websocket_stream() -> impl Stream<Item = WsMessage> {
         ];
 
         for msg in messages {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let dur = Duration::from_millis(100);
+            tokio::time::sleep(dur).await;
             if tx.send(msg).await.is_err() {
                 break;
             }
@@ -738,8 +769,8 @@ async fn websocket_stream() -> impl Stream<Item = WsMessage> {
 #[tokio::main]
 async fn main() {
     use tokio_stream::StreamExt;
-    let mut stream = websocket_stream().await;
-    while let Some(msg) = stream.next().await {
+    let mut s = ws_stream().await;
+    while let Some(msg) = s.next().await {
         println!("Message: {:?}", msg);
     }
 }
@@ -753,12 +784,19 @@ Streams database rows incrementally without loading the entire result set into m
 #[derive(Debug)]
 struct Row { id: u64, data: String }
 
-async fn database_query_stream(query: String) -> impl Stream<Item = Row> {
+async fn db_query_stream(
+    _query: String
+) -> impl Stream<Item = Row> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     tokio::spawn(async move {
         for i in 0..10 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            if tx.send(Row { id: i, data: format!("Data {}", i) }).await.is_err() { break; }
+            let dur = Duration::from_millis(10);
+            tokio::time::sleep(dur).await;
+            let row = Row {
+                id: i,
+                data: format!("Data {}", i)
+            };
+            if tx.send(row).await.is_err() { break; }
         }
     });
     tokio_stream::wrappers::ReceiverStream::new(rx)
@@ -767,7 +805,8 @@ async fn database_query_stream(query: String) -> impl Stream<Item = Row> {
 #[tokio::main]
 async fn main() {
     use tokio_stream::StreamExt;
-    let mut stream = database_query_stream("SELECT * FROM users".to_string()).await;
+    let query = "SELECT * FROM users".into();
+    let mut stream = db_query_stream(query).await;
     while let Some(row) = stream.next().await {
         println!("Row: {:?}", row);
     }
@@ -779,12 +818,15 @@ async fn main() {
 Creates a stream that emits sequential values at fixed time intervals. Each tick of the interval triggers emission of the next value through the channel. Useful for implementing periodic tasks, heartbeats, polling mechanisms, or time-series data generation.
 
 ```rust
-async fn ticker_stream(interval: Duration, count: usize) -> impl Stream<Item = u64> {
+async fn ticker_stream(
+    dur: Duration,
+    count: usize
+) -> impl Stream<Item = u64> {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(interval);
+        let mut intv = tokio::time::interval(dur);
         for i in 0..count {
-            interval.tick().await;
+            intv.tick().await;
             if tx.send(i as u64).await.is_err() { break; }
         }
     });
@@ -794,7 +836,8 @@ async fn ticker_stream(interval: Duration, count: usize) -> impl Stream<Item = u
 #[tokio::main]
 async fn main() {
     use tokio_stream::StreamExt;
-    let mut stream = ticker_stream(Duration::from_millis(100), 5).await;
+    let dur = Duration::from_millis(100);
+    let mut stream = ticker_stream(dur, 5).await;
     while let Some(tick) = stream.next().await {
         println!("Tick: {}", tick);
     }
@@ -835,20 +878,22 @@ The `tokio::spawn()` function creates concurrent tasks and returns a `JoinHandle
 
 ```rust
 async fn spawn_basic_tasks() {
-    let handle1 = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        println!("Task 1 complete");
+    let h1 = tokio::spawn(async {
+        let dur = Duration::from_millis(100);
+        tokio::time::sleep(dur).await;
+        println!("Task 1 done");
         42
     });
 
-    let handle2 = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        println!("Task 2 complete");
+    let h2 = tokio::spawn(async {
+        let dur = Duration::from_millis(200);
+        tokio::time::sleep(dur).await;
+        println!("Task 2 done");
         100
     });
 
-    let (result1, result2) = tokio::join!(handle1, handle2);
-    println!("Results: {:?}, {:?}", result1, result2);
+    let (r1, r2) = tokio::join!(h1, h2);
+    println!("Results: {:?}, {:?}", r1, r2);
 }
 
 #[tokio::main]
@@ -870,7 +915,8 @@ async fn structured_concurrency() {
 
     for i in 0..5 {
         set.spawn(async move {
-            tokio::time::sleep(Duration::from_millis(i * 50)).await;
+            let dur = Duration::from_millis(i * 50);
+            tokio::time::sleep(dur).await;
             println!("Task {} done", i);
             i
         });
@@ -909,7 +955,7 @@ async fn scoped_tasks_with_joinset() {
         });
     }
 
-    // Wait for all tasks - guaranteed to complete before we continue
+    // Wait for all tasks - guaranteed to complete
     let mut results = Vec::new();
     while let Some(result) = set.join_next().await {
         results.push(result.unwrap());
@@ -942,12 +988,13 @@ async fn cancellable_task() {
                 println!("Task cancelled");
             }
             _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                println!("Task completed normally");
+                println!("Task completed");
             }
         }
     });
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let dur = Duration::from_millis(100);
+    tokio::time::sleep(dur).await;
     token.cancel();
 
     task.await.unwrap();
@@ -988,7 +1035,7 @@ impl WorkerPool {
                     };
                     match task {
                         Some(task) => {
-                            println!("Worker {} executing task", i);
+                            println!("Worker {} exec", i);
                             task();
                         }
                         None => break, // Channel closed
@@ -1012,9 +1059,10 @@ impl WorkerPool {
 async fn main() {
     let pool = WorkerPool::new(4);
     for i in 0..10 {
-        pool.submit(move || println!("Task {} executed", i)).await;
+        pool.submit(move || println!("Task {} exec", i)).await;
     }
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let dur = Duration::from_millis(100);
+    tokio::time::sleep(dur).await;
 }
 ```
 ### Example: Supervisor pattern (restart on failure)
@@ -1039,10 +1087,11 @@ async fn supervised_task<F, Fut>(
             }
             Err(e) => {
                 if attempt < max_restarts {
-                    println!("Task failed (attempt {}): {}. Restarting...", attempt + 1, e);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    println!("Fail (attempt {}): {}", attempt + 1, e);
+                    let d = Duration::from_secs(1);
+                    tokio::time::sleep(d).await;
                 } else {
-                    println!("Task failed after {} attempts", max_restarts + 1);
+                    println!("Failed after {} attempts", max_restarts + 1);
                 }
             }
         }
@@ -1051,7 +1100,8 @@ async fn supervised_task<F, Fut>(
 
 #[tokio::main]
 async fn main() {
-    supervised_task(|| async { println!("Running task"); }, 3).await;
+    let task = || async { println!("Running task"); };
+    supervised_task(task, 3).await;
 }
 ```
 ### Example: Background task with graceful shutdown
@@ -1059,17 +1109,20 @@ async fn main() {
 Uses a `watch` channel to broadcast shutdown signals to multiple receivers. The service loops with `select!` monitoring both work and shutdown channels. When shutdown arrives, the current iteration completes gracefully before the service stops cleanly.
 
 ```rust
-async fn background_service(shutdown: tokio::sync::watch::Receiver<bool>) {
+async fn background_service(
+    shutdown: tokio::sync::watch::Receiver<bool>
+) {
     let mut shutdown = shutdown;
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let dur = Duration::from_secs(1);
+    let mut intv = tokio::time::interval(dur);
 
     loop {
         tokio::select! {
-            _ = interval.tick() => {
-                println!("Background service tick");
+            _ = intv.tick() => {
+                println!("Service tick");
             }
             _ = shutdown.changed() => {
-                println!("Shutdown signal received");
+                println!("Shutdown signal");
                 break;
             }
         }
@@ -1079,14 +1132,15 @@ async fn background_service(shutdown: tokio::sync::watch::Receiver<bool>) {
 }
 
 async fn run_with_graceful_shutdown() {
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (tx, rx) = tokio::sync::watch::channel(false);
 
-    let service = tokio::spawn(background_service(shutdown_rx));
+    let service = tokio::spawn(background_service(rx));
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    let dur = Duration::from_secs(3);
+    tokio::time::sleep(dur).await;
 
-    println!("Sending shutdown signal");
-    shutdown_tx.send(true).unwrap();
+    println!("Sending shutdown");
+    tx.send(true).unwrap();
 
     service.await.unwrap();
 }
@@ -1113,15 +1167,15 @@ The `?` operator propagates errors up the async call stack, returning early when
 
 ```rust
 
-async fn fetch_user_data(user_id: u64) -> Result<String, String> {
-    if user_id == 0 {
-        return Err("Invalid ID".to_string());
+async fn fetch_user_data(id: u64) -> Result<String, String> {
+    if id == 0 {
+        return Err("Invalid ID".into());
     }
-    Ok(format!("User {}", user_id))
+    Ok(format!("User {}", id))
 }
 
-async fn get_user_profile(user_id: u64) -> Result<String, String> {
-    let data = fetch_user_data(user_id).await?;
+async fn get_user_profile(id: u64) -> Result<String, String> {
+    let data = fetch_user_data(id).await?;
     let profile = format!("Profile: {}", data);
     Ok(profile)
 }
@@ -1156,7 +1210,11 @@ where
         match operation().await {
             Ok(result) => return Ok(result),
             Err(e) if attempt < max_retries - 1 => {
-                println!("Attempt {} failed: {}. Retrying in {:?}...", attempt + 1, e, delay);
+                let msg = format!(
+                    "Attempt {} failed: {}. Retry in {:?}",
+                    attempt + 1, e, delay
+                );
+                println!("{}", msg);
                 tokio::time::sleep(delay).await;
                 delay *= 2; // Exponential backoff
             }
@@ -1203,7 +1261,11 @@ struct CircuitBreaker {
 }
 
 impl CircuitBreaker {
-    fn new(failure_threshold: usize, success_threshold: usize, timeout: Duration) -> Self {
+    fn new(
+        failure_threshold: usize,
+        success_threshold: usize,
+        timeout: Duration
+    ) -> Self {
         Self {
             state: Arc::new(Mutex::new(CircuitState::Closed)),
             failure_threshold,
@@ -1223,7 +1285,7 @@ impl CircuitBreaker {
 
         match state {
             CircuitState::Open => {
-                return Err(E::from("Circuit breaker is open".to_string()));
+                return Err(E::from("Circuit open".into()));
             }
             CircuitState::HalfOpen => {
                 // Try to recover
@@ -1247,7 +1309,7 @@ impl CircuitBreaker {
                 *failures += 1;
 
                 if *failures >= self.failure_threshold {
-                    println!("Circuit breaker opened due to {} failures", failures);
+                    println!("Circuit opened: {} failures", failures);
                     *self.state.lock().await = CircuitState::Open;
 
                     // Schedule transition to half-open
@@ -1256,7 +1318,7 @@ impl CircuitBreaker {
                     tokio::spawn(async move {
                         tokio::time::sleep(timeout).await;
                         *state.lock().await = CircuitState::HalfOpen;
-                        println!("Circuit breaker transitioned to half-open");
+                        println!("Circuit now half-open");
                     });
                 }
 
@@ -1268,10 +1330,11 @@ impl CircuitBreaker {
 
 #[tokio::main]
 async fn main() {
-    let breaker = CircuitBreaker::new(3, 2, Duration::from_secs(2));
-    let result: Result<String, String> = breaker.call(|| async {
-        Ok("Success".to_string())
-    }).await;
+    let dur = Duration::from_secs(2);
+    let breaker = CircuitBreaker::new(3, 2, dur);
+    let result: Result<String, String> = breaker
+        .call(|| async { Ok("Success".into()) })
+        .await;
     println!("Result: {:?}", result);
 }
 ```
@@ -1287,12 +1350,14 @@ async fn fetch_with_fallback<F, Fut, T>(
 ) -> T
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>,
+    Fut: std::future::Future<
+        Output = Result<T, Box<dyn std::error::Error>>
+    >,
 {
     match primary().await {
         Ok(value) => value,
         Err(e) => {
-            println!("Primary failed: {}. Using fallback.", e);
+            println!("Primary failed: {}. Fallback.", e);
             fallback_value
         }
     }
@@ -1311,7 +1376,9 @@ struct Bulkhead {
 impl Bulkhead {
     fn new(max_concurrent: usize) -> Self {
         Self {
-            semaphore: Arc::new(tokio::sync::Semaphore::new(max_concurrent)),
+            semaphore: Arc::new(
+                tokio::sync::Semaphore::new(max_concurrent)
+            ),
         }
     }
 
@@ -1326,7 +1393,7 @@ impl Bulkhead {
                 drop(permit);
                 Ok(result)
             }
-            Err(_) => Err("Bulkhead full - request rejected".to_string()),
+            Err(_) => Err("Bulkhead full - rejected".into()),
         }
     }
 }
@@ -1335,8 +1402,10 @@ impl Bulkhead {
 async fn main() {
     // Fallback pattern example
     let result = fetch_with_fallback(
-        || async { Ok::<_, Box<dyn std::error::Error>>("Primary data".to_string()) },
-        "Fallback data".to_string(),
+        || async {
+            Ok::<_, Box<dyn std::error::Error>>("Primary".into())
+        },
+        "Fallback".into(),
     ).await;
     println!("Result: {}", result);
 
@@ -1378,13 +1447,15 @@ async fn select_two_channels() {
     let (tx2, mut rx2) = mpsc::channel::<String>(10);
 
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let dur = Duration::from_millis(100);
+        tokio::time::sleep(dur).await;
         tx1.send(42).await.unwrap();
     });
 
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        tx2.send("Hello".to_string()).await.unwrap();
+        let dur = Duration::from_millis(200);
+        tokio::time::sleep(dur).await;
+        tx2.send("Hello".into()).await.unwrap();
     });
 
     tokio::select! {
@@ -1418,14 +1489,16 @@ async fn select_loop() {
     // Spawn producers
     tokio::spawn(async move {
         for i in 0..5 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let dur = Duration::from_millis(100);
+            tokio::time::sleep(dur).await;
             tx1.send(i).await.unwrap();
         }
     });
 
     tokio::spawn(async move {
         for i in 0..3 {
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            let dur = Duration::from_millis(150);
+            tokio::time::sleep(dur).await;
             tx2.send(format!("msg_{}", i)).await.unwrap();
         }
     });
@@ -1470,24 +1543,25 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 async fn biased_select() {
-    let (tx_high, mut rx_high) = mpsc::channel::<String>(10);
-    let (tx_low, mut rx_low) = mpsc::channel::<String>(10);
+    let (tx_hi, mut rx_hi) = mpsc::channel::<String>(10);
+    let (tx_lo, mut rx_lo) = mpsc::channel::<String>(10);
 
     tokio::spawn(async move {
-        tx_high.send("High priority".to_string()).await.unwrap();
-        tx_low.send("Low priority".to_string()).await.unwrap();
+        tx_hi.send("High priority".into()).await.unwrap();
+        tx_lo.send("Low priority".into()).await.unwrap();
     });
 
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    let dur = Duration::from_millis(10);
+    tokio::time::sleep(dur).await;
 
     // Biased: always checks branches in order
     tokio::select! {
         biased;
 
-        Some(msg) = rx_high.recv() => {
+        Some(msg) = rx_hi.recv() => {
             println!("High: {}", msg);
         }
-        Some(msg) = rx_low.recv() => {
+        Some(msg) = rx_lo.recv() => {
             println!("Low: {}", msg);
         }
     }
@@ -1510,12 +1584,14 @@ async fn request_with_cancel() {
     let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
 
     let request = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        let dur = Duration::from_secs(5);
+        tokio::time::sleep(dur).await;
         "Request complete"
     });
 
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let dur = Duration::from_millis(500);
+        tokio::time::sleep(dur).await;
         cancel_tx.send(()).await.unwrap();
     });
 
@@ -1543,15 +1619,17 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 async fn server_with_shutdown() {
-    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
-    let (request_tx, mut request_rx) = mpsc::channel::<String>(10);
+    let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
+    let (req_tx, mut req_rx) = mpsc::channel::<String>(10);
 
     // Simulate incoming requests
-    let request_tx_clone = request_tx.clone();
+    let tx = req_tx.clone();
     tokio::spawn(async move {
         for i in 0..10 {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            if request_tx_clone.send(format!("Request {}", i)).await.is_err() {
+            let dur = Duration::from_millis(200);
+            tokio::time::sleep(dur).await;
+            let msg = format!("Request {}", i);
+            if tx.send(msg).await.is_err() {
                 break;
             }
         }
@@ -1559,18 +1637,19 @@ async fn server_with_shutdown() {
 
     // Simulate shutdown after 1 second
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        shutdown_tx.send(()).await.unwrap();
+        let dur = Duration::from_secs(1);
+        tokio::time::sleep(dur).await;
+        stop_tx.send(()).await.unwrap();
     });
 
     // Server loop
     loop {
         tokio::select! {
-            Some(req) = request_rx.recv() => {
+            Some(req) = req_rx.recv() => {
                 println!("Processing: {}", req);
             }
-            _ = shutdown_rx.recv() => {
-                println!("Shutdown signal received");
+            _ = stop_rx.recv() => {
+                println!("Shutdown signal");
                 break;
             }
         }
@@ -1592,7 +1671,8 @@ async fn select_with_default() {
     let (tx, mut rx) = mpsc::channel::<i32>(10);
 
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let dur = Duration::from_millis(500);
+        tokio::time::sleep(dur).await;
         tx.send(42).await.unwrap();
     });
 
@@ -1663,7 +1743,8 @@ use tokio::time::{sleep, timeout};
 async fn timeout_with_retry() {
     for attempt in 1..=3u64 {
         let operation = async {
-            sleep(Duration::from_millis(attempt * 400)).await;
+            let dur = Duration::from_millis(attempt * 400);
+            sleep(dur).await;
             if attempt < 3 {
                 Err("Failed")
             } else {
@@ -1707,16 +1788,17 @@ async fn with_deadline<F, T>(
 where
     F: std::future::Future<Output = T>,
 {
-    let duration = deadline.saturating_duration_since(Instant::now());
+    let dur = deadline.saturating_duration_since(Instant::now());
 
-    match timeout(duration, future).await {
+    match timeout(dur, future).await {
         Ok(result) => Ok(result),
         Err(_) => Err("Deadline exceeded"),
     }
 }
 
 async fn deadline_example() {
-    let deadline = Instant::now() + Duration::from_secs(1);
+    let dur = Duration::from_secs(1);
+    let deadline = Instant::now() + dur;
 
     let result = with_deadline(
         async {
@@ -1746,15 +1828,18 @@ use tokio::time::{sleep, timeout};
 async fn timeout_all() {
     let operations = vec![
         tokio::spawn(async {
-            sleep(Duration::from_millis(100)).await;
+            let dur = Duration::from_millis(100);
+            sleep(dur).await;
             1
         }),
         tokio::spawn(async {
-            sleep(Duration::from_millis(200)).await;
+            let dur = Duration::from_millis(200);
+            sleep(dur).await;
             2
         }),
         tokio::spawn(async {
-            sleep(Duration::from_millis(300)).await;
+            let dur = Duration::from_millis(300);
+            sleep(dur).await;
             3
         }),
     ];
@@ -1769,7 +1854,7 @@ async fn timeout_all() {
 
     match timeout(Duration::from_millis(250), all_done).await {
         Ok(results) => println!("All done: {:?}", results),
-        Err(_) => println!("Not all operations completed in time"),
+        Err(_) => println!("Not all ops completed in time"),
     }
 }
 
@@ -1798,15 +1883,20 @@ struct RateLimiter {
 }
 
 impl RateLimiter {
-    fn new(capacity: usize, refill_amount: usize, refill_interval: Duration) -> Self {
+    fn new(
+        capacity: usize,
+        refill_amount: usize,
+        refill_interval: Duration
+    ) -> Self {
         let semaphore = Arc::new(Semaphore::new(capacity));
 
         // Refill task
         let sem = Arc::clone(&semaphore);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(refill_interval);
+            let mut intv =
+                tokio::time::interval(refill_interval);
             loop {
-                interval.tick().await;
+                intv.tick().await;
                 sem.add_permits(refill_amount);
             }
         });
@@ -1818,23 +1908,28 @@ impl RateLimiter {
         }
     }
 
-    async fn acquire_with_timeout(&self, timeout_duration: Duration) -> Result<(), &'static str> {
-        match timeout(timeout_duration, self.semaphore.acquire()).await {
+    async fn acquire_with_timeout(
+        &self,
+        dur: Duration
+    ) -> Result<(), &'static str> {
+        match timeout(dur, self.semaphore.acquire()).await {
             Ok(Ok(permit)) => {
                 permit.forget(); // Consume permit
                 Ok(())
             }
             Ok(Err(_)) => Err("Semaphore closed"),
-            Err(_) => Err("Timeout acquiring rate limit"),
+            Err(_) => Err("Timeout acquiring permit"),
         }
     }
 }
 
 #[tokio::main]
 async fn main() {
-    let limiter = RateLimiter::new(5, 1, Duration::from_secs(1));
-    match limiter.acquire_with_timeout(Duration::from_millis(100)).await {
-        Ok(()) => println!("Acquired rate limit token"),
+    let dur = Duration::from_secs(1);
+    let limiter = RateLimiter::new(5, 1, dur);
+    let dur = Duration::from_millis(100);
+    match limiter.acquire_with_timeout(dur).await {
+        Ok(()) => println!("Acquired token"),
         Err(e) => println!("Failed: {}", e),
     }
 }
@@ -1848,22 +1943,24 @@ Performs HTTP health checks with timeout to detect unresponsive services quickly
 use std::time::Duration;
 use tokio::time::timeout;
 
-async fn health_check(url: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+type BoxErr = Box<dyn std::error::Error + Send + Sync>;
+
+async fn health_check(url: &str) -> Result<bool, BoxErr> {
     let check = async {
-        let response = reqwest::get(url).await?;
-        Ok::<bool, Box<dyn std::error::Error + Send + Sync>>(response.status().is_success())
+        let resp = reqwest::get(url).await?;
+        Ok::<bool, BoxErr>(resp.status().is_success())
     };
 
     timeout(Duration::from_secs(5), check)
         .await
-        .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> { "Health check timed out".into() })?
+        .map_err(|_| -> BoxErr { "Health check timeout".into() })?
 }
 
 #[tokio::main]
 async fn main() {
     match health_check("https://example.com").await {
-        Ok(healthy) => println!("Service healthy: {}", healthy),
-        Err(e) => println!("Health check failed: {}", e),
+        Ok(healthy) => println!("Healthy: {}", healthy),
+        Err(e) => println!("Check failed: {}", e),
     }
 }
 ```
@@ -1876,9 +1973,9 @@ Waits for all workers to complete with an upper time bound. Workers receive a gr
 use std::time::Duration;
 use tokio::time::timeout;
 
-async fn graceful_shutdown_with_timeout(
+async fn graceful_shutdown(
     workers: Vec<tokio::task::JoinHandle<()>>,
-    grace_period: Duration,
+    grace: Duration,
 ) {
     let shutdown = async {
         for worker in workers {
@@ -1886,8 +1983,8 @@ async fn graceful_shutdown_with_timeout(
         }
     };
 
-    match timeout(grace_period, shutdown).await {
-        Ok(_) => println!("All workers stopped gracefully"),
+    match timeout(grace, shutdown).await {
+        Ok(_) => println!("Workers stopped gracefully"),
         Err(_) => println!("Timeout - forcing shutdown"),
     }
 }
@@ -1895,10 +1992,14 @@ async fn graceful_shutdown_with_timeout(
 #[tokio::main]
 async fn main() {
     let workers = vec![
-        tokio::spawn(async { tokio::time::sleep(Duration::from_millis(100)).await }),
-        tokio::spawn(async { tokio::time::sleep(Duration::from_millis(200)).await }),
+        tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(100)).await
+        }),
+        tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(200)).await
+        }),
     ];
-    graceful_shutdown_with_timeout(workers, Duration::from_secs(1)).await;
+    graceful_shutdown(workers, Duration::from_secs(1)).await;
 }
 ```
 ---
@@ -1928,7 +2029,8 @@ async fn main() {
     let handles: Vec<_> = (0..10)
         .map(|i| {
             tokio::spawn(async move {
-                println!("Task {} on thread {:?}", i, std::thread::current().id());
+                let tid = std::thread::current().id();
+                println!("Task {} on {:?}", i, tid);
                 tokio::time::sleep(Duration::from_millis(10)).await;
             })
         })
@@ -1954,11 +2056,12 @@ async fn main() {
 
     for i in 0..5 {
         tokio::spawn(async move {
-            println!("Task {} on thread {:?}", i, std::thread::current().id());
+            let tid = std::thread::current().id();
+            println!("Task {} on {:?}", i, tid);
         }).await.unwrap();
     }
 
-    println!("All tasks ran on thread {:?}", thread_id);
+    println!("All ran on {:?}", thread_id);
 }
 ```
 
@@ -1970,7 +2073,7 @@ Build the runtime manually using `Builder` for fine-grained control over configu
 use std::time::Duration;
 
 fn custom_runtime_example() {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .thread_name("my-worker")
         .thread_stack_size(3 * 1024 * 1024)
@@ -1978,17 +2081,19 @@ fn custom_runtime_example() {
         .build()
         .unwrap();
 
-    runtime.block_on(async {
+    rt.block_on(async {
         println!("Running on custom runtime");
 
         for i in 0..4 {
             tokio::spawn(async move {
                 println!("Task {} started", i);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                let dur = Duration::from_millis(100);
+                tokio::time::sleep(dur).await;
             });
         }
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        let dur = Duration::from_millis(200);
+        tokio::time::sleep(dur).await;
     });
 }
 
@@ -2086,14 +2191,16 @@ async fn mixed_workload() {
     let io_task = tokio::spawn(async {
         for i in 0..5 {
             println!("I/O task {}", i);
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let dur = Duration::from_millis(100);
+            tokio::time::sleep(dur).await;
         }
     });
 
     let cpu_task = tokio::task::spawn_blocking(|| {
         for i in 0..5 {
             println!("CPU task {}", i);
-            std::thread::sleep(Duration::from_millis(100));
+            let dur = Duration::from_millis(100);
+            std::thread::sleep(dur);
 
             // Simulate CPU-intensive work
             let _ = (0..1_000_000).sum::<u64>();
@@ -2128,7 +2235,8 @@ mod tokio_example {
         let handles: Vec<_> = (0..5)
             .map(|i| {
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let dur = Duration::from_millis(100);
+                    tokio::time::sleep(dur).await;
                     i * 2
                 })
             })
@@ -2159,7 +2267,8 @@ mod async_std_example {
         let handles: Vec<_> = (0..5)
             .map(|i| {
                 async_std::task::spawn(async move {
-                    async_std::task::sleep(Duration::from_millis(100)).await;
+                    let dur = Duration::from_millis(100);
+                    async_std::task::sleep(dur).await;
                     i * 2
                 })
             })
@@ -2179,7 +2288,7 @@ Write portable library code that works with any async runtime using the `futures
 
 ```rust
 mod runtime_agnostic {
-    use futures::future::{join_all, FutureExt};
+    use futures::future::join_all;
     use std::future::Future;
     use std::pin::Pin;
 
@@ -2191,7 +2300,8 @@ mod runtime_agnostic {
         F: Fn(i32) -> Fut,
         Fut: Future<Output = i32>,
     {
-        let futures: Vec<_> = items.into_iter().map(process).collect();
+        let futures: Vec<_> =
+            items.into_iter().map(process).collect();
         join_all(futures).await
     }
 }
@@ -2239,7 +2349,8 @@ async fn tokio_performance_test() {
     let handles: Vec<_> = (0..1000)
         .map(|_| {
             tokio::spawn(async {
-                tokio::time::sleep(Duration::from_micros(1)).await;
+                let dur = Duration::from_micros(1);
+                tokio::time::sleep(dur).await;
             })
         })
         .collect();
@@ -2248,7 +2359,7 @@ async fn tokio_performance_test() {
         handle.await.unwrap();
     }
 
-    println!("Tokio: 1000 tasks in {:?}", start.elapsed());
+    println!("Tokio: 1000 tasks {:?}", start.elapsed());
 }
 
 #[cfg(feature = "async-std-runtime")]
@@ -2262,7 +2373,8 @@ async fn async_std_performance_test() {
     let handles: Vec<_> = (0..1000)
         .map(|_| {
             task::spawn(async {
-                task::sleep(Duration::from_micros(1)).await;
+                let dur = Duration::from_micros(1);
+                task::sleep(dur).await;
             })
         })
         .collect();
@@ -2271,7 +2383,7 @@ async fn async_std_performance_test() {
         handle.await;
     }
 
-    println!("async-std: 1000 tasks in {:?}", start.elapsed());
+    println!("async-std: 1000 tasks {:?}", start.elapsed());
 }
 
 #[cfg(feature = "tokio-runtime")]

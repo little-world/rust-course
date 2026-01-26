@@ -17,30 +17,22 @@ This chapter covers FFI (Foreign Function Interface)—calling C from Rust and v
 Without `#[repr(C)]`, Rust may reorder struct fields or add padding for optimization. The `#[repr(C)]` attribute forces C-compatible memory layout with fields in declaration order and standard C alignment rules, guaranteeing binary compatibility when passing structs across FFI boundaries.
 
 ```rust
-// This struct uses Rust's default representation
-// The compiler might reorder fields, add padding
-struct RustStruct {
+struct RustStruct {  // Rust may reorder fields, add padding
     a: u8,
     b: u32,
     c: u16,
 }
 
-// This struct is guaranteed to match C's layout
-// Fields appear in memory in the order declared
-#[repr(C)]
+#[repr(C)]  // Guaranteed C-compatible layout
 struct CCompatibleStruct {
-    a: u8,    // 1 byte, followed by 3 bytes of padding
-    b: u32,   // 4 bytes, aligned to 4-byte boundary
-    c: u16,   // 2 bytes
+    a: u8,    // 1B + 3B padding
+    b: u32,   // 4B, 4-byte aligned
+    c: u16,   // 2B
 }
 
-// Verify the sizes
-fn demonstrate_repr() {
+fn demonstrate_repr() {  // Both 12B, but only CCompatibleStruct guarantees C layout
     println!("RustStruct size: {}", std::mem::size_of::<RustStruct>());
     println!("CCompatibleStruct size: {}", std::mem::size_of::<CCompatibleStruct>());
-
-    // Both are likely 12 bytes, but only CCompatibleStruct guarantees
-    // the exact layout C expects
 }
 demonstrate_repr(); // Shows size difference between Rust and C-compatible structs
 ```
@@ -51,25 +43,15 @@ The difference becomes critical when passing data to C libraries. If the layouts
 Declare external C functions in an `extern "C"` block with Rust types matching C's ABI. All calls require `unsafe` blocks since Rust cannot verify C code's memory safety, null-pointer handling, or bounds checking. Common libc functions like `abs`, `malloc`, and `sqrt` demonstrate this pattern.
 
 ```rust
-// Declare external C functions
-extern "C" {
-    // C: int abs(int n);
-    fn abs(n: i32) -> i32;
-
-    // C: void *malloc(size_t size);
-    fn malloc(size: usize) -> *mut std::ffi::c_void;
-
-    // C: void free(void *ptr);
-    fn free(ptr: *mut std::ffi::c_void);
-
-    // C: double sqrt(double x);
-    fn sqrt(x: f64) -> f64;
+extern "C" {  // Declare external C functions
+    fn abs(n: i32) -> i32;                        // int abs(int)
+    fn malloc(size: usize) -> *mut std::ffi::c_void;  // void* malloc(size_t)
+    fn free(ptr: *mut std::ffi::c_void);              // void free(void*)
+    fn sqrt(x: f64) -> f64;                           // double sqrt(double)
 }
 
 fn use_c_functions() {
-    unsafe {
-        // All C function calls are unsafe
-        // The Rust compiler can't verify C code's safety guarantees
+    unsafe {  // All C calls unsafe—compiler can't verify C's guarantees
         let result = abs(-42);
         println!("abs(-42) = {}", result);
 
@@ -86,19 +68,13 @@ Notice that we must wrap C function calls in `unsafe` blocks. This is Rust's way
 Use `#[no_mangle]` with `extern "C"` to expose Rust functions to C. The `#[no_mangle]` attribute prevents Rust's name mangling, which encodes type information into symbol names. This ensures simple, predictable function names like `rust_add` that C linkers can find.
 
 ```rust
-// A Rust function callable from C
-#[no_mangle]  // Don't change the function name during compilation
+#[no_mangle]  // Preserve symbol name for C linking
 pub extern "C" fn rust_add(a: i32, b: i32) -> i32 {
     a + b
 }
 
-// Prevent name mangling for easier linking
-#[no_mangle]
+#[no_mangle]  // Safety: values valid for count elements, aligned, not mutated
 pub extern "C" fn rust_compute_average(values: *const f64, count: usize) -> f64 {
-    // Safety: Caller must ensure:
-    // 1. values is valid for count elements
-    // 2. values is properly aligned
-    // 3. values is not mutated during this call
     unsafe {
         if values.is_null() || count == 0 {
             return 0.0;
@@ -119,19 +95,8 @@ Use types from `std::os::raw` (`c_int`, `c_char`, `c_long`, `c_void`) for platfo
 
 ```rust
 use std::os::raw::{c_char, c_int, c_long, c_ulong, c_void};
+// c_char=i8/u8, c_int=i32, c_long=i32|i64, void*=*mut c_void, size_t=usize
 
-// C type          -> Rust equivalent
-// char            -> c_char (usually i8 or u8, platform-dependent)
-// int             -> c_int (usually i32)
-// long            -> c_long (i32 on 32-bit, i64 on 64-bit)
-// unsigned long   -> c_ulong
-// void*           -> *mut c_void or *const c_void
-// bool            -> bool (C99) or c_int (C89)
-// size_t          -> usize
-// float           -> f32
-// double          -> f64
-
-// Example: working with C types
 extern "C" {
     fn process_data(
         buffer: *mut c_char,
@@ -166,18 +131,16 @@ The `#[repr(C)]` attribute adds padding bytes between fields to satisfy alignmen
 ```rust
 #[repr(C)]
 struct Padded {
-    a: u8,    // 1 byte
-    // 3 bytes padding
-    b: u32,   // 4 bytes (must be 4-byte aligned)
-    c: u8,    // 1 byte
-    // 3 bytes padding (to make struct size multiple of largest alignment)
+    a: u8,    // 1B + 3B padding
+    b: u32,   // 4B (4-byte aligned)
+    c: u8,    // 1B + 3B padding (struct size = 12)
 }
 
-#[repr(C, packed)]
+#[repr(C, packed)]  // No padding, may cause misaligned access!
 struct NoPadding {
-    a: u8,    // 1 byte
-    b: u32,   // 4 bytes (no padding, may be misaligned!)
-    c: u8,    // 1 byte
+    a: u8,    // 1B
+    b: u32,   // 4B
+    c: u8,    // 1B (struct size = 6)
 }
 
 fn examine_layout() {
@@ -215,38 +178,18 @@ The `packed` attribute removes padding, which can save space but may cause perfo
 use std::ffi::{CString, CStr};
 use std::os::raw::c_char;
 
-// Rust to C
-fn rust_string_to_c() {
+fn rust_string_to_c() {  // Rust to C
     let rust_string = "Hello, C!";
-
-    // Create a CString (allocates, adds null terminator)
-    let c_string = CString::new(rust_string).expect("CString::new failed");
-
-    // Get a pointer suitable for C
+    let c_string = CString::new(rust_string).expect("CString::new failed");  // Alloc + null
     let c_ptr: *const c_char = c_string.as_ptr();
 
-    unsafe {
-        // Pass to C function
-        some_c_function(c_ptr);
-    }
+    unsafe { some_c_function(c_ptr); }
+}  // c_string dropped here
 
-    // c_string is dropped here, freeing the memory
-}
-
-// C to Rust
-unsafe fn c_string_to_rust(c_ptr: *const c_char) -> String {
-    // Safety: Caller must ensure c_ptr is valid and null-terminated
-
-    if c_ptr.is_null() {
-        return String::new();
-    }
-
-    // Create a CStr (borrows the C string)
-    let c_str = CStr::from_ptr(c_ptr);
-
-    // Convert to Rust String
-    // to_string_lossy replaces invalid UTF-8 with �
-    c_str.to_string_lossy().into_owned()
+unsafe fn c_string_to_rust(c_ptr: *const c_char) -> String {  // C to Rust
+    if c_ptr.is_null() { return String::new(); }
+    let c_str = CStr::from_ptr(c_ptr);  // Borrow C string
+    c_str.to_string_lossy().into_owned()  // Lossy: invalid UTF-8 → �
 }
 
 extern "C" {
@@ -287,21 +230,16 @@ use std::ffi::{OsString, OsStr};
 use std::path::{Path, PathBuf};
 
 fn working_with_os_strings() {
-    // Creating an OsString
     let os_string = OsString::from("my_file.txt");
-
-    // Converting between Path and OsStr
     let path = Path::new("/home/user/document.txt");
     let os_str: &OsStr = path.as_os_str();
 
-    // Attempting UTF-8 conversion (may fail on Windows or Unix)
-    match os_str.to_str() {
+    match os_str.to_str() {  // May fail if not valid UTF-8
         Some(s) => println!("Valid UTF-8: {}", s),
         None => println!("Path contains invalid UTF-8"),
     }
 
-    // Lossy conversion (replaces invalid UTF-8 with �)
-    let string = os_str.to_string_lossy();
+    let string = os_str.to_string_lossy();  // Invalid UTF-8 → �
     println!("Path (lossy): {}", string);
 }
 working_with_os_strings(); // Platform-independent path string handling
@@ -338,37 +276,22 @@ Use `CString::into_raw()` to transfer ownership to C, providing a corresponding 
 use std::ffi::{CString, CStr};
 use std::os::raw::c_char;
 
-// CORRECT: Rust owns the string
-#[no_mangle]
+#[no_mangle]  // Rust allocates, C must call rust_free_string()
 pub extern "C" fn rust_creates_string() -> *mut c_char {
-    let s = CString::new("Hello from Rust").unwrap();
-
-    // Transfer ownership to C
-    // C must call rust_free_string() when done
-    s.into_raw()
+    CString::new("Hello from Rust").unwrap().into_raw()  // Transfer ownership
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rust_free_string(s: *mut c_char) {
-    if !s.is_null() {
-        // Take ownership back and drop
-        let _ = CString::from_raw(s);
-    }
+    if !s.is_null() { let _ = CString::from_raw(s); }  // Reclaim and drop
 }
 
-// CORRECT: C owns the string
-#[no_mangle]
+#[no_mangle]  // C owns string, Rust borrows
 pub unsafe extern "C" fn rust_uses_c_string(s: *const c_char) {
-    if s.is_null() {
-        return;
-    }
-
-    // Borrow the string, don't take ownership
-    let c_str = CStr::from_ptr(s);
+    if s.is_null() { return; }
+    let c_str = CStr::from_ptr(s);  // Borrow only
     println!("C string: {}", c_str.to_string_lossy());
-
-    // s is still valid here; C will free it
-}
+}  // s still valid, C frees
 From C: rust_uses_c_string("hello"); // Borrows C string, C frees it
 
 // WRONG: This leaks memory!
@@ -395,13 +318,9 @@ extern "C" {
     fn fclose(file: *mut std::ffi::c_void) -> i32;
 }
 
-/// Safe wrapper around C's fopen
 fn open_file(path: &Path, mode: &str) -> Option<*mut std::ffi::c_void> {
-    // Convert Path to CString
-    // This can fail if the path contains null bytes
-    let path_str = path.to_str()?;
+    let path_str = path.to_str()?;  // Fails if path has null bytes
     let c_path = CString::new(path_str).ok()?;
-
     let c_mode = CString::new(mode).ok()?;
 
     unsafe {
@@ -492,12 +411,9 @@ struct CallbackState {
 
 extern "C" fn stateful_callback(user_data: *mut c_void, value: c_int) {
     unsafe {
-        // Cast the void pointer back to our state
-        let state = &mut *(user_data as *mut CallbackState);
-
+        let state = &mut *(user_data as *mut CallbackState);  // Cast back
         state.count += 1;
-        println!("{}: Callback #{} received value {}",
-            state.name, state.count, value);
+        println!("{}: Callback #{} received {}", state.name, state.count, value);
     }
 }
 
@@ -547,11 +463,7 @@ struct ThreadSafeState {
 extern "C" fn threadsafe_callback(user_data: *mut c_void, value: c_int) {
     unsafe {
         let state = &*(user_data as *const ThreadSafeState);
-
-        // Lock the mutex before accessing shared data
-        if let Ok(mut data) = state.data.lock() {
-            data.push(value);
-        }
+        if let Ok(mut data) = state.data.lock() { data.push(value); }  // Lock before access
     }
 }
 
@@ -567,8 +479,7 @@ fn threadsafe_example() {
         );
     }
 
-    // Keep state alive for the duration of the program
-    std::mem::forget(state);
+    std::mem::forget(state);  // Intentional leak—callback may fire anytime
 }
 threadsafe_example(); // Thread-safe callback with Arc<Mutex<T>> state
 ```
@@ -615,10 +526,7 @@ impl ManagedCallback {
 
 impl Drop for ManagedCallback {
     fn drop(&mut self) {
-        unsafe {
-            unregister_callback(self.handle);
-        }
-        // state is automatically dropped after this
+        unsafe { unregister_callback(self.handle); }  // state auto-dropped after
     }
 }
 
@@ -798,11 +706,7 @@ use std::os::raw::c_int;
 
 #[no_mangle]
 pub extern "C" fn safe_rust_function(value: c_int) -> c_int {
-    // Catch any panics
-    let result = panic::catch_unwind(|| {
-        // Code that might panic
-        risky_computation(value)
-    });
+    let result = panic::catch_unwind(|| risky_computation(value));  // Catch panics
 
     match result {
         Ok(value) => value,
@@ -832,8 +736,7 @@ use std::os::raw::c_int;
 use std::sync::Mutex;
 use std::cell::RefCell;
 
-// Thread-local error storage
-thread_local! {
+thread_local! {  // Thread-local error storage
     static LAST_ERROR: RefCell<Option<String>> = RefCell::new(None);
 }
 
@@ -855,18 +758,11 @@ pub extern "C" fn rust_function_with_error(value: c_int) -> c_int {
     0
 }
 
-#[no_mangle]
+#[no_mangle]  // Returns error msg; production code needs better lifetime management
 pub extern "C" fn rust_get_last_error() -> *const std::os::raw::c_char {
-    LAST_ERROR.with(|e| {
-        match &*e.borrow() {
-            Some(err) => {
-                // Note: This is simplified. In production, you'd want to
-                // manage the string's lifetime more carefully
-                let c_str = std::ffi::CString::new(err.as_str()).unwrap();
-                c_str.into_raw()
-            }
-            None => std::ptr::null(),
-        }
+    LAST_ERROR.with(|e| match &*e.borrow() {
+        Some(err) => std::ffi::CString::new(err.as_str()).unwrap().into_raw(),
+        None => std::ptr::null(),
     })
 }
 
@@ -908,20 +804,15 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    // Tell cargo to invalidate the built crate whenever the wrapper changes
-    println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=wrapper.h");  // Rebuild on header change
+    println!("cargo:rustc-link-lib=mylib");        // Link C library
 
-    // Link to C library
-    println!("cargo:rustc-link-lib=mylib");
-
-    // Generate bindings
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
 
-    // Write bindings to $OUT_DIR/bindings.rs
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
@@ -947,11 +838,7 @@ Then use the generated bindings in your Rust code:
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 fn use_bindings() {
-    unsafe {
-        // Use the generated bindings
-        let result = some_c_function(42);
-        println!("Result: {}", result);
-    }
+    unsafe { let result = some_c_function(42); println!("Result: {}", result); }
 }
 use_bindings(); // Calls auto-generated FFI bindings from bindgen
 ```
@@ -968,37 +855,17 @@ use bindgen;
 fn main() {
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
-
-        // Allowlist: only generate bindings for these
-        .allowlist_function("my_.*")  // Regex: functions starting with my_
+        .allowlist_function("my_.*")   // Regex: only my_* functions
         .allowlist_type("MyStruct")
         .allowlist_var("MY_CONSTANT")
-
-        // Blocklist: don't generate bindings for these
-        .blocklist_function("internal_.*")
-
-        // Generate comments from C documentation
-        .generate_comments(true)
-
-        // Use core instead of std (for no_std environments)
-        .use_core()
-
-        // Derive additional traits
-        .derive_default(true)
-        .derive_debug(true)
-        .derive_eq(true)
-
-        // Handle C++ (if needed)
-        .clang_arg("-x")
-        .clang_arg("c++")
-
-        // Custom type mappings
-        .raw_line("use std::os::raw::c_char;")
-
+        .blocklist_function("internal_.*")  // Exclude internals
+        .generate_comments(true)       // Keep C docs
+        .use_core()                    // For no_std
+        .derive_default(true).derive_debug(true).derive_eq(true)  // Traits
+        .clang_arg("-x").clang_arg("c++")  // C++ support
+        .raw_line("use std::os::raw::c_char;")  // Custom imports
         .generate()
         .expect("Unable to generate bindings");
-
-    // Write bindings...
 }
 cargo build triggers build.rs to generate filtered bindings
 ```
@@ -1041,14 +908,8 @@ impl Database {
 
         unsafe {
             let result = ffi::db_query(self.handle, c_sql.as_ptr());
-
-            if result.is_null() {
-                return Err("Query failed".to_string());
-            }
-
-            // Process results...
-            // (This is simplified; real code would parse the result)
-
+            if result.is_null() { return Err("Query failed".to_string()); }
+            // Real code would parse result here
             ffi::db_free_result(result);
             Ok(vec![])
         }

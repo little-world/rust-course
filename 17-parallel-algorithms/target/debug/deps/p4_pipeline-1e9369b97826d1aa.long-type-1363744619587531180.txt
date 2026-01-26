@@ -1,1 +1,0 @@
-std::iter::Map<std::slice::Iter<'_, i32>, {closure@p4_pipeline.rs:154:30: 154:34}>: rayon::iter::IntoParallelIterator

@@ -23,17 +23,24 @@ fn parallel_map_example() {
 
     // Sequential
     let start = Instant::now();
-    let sequential: Vec<i64> = numbers.iter().map(|&x| x * x).collect();
+    let sequential: Vec<i64> = numbers
+        .iter()
+        .map(|&x| x * x)
+        .collect();
     let seq_time = start.elapsed();
 
     // Parallel
     let start = Instant::now();
-    let parallel: Vec<i64> = numbers.par_iter().map(|&x| x * x).collect();
+    let parallel: Vec<i64> = numbers
+        .par_iter()
+        .map(|&x| x * x)
+        .collect();
     let par_time = start.elapsed();
 
     println!("Sequential: {:?}", seq_time);
     println!("Parallel: {:?}", par_time);
-    println!("Speedup: {:.2}x", seq_time.as_secs_f64() / par_time.as_secs_f64());
+    let speedup = seq_time.as_secs_f64() / par_time.as_secs_f64();
+    println!("Speedup: {:.2}x", speedup);
 
     assert_eq!(sequential, parallel);
 }
@@ -59,12 +66,16 @@ fn iterator_variants() {
 
     // Consuming parallel iteration
     let owned_data = vec![1, 2, 3, 4, 5];
-    let squares: Vec<i32> = owned_data.into_par_iter().map(|x| x * x).collect();
+    let squares: Vec<i32> = owned_data
+        .into_par_iter()
+        .map(|x| x * x)
+        .collect();
     println!("Squares: {:?}", squares);
 }
 
  iterator_variants(); 
-// Output: Sum: 15, Doubled: [2, 4, 6, 8, 10], Squares: [1, 4, 9, 16, 25]
+// Output: Sum: 15, Doubled: [2, 4, 6, 8, 10]
+// Squares: [1, 4, 9, 16, 25]
 ```
 
 ### Example: Parallel filter and map
@@ -94,7 +105,8 @@ Flattens nested structures in parallel—each input produces multiple outputs co
 ```rust
 
 fn parallel_flat_map() {
-    let ranges: Vec<std::ops::Range<i32>> = vec![0..10, 10..20, 20..30];
+    use std::ops::Range;
+    let ranges: Vec<Range<i32>> = vec![0..10, 10..20, 20..30];
 
     let flattened: Vec<i32> = ranges
         .into_par_iter()
@@ -136,7 +148,11 @@ impl Image {
         self.pixels
             .par_chunks_mut(3)
             .for_each(|rgb| {
-                let gray = ((rgb[0] as u32 + rgb[1] as u32 + rgb[2] as u32) / 3) as u8;
+                let r = rgb[0] as u32;
+                let g = rgb[1] as u32;
+                let b = rgb[2] as u32;
+                let sum = r + g + b;
+                let gray = (sum / 3) as u8;
                 rgb[0] = gray;
                 rgb[1] = gray;
                 rgb[2] = gray;
@@ -249,26 +265,31 @@ Recursively traverses directories using a sequential iterator, then processes fi
 use std::fs;
 use std::path::PathBuf;
 
-fn find_large_files_parallel(root: &str, min_size: u64) -> Vec<(PathBuf, u64)> {
-    fn visit_dirs(path: PathBuf) -> Box<dyn Iterator<Item = PathBuf> + Send> {
-        let entries = match fs::read_dir(&path) {
-            Ok(entries) => entries,
+fn find_large_files(
+    root: &str,
+    min_size: u64
+) -> Vec<(PathBuf, u64)> {
+    type BoxIter = Box<dyn Iterator<Item = PathBuf> + Send>;
+    fn visit(p: PathBuf) -> BoxIter {
+        let entries = match fs::read_dir(&p) {
+            Ok(e) => e,
             Err(_) => return Box::new(std::iter::empty()),
         };
 
-        let iter = entries.filter_map(|e| e.ok()).flat_map(|entry| {
-            let path = entry.path();
-            if path.is_dir() {
-                visit_dirs(path)
-            } else {
-                Box::new(std::iter::once(path))
-            }
-        });
-
+        let iter = entries
+            .filter_map(|e| e.ok())
+            .flat_map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(path)
+                } else {
+                    Box::new(std::iter::once(path))
+                }
+            });
         Box::new(iter)
     }
 
-    visit_dirs(PathBuf::from(root))
+    visit(PathBuf::from(root))
         .par_bridge()
         .filter_map(|path| {
             let metadata = fs::metadata(&path).ok()?;
@@ -391,12 +412,18 @@ fn chunk_size_comparison() {
 
     // Custom chunk size (too small - more overhead)
     let start = Instant::now();
-    let sum2: i32 = data.par_chunks(100).map(|chunk| chunk.iter().sum::<i32>()).sum();
+    let sum2: i32 = data
+        .par_chunks(100)
+        .map(|c| c.iter().sum::<i32>())
+        .sum();
     let small_chunk_time = start.elapsed();
 
     // Custom chunk size (balanced)
     let start = Instant::now();
-    let sum3: i32 = data.par_chunks(10_000).map(|chunk| chunk.iter().sum::<i32>()).sum();
+    let sum3: i32 = data
+        .par_chunks(10_000)
+        .map(|c| c.iter().sum::<i32>())
+        .sum();
     let balanced_chunk_time = start.elapsed();
 
     println!("Default: {:?}", default_time);
@@ -425,7 +452,10 @@ fn work_splitting_strategies() {
         .collect();
 
     // Strategy 2: Adaptive (good for non-uniform work)
-    let result2: Vec<i32> = data.par_iter().map(|&x| x * x).collect();
+    let result2: Vec<i32> = data
+        .par_iter()
+        .map(|&x| x * x)
+        .collect();
 
     assert_eq!(result1.len(), result2.len());
 }
@@ -459,21 +489,29 @@ impl Matrix {
         self.data[row * self.cols + col] = value;
     }
 
-    // Parallel matrix multiplication with blocking for cache efficiency
-    fn multiply_blocked(&self, other: &Matrix, block_size: usize) -> Matrix {
+    // Parallel blocked matrix multiply for cache efficiency
+    fn multiply_blocked(
+        &self,
+        other: &Matrix,
+        block_size: usize
+    ) -> Matrix {
         assert_eq!(self.cols, other.rows);
 
         let mut result = Matrix::new(self.rows, other.cols);
 
         // Partition work by output blocks
-        let row_blocks: Vec<usize> = (0..self.rows).step_by(block_size).collect();
-        let col_blocks: Vec<usize> = (0..other.cols).step_by(block_size).collect();
+        let row_blocks: Vec<usize> = (0..self.rows)
+            .step_by(block_size).collect();
+        let col_blocks: Vec<usize> = (0..other.cols)
+            .step_by(block_size).collect();
 
         row_blocks.par_iter().for_each(|&row_start| {
             for &col_start in &col_blocks {
                 // Process block
-                let row_end = (row_start + block_size).min(self.rows);
-                let col_end = (col_start + block_size).min(other.cols);
+                let row_end = (row_start + block_size)
+                    .min(self.rows);
+                let col_end = (col_start + block_size)
+                    .min(other.cols);
 
                 for i in row_start..row_end {
                     for j in col_start..col_end {
@@ -481,9 +519,10 @@ impl Matrix {
                         for k in 0..self.cols {
                             sum += self.get(i, k) * other.get(k, j);
                         }
+                        let ptr = result.data.as_ptr();
                         unsafe {
-                            let ptr = result.data.as_ptr() as *mut f64;
-                            *ptr.add(i * result.cols + j) = sum;
+                            let p = ptr as *mut f64;
+                            *p.add(i * result.cols + j) = sum;
                         }
                     }
                 }
@@ -499,7 +538,10 @@ impl Matrix {
 Parallelizes merge sort with `rayon::join()` for divide step. Switches to sequential `arr.sort()` below grain_size threshold to avoid overhead. Grain size of 1000-10000 typically optimal.
 
 ```rust
-fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
+fn parallel_merge_sort<T: Ord + Send>(
+    arr: &mut [T],
+    grain_size: usize
+) {
     if arr.len() <= grain_size {
         arr.sort();
         return;
@@ -519,22 +561,26 @@ fn parallel_merge_sort<T: Ord + Send>(arr: &mut [T], grain_size: usize) {
     let mut j = mid;
 
     while i < mid && j < arr.len() {
+        let placeholder = unsafe { std::ptr::read(&arr[0]) };
         if arr[i] <= arr[j] {
-            temp.push(std::mem::replace(&mut arr[i], unsafe { std::ptr::read(&arr[0]) }));
+            temp.push(std::mem::replace(&mut arr[i], placeholder));
             i += 1;
         } else {
-            temp.push(std::mem::replace(&mut arr[j], unsafe { std::ptr::read(&arr[0]) }));
+            let ph = unsafe { std::ptr::read(&arr[0]) };
+            temp.push(std::mem::replace(&mut arr[j], ph));
             j += 1;
         }
     }
 
     while i < mid {
-        temp.push(std::mem::replace(&mut arr[i], unsafe { std::ptr::read(&arr[0]) }));
+        let ph = unsafe { std::ptr::read(&arr[0]) };
+        temp.push(std::mem::replace(&mut arr[i], ph));
         i += 1;
     }
 
     while j < arr.len() {
-        temp.push(std::mem::replace(&mut arr[j], unsafe { std::ptr::read(&arr[0]) }));
+        let ph = unsafe { std::ptr::read(&arr[0]) };
+        temp.push(std::mem::replace(&mut arr[j], ph));
         j += 1;
     }
 
@@ -556,12 +602,12 @@ Demonstrates work-stealing on irregular workloads where each item has different 
 
 fn dynamic_load_balancing() {
     // Simulate irregular workload
-    let work_items: Vec<usize> = (0..1000).map(|i| i % 100).collect();
+    let items: Vec<usize> = (0..1000).map(|i| i % 100).collect();
 
     let start = Instant::now();
 
-    // Rayon automatically balances work through work stealing
-    let results: Vec<usize> = work_items
+    // Rayon balances work through work stealing
+    let results: Vec<usize> = items
         .par_iter()
         .map(|&work| {
             // Simulate variable work
@@ -596,7 +642,7 @@ fn grain_size_tuning() {
             .map(|chunk| chunk.iter().sum::<i32>())
             .sum();
 
-        println!("Grain size {}: {:?}", grain_size, start.elapsed());
+        println!("Grain {}: {:?}", grain_size, start.elapsed());
     }
 }
 ```
@@ -678,8 +724,10 @@ impl<T: Send + Sync> TreeNode<T> {
         let value = f(&self.value);
 
         let (left, right) = rayon::join(
-            || self.left.as_ref().map(|node| Box::new(node.parallel_map(f))),
-            || self.right.as_ref().map(|node| Box::new(node.parallel_map(f))),
+            || self.left.as_ref()
+                .map(|n| Box::new(n.parallel_map(f))),
+            || self.right.as_ref()
+                .map(|n| Box::new(n.parallel_map(f))),
         );
 
         TreeNode { value, left, right }
@@ -692,8 +740,10 @@ impl<T: Send + Sync> TreeNode<T> {
         let mut sum = self.value;
 
         let (left_sum, right_sum) = rayon::join(
-            || self.left.as_ref().map_or(T::default(), |node| node.parallel_sum()),
-            || self.right.as_ref().map_or(T::default(), |node| node.parallel_sum()),
+            || self.left.as_ref()
+                .map_or(T::default(), |n| n.parallel_sum()),
+            || self.right.as_ref()
+                .map_or(T::default(), |n| n.parallel_sum()),
         );
 
         sum = sum + left_sum + right_sum;
@@ -776,7 +826,7 @@ fn parallel_dir_size<P: AsRef<Path>>(path: P) -> u64 {
 
 // Usage: 
 let size = parallel_dir_size("/home/user/projects"); // bytes
-``` 
+```
 ### Example Parallel expression evaluation
 
 Evaluates expression trees by computing sub-expressions in parallel via `rayon::join()`. Binary ops split left/right subtrees across threads. Speedup depends on tree structure and operation cost.
@@ -878,8 +928,8 @@ fn simple_reductions() {
     println!("Product: {}", product);
 }
 
-// Usage: 
-simple_reductions(); // Output: Sum: 500000500000, Min: 1, Max: 1000000, Product: 3628800
+// Usage: simple_reductions();
+// Output: Sum: 500000500000, Min: 1, Max: 1000000
 ```
 
 ### Example: Reduce with custom operation
@@ -896,7 +946,8 @@ fn custom_reduce() {
         .map(|n| n.to_string())
         .reduce(|| String::new(), |a, b| format!("{},{}", a, b));
 
-    println!("Concatenated (first 50 chars): {}", &concatenated[..50.min(concatenated.len())]);
+    let len = concatenated.len().min(50);
+    println!("First 50 chars: {}", &concatenated[..len]);
 
     // Find element closest to target
     let target = 42;
@@ -985,11 +1036,15 @@ fn fold_with_accumulator() {
         );
 
     println!("Count: {}", stats.count);
-    println!("Average: {:.2}", stats.sum as f64 / stats.count as f64);
+    let avg = stats.sum as f64 / stats.count as f64;
+    println!("Average: {:.2}", avg);
     println!("Min: {}, Max: {}", stats.min, stats.max);
 }
 ```
 ### Example: Parallel histogram
+
+Each thread builds a local histogram using `fold`, then `reduce` merges all local histograms into the final result. This avoids contention on a shared data structure.
+
 ```rust
 fn parallel_histogram(data: Vec<i32>) -> HashMap<i32, usize> {
     data.par_iter()
@@ -1042,7 +1097,8 @@ fn word_frequency_parallel(text: String) -> HashMap<String, usize> {
         )
 }
 fn main() {
-    let text = "the quick brown fox jumps over the lazy dog the fox".to_string();
+    let text = "the quick brown fox jumps over the lazy dog"
+        .into();
     let freq = word_frequency_parallel(text);
     for (word, count) in freq.iter().take(5) {
         println!("{}: {}", word, count);
@@ -1057,7 +1113,8 @@ Two-pass algorithm: first pass computes mean in parallel, second computes varian
 ```rust
 fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
     // Two-pass algorithm (more numerically stable)
-    let mean = numbers.par_iter().sum::<f64>() / numbers.len() as f64;
+    let sum: f64 = numbers.par_iter().sum();
+    let mean = sum / numbers.len() as f64;
 
     let variance = numbers
         .par_iter()
@@ -1070,7 +1127,7 @@ fn parallel_variance(numbers: &[f64]) -> (f64, f64) {
 fn main() {
     let numbers: Vec<f64> = (1..=100).map(|x| x as f64).collect();
     let (mean, variance) = parallel_variance(&numbers);
-    println!("Mean: {:.2}, Variance: {:.2}, StdDev: {:.2}", mean, variance variance.sqrt());
+    println!("Mean: {:.2}, Var: {:.2}", mean, variance);
 }
 ```
 ### Example Merge sorted chunks
@@ -1204,7 +1261,7 @@ impl ImagePipeline {
             .collect()
     }
 
-    // Usage: let processed = ImagePipeline::process_batch(raw_images);
+    // Usage: ImagePipeline::process_batch(raw_images);
 
     fn stage1_decode(data: Vec<u8>) -> Vec<u8> {
         // Simulate decoding
@@ -1227,7 +1284,9 @@ impl ImagePipeline {
     }
 }
 fn main() {
-    let images: Vec<Vec<u8>> = (0..100).map(|_| vec![128; 1000]).collect();
+    let images: Vec<Vec<u8>> = (0..100)
+        .map(|_| vec![128; 1000])
+        .collect();
     let start = std::time::Instant::now();
     let processed = ImagePipeline::process_batch(images);
 }
@@ -1288,7 +1347,10 @@ impl LogPipeline {
 }
 fn main() {
     let logs: Vec<RawLog> = (0..1000)
-        .map(|i| RawLog(format!("{}|{}|message_{}", i, if i % 10 == 0 { "ERROR" } else { "INFO" }, i)))
+        .map(|i| {
+            let lvl = if i % 10 == 0 { "ERROR" } else { "INFO" };
+            RawLog(format!("{}|{}|msg_{}", i, lvl, i))
+        })
         .collect();
     let errors = LogPipeline::process(logs);
     println!("Found {} errors", errors.len());
@@ -1368,7 +1430,9 @@ impl EtlPipeline {
     }
 }
 fn main() {
-    let files: Vec<String> = (0..100).map(|i| format!("file_{}.csv", i)).collect();
+    let files: Vec<String> = (0..100)
+        .map(|i| format!("file_{}.csv", i))
+        .collect();
     let results = EtlPipeline::run(files);
     println!("Processed {} files", results.len());
 }
@@ -1467,7 +1531,7 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
         .sum()
 }
 
-// Usage: let result = dot_product(&[1.0, 2.0], &[3.0, 4.0]); // 11.0
+// Usage: dot_product(&[1.0, 2.0], &[3.0, 4.0]); // 11.0
 
 fn dot_product_parallel(a: &[f32], b: &[f32]) -> f32 {
     use rayon::prelude::*;
@@ -1488,7 +1552,9 @@ let result = dot_product_parallel(&big_vec_a, &big_vec_b);
 Inner k-loop performs contiguous multiply-accumulate operations that compilers can auto-vectorize. Outer loops parallelize over rows with Rayon. Combines threading (row distribution) with SIMD (inner loop) for maximum throughput.
 
 ```rust
-fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
+fn matrix_multiply_simd(
+    a: &[f32], b: &[f32], result: &mut [f32], n: usize
+) {
     // Matrix dimensions: n x n
     assert_eq!(a.len(), n * n);
     assert_eq!(b.len(), n * n);
@@ -1508,7 +1574,9 @@ fn matrix_multiply_simd(a: &[f32], b: &[f32], result: &mut [f32], n: usize) {
     }
 }
 // Parallel + SIMD matrix multiplication
-fn matrix_multiply_parallel_simd(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
+fn matrix_multiply_par_simd(
+    a: &[f32], b: &[f32], n: usize
+) -> Vec<f32> {
     use rayon::prelude::*;
 
     let mut result = vec![0.0; n * n];
@@ -1533,7 +1601,7 @@ fn main() {
     let a: Vec<f32> = (0..n * n).map(|x| x as f32).collect();
     let b: Vec<f32> = (0..n * n).map(|x| (x * 2) as f32).collect();
 
-    let result = matrix_multiply_parallel_simd(&a, &b, n);
+    let result = matrix_multiply_par_simd(&a, &b, n);
     println!("Result checksum: {}", result.iter().sum::<f32>());
 }
 
@@ -1544,7 +1612,10 @@ Processes matrices in blocks that fit L1/L2 cache. Inner loops stay hot in cache
 
 ```rust
 
-fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, block_size: usize) {
+fn blocked_matrix_mul(
+    a: &[f32], b: &[f32], result: &mut [f32],
+    n: usize, block_size: usize
+) {
     use rayon::prelude::*;
 
     for i_block in (0..n).step_by(block_size) {
@@ -1577,10 +1648,13 @@ fn blocked_matrix_multiply(a: &[f32], b: &[f32], result: &mut [f32], n: usize, b
 Applies kernel filter to image—each output pixel computed from neighborhood sum. Outer loop over rows parallelizes with `par_iter()`. Inner kernel loop is SIMD-friendly multiply-accumulate.
 
 ```rust
-fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kernel_size: usize) -> Vec<f32> {
+fn convolve_2d(
+    image: &[f32], kernel: &[f32],
+    width: usize, height: usize, ksz: usize
+) -> Vec<f32> {
     use rayon::prelude::*;
 
-    let offset = kernel_size / 2;
+    let offset = ksz / 2;
     let mut result = vec![0.0; width * height];
 
     (offset..height - offset).into_par_iter().for_each(|y| {
@@ -1588,12 +1662,12 @@ fn convolve_2d(image: &[f32], kernel: &[f32], width: usize, height: usize, kerne
             let mut sum = 0.0;
 
             // Convolution kernel (SIMD-friendly inner loops)
-            for ky in 0..kernel_size {
-                for kx in 0..kernel_size {
+            for ky in 0..ksz {
+                for kx in 0..ksz {
                     let img_y = y + ky - offset;
                     let img_x = x + kx - offset;
                     let img_idx = img_y * width + img_x;
-                    let kernel_idx = ky * kernel_size + kx;
+                    let kernel_idx = ky * ksz + kx;
 
                     sum += image[img_idx] * kernel[kernel_idx];
                 }
@@ -1765,7 +1839,9 @@ Compares loop, iterator (likely vectorized), and parallel versions. Speedup loop
 ```rust
 
 fn benchmark_vectorization() {
-    let data: Vec<f32> = (0..10_000_000).map(|x| x as f32).collect();
+    let data: Vec<f32> = (0..10_000_000)
+        .map(|x| x as f32)
+        .collect();
 
     // Version 1: Simple loop
     let start = std::time::Instant::now();
@@ -1777,20 +1853,28 @@ fn benchmark_vectorization() {
 
     // Version 2: Iterator (likely vectorized)
     let start = std::time::Instant::now();
-    let result2: Vec<f32> = data.iter().map(|&x| x * 2.0 + 1.0).collect();
+    let result2: Vec<f32> = data
+        .iter()
+        .map(|&x| x * 2.0 + 1.0)
+        .collect();
     let time2 = start.elapsed();
 
     // Version 3: Parallel + potential vectorization
     use rayon::prelude::*;
     let start = std::time::Instant::now();
-    let result3: Vec<f32> = data.par_iter().map(|&x| x * 2.0 + 1.0).collect();
+    let result3: Vec<f32> = data
+        .par_iter()
+        .map(|&x| x * 2.0 + 1.0)
+        .collect();
     let time3 = start.elapsed();
 
     println!("Simple loop: {:?}", time1);
     println!("Iterator: {:?}", time2);
     println!("Parallel: {:?}", time3);
-    println!("Speedup (iter vs loop): {:.2}x", time1.as_secs_f64() / time2.as_secs_f64());
-    println!("Speedup (parallel vs iter): {:.2}x", time2.as_secs_f64() / time3.as_secs_f64());
+    let s1 = time1.as_secs_f64() / time2.as_secs_f64();
+    let s2 = time2.as_secs_f64() / time3.as_secs_f64();
+    println!("Speedup (iter/loop): {:.2}x", s1);
+    println!("Speedup (par/iter): {:.2}x", s2);
 }
 ```
 

@@ -1,1 +1,0 @@
-/Users/littleworld/RustroverProjects/rust-course-pdf/src/17-parallel-algorithms/target/release/p1_image_processing: /Users/littleworld/RustroverProjects/rust-course-pdf/src/17-parallel-algorithms/p1_image_processing.rs

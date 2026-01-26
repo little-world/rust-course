@@ -91,17 +91,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-// Use for: Counters where exact ordering doesn't matter
+// Counters where exact ordering doesn't matter
 fn relaxed_ordering_example() {
     let counter = Arc::new(AtomicUsize::new(0));
     let mut handles = vec![];
 
     for _ in 0..10 {
-        let counter = Arc::clone(&counter);
+        let ctr = Arc::clone(&counter);
         handles.push(thread::spawn(move || {
             for _ in 0..1000 {
-                // Relaxed: no synchronization, just atomicity
-                counter.fetch_add(1, Ordering::Relaxed);
+                // Relaxed: no sync, just atomicity
+                ctr.fetch_add(1, Ordering::Relaxed);
             }
         }));
     }
@@ -110,12 +110,13 @@ fn relaxed_ordering_example() {
         handle.join().unwrap();
     }
 
-    // Final value is guaranteed to be correct
-    // but intermediate values may have appeared in any order
-    println!("Counter (Relaxed): {}", counter.load(Ordering::Relaxed));
+    // Final value guaranteed correct
+    // Intermediate values may appear in any order
+    let val = counter.load(Ordering::Relaxed);
+    println!("Counter (Relaxed): {}", val);
 }
 
-relaxed_ordering_example(); // Output: Counter (Relaxed): 10000
+relaxed_ordering_example(); // Output: 10000
 ```
 
 ### Example: Acquire/Release - Synchronization without sequential consistency
@@ -127,30 +128,27 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::thread;
 
-// Use for: Producer-consumer, message passing
+// Producer-consumer, message passing
 fn acquire_release_ordering() {
     let data = Arc::new(AtomicUsize::new(0));
     let ready = Arc::new(AtomicBool::new(false));
 
-    let data_clone = Arc::clone(&data);
-    let ready_clone = Arc::clone(&ready);
+    let data_c = Arc::clone(&data);
+    let ready_c = Arc::clone(&ready);
 
     // Producer
     let producer = thread::spawn(move || {
-        // Write data
-        data_clone.store(42, Ordering::Relaxed);
-
-        // Release: all previous writes visible to thread that Acquires
-        ready_clone.store(true, Ordering::Release);
+        data_c.store(42, Ordering::Relaxed);
+        // Release: writes visible to Acquire
+        ready_c.store(true, Ordering::Release);
     });
 
     // Consumer
     let consumer = thread::spawn(move || {
-        // Acquire: see all writes before the Release
+        // Acquire: see all writes before Release
         while !ready.load(Ordering::Acquire) {
             thread::yield_now();
         }
-
         // Guaranteed to see data == 42
         let value = data.load(Ordering::Relaxed);
         println!("Consumer sees: {}", value);
@@ -163,7 +161,7 @@ fn acquire_release_ordering() {
 
 ```
 
-### Example: SeqCst - Sequential consistency (slowest, easiest to reason about)
+### Example: SeqCst - Sequential consistency (slowest)
 
 `SeqCst` creates a single global total order—all threads see operations in the exact same order. Use when multiple atomics must appear coordinated or when correctness matters more than performance; can be 10-100x slower than Relaxed on ARM/POWER.
 
@@ -172,32 +170,32 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-// Use for: When correctness is critical and performance is secondary
+// When correctness > performance
 fn seq_cst_ordering() {
     let x = Arc::new(AtomicBool::new(false));
     let y = Arc::new(AtomicBool::new(false));
     let z1 = Arc::new(AtomicBool::new(false));
     let z2 = Arc::new(AtomicBool::new(false));
 
-    let x1 = Arc::clone(&x);
-    let y1 = Arc::clone(&y);
-    let z1_clone = Arc::clone(&z1);
+    let (x1, y1, z1c) = (
+        Arc::clone(&x), Arc::clone(&y), Arc::clone(&z1)
+    );
 
     let t1 = thread::spawn(move || {
         x1.store(true, Ordering::SeqCst);
         if !y1.load(Ordering::SeqCst) {
-            z1_clone.store(true, Ordering::SeqCst);
+            z1c.store(true, Ordering::SeqCst);
         }
     });
 
-    let x2 = Arc::clone(&x);
-    let y2 = Arc::clone(&y);
-    let z2_clone = Arc::clone(&z2);
+    let (x2, y2, z2c) = (
+        Arc::clone(&x), Arc::clone(&y), Arc::clone(&z2)
+    );
 
     let t2 = thread::spawn(move || {
         y2.store(true, Ordering::SeqCst);
         if !x2.load(Ordering::SeqCst) {
-            z2_clone.store(true, Ordering::SeqCst);
+            z2c.store(true, Ordering::SeqCst);
         }
     });
 
@@ -205,9 +203,10 @@ fn seq_cst_ordering() {
     t2.join().unwrap();
 
     // With SeqCst: cannot have both z1 and z2 true
-    // Without SeqCst: theoretically possible (hardware reordering)
-    let both = z1.load(Ordering::SeqCst) && z2.load(Ordering::SeqCst);
-    println!("Both flags set: {} (should be false with SeqCst)", both);
+    // Without: theoretically possible (hw reorder)
+    let z1v = z1.load(Ordering::SeqCst);
+    let z2v = z2.load(Ordering::SeqCst);
+    println!("Both flags set: {} (expect false)", z1v && z2v);
 }
 
 ```
@@ -221,17 +220,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::thread;
 
-// Use for: Read-modify-write operations
+// Read-modify-write operations
 fn acq_rel_ordering() {
     let counter = Arc::new(AtomicUsize::new(0));
 
     let mut handles = vec![];
     for _ in 0..5 {
-        let counter = Arc::clone(&counter);
+        let ctr = Arc::clone(&counter);
         handles.push(thread::spawn(move || {
             for _ in 0..100 {
-                // AcqRel: Acts as Acquire for load, Release for store
-                counter.fetch_add(1, Ordering::AcqRel);
+                // AcqRel: Acquire on load, Release on store
+                ctr.fetch_add(1, Ordering::AcqRel);
             }
         }));
     }
@@ -240,32 +239,29 @@ fn acq_rel_ordering() {
         handle.join().unwrap();
     }
 
-    println!("Counter (AcqRel): {}", counter.load(Ordering::Acquire));
+    let val = counter.load(Ordering::Acquire);
+    println!("Counter (AcqRel): {}", val);
 }
-// Real-world: Spinlock with proper ordering
+
+// Spinlock with proper ordering
 struct Spinlock {
     locked: AtomicBool,
 }
 
 impl Spinlock {
     fn new() -> Self {
-        Self {
-            locked: AtomicBool::new(false),
-        }
+        Self { locked: AtomicBool::new(false) }
     }
 
     fn lock(&self) {
-        while self
-            .locked
+        while self.locked
             .compare_exchange_weak(
-                false,
-                true,
-                Ordering::Acquire, // Success: acquire lock
-                Ordering::Relaxed, // Failure: just retry
+                false, true,
+                Ordering::Acquire,  // Success
+                Ordering::Relaxed,  // Failure
             )
             .is_err()
         {
-            // Hint to CPU we're spinning
             while self.locked.load(Ordering::Relaxed) {
                 std::hint::spin_loop();
             }
@@ -273,12 +269,12 @@ impl Spinlock {
     }
 
     fn unlock(&self) {
-        // Release: make all previous writes visible
+        // Release: make writes visible
         self.locked.store(false, Ordering::Release);
     }
 }
 
- let lock = Spinlock::new(); 
+let lock = Spinlock::new();
 lock.lock();
 /* critical section */
 lock.unlock();
@@ -310,9 +306,10 @@ impl<T> LazyInit<T> {
     where
         F: FnOnce() -> T,
     {
-        // Fast path: already initialized (Acquire ensures we see the data)
+        // Fast path: Acquire ensures we see data
         if self.initialized.load(Ordering::Acquire) {
-            unsafe { &*(self.data.load(Ordering::Relaxed) as *const T) }
+            let ptr = self.data.load(Ordering::Relaxed);
+            unsafe { &*(ptr as *const T) }
         } else {
             self.init_slow(init)
         }
@@ -324,12 +321,10 @@ impl<T> LazyInit<T> {
     {
         let ptr = Box::into_raw(Box::new(init()));
 
-        // Try to publish (use SeqCst for correctness)
+        // Try to publish (SeqCst for correctness)
         match self.initialized.compare_exchange(
-            false,
-            true,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
+            false, true,
+            Ordering::SeqCst, Ordering::SeqCst,
         ) {
             Ok(_) => {
                 // We won the race
@@ -337,9 +332,10 @@ impl<T> LazyInit<T> {
                 unsafe { &*ptr }
             }
             Err(_) => {
-                // Someone else won, clean up our allocation
+                // Someone else won, clean up
                 unsafe { drop(Box::from_raw(ptr)) };
-                unsafe { &*(self.data.load(Ordering::Acquire) as *const T) }
+                let p = self.data.load(Ordering::Acquire);
+                unsafe { &*(p as *const T) }
             }
         }
     }
@@ -369,21 +365,17 @@ use std::thread;
 fn fence_with_non_atomic() {
     let mut data = 0u64;
     let ready = Arc::new(AtomicBool::new(false));
-    let ready_clone = Arc::clone(&ready);
+    let ready_c = Arc::clone(&ready);
 
     // Producer
     let producer = thread::spawn(move || {
         unsafe {
             let data_ptr = &mut data as *mut u64;
-
-            // Write non-atomic data
             *data_ptr = 42;
 
-            // Fence ensures all previous writes are visible
+            // Fence ensures writes visible
             fence(Ordering::Release);
-
-            // Signal ready
-            ready_clone.store(true, Ordering::Relaxed);
+            ready_c.store(true, Ordering::Relaxed);
         }
     });
 
@@ -391,10 +383,8 @@ fn fence_with_non_atomic() {
     thread::sleep(std::time::Duration::from_millis(10));
 
     if ready.load(Ordering::Relaxed) {
-        // Fence ensures we see all writes before the Release fence
+        // Fence: see writes before Release fence
         fence(Ordering::Acquire);
-
-        // Now safe to read data
         println!("Data: {}", data);
     }
 
@@ -408,7 +398,7 @@ fn fence_with_non_atomic() {
 `compiler_fence` prevents compiler reordering but emits no CPU instruction—CPU can still reorder. Use for signal handlers or x86 where CPU ordering suffices. On ARM/POWER, NOT sufficient for inter-thread synchronization.
 
 ```rust
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, compiler_fence};
 
 fn compiler_fence_example() {
     let x = AtomicUsize::new(0);
@@ -416,12 +406,11 @@ fn compiler_fence_example() {
 
     x.store(1, Ordering::Relaxed);
 
-    // Prevent compiler from reordering (hardware can still reorder)
-    std::sync::atomic::compiler_fence(Ordering::SeqCst);
+    // Prevent compiler reorder (hw can still)
+    compiler_fence(Ordering::SeqCst);
 
     y.store(2, Ordering::Relaxed);
-
-    // Ensures compiler sees x=1 before y=2
+    // Compiler sees x=1 before y=2
 }
 ```
 
@@ -442,9 +431,8 @@ impl DmaBuffer {
     fn write_for_dma(&mut self, data: &[u8]) {
         self.data[..data.len()].copy_from_slice(data);
 
-        // Ensure all writes complete before signaling device
+        // Ensure writes complete before signal
         fence(Ordering::Release);
-
         self.ready.store(true, Ordering::Relaxed);
     }
 
@@ -486,27 +474,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn cas_increment(counter: &AtomicUsize) {
     loop {
-        let current = counter.load(Ordering::Relaxed);
-        let new_value = current + 1;
+        let cur = counter.load(Ordering::Relaxed);
+        let new_val = cur + 1;
 
-        // Try to update: succeeds only if value hasn't changed
+        // Try update: succeeds if value unchanged
         if counter
             .compare_exchange_weak(
-                current,
-                new_value,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
+                cur, new_val,
+                Ordering::Relaxed, Ordering::Relaxed,
             )
             .is_ok()
         {
             break;
         }
-
-        // Spurious failure or actual contention - retry
+        // Spurious failure or contention - retry
     }
 }
 
-// Usage: increment counter with CAS loop
+// Increment counter with CAS loop
 let counter = AtomicUsize::new(0);
 cas_increment(&counter);
 ```
@@ -521,26 +506,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 fn compare_exchange_variants() {
     let value = AtomicUsize::new(0);
 
-    // compare_exchange: never spurious failure, use in non-loop
+    // compare_exchange: no spurious failure
     let result = value.compare_exchange(
-        0,
-        1,
-        Ordering::SeqCst,
-        Ordering::SeqCst,
+        0, 1, Ordering::SeqCst, Ordering::SeqCst,
     );
     assert!(result.is_ok());
 
-    // compare_exchange_weak: may spuriously fail, use in loop
+    // compare_exchange_weak: may spuriously fail
     loop {
-        if value
-            .compare_exchange_weak(1, 2, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            break;
-        }
+        let res = value.compare_exchange_weak(
+            1, 2, Ordering::SeqCst, Ordering::SeqCst
+        );
+        if res.is_ok() { break; }
     }
 
-    println!("Final value: {}", value.load(Ordering::SeqCst));
+    println!("Final: {}", value.load(Ordering::SeqCst));
 }
 
 ```
@@ -556,19 +536,17 @@ fn cas_update<F>(counter: &AtomicUsize, f: F)
 where
     F: Fn(usize) -> usize,
 {
-    let mut current = counter.load(Ordering::Relaxed);
+    let mut cur = counter.load(Ordering::Relaxed);
 
     loop {
-        let new_value = f(current);
+        let new_val = f(cur);
 
         match counter.compare_exchange_weak(
-            current,
-            new_value,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
+            cur, new_val,
+            Ordering::Relaxed, Ordering::Relaxed,
         ) {
             Ok(_) => break,
-            Err(actual) => current = actual, // Update current and retry
+            Err(actual) => cur = actual, // Retry
         }
     }
 }
@@ -618,8 +596,10 @@ impl MaxTracker {
     }
 }
 
-// Usage: track maximum value across concurrent updates
-let tracker = MaxTracker::new(); tracker.update(50); tracker.update(30); println!("{}", tracker.get()); // 50
+// Track max across concurrent updates
+let t = MaxTracker::new();
+t.update(50); t.update(30);
+println!("{}", t.get()); // 50
 ```
 
 ### Example: Lock-free accumulator
@@ -797,6 +777,7 @@ use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
 // Problem: ABA without protection
 struct NaiveStack<T> {
     head: AtomicUsize, // *mut Node<T>
@@ -807,87 +788,83 @@ struct Node<T> {
     data: T,
     next: *mut Node<T>,
 }
-// This is unsafe and suffers from ABA problem!
+
+// Unsafe - suffers from ABA problem!
 impl<T> NaiveStack<T> {
     unsafe fn pop_unsafe(&self) -> Option<T> {
         loop {
-            let head = self.head.load(Ordering::Acquire) as *mut Node<T>;
+            let head = self.head.load(Ordering::Acquire);
+            let head_ptr = head as *mut Node<T>;
 
-            if head.is_null() {
+            if head_ptr.is_null() {
                 return None;
             }
 
-            let next = (*head).next;
+            let next = (*head_ptr).next;
 
-            // ABA PROBLEM: Between load and CAS, another thread could:
-            // 1. Pop this node
-            // 2. Free it
-            // 3. Push new nodes
-            // 4. Push this node back (same address!)
-            // CAS succeeds but we're in trouble!
+            // ABA: Between load and CAS, thread could:
+            // 1. Pop node 2. Free it 3. Push new
+            // 4. Push same addr back - CAS succeeds!
 
-            if self
-                .head
+            if self.head
                 .compare_exchange(
-                    head as usize,
-                    next as usize,
-                    Ordering::Release,
-                    Ordering::Acquire,
+                    head, next as usize,
+                    Ordering::Release, Ordering::Acquire,
                 )
                 .is_ok()
             {
-                let data = std::ptr::read(&(*head).data);
-                drop(Box::from_raw(head));
+                let data = std::ptr::read(&(*head_ptr).data);
+                drop(Box::from_raw(head_ptr));
                 return Some(data);
             }
         }
     }
 }
 // Solution 1: Tagged pointers (version counter)
+const PTR_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
+
 struct TaggedPtr {
-    value: AtomicU64, // Upper 16 bits: tag, Lower 48 bits: pointer
+    value: AtomicU64, // Upper 16: tag, Lower 48: ptr
 }
 
 impl TaggedPtr {
     fn new(ptr: *mut u8) -> Self {
-        Self {
-            value: AtomicU64::new(ptr as u64),
-        }
+        Self { value: AtomicU64::new(ptr as u64) }
     }
 
-    fn load(&self, ordering: Ordering) -> (*mut u8, u16) {
-        let packed = self.value.load(ordering);
-        let ptr = (packed & 0x0000_FFFF_FFFF_FFFF) as *mut u8;
+    fn load(&self, ord: Ordering) -> (*mut u8, u16) {
+        let packed = self.value.load(ord);
+        let ptr = (packed & PTR_MASK) as *mut u8;
         let tag = (packed >> 48) as u16;
         (ptr, tag)
     }
 
-    fn store(&self, ptr: *mut u8, tag: u16, ordering: Ordering) {
-        let packed = ((tag as u64) << 48) | ((ptr as u64) & 0x0000_FFFF_FFFF_FFFF);
-        self.value.store(packed, ordering);
+    fn store(&self, ptr: *mut u8, tag: u16, ord: Ordering) {
+        let packed =
+            ((tag as u64) << 48) | ((ptr as u64) & PTR_MASK);
+        self.value.store(packed, ord);
     }
 
     fn compare_exchange(
         &self,
-        current_ptr: *mut u8,
-        current_tag: u16,
-        new_ptr: *mut u8,
-        new_tag: u16,
-        success: Ordering,
-        failure: Ordering,
+        cur_ptr: *mut u8, cur_tag: u16,
+        new_ptr: *mut u8, new_tag: u16,
+        success: Ordering, failure: Ordering,
     ) -> Result<(), ()> {
-        let current = ((current_tag as u64) << 48) | ((current_ptr as u64) & 0x0000_FFFF_FFFF_FFFF);
-        let new = ((new_tag as u64) << 48) | ((new_ptr as u64) & 0x0000_FFFF_FFFF_FFFF);
+        let cur =
+            ((cur_tag as u64) << 48) | (cur_ptr as u64 & PTR_MASK);
+        let new =
+            ((new_tag as u64) << 48) | (new_ptr as u64 & PTR_MASK);
 
         self.value
-            .compare_exchange(current, new, success, failure)
+            .compare_exchange(cur, new, success, failure)
             .map(|_| ())
             .map_err(|_| ())
     }
 }
 // Solution 2: Version counter approach
 struct VersionedStack<T> {
-    head: AtomicU64, // Upper 32 bits: version, Lower 32 bits: index
+    head: AtomicU64, // Upper 32: version, Lower 32: index
     nodes: Vec<Option<VersionedNode<T>>>,
 }
 
@@ -928,14 +905,15 @@ impl EpochGC {
         self.global_epoch.fetch_add(1, Ordering::Release);
     }
 
-    fn is_safe_to_free(&self, allocation_epoch: usize) -> bool {
-        let current = self.global_epoch.load(Ordering::Acquire);
-        current > allocation_epoch + 2 // Conservative: 2 epochs old
+    fn is_safe_to_free(&self, alloc_epoch: usize) -> bool {
+        let cur = self.global_epoch.load(Ordering::Acquire);
+        cur > alloc_epoch + 2 // Conservative: 2 epochs
     }
 }
-// Real-world: ABA-safe counter
+
+// ABA-safe counter
 struct ABACounter {
-    value: AtomicU64, // Upper 32 bits: version, Lower 32 bits: count
+    value: AtomicU64, // Upper 32: version, Lower 32: count
 }
 
 impl ABACounter {
@@ -947,17 +925,19 @@ impl ABACounter {
 
     fn increment(&self) {
         loop {
-            let current = self.value.load(Ordering::Relaxed);
-            let count = (current & 0xFFFF_FFFF) as u32;
-            let version = (current >> 32) as u32;
+            let cur = self.value.load(Ordering::Relaxed);
+            let count = (cur & 0xFFFF_FFFF) as u32;
+            let ver = (cur >> 32) as u32;
 
-            let new_count = count.wrapping_add(1);
-            let new_version = version.wrapping_add(1);
-            let new_value = ((new_version as u64) << 32) | (new_count as u64);
+            let new_cnt = count.wrapping_add(1);
+            let new_ver = ver.wrapping_add(1);
+            let new_val =
+                ((new_ver as u64) << 32) | (new_cnt as u64);
 
-            if self
-                .value
-                .compare_exchange_weak(current, new_value, Ordering::Relaxed, Ordering::Relaxed)
+            if self.value
+                .compare_exchange_weak(
+                    cur, new_val,
+                    Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -1011,7 +991,7 @@ fn main() {
     gc.try_advance();
     gc.try_advance();
 
-    println!("Safe to free epoch 1? {}", gc.is_safe_to_free(epoch1));
+    println!("Safe to free? {}", gc.is_safe_to_free(epoch1));
 }
 ```
 
@@ -1057,23 +1037,21 @@ impl<T> TreiberStack<T> {
         }
     }
 
-    // Usage: let stack = TreiberStack::new(); stack.push(42); let val = stack.pop();
+    // stack.push(42); let val = stack.pop();
 
     pub fn push(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(Node {
-            data,
-            next: ptr::null_mut(),
+        let node = Box::into_raw(Box::new(Node {
+            data, next: ptr::null_mut(),
         }));
 
         loop {
             let head = self.head.load(Ordering::Relaxed);
-            unsafe {
-                (*new_node).next = head;
-            }
+            unsafe { (*node).next = head; }
 
-            if self
-                .head
-                .compare_exchange_weak(head, new_node, Ordering::Release, Ordering::Relaxed)
+            if self.head
+                .compare_exchange_weak(
+                    head, node,
+                    Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -1084,23 +1062,20 @@ impl<T> TreiberStack<T> {
     pub fn pop(&self) -> Option<T> {
         loop {
             let head = self.head.load(Ordering::Acquire);
-
-            if head.is_null() {
-                return None;
-            }
+            if head.is_null() { return None; }
 
             unsafe {
                 let next = (*head).next;
 
-                if self
-                    .head
-                    .compare_exchange_weak(head, next, Ordering::Release, Ordering::Acquire)
+                if self.head
+                    .compare_exchange_weak(
+                        head, next,
+                        Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
                     let data = ptr::read(&(*head).data);
-                    // WARNING: This is unsafe! We should use hazard pointers or epoch-based GC
-                    // For now, we leak the node to avoid use-after-free
-                    // drop(Box::from_raw(head));
+                    // Leak node to avoid use-after-free
+                    // Real impl: hazard ptrs or epoch GC
                     return Some(data);
                 }
             }
@@ -1129,20 +1104,18 @@ impl<T> WorkStealingDeque<T> {
     }
 
     pub fn push(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(Node {
-            data,
-            next: ptr::null_mut(),
+        let node = Box::into_raw(Box::new(Node {
+            data, next: ptr::null_mut(),
         }));
 
         loop {
-            let bottom = self.bottom.load(Ordering::Relaxed);
-            unsafe {
-                (*new_node).next = bottom;
-            }
+            let bot = self.bottom.load(Ordering::Relaxed);
+            unsafe { (*node).next = bot; }
 
-            if self
-                .bottom
-                .compare_exchange_weak(bottom, new_node, Ordering::Release, Ordering::Relaxed)
+            if self.bottom
+                .compare_exchange_weak(
+                    bot, node,
+                    Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -1151,48 +1124,40 @@ impl<T> WorkStealingDeque<T> {
     }
 
     pub fn pop(&self) -> Option<T> {
-        // Owner pops from bottom (LIFO - better cache locality)
+        // Owner pops from bottom (LIFO)
         loop {
-            let bottom = self.bottom.load(Ordering::Acquire);
-
-            if bottom.is_null() {
-                return None;
-            }
+            let bot = self.bottom.load(Ordering::Acquire);
+            if bot.is_null() { return None; }
 
             unsafe {
-                let next = (*bottom).next;
-
-                if self
-                    .bottom
-                    .compare_exchange_weak(bottom, next, Ordering::Release, Ordering::Acquire)
+                let next = (*bot).next;
+                if self.bottom
+                    .compare_exchange_weak(
+                        bot, next,
+                        Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
-                    let data = ptr::read(&(*bottom).data);
-                    return Some(data);
+                    return Some(ptr::read(&(*bot).data));
                 }
             }
         }
     }
 
     pub fn steal(&self) -> Option<T> {
-        // Thieves steal from top (FIFO - oldest work)
+        // Thieves steal from top (FIFO)
         loop {
             let top = self.top.load(Ordering::Acquire);
-
-            if top.is_null() {
-                return None;
-            }
+            if top.is_null() { return None; }
 
             unsafe {
                 let next = (*top).next;
-
-                if self
-                    .top
-                    .compare_exchange_weak(top, next, Ordering::Release, Ordering::Acquire)
+                if self.top
+                    .compare_exchange_weak(
+                        top, next,
+                        Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
-                    let data = ptr::read(&(*top).data);
-                    return Some(data);
+                    return Some(ptr::read(&(*top).data));
                 }
             }
         }
@@ -1257,13 +1222,12 @@ fn main() {
     // Thief threads
     let mut thieves = vec![];
     for id in 0..3 {
-        let thief_deque = Arc::clone(&deque);
+        let td = Arc::clone(&deque);
         thieves.push(thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(10));
+            use std::time::Duration;
+            thread::sleep(Duration::from_millis(10));
             let mut stolen = 0;
-            while thief_deque.steal().is_some() {
-                stolen += 1;
-            }
+            while td.steal().is_some() { stolen += 1; }
             println!("Thief {} stole: {}", id, stolen);
         }));
     }
@@ -1286,7 +1250,9 @@ fn main() {
 FIFO queue with multiple producers (CAS-based) and single consumer. Uses sentinel node to avoid empty-queue edge cases. Helping mechanism: threads advance stale tail pointers to prevent blocking. SPSC variant needs no CAS—just Acquire/Release.
 
 ```rust
-use std::sync::atomic::{AtomicPtr, AtomicBool, Ordering, AtomicUsize};
+use std::sync::atomic::{
+    AtomicPtr, AtomicBool, Ordering, AtomicUsize
+};
 use std::ptr;
 use std::sync::Arc;
 use std::thread;
@@ -1314,15 +1280,14 @@ impl<T> MpscQueue<T> {
         }
     }
 
-    // Usage: let queue = MpscQueue::new(); queue.push(42); let val = queue.pop();
+    // queue.push(42); let val = queue.pop();
 
     pub fn push(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(QueueNode {
+        let node = Box::into_raw(Box::new(QueueNode {
             data: Some(data),
             next: AtomicPtr::new(ptr::null_mut()),
         }));
 
-        // Insert at tail
         loop {
             let tail = self.tail.load(Ordering::Acquire);
 
@@ -1330,33 +1295,26 @@ impl<T> MpscQueue<T> {
                 let next = (*tail).next.load(Ordering::Acquire);
 
                 if next.is_null() {
-                    // Tail is actually the last node
-                    if (*tail)
-                        .next
+                    // Tail is last node
+                    if (*tail).next
                         .compare_exchange(
-                            ptr::null_mut(),
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Acquire,
+                            ptr::null_mut(), node,
+                            Ordering::Release, Ordering::Acquire,
                         )
                         .is_ok()
                     {
-                        // Try to update tail (optional, helps next push)
+                        // Update tail (helps next push)
                         let _ = self.tail.compare_exchange(
-                            tail,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Acquire,
+                            tail, node,
+                            Ordering::Release, Ordering::Acquire,
                         );
                         break;
                     }
                 } else {
-                    // Help other threads by updating tail
+                    // Help by updating tail
                     let _ = self.tail.compare_exchange(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Acquire,
+                        tail, next,
+                        Ordering::Release, Ordering::Acquire,
                     );
                 }
             }
@@ -1368,19 +1326,11 @@ impl<T> MpscQueue<T> {
             let head = self.head.load(Ordering::Acquire);
             let next = (*head).next.load(Ordering::Acquire);
 
-            if next.is_null() {
-                return None;
-            }
+            if next.is_null() { return None; }
 
-            // Move head forward
             self.head.store(next, Ordering::Release);
-
-            // Take data from old sentinel
             let data = (*next).data.take();
-
-            // Drop old sentinel (safe because we're single consumer)
-            drop(Box::from_raw(head));
-
+            drop(Box::from_raw(head)); // Single consumer
             data
         }
     }
@@ -1388,7 +1338,7 @@ impl<T> MpscQueue<T> {
 
 unsafe impl<T: Send> Send for MpscQueue<T> {}
 unsafe impl<T: Send> Sync for MpscQueue<T> {}
-// Real-world: Bounded SPSC queue (Single Producer Single Consumer)
+// Bounded SPSC queue (Single Producer Single Consumer)
 pub struct BoundedSpscQueue<T> {
     buffer: Vec<Option<T>>,
     head: AtomicUsize,
@@ -1494,7 +1444,7 @@ fn main() {
 
     let mut producer_queue = BoundedSpscQueue::new(32);
     let mut consumer_queue = unsafe {
-        // This is safe because we ensure only one thread accesses each
+        // Safe: only one thread accesses each
         std::ptr::read(&producer_queue as *const _)
     };
 
@@ -1609,16 +1559,14 @@ impl HazardPointerDomain {
 
     fn acquire(&self) -> Option<usize> {
         for (i, hp) in self.hazards.iter().enumerate() {
-            let current = hp.get();
-            if current.is_null() {
-                // Try to claim this hazard pointer
-                if hp
-                    .pointer
+            let cur = hp.get();
+            if cur.is_null() {
+                // Try to claim hazard pointer
+                if hp.pointer
                     .compare_exchange(
                         ptr::null_mut(),
                         1 as *mut u8, // Non-null marker
-                        Ordering::Acquire,
-                        Ordering::Relaxed,
+                        Ordering::Acquire, Ordering::Relaxed,
                     )
                     .is_ok()
                 {
@@ -1637,39 +1585,39 @@ impl HazardPointerDomain {
         self.hazards[index].clear();
     }
 
-    fn retire(&self, ptr: *mut u8, deleter: unsafe fn(*mut u8)) {
+    fn retire(
+        &self, ptr: *mut u8, deleter: unsafe fn(*mut u8)
+    ) {
         let node = Box::into_raw(Box::new(RetiredNode {
-            ptr,
-            next: ptr::null_mut(),
-            deleter,
+            ptr, next: ptr::null_mut(), deleter,
         }));
 
         // Add to retired list
         loop {
             let head = self.retired.load(Ordering::Acquire);
-            unsafe {
-                (*node).next = head;
-            }
+            unsafe { (*node).next = head; }
 
-            if self
-                .retired
-                .compare_exchange_weak(head, node, Ordering::Release, Ordering::Acquire)
+            if self.retired
+                .compare_exchange_weak(
+                    head, node,
+                    Ordering::Release, Ordering::Acquire)
                 .is_ok()
             {
                 break;
             }
         }
 
-        let count = self.retired_count.fetch_add(1, Ordering::Relaxed);
+        let cnt =
+            self.retired_count.fetch_add(1, Ordering::Relaxed);
 
-        // Trigger reclamation if too many retired
-        if count > MAX_HAZARDS * 2 {
+        // Trigger reclamation if too many
+        if cnt > MAX_HAZARDS * 2 {
             self.scan();
         }
     }
 
     fn scan(&self) {
-        // Collect all protected pointers
+        // Collect protected pointers
         let mut protected = HashSet::new();
         for hp in &self.hazards {
             let ptr = hp.get();
@@ -1678,25 +1626,24 @@ impl HazardPointerDomain {
             }
         }
 
-        // Try to reclaim retired nodes
-        let mut current = self.retired.swap(ptr::null_mut(), Ordering::Acquire);
+        // Reclaim retired nodes
+        let null = ptr::null_mut();
+        let mut cur = self.retired.swap(null, Ordering::Acquire);
         let mut kept = Vec::new();
 
         unsafe {
-            while !current.is_null() {
-                let next = (*current).next;
+            while !cur.is_null() {
+                let next = (*cur).next;
 
-                if protected.contains(&(*current).ptr) {
-                    // Still protected, keep it
-                    kept.push(current);
+                if protected.contains(&(*cur).ptr) {
+                    kept.push(cur); // Still protected
                 } else {
-                    // Safe to delete
-                    ((*current).deleter)((*current).ptr);
-                    drop(Box::from_raw(current));
-                    self.retired_count.fetch_sub(1, Ordering::Relaxed);
+                    ((*cur).deleter)((*cur).ptr);
+                    drop(Box::from_raw(cur));
+                    self.retired_count
+                        .fetch_sub(1, Ordering::Relaxed);
                 }
-
-                current = next;
+                cur = next;
             }
         }
 
@@ -1704,13 +1651,12 @@ impl HazardPointerDomain {
         for node in kept {
             loop {
                 let head = self.retired.load(Ordering::Acquire);
-                unsafe {
-                    (*node).next = head;
-                }
+                unsafe { (*node).next = head; }
 
-                if self
-                    .retired
-                    .compare_exchange_weak(head, node, Ordering::Release, Ordering::Acquire)
+                if self.retired
+                    .compare_exchange_weak(
+                        head, node,
+                        Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
                     break;
@@ -1739,20 +1685,18 @@ impl<T> SafeStack<T> {
     }
 
     fn push(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(SafeNode {
-            data,
-            next: ptr::null_mut(),
+        let node = Box::into_raw(Box::new(SafeNode {
+            data, next: ptr::null_mut(),
         }));
 
         loop {
             let head = self.head.load(Ordering::Relaxed);
-            unsafe {
-                (*new_node).next = head;
-            }
+            unsafe { (*node).next = head; }
 
-            if self
-                .head
-                .compare_exchange_weak(head, new_node, Ordering::Release, Ordering::Relaxed)
+            if self.head
+                .compare_exchange_weak(
+                    head, node,
+                    Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -1761,20 +1705,20 @@ impl<T> SafeStack<T> {
     }
 
     fn pop(&self) -> Option<T> {
-        let hp_index = self.hp_domain.acquire()?;
+        let hp_idx = self.hp_domain.acquire()?;
 
         loop {
             let head = self.head.load(Ordering::Acquire);
 
             if head.is_null() {
-                self.hp_domain.release(hp_index);
+                self.hp_domain.release(hp_idx);
                 return None;
             }
 
             // Protect head from deletion
-            self.hp_domain.protect(hp_index, head as *mut u8);
+            self.hp_domain.protect(hp_idx, head as *mut u8);
 
-            // Verify head hasn't changed (avoid ABA)
+            // Verify head unchanged (avoid ABA)
             if self.head.load(Ordering::Acquire) != head {
                 continue;
             }
@@ -1782,19 +1726,20 @@ impl<T> SafeStack<T> {
             unsafe {
                 let next = (*head).next;
 
-                if self
-                    .head
-                    .compare_exchange_weak(head, next, Ordering::Release, Ordering::Acquire)
+                if self.head
+                    .compare_exchange_weak(
+                        head, next,
+                        Ordering::Release, Ordering::Acquire)
                     .is_ok()
                 {
                     let data = ptr::read(&(*head).data);
 
-                    // Retire the node for later deletion
-                    self.hp_domain.retire(head as *mut u8, |ptr| {
-                        drop(Box::from_raw(ptr as *mut SafeNode<T>));
+                    // Retire for later deletion
+                    self.hp_domain.retire(head as *mut u8, |p| {
+                        drop(Box::from_raw(p as *mut SafeNode<T>));
                     });
 
-                    self.hp_domain.release(hp_index);
+                    self.hp_domain.release(hp_idx);
                     return Some(data);
                 }
             }
@@ -1806,7 +1751,7 @@ unsafe impl<T: Send> Send for SafeStack<T> {}
 unsafe impl<T: Send> Sync for SafeStack<T> {}
 
 fn main() {
-    println!("=== Safe Stack with Hazard Pointers ===\n");
+    println!("=== Safe Stack (Hazard Pointers) ===\n");
 
     let stack = std::sync::Arc::new(SafeStack::new());
     let mut handles = vec![];
@@ -1880,7 +1825,7 @@ impl<T: Copy> SeqLock<T> {
         }
     }
 
-    // Usage: let lock = SeqLock::new(0); lock.write(42); let val = lock.read();
+    // lock.write(42); let val = lock.read();
 
     pub fn read(&self) -> T {
         loop {
@@ -1911,7 +1856,7 @@ impl<T: Copy> SeqLock<T> {
     pub fn write(&self, data: T) {
         // Increment sequence (makes it odd = writing)
         let seq = self.seq.fetch_add(1, Ordering::Acquire);
-        debug_assert!(seq % 2 == 0, "Concurrent writes detected");
+        debug_assert!(seq % 2 == 0, "Concurrent writes!");
 
         // Write data
         unsafe {
@@ -2050,18 +1995,16 @@ fn seqlock_stats_example() {
     // Reader threads (monitor stats)
     let mut readers = vec![];
     for id in 0..3 {
-        let reader_stats = Arc::clone(&stats);
+        let rs = Arc::clone(&stats);
         readers.push(thread::spawn(move || {
+            use std::time::Duration;
             for _ in 0..100 {
-                thread::sleep(std::time::Duration::from_millis(10));
-                let snapshot = reader_stats.read();
+                thread::sleep(Duration::from_millis(10));
+                let s = rs.read();
                 if id == 0 {
                     println!(
-                        "Stats - Count: {}, Avg: {:.2}, Min: {}, Max: {}",
-                        snapshot.count,
-                        snapshot.average(),
-                        snapshot.min,
-                        snapshot.max
+                        "n:{}, avg:{:.2}, min:{}, max:{}",
+                        s.count, s.average(), s.min, s.max
                     );
                 }
             }
@@ -2143,7 +2086,9 @@ fn main() {
 **Overview**: These patterns address specific performance and correctness challenges in concurrent programming: reducing contention, handling failures gracefully, and building higher-level primitives from atomics.
 
 ```rust
-use std::sync::atomic::{AtomicU64, AtomicUsize, AtomicBool, Ordering};
+use std::sync::atomic::{
+    AtomicU64, AtomicUsize, AtomicBool, Ordering
+};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -2172,9 +2117,9 @@ impl StripedCounter {
     }
 
     fn increment(&self) {
-        let thread_id = std::thread::current().id();
-        let index = format!("{:?}", thread_id).len() % self.stripes.len();
-        self.stripes[index].fetch_add(1, Ordering::Relaxed);
+        let tid = std::thread::current().id();
+        let idx = format!("{:?}", tid).len() % self.stripes.len();
+        self.stripes[idx].fetch_add(1, Ordering::Relaxed);
     }
 
     fn get(&self) -> usize {
@@ -2270,34 +2215,30 @@ impl AtomicMinMax {
         }
     }
 
-    // Usage: let mm = AtomicMinMax::new(); mm.update(5); mm.update(10); let (min, max) = mm.get();
+    // mm.update(5); mm.update(10); let (min, max) = mm.get();
 
     fn update(&self, value: u64) {
         // Update min
-        let mut current_min = self.min.load(Ordering::Relaxed);
-        while value < current_min {
+        let mut cur_min = self.min.load(Ordering::Relaxed);
+        while value < cur_min {
             match self.min.compare_exchange_weak(
-                current_min,
-                value,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
+                cur_min, value,
+                Ordering::Relaxed, Ordering::Relaxed,
             ) {
                 Ok(_) => break,
-                Err(actual) => current_min = actual,
+                Err(actual) => cur_min = actual,
             }
         }
 
         // Update max
-        let mut current_max = self.max.load(Ordering::Relaxed);
-        while value > current_max {
+        let mut cur_max = self.max.load(Ordering::Relaxed);
+        while value > cur_max {
             match self.max.compare_exchange_weak(
-                current_max,
-                value,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
+                cur_max, value,
+                Ordering::Relaxed, Ordering::Relaxed,
             ) {
                 Ok(_) => break,
-                Err(actual) => current_max = actual,
+                Err(actual) => cur_max = actual,
             }
         }
     }
@@ -2334,7 +2275,7 @@ impl OnceFlag {
         }
     }
 
-    // Usage: let once = OnceFlag::new(); once.call_once(|| println!("init"));
+    // once.call_once(|| println!("init"));
 
     fn call_once<F>(&self, f: F)
     where
@@ -2356,8 +2297,9 @@ impl OnceFlag {
                 self.state.store(COMPLETE, Ordering::Release);
             }
             Err(RUNNING) => {
-                // Someone else is running, wait
-                while self.state.load(Ordering::Acquire) == RUNNING {
+                // Someone else running, wait
+                while self.state.load(Ordering::Acquire) == RUNNING
+                {
                     std::hint::spin_loop();
                 }
             }
@@ -2396,21 +2338,20 @@ impl<T> SwapChain<T> {
         }
     }
 
-    fn swap(&self, new_value: T) -> T {
-        let new_ptr = Box::into_raw(Box::new(new_value));
-        let old_ptr = self.value.swap(new_ptr as usize, Ordering::AcqRel) as *mut T;
+    fn swap(&self, new_val: T) -> T {
+        let new_ptr = Box::into_raw(Box::new(new_val));
+        let old =
+            self.value.swap(new_ptr as usize, Ordering::AcqRel);
+        let old_ptr = old as *mut T;
 
         unsafe {
-            let old_value = std::ptr::read(old_ptr);
+            let old_val = std::ptr::read(old_ptr);
             drop(Box::from_raw(old_ptr));
-            old_value
+            old_val
         }
     }
 
-    fn load(&self) -> T
-    where
-        T: Clone,
-    {
+    fn load(&self) -> T where T: Clone {
         let ptr = self.value.load(Ordering::Acquire) as *mut T;
         unsafe { (*ptr).clone() }
     }
@@ -2418,11 +2359,9 @@ impl<T> SwapChain<T> {
 
 impl<T> Drop for SwapChain<T> {
     fn drop(&mut self) {
-        let ptr = self.value.load(Ordering::Acquire) as *mut T;
-        if !ptr.is_null() {
-            unsafe {
-                drop(Box::from_raw(ptr));
-            }
+        let p = self.value.load(Ordering::Acquire) as *mut T;
+        if !p.is_null() {
+            unsafe { drop(Box::from_raw(p)); }
         }
     }
 }
@@ -2448,7 +2387,8 @@ fn main() {
         handle.join().unwrap();
     }
 
-    println!("Count: {} in {:?}", counter.get(), start.elapsed());
+    let elapsed = start.elapsed();
+    println!("Count: {} in {:?}", counter.get(), elapsed);
 
     println!("\n=== Backoff ===\n");
 
@@ -2500,7 +2440,7 @@ fn main() {
         let once = Arc::clone(&once);
         handles.push(thread::spawn(move || {
             once.call_once(|| {
-                println!("Initialization by thread {}", i);
+                println!("Init by thread {}", i);
             });
         }));
     }

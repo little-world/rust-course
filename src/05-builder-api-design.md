@@ -108,7 +108,7 @@ impl RequestBuilder {
     }
 }
 
-// Usage: Chain setters for readable configuration; build() creates final object.
+// Chain setters for readable config; build() creates final object
 let request = Request::builder("https://api.example.com")
     .method("POST")
     .header("Authorization", "Bearer token")
@@ -165,7 +165,7 @@ impl DatabaseBuilder {
     }
 }
 
-// Usage: build() returns Result to catch missing required fields at runtime.
+// build() returns Result to catch missing required fields
 let db_result = DatabaseBuilder::new()
     .host("localhost")
     .port(5432)
@@ -239,7 +239,7 @@ impl EmailBuilder {
     }
 }
 
-// Usage: Mutable builder can be reused; clear() resets for next build.
+// Mutable builder can be reused; clear() resets for next build
 let mut builder = EmailBuilder::new();
 builder.to("a@example.com").subject("First").body("Hello");
 let email1 = builder.build();
@@ -258,6 +258,7 @@ The Typestate pattern encodes the state of an object into the type system itself
 
 -   **Solution**: Represent each state with a distinct type. State transitions are functions that consume an object in one state and return a new object in another state.
 
+-   **Why It Matters**: Invalid state transitions become compile errors, not runtime panics. You cannot call `send()` on a disconnected socket—the method simply doesn't exist for that type. This eliminates entire classes of bugs at zero runtime cost.
 
 -   **Use cases**:
     -   Database connections (`Unauthenticated` -> `Authenticated`).
@@ -321,7 +322,7 @@ impl Connection<Connected> {
         Connection { stream: None, _state: PhantomData }
     }
 }
-// Usage: send() only exists on Connected state; compile error if called on Disconnected.
+// send() only exists on Connected; compile error if Disconnected
 let conn = Connection::new();
 // conn.send(b"hello"); // ERROR: no `send` on Disconnected
 let mut connected = conn.connect("127.0.0.1:8080")?;
@@ -407,12 +408,12 @@ impl UserBuilder<HasName, HasEmail> {
         }
     }
 }
-// Usage: build() only available after both name() and email() called.
+// build() only available after both name() and email() called
 let user = UserBuilder::default()
     .name("Alice")
     .email("alice@example.com")
     .build();
-// UserBuilder::default().name("Bob").build(); // ERROR: no `build` on <HasName, NoEmail>
+// UserBuilder::default().name("Bob").build(); // ERROR: no build
 ```
 
 ---
@@ -424,6 +425,8 @@ This attribute signals that a function's return value is important and should no
 -   **Problem**: Functions that return a `Result` or `Option` can have their return value silently ignored, leading to unhandled errors or logic bugs. Some types, like builders or transaction guards, are useless unless a final method (`.build()`, `.commit()`) is called.
 
 -   **Solution**: Apply the `#[must_use]` attribute to functions or types. This instructs the compiler to generate a warning if a returned value of that type is not "used" in some way (e.g., assigned to a variable, passed to another function, or having a method called on it).
+
+-   **Why It Matters**: Silent errors are insidious—code appears to work but fails in production. `#[must_use]` turns forgotten error handling into compiler warnings. This is why `Result` and iterators are `#[must_use]` by default in the standard library.
 
 -   **Use cases**:
     -   `Result` and `Option` types are the canonical examples.

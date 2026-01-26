@@ -85,7 +85,7 @@ fn handle_error(err: ApiError) {
     match err {
         ApiError::Timeout => println!("Retrying..."),
         ApiError::NetworkError => println!("Check connection"),
-        _ => println!("Unknown error"), // Required due to #[non_exhaustive]
+        _ => println!("Unknown error"), // Required
     }
 }
 ```
@@ -125,7 +125,7 @@ let err = HttpError {
     method: "GET".into(), url: "/api/users".into(),
     status: 404, body: Some("Not found".into()), source: None
 };
-println!("{}", err); // "HTTP request failed: GET /api/users (status: 404)"
+println!("{}", err); // "HTTP failed: GET /api/users (status: 404)"
 ```
 
 ### Example: Error Builder for Complex Errors
@@ -209,7 +209,7 @@ The `?` operator unwraps `Ok` values and early-returns `Err` values, replacing v
 
 ```rust
 fn read_username(path: &str) -> Result<String, std::io::Error> {
-    let content = std::fs::read_to_string(path)?; // Early return on error
+    let content = std::fs::read_to_string(path)?; // Early return
     let username = content.trim().to_string();
     Ok(username)
 }
@@ -233,8 +233,8 @@ enum AppError {
 }
 
 fn process_file(path: &str) -> Result<i32, AppError> {
-    let content = std::fs::read_to_string(path)?; // io::Error -> AppError
-    let number = parse_number(&content)?;         // ParseError -> AppError
+    let content = std::fs::read_to_string(path)?; // io::Error
+    let number = parse_number(&content)?;         // ParseError
     Ok(number)
 }
 // Usage: mix error types with automatic conversion
@@ -255,13 +255,14 @@ enum FileError {
 }
 
 fn read_and_validate(path: &str) -> Result<String, FileError> {
-    let content = std::fs::read_to_string(path).map_err(|e| FileError::ReadFailed {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| FileError::ReadFailed {
         path: path.to_string(), source: e
     })?;
     Ok(content)
 }
 // Usage: read file with custom error containing path context
-// read_and_validate("config.txt") -> Err(FileError::ReadFailed { path: "config.txt", ... })
+// read_and_validate("config.txt") -> Err(ReadFailed { ... })
 ```
 
 ### Example: Fallible Iterator Processing
@@ -269,8 +270,8 @@ fn read_and_validate(path: &str) -> Result<String, FileError> {
 Collecting an iterator of `Result`s into `Result<Vec<T>, E>` stops at the first error and returns it. This fail-fast behavior is often what you want—no point processing further if one item fails. The type annotation on `collect()` drives this behavior.
 
 ```rust
-fn parse_all_numbers(lines: Vec<&str>) -> Result<Vec<i32>, ParseError> {
-    lines.into_iter().map(parse_number).collect() // Stops at first error
+fn parse_nums(lines: Vec<&str>) -> Result<Vec<i32>, ParseError> {
+    lines.into_iter().map(parse_number).collect() // First error
 }
 // Usage: collect results, failing fast on first error
 let nums = parse_all_numbers(vec!["1", "2", "bad"]);
@@ -344,7 +345,9 @@ let content = read_or_default("missing.txt")?;
 A retry loop attempts an operation multiple times, logging failures between attempts. The match guard `if attempts < max_attempts` distinguishes retriable failures from final failure. Adding a delay between attempts prevents hammering a struggling service.
 
 ```rust
-fn retry_on_timeout<F, T, E>(mut f: F, max_attempts: usize) -> Result<T, E>
+fn retry_on_timeout<F, T, E>(
+    mut f: F, max_attempts: usize
+) -> Result<T, E>
 where
     F: FnMut() -> Result<T, E>,
     E: std::fmt::Display,
@@ -356,7 +359,7 @@ where
             Ok(value) => return Ok(value),
             Err(e) if attempts < max_attempts => {
                 eprintln!("Attempt {attempts}: {e}, retrying");
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(100));
             }
             Err(e) => return Err(e),
         }
@@ -375,7 +378,7 @@ fn process_with_context(path: &str) -> Result<i32> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path))?;
     let number: i32 = content.trim().parse()
-        .with_context(|| format!("Failed to parse number in {}", path))?;
+        .with_context(|| format!("Failed to parse in {}", path))?;
     if number < 0 {
         bail!("Number must be positive, got: {}", number);
     }
@@ -392,7 +395,9 @@ fn process_with_context(path: &str) -> Result<i32> {
 ```rust
 use itertools::{Itertools, Either};
 
-fn partition_results<T, E>(results: Vec<Result<T, E>>) -> (Vec<T>, Vec<E>) {
+fn partition_results<T, E>(
+    results: Vec<Result<T, E>>
+) -> (Vec<T>, Vec<E>) {
     results.into_iter().partition_map(|r| match r {
         Ok(v) => Either::Left(v),
         Err(e) => Either::Right(e),
@@ -443,8 +448,8 @@ pub struct ParseErrorWithLocation {
 }
 
 impl ParseErrorWithLocation {
-    pub fn new(line: usize, column: usize, message: String) -> Self {
-        ParseErrorWithLocation { line, column, message, snippet: None }
+    pub fn new(line: usize, col: usize, message: String) -> Self {
+        Self { line, column: col, message, snippet: None }
     }
 
     pub fn with_snippet(mut self, snippet: String) -> Self {
@@ -453,7 +458,7 @@ impl ParseErrorWithLocation {
     }
 }
 // Usage: create parse error with precise location
-let err = ParseErrorWithLocation::new(10, 5, "unexpected token".into());
+let err = ParseErrorWithLocation::new(10, 5, "unexpected".into());
 // Displays: "Parse error at line 10, column 5: unexpected token"
 ```
 
@@ -552,7 +557,8 @@ impl<E: fmt::Debug> fmt::Debug for ErrorContext<E> {
     }
 }
 
-impl<E: std::error::Error + 'static> std::error::Error for ErrorContext<E> {
+impl<E: std::error::Error + 'static> std::error::Error
+for ErrorContext<E> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.error)
     }
@@ -588,7 +594,7 @@ impl ConfigError {
 }
 // Usage: create actionable error with fix suggestion
 let err = ConfigError::missing_field("database_url");
-// Displays: "Missing field: database_url\n  Hint: Add DATABASE_URL to .env"
+// Displays: "Missing field: database_url\n  Hint: Add DATABASE_URL"
 ```
 
 ### Example: Error Aggregation
@@ -605,7 +611,7 @@ pub struct MultiError {
 impl MultiError {
     pub fn new() -> Self { MultiError { errors: Vec::new() } }
 
-    pub fn add(&mut self, error: Box<dyn std::error::Error + Send + Sync>) {
+    pub fn add(&mut self, error: Box<dyn Error + Send + Sync>) {
         self.errors.push(error);
     }
 
@@ -740,14 +746,16 @@ use anyhow::Result;
 struct Config { db_url: String }
 struct Database;
 
-fn load_config() -> Result<Config> { Ok(Config { db_url: "postgres://...".into() }) }
+fn load_config() -> Result<Config> {
+    Ok(Config { db_url: "postgres://...".into() })
+}
 fn connect_database(_: &Config) -> Result<Database> { Ok(Database) }
 fn run_server(_: Database) -> Result<()> { Ok(()) }
 
 fn main() -> Result<()> {
     let config = load_config()?;         // Fail if config missing
     let db = connect_database(&config)?; // Fail if DB unreachable
-    run_server(db)?;                     // Only start if init succeeds
+    run_server(db)?;                     // Only start if init ok
     Ok(())
 }
 // Startup fails fast - no partial initialization
@@ -815,7 +823,7 @@ use anyhow::Result;
 fn write_checkpoint(data: &[u8]) -> Result<()> {
     if let Err(e) = std::fs::write("checkpoint.dat", data) {
         eprintln!("CRITICAL: Failed to write checkpoint: {}", e);
-        std::process::abort(); // Immediate termination, no unwinding
+        std::process::abort(); // Immediate termination
     }
     Ok(())
 }
@@ -836,10 +844,11 @@ fn risky_computation(input: i32) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn safe_compute(input: i32) -> i32 {
-    let result = catch_unwind(AssertUnwindSafe(|| risky_computation(input)));
+    let result = catch_unwind(
+        AssertUnwindSafe(|| risky_computation(input)));
     match result {
         Ok(value) => value,
-        Err(_) => { eprintln!("Computation panicked"); -1 } // Return error code
+        Err(_) => { eprintln!("Computation panicked"); -1 } // Error
     }
 }
 // Usage: safe_compute(-5) returns -1 instead of unwinding into C
@@ -885,7 +894,8 @@ struct User { id: u64, name: String }
 struct Response { body: String }
 
 async fn make_http_request(id: u64) -> Result<Response> {
-    Ok(Response { body: format!(r#"{{"id":{},"name":"User{}"}}"#, id, id) })
+    let body = format!(r#"{{"id":{},"name":"U{}"}}"#, id, id);
+    Ok(Response { body })
 }
 async fn parse_response(resp: Response) -> Result<User> {
     Ok(User { id: 1, name: "Alice".into() }) // Simplified
@@ -912,7 +922,7 @@ async fn fetch_with_timeout(id: u64) -> Result<User> {
     let timeout_duration = Duration::from_secs(5);
     tokio::time::timeout(timeout_duration, fetch_user_data(id))
         .await
-        .map_err(|_| anyhow::anyhow!("Timeout fetching user {}", id))?
+        .map_err(|_| anyhow::anyhow!("Timeout user {}", id))?
 }
 // Usage: fetch with 5-second timeout
 // let user = fetch_with_timeout(42).await?;
@@ -960,7 +970,7 @@ async fn fetch_with_fallback(id: u64) -> Result<User> {
     }
 }
 // Usage: returns whichever source responds first
-// let user = fetch_with_fallback(42).await?; // Gets "Secondary" (faster)
+// let user = fetch_with_fallback(42).await?; // "Secondary" faster
 ```
 
 ### Example: Error Recovery in Stream Processing
@@ -976,14 +986,14 @@ async fn process_stream(mut stream: BoxStream<'_, Result<i32>>) {
     while let Some(result) = stream.next().await {
         match result {
             Ok(value) => println!("Processed: {}", value),
-            Err(e) => eprintln!("Error in stream: {}", e), // Log and continue
+            Err(e) => eprintln!("Stream error: {}", e), // Continue
         }
     }
 }
 
 // Create stream with .boxed() to satisfy Unpin requirement
-let stream = futures::stream::iter(vec![Ok(1), Err(anyhow::anyhow!("fail")), Ok(3)])
-    .boxed();
+let items = vec![Ok(1), Err(anyhow::anyhow!("fail")), Ok(3)];
+let stream = futures::stream::iter(items).boxed();
 process_stream(stream).await;
 // Output: Processed: 1, Error in stream: fail, Processed: 3
 ```
@@ -994,12 +1004,17 @@ When validating many items in parallel, collect all errors rather than failing o
 
 ```rust
 async fn validate_item_async(value: i32) -> Result<(), String> {
-    if value < 0 { Err(format!("invalid: {}", value)) } else { Ok(()) }
+    if value < 0 { Err(format!("invalid: {}", value)) }
+    else { Ok(()) }
 }
 
-async fn parallel_validation(values: Vec<i32>) -> Result<(), MultiError> {
+async fn parallel_validation(
+    values: Vec<i32>,
+) -> Result<(), MultiError> {
     let handles: Vec<_> = values.into_iter()
-        .map(|v| tokio::spawn(async move { validate_item_async(v).await }))
+        .map(|v| tokio::spawn(async move {
+            validate_item_async(v).await
+        }))
         .collect();
 
     let mut errors = MultiError::new();
@@ -1025,7 +1040,9 @@ use tokio::sync::broadcast;
 async fn do_work() -> Result<()> { Ok(()) }
 fn is_fatal(e: &anyhow::Error) -> bool { false }
 
-async fn run_worker(mut shutdown: broadcast::Receiver<()>) -> Result<()> {
+async fn run_worker(
+    mut shutdown: broadcast::Receiver<()>,
+) -> Result<()> {
     loop {
         tokio::select! {
             _ = shutdown.recv() => {
@@ -1035,7 +1052,7 @@ async fn run_worker(mut shutdown: broadcast::Receiver<()>) -> Result<()> {
             result = do_work() => {
                 if let Err(e) = result {
                     if is_fatal(&e) { return Err(e); }
-                    eprintln!("Work failed: {}", e); // Log and continue
+                    eprintln!("Work failed: {}", e); // Continue
                 }
             }
         }
@@ -1053,7 +1070,9 @@ use anyhow::{Context, Result};
 use std::future::Future;
 use std::time::Duration;
 
-async fn retry_with_backoff<F, Fut, T>(f: F, max_attempts: usize) -> Result<T>
+async fn retry_with_backoff<F, Fut, T>(
+    f: F, max_attempts: usize,
+) -> Result<T>
 where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<T>>
@@ -1065,12 +1084,13 @@ where
         match f().await {
             Ok(value) => return Ok(value),
             Err(e) if attempt >= max_attempts => {
-                return Err(e.context(format!("Failed after {} attempts", attempt)));
+                let msg = format!("Failed after {attempt} tries");
+                return Err(e.context(msg));
             }
             Err(e) => {
                 eprintln!("Attempt {}: {}", attempt, e);
                 tokio::time::sleep(delay).await;
-                delay *= 2; // Exponential backoff: 100ms, 200ms, 400ms...
+                delay *= 2; // Backoff: 100ms, 200ms, 400ms...
             }
         }
     }
@@ -1085,12 +1105,16 @@ If a task is cancelled mid-operation, partially-written files can corrupt data. 
 ```rust
 use anyhow::{Context, Result};
 
-async fn cancellation_safe_write(path: &str, data: &[u8]) -> Result<()> {
+async fn cancellation_safe_write(
+    path: &str, data: &[u8],
+) -> Result<()> {
     let temp_path = format!("{}.tmp", path);
     // Write to temp file first
-    tokio::fs::write(&temp_path, data).await.context("Write temp file")?;
-    // Atomic rename - if cancelled here, temp file exists but original untouched
-    tokio::fs::rename(&temp_path, path).await.context("Rename to final")?;
+    tokio::fs::write(&temp_path, data).await
+        .context("Write temp file")?;
+    // Atomic rename - if cancelled, original is untouched
+    tokio::fs::rename(&temp_path, path).await
+        .context("Rename to final")?;
     Ok(())
 }
 // Usage: safe even if task is cancelled mid-write
@@ -1123,12 +1147,13 @@ impl CircuitBreaker {
     async fn call<F, Fut, T>(&self, f: F) -> Result<T>
     where F: FnOnce() -> Fut, Fut: Future<Output = Result<T>>
     {
-        if self.failure_count.load(Ordering::Relaxed) >= self.threshold {
-            anyhow::bail!("Circuit breaker open - service unavailable");
+        let failures = self.failure_count.load(Ordering::Relaxed);
+        if failures >= self.threshold {
+            anyhow::bail!("Circuit open - service unavailable");
         }
         match f().await {
             Ok(v) => {
-                self.failure_count.store(0, Ordering::Relaxed); // Reset on success
+                self.failure_count.store(0, Ordering::Relaxed);
                 Ok(v)
             }
             Err(e) => {
@@ -1138,7 +1163,7 @@ impl CircuitBreaker {
         }
     }
 }
-// Usage: after 5 failures, circuit opens and rejects requests immediately
+// After 5 failures, circuit opens and rejects requests
 // let breaker = CircuitBreaker::new(5);
 // breaker.call(|| fetch_from_service()).await?;
 ```

@@ -59,7 +59,7 @@ fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
     }
 }
 
-// Usage: 'a ties return lifetime to both inputs; result valid while both exist.
+// 'a ties return lifetime to both inputs; valid while both exist
 let string1 = String::from("long string");
 let string2 = String::from("short");
 let result = longest(&string1, &string2);
@@ -90,7 +90,7 @@ impl<'a> MyString<'a> {
         self.text
     }
 }
-// Usage: Elision infers lifetimes; no explicit annotations needed here.
+// Elision infers lifetimes; no explicit annotations needed here
 let word = first_word("hello world"); // "hello"
 let ms = MyString { text: "example" };
 println!("{}", ms.get_text());
@@ -106,7 +106,7 @@ let s: &'static str = "I have a static lifetime.";
 
 // You can also create static data with `const`.
 const STATIC_STRING: &'static str = "Also a static string.";
-// Usage: 'static references are valid for the entire program duration.
+// 'static references are valid for the entire program duration
 println!("{} and {}", s, STATIC_STRING);
 ```
 
@@ -151,7 +151,7 @@ where
         println!("Item: {:?}", item);
     }
 }
-// Usage: where clause combines trait bound (Debug) with lifetime bound ('a).
+// where clause combines trait bound (Debug) with lifetime ('a)
 process_and_debug(&[1, 2, 3]);
 ```
 
@@ -190,7 +190,7 @@ where
     f(&s); // Closure called with reference local to this function.
 }
 
-// Usage: for<'a> means closure handles any lifetime the function provides.
+// for<'a> means closure handles any lifetime the function provides
 let print_it = |s: &str| println!("{}", s);
 call_on_hello(print_it);
 ```
@@ -257,7 +257,7 @@ struct Node {
 struct Graph {
     nodes: Vec<Node>,
 }
-// Usage: Indices stay valid even if vec reallocates; avoids self-reference.
+// Indices stay valid even if vec reallocates; avoids self-reference
 let mut graph = Graph {
     nodes: vec![Node { name: "A".into(), edges: vec![1] }]
 };
@@ -366,7 +366,7 @@ impl Data {
         }
     }
 }
-// Usage: Separate owner (Data) from borrower (View) to avoid self-reference.
+// Separate owner (Data) from borrower (View) to avoid self-ref
 let data = Data { content: "hello".into() };
 let view = data.view(); // View borrows from Data
 ```
@@ -394,7 +394,7 @@ For these, use `Pin`, arena allocation, or specialized crates.
 **Use Cases**: Reference wrappers (determining if Wrapper<'a> covariant), iterator chains (covariant iterators compose naturally), function pointers (contravariant arguments, covariant returns), trait objects (variance of dyn Trait<'a>), smart pointers with references (Arc<&'a T> variance), custom pointer types (controlling subtyping behavior with PhantomData), phantom data usage (adding variance markers to generic types).
 
 ```rust
-// Usage: Longer lifetime ('static) substitutes for shorter; subtyping in action.
+// Longer lifetime ('static) substitutes for shorter; subtyping
 let outer: &'static str = "hello";
 let inner: &str = outer; // OK: 'static subtype of shorter
 ```
@@ -411,7 +411,7 @@ Types have variance with respect to their lifetime and type parameters, determin
 // &'a T is covariant over 'a
 // If 'a: 'b, then &'a T <: &'b T
 
-// Usage: Covariant &'a T allows longer 'static where shorter 'a expected.
+// Covariant &'a T allows longer 'static where shorter 'a expected
 let long: &'static str = "hello";
 let short: &str = long; // OK
 ```
@@ -446,7 +446,7 @@ Variance determines when types are compatible and when lifetime substitutions ar
 // Covariance allows this:
 fn take_short(x: &str) {}
 
-// Usage: Covariance lets 'static str pass to function expecting &str.
+// Covariance lets 'static str pass to fn expecting &str
 let s: &'static str = "hello";
 take_short(s); // OK: 'static works where shorter expected
 
@@ -487,11 +487,11 @@ struct Consumer<T> {
     consume: fn(T), // Contravariant over T
 }
 
-// Usage: Producer covariant (longer → shorter OK); Consumer contravariant.
+// Producer covariant (longer → shorter); Consumer contravariant
 let p: Producer<&'static str> = Producer { produce: || "hello" };
 let _p2: Producer<&str> = p; // OK: covariant
 let c: Consumer<&str> = Consumer { consume: |_s| {} };
-// let _c2: Consumer<&'static str> = c; // Would error: contravariant
+// let _c2: Consumer<&'static str> = c; // Error: contravariant
 ```
 
 ### Interior Mutability and Invariance
@@ -554,7 +554,7 @@ where
     f("hello");
 }
 
-// Usage: HRTB + covariance lets closure work with any provided lifetime.
+// HRTB + covariance lets closure work with any provided lifetime
 accepts_any_lifetime(|s: &str| s.to_uppercase());
 ```
 
@@ -583,7 +583,7 @@ struct BadReader<'a> {
     data: &'a mut [u8],
 }
 
-// Usage: Covariant GoodReader accepts longer lifetimes; more flexible API.
+// Covariant GoodReader accepts longer lifetimes; more flexible API
 let reader = GoodReader { data: b"hello" };
 let bytes = reader.read();
 ```
@@ -609,7 +609,7 @@ where
 {
     f(data, context)
 }
-// Usage: Closure receives refs with same lifetime as function inputs.
+// Closure receives refs with same lifetime as function inputs
 let ctx = "prefix";
 let result = process_with_context(
     "data", &ctx, |d, c| format!("{}: {}", c, d));
@@ -649,7 +649,7 @@ impl<'a> StreamingIterator for WindowIter<'a> {
         }
     }
 }
-// Usage: GAT enables iterator that yields refs tied to iterator's lifetime.
+// GAT enables iterator yielding refs tied to iterator's lifetime
 let data = [1, 2, 3, 4];
 let mut iter = WindowIter {
     data: &data, window_size: 2, position: 0
@@ -680,7 +680,7 @@ impl<'a> Parser<'a> {
         (self.input, other)
     }
 }
-// Usage: Elision ties method return lifetime to &self automatically.
+// Elision ties method return lifetime to &self automatically
 let parser = Parser { input: "hello world" };
 let parsed = parser.parse(); // Some("hello world")
 ```
@@ -701,7 +701,7 @@ impl<'a> Parser<'a> {
 fn get_first<T>(vec: &Vec<T>) -> Option<&'_ T> {
     vec.first()
 }
-// Usage: '_ placeholder lets compiler infer lifetime without naming it.
+// '_ placeholder lets compiler infer lifetime without naming it
 let v = vec![1, 2, 3];
 let first = get_first(&v); // Some(&1)
 ```

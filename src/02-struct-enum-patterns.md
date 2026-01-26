@@ -10,7 +10,7 @@ This chapter explores struct and enum patterns for type-safe **data modeling**: 
 
 ### Example: Named Field Structs
 
-Named field structs provide self-documenting code where each field's purpose is explicit. Use them for complex data models like users, configurations, or domain entities. The `Self` keyword in constructors makes refactoring easier when the type name changes.
+Named field `struct`s provide self-documenting code where each field's purpose is explicit. Use them for complex data models like users, configurations, or domain entities. The `Self` keyword in constructors makes refactoring easier when the type name changes.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -36,10 +36,22 @@ impl User {
     }
 }
 
-// Usage: Create user with constructor, mutate with methods.
+// Direct construction - field order doesn't matter
+let admin = User {
+    email: "admin@example.com".to_string(),
+    username: "admin".to_string(),
+    id: 0,
+    active: true,
+};
+
+// Constructor hides defaults, enforces invariants
 let mut user = User::new(
-    1, "alice".to_string(), "alice@example.com".to_string());
+    1,
+    "alice".to_string(),
+    "alice@example.com".to_string()
+);
 user.deactivate();
+assert_eq!(admin.email, "admin@example.com");
 ```
 
 **Why this matters:** Named fields provide self-documenting code. When you see `user.email`, the intent is clear. They also allow field reordering without breaking code.
@@ -119,14 +131,15 @@ impl Database<Unauthenticated> {
 }
 
 impl Database<Authenticated> {
-    fn query(&self, sql: &str) -> Vec<String> {
-        vec!["result1".to_string(), "result2".to_string()]
+    fn query(&self, _sql: &str) -> Vec<String> {
+        vec!["result1".into(), "result2".into()]
     }
 }
 
-// Usage: Type state ensures query() is only callable after authentication.
+// Type state ensures query() only callable after auth
 let db = Database::<Unauthenticated>::new(
-    "postgres://localhost".to_string());
+    "postgres://localhost".to_string()
+);
 let auth_db = db.authenticate("secret").unwrap();
 let results = auth_db.query("SELECT * FROM users");
 ```
@@ -157,10 +170,10 @@ fn get_user(id: UserId) -> User {
     // ... fetch user
     unimplemented!()
 }
-// Usage: Distinct types prevent mixing IDs even with same inner value.
+// Distinct types prevent mixing IDs
 let user_id = UserId(42);
 let order_id = OrderId(42);
-// get_user(order_id); // Won't compile: expected UserId, got OrderId
+// get_user(order_id); // Won't compile: expected UserId
 ```
 
 ### Example: Transparent Wrappers with Deref
@@ -196,7 +209,7 @@ impl<T> Deref for Validated<T> {
     }
 }
 
-// Usage: Deref lets wrapper use inner type's methods directly.
+// Deref lets wrapper use inner type's methods
 let validated = Validated::new("hello".to_string());
 assert_eq!(validated.len(), 5); // String::len via Deref
 ```
@@ -219,14 +232,16 @@ struct Config {
 }
 
 let base = Config {
-    host: "localhost".to_string(), port: 8080, timeout_ms: 5000
+    host: "localhost".into(),
+    port: 8080,
+    timeout_ms: 5000
 };
 let updated = Config { port: 9090, ..base.clone() };
 
-// Usage: updated has new port, other fields copied from base.
+// updated has new port, other fields from base
 assert_eq!(updated.port, 9090);
-assert_eq!(updated.host, "localhost"); // Cloned from base
-assert_eq!(base.port, 8080);           // Original unchanged
+assert_eq!(updated.host, "localhost"); // Cloned
+assert_eq!(base.port, 8080);           // Unchanged
 ```
 
 ### Example: Understanding Partial Moves
@@ -239,12 +254,15 @@ struct Data {
     moveable: String,   // Does not implement Copy
 }
 
-// Usage: After moving non-Copy field, only Copy fields remain accessible.
-let data = Data { copyable: 42, moveable: "hello".to_string() };
+// After moving non-Copy field, only Copy fields accessible
+let data = Data {
+    copyable: 42,
+    moveable: "hello".to_string()
+};
 let s = data.moveable;         // Moves the String out
-assert_eq!(data.copyable, 42); // Copy field still accessible
-// println!("{:?}", data);     // Error: value partially moved
-// let d = data;               // Error: cannot use `data` as a whole
+assert_eq!(data.copyable, 42); // Copy field accessible
+// println!("{:?}", data);     // Error: partially moved
+// let d = data;               // Error: cannot use `data`
 ```
 
 ## Pattern 4: Enum Design Patterns
@@ -265,7 +283,7 @@ enum HttpResponse {
     BadRequest { error: String },
     Unauthorized,
     NotFound,
-    ServerError { message: String, details: Option<String> },
+    ServerError { msg: String, details: Option<String> },
 }
 
 impl HttpResponse {
@@ -295,23 +313,24 @@ impl HttpResponse {
 fn handle_request(path: &str) -> HttpResponse {
     match path {
         "/users" => HttpResponse::Ok {
-            body: "[{\"id\": 1}]".to_string(),
+            body: "[{\"id\": 1}]".into(),
             headers: vec![(
-                "Content-Type".to_string(),
-                "application/json".to_string(),
+                "Content-Type".into(),
+                "application/json".into(),
             )],
         },
         "/users/create" => HttpResponse::Created {
             id: 123,
-            location: "/users/123".to_string(),
+            location: "/users/123".into(),
         },
         _ => HttpResponse::NotFound,
     }
 }
 
-// Usage: Each variant carries its own data; match extracts it safely.
+// Each variant carries its own data; match extracts it
 let ok = HttpResponse::Ok {
-    body: "Hello".to_string(), headers: vec![]
+    body: "Hello".into(),
+    headers: vec![]
 };
 assert_eq!(ok.status_code(), 200);
 assert!(ok.is_success());
@@ -323,11 +342,11 @@ Enums naturally model state machines where each state has different associated d
 
 ```rust
 enum OrderStatus {
-    Pending { items: Vec<String>, customer_id: u64 },
-    Processing { order_id: u64, started_at: std::time::Instant },
-    Shipped { order_id: u64, tracking_number: String },
-    Delivered { order_id: u64, signature: Option<String> },
-    Cancelled { order_id: u64, reason: String },
+    Pending { items: Vec<String>, customer: u64 },
+    Processing { id: u64, started: std::time::Instant },
+    Shipped { id: u64, tracking: String },
+    Delivered { id: u64, signature: Option<String> },
+    Cancelled { id: u64, reason: String },
 }
 
 impl OrderStatus {
@@ -335,28 +354,30 @@ impl OrderStatus {
         match self {
             OrderStatus::Pending { items, .. } => {
                 if items.is_empty() {
-                    return Err("Cannot process empty order".to_string());
+                    return Err("Empty order".into());
                 }
                 Ok(OrderStatus::Processing {
-                    order_id: 12345,
-                    started_at: std::time::Instant::now(),
+                    id: 12345,
+                    started: std::time::Instant::now(),
                 })
             }
-            _ => Err("Order is not in pending state".to_string()),
+            _ => Err("Not in pending state".into()),
         }
     }
 
     fn can_cancel(&self) -> bool {
         matches!(
             self,
-            OrderStatus::Pending { .. } | OrderStatus::Processing { .. }
+            OrderStatus::Pending { .. }
+                | OrderStatus::Processing { .. }
         )
     }
 }
 
-// Usage: State transitions consume self and return new state.
+// State transitions consume self and return new state
 let order = OrderStatus::Pending {
-    items: vec!["Book".to_string()], customer_id: 42
+    items: vec!["Book".into()],
+    customer: 42
 };
 let processing = order.process().unwrap();
 assert!(processing.can_cancel());
@@ -372,14 +393,10 @@ assert!(processing.can_cancel());
 Recursive types like trees need `Box` to break the infinite size calculation. Without `Box`, the compiler can't determine the enum's size since it contains itself. The `Box` provides indirection—the enum stores a fixed-size pointer to heap-allocated children.
 
 ```rust
-// Binary tree - recursive enum needs Box to break infinite size
+// Binary tree - Box breaks infinite size
 enum Tree<T> {
     Leaf(T),
-    Node {
-        value: T,
-        left: Box<Tree<T>>,
-        right: Box<Tree<T>>,
-    },
+    Node { value: T, left: Box<Tree<T>>, right: Box<Tree<T>> },
 }
 
 impl<T: std::fmt::Debug> Tree<T> {
@@ -424,16 +441,16 @@ assert_eq!(expr.eval(), 20); // (2 + 3) * 4 = 20
 An enum's size equals its largest variant plus a discriminant. Boxing large variants keeps the enum small—only 8 bytes for the pointer. This improves cache performance when most instances use smaller variants.
 
 ```rust
-// Without Box: enum size = size of largest variant (LargeData)
+// Without Box: enum = largest variant size
 enum Inefficient {
     Small(u8),
-    Large([u8; 1024]),  // 1KB - every variant takes this space
+    Large([u8; 1024]),  // 1KB - every variant uses this
 }
 
-// With Box: enum size = size of pointer (8 bytes on 64-bit)
+// With Box: enum = pointer size (8 bytes)
 enum Efficient {
     Small(u8),
-    Large(Box<[u8; 1024]>),  // Only allocates when this variant is used
+    Large(Box<[u8; 1024]>),  // Allocates only when used
 }
 
 use std::mem::size_of;
@@ -479,11 +496,11 @@ enum UnOp {
     Abs,
 }
 
-// Usage: Build an AST representing "2 + x".
+// Build an AST representing "2 + x"
 let expr = AstExpr::BinaryOp {
     op: BinOp::Add,
     left: Box::new(AstExpr::Number(2.0)),
-    right: Box::new(AstExpr::Variable("x".to_string())),
+    right: Box::new(AstExpr::Variable("x".into())),
 };
 ```
 
@@ -522,8 +539,8 @@ trait AstVisitor {
     ) -> Self::Output;
 }
 
-// Usage: Implementors call visitor.visit(&expr) to traverse the AST.
-// The trait dispatches to the appropriate visit_* method for each node.
+// Call visitor.visit(&expr) to traverse the AST.
+// Trait dispatches to appropriate visit_* method.
 ```
 
 ### 3. Visitor Implementations
@@ -591,7 +608,7 @@ impl AstVisitor for Evaluator {
         self.variables
             .get(name)
             .copied()
-            .ok_or_else(|| format!("Undefined: {}", name))
+            .ok_or_else(|| format!("Undefined: {name}"))
     }
 
     fn visit_binary_op(
@@ -632,38 +649,38 @@ let expr = AstExpr::BinaryOp {
 let mut printer = PrettyPrinter;
 assert_eq!(printer.visit(&expr), "(2 + 3)");
 
-// Usage: Evaluator computes result with variable bindings
-let expr_with_var = AstExpr::BinaryOp {
+// Evaluator computes result with variable bindings
+let expr_var = AstExpr::BinaryOp {
     op: BinOp::Multiply,
-    left: Box::new(AstExpr::Variable("x".to_string())),
+    left: Box::new(AstExpr::Variable("x".into())),
     right: Box::new(AstExpr::Number(10.0)),
 };
 let mut eval = Evaluator {
-    variables: HashMap::from([("x".to_string(), 5.0)]),
+    variables: HashMap::from([("x".into(), 5.0)]),
 };
-assert_eq!(eval.visit(&expr_with_var), Ok(50.0)); // x * 10 = 50
+assert_eq!(eval.visit(&expr_var), Ok(50.0)); // x*10=50
 ```
 
 ### Summary
 
 **Design Principles**:
-- Use named fields when clarity matters, tuple when type itself is meaningful
-- Wrap primitives in domain types (UserId not u64) for type safety
-- Encode invariants in types (PositiveInteger guaranteed positive)
-- Enums for "one of" types, structs for "all of" types
-- Box large/recursive enum variants for memory efficiency
+- Named fields for clarity, tuple when type is meaningful
+- Wrap primitives in domain types (UserId not u64)
+- Encode invariants in types (PositiveInteger)
+- Enums for "one of", structs for "all of"
+- Box large/recursive enum variants
 
 **Performance Characteristics**:
-- Newtype: zero runtime cost, same representation as wrapped type
-- Enum size: largest variant + discriminant (1-8 bytes depending on variant count)
+- Newtype: zero cost, same representation as wrapped type
+- Enum size: largest variant + discriminant (1-8 bytes)
 - Boxing: reduces enum to pointer size, adds indirection
 
 **Memory Layout**:
-- Named struct: fields in declaration order (subject to alignment)
+- Named struct: fields in order (subject to alignment)
 - Tuple struct: same as tuple with same types
 - Unit struct: 0 bytes
 - Enum: size_of(largest variant) + discriminant
-- Box<T>: size_of pointer (8 bytes on 64-bit)
+- Box<T>: pointer size (8 bytes on 64-bit)
 
 **Pattern Decision Matrix**:
 - **Multiple types, all fields present**: Named struct
@@ -675,11 +692,11 @@ assert_eq!(eval.visit(&expr_with_var), Ok(50.0)); // x * 10 = 50
 - **Domain-specific ID**: Newtype (struct UserId(u64))
 
 **Anti-Patterns to Avoid**:
-- Using u64 for IDs instead of newtypes (loses type safety)
-- Multiple Option fields instead of enum (unclear which combinations valid)
-- Large enum variants without Box (wastes memory)
-- Missing exhaustive match (non-exhaustive pattern use `_`)
-- Type aliases for distinct types (`type UserId = u64` doesn't prevent mixing)
+- Using u64 for IDs instead of newtypes
+- Multiple Option fields instead of enum
+- Large enum variants without Box
+- Missing exhaustive match (use `_`)
+- Type aliases (`type UserId = u64` doesn't prevent mixing)
 
 
 

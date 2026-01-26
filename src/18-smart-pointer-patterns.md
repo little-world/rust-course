@@ -66,7 +66,7 @@ println!("{}", *b); // 100
 
 ### Example: Logging Pointer (Access Tracking)
 
-Tracks every read/write for debugging or profiling using Cell for counter mutation through `&self`. Useful for finding hot paths or detecting unexpected access patterns.
+Tracks every read/write using Cell for counter mutation through `&self`. Useful for finding hot paths or detecting unexpected access.
 
 ```rust
 use std::ops::{Deref, DerefMut};
@@ -117,7 +117,7 @@ println!("{:?}", p.stats()); // (2, 1)
 
 ### Example: Lazy Initialization
 
-Defer expensive computation until first access using UnsafeCell for mutation through `&self`. For production, use `once_cell::Lazy` or `std::sync::LazyLock` for thread safety.
+Defer expensive computation until first access using UnsafeCell for mutation through `&self`. For production use `once_cell::Lazy` or `std::sync::LazyLock`.
 
 ```rust
 use std::cell::UnsafeCell;
@@ -160,7 +160,7 @@ let data2 = lazy.get(); // No print, returns cached value
 
 ### Example: Copy-on-Write Pointer
 
-Share data until mutation, then clone automatically. The `modify` method checks `strong_count`—if >1, clone before mutating. Avoids copies for read-heavy workloads.
+Share data until mutation, then clone automatically. `modify` checks `strong_count`; if >1, clone before mutating. Avoids copies for read-heavy workloads.
 
 ```rust
 use std::rc::Rc;
@@ -213,7 +213,7 @@ assert_eq!(copy.len(), 4);
 
 ### Example: Intrusive Rc
 
-Refcount lives inside the node, eliminating separate allocation. NonNull and PhantomData ensure proper pointer semantics. Single-allocation design improves memory usage and cache performance.
+Refcount lives inside the node, eliminating separate allocation. NonNull and PhantomData ensure proper pointer semantics. Single allocation improves cache performance.
 
 ```rust
 use std::ptr::NonNull;
@@ -238,7 +238,9 @@ impl<T> IntrusiveRc<T> {
             data,
         });
         IntrusiveRc {
-            ptr: unsafe { NonNull::new_unchecked(Box::into_raw(node)) },
+            ptr: unsafe {
+                NonNull::new_unchecked(Box::into_raw(node))
+            },
             _marker: PhantomData,
         }
     }
@@ -252,7 +254,10 @@ impl<T> Clone for IntrusiveRc<T> {
     fn clone(&self) -> Self {
         let node = unsafe { self.ptr.as_ref() };
         node.refcount.set(node.refcount.get() + 1);
-        IntrusiveRc { ptr: self.ptr, _marker: PhantomData }
+        IntrusiveRc {
+            ptr: self.ptr,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -277,8 +282,8 @@ impl<T> Deref for IntrusiveRc<T> {
     }
 }
 
-// Usage: Single allocation for data + refcount
-let rc1 = IntrusiveRc::new(String::from("hello"));
+// Single allocation for data + refcount
+let rc1 = IntrusiveRc::new("hello".into());
 let rc2 = rc1.clone();
 assert_eq!(rc1.refcount(), 2);
 assert_eq!(*rc1, "hello");
@@ -294,7 +299,7 @@ assert_eq!(*rc1, "hello");
 
 ### Example: Intrusive Singly-Linked List
 
-Minimal list where each node contains data and next pointer. O(1) push_front/pop_front. Avoids double indirection of `Box<Node<Box<T>>>` in standard implementations.
+Each node contains data and next pointer. O(1) push_front/pop_front. Avoids double indirection of `Box<Node<Box<T>>>` in standard impls.
 
 ```rust
 use std::ptr;
@@ -312,7 +317,10 @@ struct IntrusiveList<T> {
 
 impl<T> IntrusiveList<T> {
     fn new() -> Self {
-        IntrusiveList { head: ptr::null_mut(), _phantom: PhantomData }
+        IntrusiveList {
+            head: ptr::null_mut(),
+            _phantom: PhantomData,
+        }
     }
 
     fn push_front(&mut self, data: T) {
@@ -353,7 +361,10 @@ impl<T> IntrusiveList<T> {
                 }
             }
         }
-        Iter { current: self.head, _phantom: PhantomData }
+        Iter {
+            current: self.head,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -375,7 +386,7 @@ for item in list.iter() {
 
 ### Example: LRU Cache with Intrusive Doubly-Linked List
 
-O(1) lookup via HashMap plus O(1) eviction via doubly-linked list. HashMap stores node pointers directly; list tracks recency. Intrusive design: single allocation per entry in both structures.
+O(1) lookup via HashMap plus O(1) eviction via doubly-linked list. HashMap stores node pointers directly; list tracks recency. Single allocation per entry.
 
 ```rust
 use std::collections::HashMap;
@@ -395,7 +406,10 @@ struct LruCache<K, V> {
     capacity: usize,
 }
 
-impl<K: Eq + std::hash::Hash + Clone, V> LruCache<K, V> {
+impl<K, V> LruCache<K, V>
+where
+    K: Eq + std::hash::Hash + Clone,
+{
     fn new(capacity: usize) -> Self {
         LruCache {
             map: HashMap::new(),
@@ -425,7 +439,8 @@ impl<K: Eq + std::hash::Hash + Clone, V> LruCache<K, V> {
         }
 
         // Evict if at capacity
-        if self.map.len() >= self.capacity && !self.tail.is_null() {
+        let at_cap = self.map.len() >= self.capacity;
+        if at_cap && !self.tail.is_null() {
             unsafe {
                 let tail_key = (*self.tail).key.clone();
                 let old_tail = self.tail;
@@ -460,11 +475,11 @@ impl<K: Eq + std::hash::Hash + Clone, V> LruCache<K, V> {
         (*node).next = ptr::null_mut();
     }
 
-    unsafe fn attach_front(&mut self, node: *mut LruNode<K, V>) {
-        (*node).next = self.head;
-        if !self.head.is_null() { (*self.head).prev = node; }
-        self.head = node;
-        if self.tail.is_null() { self.tail = node; }
+    unsafe fn attach_front(&mut self, n: *mut LruNode<K, V>) {
+        (*n).next = self.head;
+        if !self.head.is_null() { (*self.head).prev = n; }
+        self.head = n;
+        if self.tail.is_null() { self.tail = n; }
     }
 }
 
@@ -492,7 +507,7 @@ assert!(cache.get(&"b").is_none());
 
 ## Pattern 4: Memory Layout Optimization
 
-**Problem**: Poor struct layout wastes memory (padding) and hurts cache performance. False sharing destroys multi-threaded performance.
+**Problem**: Poor struct layout wastes memory (padding) and hurts cache. False sharing destroys multi-threaded performance.
 
 **Solution**: Order fields by alignment, use repr attributes, pad to cache lines.
 
@@ -500,7 +515,7 @@ assert!(cache.get(&"b").is_none());
 
 ### Example: Field Ordering
 
-Order fields largest to smallest alignment to minimize padding. Without `#[repr(C)]` compiler may reorder, but explicit ordering documents intent. Can cut struct size by 30-50%.
+Order fields largest to smallest alignment to minimize padding. Without `#[repr(C)]` compiler may reorder. Can cut struct size 30-50%.
 
 ```rust
 // Bad: 24 bytes with padding
@@ -525,7 +540,7 @@ assert_eq!(std::mem::size_of::<Optimized>(), 16);
 
 ### Example: Cache Line Alignment
 
-Prevent false sharing by padding to cache line boundaries (64 bytes on x86). False sharing: threads modify different variables on same cache line, causing bounce between cores—destroys parallel performance.
+Pad to cache line boundaries (64 bytes on x86). False sharing: threads modify different variables on same cache line, causing bounce between cores.
 
 ```rust
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -542,20 +557,20 @@ struct Counters {
     counter2: Padded<AtomicUsize>,  // Own cache line
 }
 
-// Usage: Threads can update counters without false sharing
+// Threads can update counters without false sharing
 let counters = Counters {
     counter1: Padded { value: AtomicUsize::new(0) },
     counter2: Padded { value: AtomicUsize::new(0) },
 };
 
 // Thread 1 updates counter1, Thread 2 updates counter2
-// No cache line bouncing between cores
-counters.counter1.value.fetch_add(1, Ordering::Relaxed);
+counters.counter1.value
+    .fetch_add(1, Ordering::Relaxed);
 ```
 
 ### Example: Optimizing Enum Size
 
-Enums sized to largest variant—one large variant bloats all. Box large variants to keep enum small. Important for recursive types and enums in collections.
+Enums sized to largest variant. Box large variants to keep enum small. Important for recursive types and enums in collections.
 
 ```rust
 // Bad: 1024+ bytes for every instance
@@ -576,10 +591,10 @@ assert!(std::mem::size_of::<Optimized>() <= 16);
 
 ### Example: Struct of Arrays (SoA) for Cache Efficiency
 
-When loops access single field across many objects, SoA maximizes cache utilization. AoS loads entire structs; SoA keeps fields contiguous for efficient CPU prefetching.
+When loops access single field across many objects, SoA maximizes cache use. AoS loads entire structs; SoA keeps fields contiguous for prefetching.
 
 ```rust
-// Array of Structs: poor locality when accessing single field
+// Array of Structs: poor locality for single-field access
 struct ParticleAoS {
     position: [f32; 3],
     velocity: [f32; 3],
@@ -588,7 +603,7 @@ struct ParticleAoS {
 
 fn update_aos(particles: &mut [ParticleAoS]) {
     for p in particles {
-        // CPU loads entire struct even though we only need position and velocity
+        // CPU loads entire struct for one field
         p.position[0] += p.velocity[0];
     }
 }
@@ -601,7 +616,7 @@ struct ParticlesSoA {
 
 impl ParticlesSoA {
     fn update(&mut self) {
-        // positions_x is contiguous; CPU prefetches efficiently
+        // positions_x is contiguous; prefetches efficiently
         for i in 0..self.positions_x.len() {
             self.positions_x[i] += self.velocities_x[i];
         }
@@ -615,11 +630,11 @@ impl ParticlesSoA {
 
 **Solution**: Pair index with generation counter. When slot is reused, generation increments. Stale handles have wrong generation.
 
-**Why It Matters**: Entity-Component-System (ECS) architectures, game engines, and object pools all need stable handles to objects that may be created and destroyed frequently. Generational indices provide safe, O(1) access without the overhead of Rc/Arc and without use-after-free bugs.
+**Why It Matters**: ECS architectures, game engines, and object pools need stable handles to objects created/destroyed frequently. Generational indices provide safe O(1) access without Rc/Arc overhead.
 
 ### Example: Generational Arena
 
-Handle contains index + generation counter. When slot reused, generation increments, invalidating old handles. Safe access without refcounting; catches stale handles at runtime.
+Handle = index + generation. When slot reused, generation increments, invalidating old handles. Catches stale handles at runtime.
 
 ```rust
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -640,7 +655,10 @@ struct GenArena<T> {
 
 impl<T> GenArena<T> {
     fn new() -> Self {
-        GenArena { slots: Vec::new(), free_list: Vec::new() }
+        GenArena {
+            slots: Vec::new(),
+            free_list: Vec::new(),
+        }
     }
 
     fn insert(&mut self, value: T) -> Handle {
@@ -648,26 +666,30 @@ impl<T> GenArena<T> {
             let slot = &mut self.slots[index];
             slot.generation += 1;
             slot.value = Some(value);
-            Handle { index, generation: slot.generation }
+            Handle {
+                index,
+                generation: slot.generation,
+            }
         } else {
             let index = self.slots.len();
-            self.slots.push(Slot { value: Some(value), generation: 0 });
+            let slot = Slot { value: Some(value), generation: 0 };
+            self.slots.push(slot);
             Handle { index, generation: 0 }
         }
     }
 
-    fn get(&self, handle: Handle) -> Option<&T> {
-        self.slots.get(handle.index)
-            .filter(|slot| slot.generation == handle.generation)
+    fn get(&self, h: Handle) -> Option<&T> {
+        self.slots.get(h.index)
+            .filter(|slot| slot.generation == h.generation)
             .and_then(|slot| slot.value.as_ref())
     }
 
-    fn remove(&mut self, handle: Handle) -> Option<T> {
-        let slot = self.slots.get_mut(handle.index)?;
-        if slot.generation != handle.generation {
+    fn remove(&mut self, h: Handle) -> Option<T> {
+        let slot = self.slots.get_mut(h.index)?;
+        if slot.generation != h.generation {
             return None;
         }
-        self.free_list.push(handle.index);
+        self.free_list.push(h.index);
         slot.value.take()
     }
 }
@@ -677,9 +699,9 @@ let mut arena = GenArena::new();
 let h1 = arena.insert("first");
 let h2 = arena.insert("second");
 
-arena.remove(h1);  // Slot 0 freed, generation incremented
+arena.remove(h1);  // Slot 0 freed, generation++
 
-let h3 = arena.insert("third");  // Reuses slot 0 with new generation
+let h3 = arena.insert("third"); // Reuses slot 0, new gen
 
 // Old handle is safely rejected
 assert!(arena.get(h1).is_none());  // Stale handle!
@@ -688,15 +710,15 @@ assert_eq!(arena.get(h3), Some(&"third"));
 
 ## Pattern 6: Reference Counting Optimization
 
-**Problem**: Rc::clone costs ~10ns per call. In hot loops, unnecessary clones waste CPU.
+**Problem**: Rc::clone costs ~10ns per call. In hot loops, clones waste CPU.
 
-**Solution**: Borrow `&Rc<T>` instead of cloning when possible. Use try_unwrap to avoid clones when you're the sole owner.
+**Solution**: Borrow `&Rc<T>` instead of cloning. Use try_unwrap when sole owner.
 
-**Why It Matters**: In hot paths, even 10ns per operation adds up. A million unnecessary clones costs 10ms—noticeable in games running at 60fps (16ms budget) or in high-throughput servers. These micro-optimizations compound in real applications.
+**Why It Matters**: A million clones costs 10ms, noticeable at 60fps (16ms budget). Micro-optimizations compound in real applications.
 
 ### Example: Borrow Instead of Clone
 
-Borrow through Deref instead of cloning Rc when you only need to read. Rc::clone has ~10ns overhead (atomic for Arc). Reserve cloning for when you actually need shared ownership.
+Borrow through Deref instead of cloning Rc when you only need to read. Reserve cloning for when you need shared ownership.
 
 ```rust
 use std::rc::Rc;
@@ -719,14 +741,15 @@ fn efficient(data: &Rc<Vec<i32>>) {
 
 ### Example: try_unwrap for Sole Owner
 
-`try_unwrap` returns inner value without cloning if refcount is 1. Falls back to clone only when shared—eliminates redundant copies in common cases.
+`try_unwrap` returns inner value without cloning if refcount is 1. Falls back to clone only when shared.
 
 ```rust
 use std::rc::Rc;
 
 fn make_owned(data: Rc<Vec<i32>>) -> Vec<i32> {
     // If we're the only owner, unwrap without cloning
-    Rc::try_unwrap(data).unwrap_or_else(|rc| (*rc).clone())
+    Rc::try_unwrap(data)
+        .unwrap_or_else(|rc| (*rc).clone())
 }
 
 // Usage
@@ -736,7 +759,7 @@ let owned = make_owned(data);  // No clone: we were sole owner
 
 ### Example: String Interning
 
-Deduplicate strings so identical values share single allocation via map from content to Rc<str>. Common in compilers, JSON parsers, apps with repeated strings.
+Deduplicate strings via map from content to Rc<str>. Common in compilers, JSON parsers, apps with repeated strings.
 
 ```rust
 use std::rc::Rc;
@@ -756,7 +779,7 @@ impl StringInterner {
             Rc::clone(interned)
         } else {
             let rc: Rc<str> = Rc::from(s);
-            self.map.insert(s.to_string(), Rc::clone(&rc));
+            self.map.insert(s.into(), Rc::clone(&rc));
             rc
         }
     }
@@ -771,7 +794,7 @@ assert!(Rc::ptr_eq(&s1, &s2));      // Same allocation!
 
 ### Example: Weak for Non-Owning References
 
-Weak observes without preventing deallocation. `upgrade()` returns None if data dropped. Essential for observer patterns, caches, breaking reference cycles.
+Weak observes without preventing deallocation. `upgrade()` returns None if dropped. Essential for observers, caches, breaking cycles.
 
 ```rust
 use std::rc::{Rc, Weak};
@@ -792,7 +815,9 @@ impl Observer {
 
 // Usage
 let data = Rc::new(vec![1, 2, 3]);
-let observer = Observer { subject: Rc::downgrade(&data) };
+let observer = Observer {
+    subject: Rc::downgrade(&data),
+};
 observer.observe();  // "Observed: 3 items"
 drop(data);
 observer.observe();  // Nothing (data is gone)
@@ -804,7 +829,7 @@ observer.observe();  // Nothing (data is gone)
 
 | Pattern | Allocation | Access | Best Use Case |
 |---------|------------|--------|---------------|
-| Custom Ptr | O(1) heap | O(1) | Logging, lazy init, specialized behavior |
+| Custom Ptr | O(1) heap | O(1) | Logging, lazy init, specialized |
 | Intrusive Rc | O(1) heap | O(1) + count | Many small shared objects |
 | Intrusive List | O(1) heap | O(1) | O(1) removal, cache locality |
 | GenArena | O(1) | O(1) | Stable handles, ECS patterns |
@@ -813,18 +838,18 @@ observer.observe();  // Nothing (data is gone)
 
 | Pattern | Use When |
 |---------|----------|
-| Custom smart pointer | Need specialized behavior (logging, lazy init) |
+| Custom smart pointer | Specialized behavior (logging, lazy) |
 | Intrusive Rc | Many small objects, cache matters |
 | Intrusive list | Need O(1) removal, cache locality |
 | LRU cache | Fixed capacity, O(1) operations |
 | Memory alignment | Multi-threaded counters, SIMD |
 | SoA layout | Hot loops accessing single field |
 | Generational index | ECS, object pools, stable handles |
-| Rc optimization | Hot paths where clone overhead matters |
+| Rc optimization | Hot paths, clone overhead matters |
 
 ## Safety Notes
 
-- Custom smart pointers require `unsafe`—ensure proper Drop implementation
+- Custom smart pointers require `unsafe`; ensure proper Drop
 - Intrusive structures need careful lifetime management
 - Generational indices prevent use-after-free but not double-free
 - Memory layout changes can break FFI compatibility

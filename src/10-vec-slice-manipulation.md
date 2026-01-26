@@ -771,7 +771,7 @@ fn parse_packet(data: &[u8]) -> Result<Packet, ParseError> {
     Ok(Packet { version, payload, checksum })
 }
 // Usage: parse packet with version byte, payload, and checksum byte
-// Input: [0x01, 'H', 'i', 0xFF] -> version=1, payload="Hi", checksum=255
+// [0x01, 'H', 'i', 0xFF] -> version=1, payload="Hi", checksum=255
 ```
 
 ### Example: Iterating Without Collecting
@@ -1070,21 +1070,25 @@ fn dot_product_chunks(a: &[f32], b: &[f32]) -> f32 {
     let mut sum = 0.0;
 
     // Process 4 elements at a time
-    for (a_chunk, b_chunk) in a_chunks.by_ref().zip(b_chunks.by_ref()) {
+    let paired = a_chunks.by_ref().zip(b_chunks.by_ref());
+    for (a_chunk, b_chunk) in paired {
         for i in 0..4 {
             sum += a_chunk[i] * b_chunk[i];
         }
     }
 
     // Handle remainder
-    for (a_val, b_val) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
+    let rem = a_chunks.remainder().iter().zip(b_chunks.remainder());
+    for (a_val, b_val) in rem {
         sum += a_val * b_val;
     }
 
     sum
 }
 // Usage: compute dot product of two vectors
-let dot = dot_product_chunks(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]); // 32.0
+let a = [1.0, 2.0, 3.0];
+let b = [4.0, 5.0, 6.0];
+let dot = dot_product_chunks(&a, &b); // 32.0
 ```
 
 ### Example: Image Processing Pipeline

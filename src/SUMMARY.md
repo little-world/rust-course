@@ -39,6 +39,5 @@
 - [performance-optimization](29-performance-optimization.md)
 - [embedded-realtime-patterns](30-embedded-realtime-patterns.md)
 # Appendices
-- [appendix-a-quick-reference](31-appendix-a-quick-reference.md)
 - [appendix-b-design-patterns](32-appendix-b-design-patterns.md)
 - [appendix-c-anti-patterns](33-appendix-c-anti-patterns.md)

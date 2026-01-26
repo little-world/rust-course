@@ -40,23 +40,17 @@ proc-macro2 = "1.0"
 This demonstrates the fundamental derive macro workflow. The `parse_macro_input!` macro converts the raw TokenStream into a structured `DeriveInput` AST. Extract the type name via `input.ident` and use `quote!` to generate the trait implementation with `stringify!` for compile-time reflection.
 
 ```rust
-//=====================
 // my_macros/src/lib.rs
-//=====================
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(HelloWorld)]
 pub fn hello_world_derive(input: TokenStream) -> TokenStream {
-    // Parse the input tokens into a syntax tree
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = parse_macro_input!(input as DeriveInput);  // Parse to AST
+    let name = &input.ident;  // Get struct/enum name
 
-    // Get the name of the struct/enum
-    let name = &input.ident;
-
-    // Generate the implementation
-    let expanded = quote! {
+    let expanded = quote! {  // Generate impl
         impl HelloWorld for #name {
             fn hello_world() {
                 println!("Hello, World! My name is {}", stringify!(#name));
@@ -70,9 +64,7 @@ pub fn hello_world_derive(input: TokenStream) -> TokenStream {
 ```
 
 ```rust
-//=================================
 // main.rs - using the derive macro
-//=================================
 trait HelloWorld {
     fn hello_world();
 }
@@ -103,8 +95,7 @@ pub fn describe_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
 
-    // Handle different data types
-    let description = match &input.data {
+    let description = match &input.data {  // Handle struct/enum/union
         Data::Struct(data_struct) => {
             match &data_struct.fields {
                 Fields::Named(fields) => {
@@ -227,8 +218,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
         _ => panic!("Builder only supports structs"),
     };
 
-    // Generate builder fields
-    let builder_fields = fields.iter().map(|f| {
+    let builder_fields = fields.iter().map(|f| {  // Option<T> wrappers
         let name = &f.ident;
         let ty = &f.ty;
         quote! {
@@ -236,8 +226,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
         }
     });
 
-    // Generate setter methods
-    let setters = fields.iter().map(|f| {
+    let setters = fields.iter().map(|f| {  // Fluent setters
         let name = &f.ident;
         let ty = &f.ty;
         quote! {
@@ -248,8 +237,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
         }
     });
 
-    // Generate build method
-    let build_fields = fields.iter().map(|f| {
+    let build_fields = fields.iter().map(|f| {  // Build with validation
         let name = &f.ident;
         quote! {
             #name: self.#name.ok_or(concat!("Field not set: ", stringify!(#name)))?
@@ -284,8 +272,7 @@ pub fn builder_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Need to fix field names in builder initialization
-    let field_names = fields.iter().map(|f| &f.ident);
+    let field_names = fields.iter().map(|f| &f.ident);  // For initialization
 
     let expanded = quote! {
         pub struct #builder_name {
@@ -357,8 +344,7 @@ pub fn enum_iter_derive(input: TokenStream) -> TokenStream {
         _ => panic!("EnumIter only works on enums"),
     };
 
-    // Only support unit variants for simplicity
-    let variant_idents: Vec<_> = variants
+    let variant_idents: Vec<_> = variants  // Unit variants only
         .iter()
         .map(|variant| &variant.ident)
         .collect();
@@ -532,16 +518,11 @@ use syn::{parse_macro_input, ImplItemFn};
 #[proc_macro_attribute]
 pub fn cache(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ImplItemFn);
-
     let fn_name = &input.sig.ident;
     let fn_block = &input.block;
     let fn_sig = &input.sig;
     let fn_vis = &input.vis;
-
-    let cache_name = syn::Ident::new(
-        &format!("{}_cache", fn_name),
-        fn_name.span()
-    );
+    let cache_name = syn::Ident::new(&format!("{}_cache", fn_name), fn_name.span());
 
     let expanded = quote! {
         #fn_vis #fn_sig {
@@ -552,9 +533,7 @@ pub fn cache(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 static ref #cache_name: Mutex<HashMap<String, _>> = Mutex::new(HashMap::new());
             }
 
-            // Simple cache implementation
-            // In real code, you'd want to hash the arguments properly
-            #fn_block
+            #fn_block  // In production, hash arguments properly
         }
     };
 
@@ -574,8 +553,7 @@ use syn::{parse_macro_input, ItemStruct};
 pub fn add_debug_info(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemStruct);
 
-    // Add a field to the struct
-    if let syn::Fields::Named(ref mut fields) = input.fields {
+    if let syn::Fields::Named(ref mut fields) = input.fields {  // Inject field
         fields.named.push(
             syn::Field::parse_named
                 .parse2(quote! { _debug_info: String })
@@ -652,8 +630,7 @@ pub fn sql(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         {
-            let query_str = #query;
-            // Validate SQL at compile time
+            let query_str = #query;  // Validate SQL at compile time
             println!("Executing SQL: {}", query_str);
             query_str
         }
@@ -898,14 +875,10 @@ use proc_macro::{TokenStream, TokenTree, Ident, Span, Literal};
 pub fn build_struct(_input: TokenStream) -> TokenStream {
     let mut tokens = TokenStream::new();
 
-    // struct
     tokens.extend(Some(TokenTree::Ident(Ident::new("struct", Span::call_site()))));
-
-    // MyStruct
     tokens.extend(Some(TokenTree::Ident(Ident::new("MyStruct", Span::call_site()))));
 
-    // { ... }
-    let mut fields = TokenStream::new();
+    let mut fields = TokenStream::new();  // { ... }
     fields.extend(Some(TokenTree::Ident(Ident::new("value", Span::call_site()))));
     fields.extend(Some(TokenTree::Punct(proc_macro::Punct::new(':', proc_macro::Spacing::Alone))));
     fields.extend(Some(TokenTree::Ident(Ident::new("i32", Span::call_site()))));
@@ -943,12 +916,8 @@ impl Parse for SpanExample {
 #[proc_macro]
 pub fn with_span(input: TokenStream) -> TokenStream {
     let SpanExample { name } = parse_macro_input!(input as SpanExample);
-
-    // Get the span of the input identifier
-    let span = name.span();
-
-    // Create a new identifier with the same span
-    let prefixed = Ident::new(&format!("prefixed_{}", name), span);
+    let span = name.span();  // Preserve original span
+    let prefixed = Ident::new(&format!("prefixed_{}", name), span);  // Same span
 
     let expanded = quote! {
         let #prefixed = stringify!(#name);
@@ -980,8 +949,7 @@ use syn::{
     braced, punctuated::Punctuated,
 };
 
-// Parse a struct definition
-struct StructDef {
+struct StructDef {  // Custom struct parser
     vis: Visibility,
     _struct_token: Token![struct],
     name: Ident,
@@ -1065,8 +1033,7 @@ use syn::{
     Attribute, Expr, ExprLit, Lit, Meta, MetaNameValue,
 };
 
-// Parse custom attributes
-fn parse_custom_attribute(attr: &Attribute) -> Option<String> {
+fn parse_custom_attribute(attr: &Attribute) -> Option<String> {  // Extract doc strings
     if attr.path().is_ident("doc") {
         if let Meta::NameValue(MetaNameValue {
             value: Expr::Lit(ExprLit {
@@ -1081,8 +1048,7 @@ fn parse_custom_attribute(attr: &Attribute) -> Option<String> {
     None
 }
 
-// Extract documentation comments
-fn get_doc_comments(attrs: &[Attribute]) -> Vec<String> {
+fn get_doc_comments(attrs: &[Attribute]) -> Vec<String> {  // Collect doc comments
     attrs.iter()
         .filter_map(parse_custom_attribute)
         .collect()
@@ -1113,8 +1079,7 @@ pub fn getter_setter_derive(input: TokenStream) -> TokenStream {
         _ => panic!("Only structs supported"),
     };
 
-    // Generate getters
-    let getters = fields.iter().map(|f| {
+    let getters = fields.iter().map(|f| {  // Generate getters
         let field_name = &f.ident;
         let field_type = &f.ty;
         quote! {
@@ -1124,8 +1089,7 @@ pub fn getter_setter_derive(input: TokenStream) -> TokenStream {
         }
     });
 
-    // Generate setters
-    let setters = fields.iter().map(|f| {
+    let setters = fields.iter().map(|f| {  // Generate setters
         let field_name = &f.ident;
         let field_type = &f.ty;
         let setter_name = quote::format_ident!("set_{}", field_name.as_ref().unwrap());
@@ -1160,8 +1124,7 @@ use syn::{parse_macro_input, DeriveInput, Error};
 pub fn validated_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    // Validate that it's a struct
-    match &input.data {
+    match &input.data {  // Validate struct-only
         syn::Data::Struct(_) => {}
         _ => {
             return Error::new_spanned(
@@ -1266,10 +1229,9 @@ use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream as TokenStream2;
 
 fn convert_token_streams(input: TokenStream1) -> TokenStream1 {
-    let tokens: TokenStream2 = input.into();
-    // Process with proc_macro2
-    let result = quote! { #tokens };
-    result.into()
+    let tokens: TokenStream2 = input.into();  // Convert to proc_macro2
+    let result = quote! { #tokens };          // Process
+    result.into()                             // Convert back
 }
 ```
 

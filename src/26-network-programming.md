@@ -21,11 +21,7 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write, BufReader, BufRead};
 use std::thread;
 
-/// A basic echo server that handles one client at a time
-/// This is synchronous and will block on each operation
-fn simple_echo_server() -> std::io::Result<()> {
-    // Bind to localhost on port 8080
-    // The "0.0.0.0:8080" address means "listen on all network interfaces"
+fn simple_echo_server() -> std::io::Result<()> {  // Sync, one client at a time
     let listener = TcpListener::bind("127.0.0.1:8080")?;
     println!("Server listening on port 8080");
 
@@ -49,20 +45,11 @@ fn handle_client(mut stream: TcpStream) -> std::io::Result<()> {
     let mut buffer = [0; 1024];
 
     loop {
-        // Read data from the client
         let bytes_read = stream.read(&mut buffer)?;
-
-        // If bytes_read is 0, the client has disconnected
-        if bytes_read == 0 {
-            println!("Client disconnected");
-            break;
-        }
-
-        // Echo the data back to the client
+        if bytes_read == 0 { println!("Client disconnected"); break; }  // 0 = EOF
         stream.write_all(&buffer[..bytes_read])?;
         stream.flush()?;
     }
-
     Ok(())
 }
 simple_echo_server()?; // Blocks, handles one client at a time
@@ -78,17 +65,14 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::thread;
 
-/// Multi-threaded server that spawns a thread per client
-/// This scales better but can exhaust system resources with many connections
-fn multithreaded_server() -> std::io::Result<()> {
+fn multithreaded_server() -> std::io::Result<()> {  // Thread per client (~2MB stack each)
     let listener = TcpListener::bind("127.0.0.1:8080")?;
     println!("Multi-threaded server listening on port 8080");
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                // Spawn a new thread for each connection
-                thread::spawn(move || {
+                thread::spawn(move || {  // New thread per connection
                     if let Err(e) = handle_client_thread(stream) {
                         eprintln!("Error handling client: {}", e);
                     }
@@ -135,21 +119,16 @@ Tokio tasks consume only ~1KB versus ~2MB for OS threads, enabling 10K+ concurre
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Async echo server using Tokio
-/// Can handle thousands of concurrent connections efficiently
-#[tokio::main]
+#[tokio::main]  // Tasks ~1KB vs threads ~2MB, handles 10K+ connections
 async fn async_echo_server() -> tokio::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     println!("Async server listening on port 8080");
 
     loop {
-        // Accept is async - other tasks can run while waiting
-        let (socket, addr) = listener.accept().await?;
+        let (socket, addr) = listener.accept().await?;  // Async accept
         println!("New connection from {}", addr);
 
-        // Spawn an async task for this connection
-        // Tasks are much cheaper than threads
-        tokio::spawn(async move {
+        tokio::spawn(async move {  // Cheap async task
             if let Err(e) = handle_connection(socket).await {
                 eprintln!("Error handling {}: {}", addr, e);
             }
@@ -161,15 +140,8 @@ async fn handle_connection(mut socket: TcpStream) -> tokio::io::Result<()> {
     let mut buffer = vec![0; 1024];
 
     loop {
-        // Async read - yields to other tasks while waiting for data
-        let n = socket.read(&mut buffer).await?;
-
-        if n == 0 {
-            // Connection closed
-            return Ok(());
-        }
-
-        // Echo the data back
+        let n = socket.read(&mut buffer).await?;  // Yields to other tasks
+        if n == 0 { return Ok(()); }  // Connection closed
         socket.write_all(&buffer[..n]).await?;
     }
 }
@@ -185,9 +157,7 @@ Uses `BufReader` wrapping the socket for efficient buffered I/O, with `read_line
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// A line-based protocol server
-/// Useful for protocols like SMTP, FTP, or custom text protocols
-async fn line_based_server() -> tokio::io::Result<()> {
+async fn line_based_server() -> tokio::io::Result<()> {  // SMTP/FTP style protocols
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     println!("Line-based server listening on port 8080");
 
@@ -196,35 +166,19 @@ async fn line_based_server() -> tokio::io::Result<()> {
         println!("Connection from {}", addr);
 
         tokio::spawn(async move {
-            // BufReader provides efficient buffered reading
             let (reader, mut writer) = socket.into_split();
-            let mut reader = BufReader::new(reader);
+            let mut reader = BufReader::new(reader);  // Efficient buffered I/O
             let mut line = String::new();
 
             loop {
                 line.clear();
-
-                // Read until we get a newline
                 match reader.read_line(&mut line).await {
-                    Ok(0) => {
-                        // EOF - connection closed
-                        println!("Client {} disconnected", addr);
-                        break;
-                    }
+                    Ok(0) => { println!("Client {} disconnected", addr); break; }
                     Ok(_) => {
-                        // Process the line
                         let response = process_command(&line);
-
-                        // Send response
-                        if let Err(e) = writer.write_all(response.as_bytes()).await {
-                            eprintln!("Failed to write to {}: {}", addr, e);
-                            break;
-                        }
+                        if writer.write_all(response.as_bytes()).await.is_err() { break; }
                     }
-                    Err(e) => {
-                        eprintln!("Error reading from {}: {}", addr, e);
-                        break;
-                    }
+                    Err(_) => break,
                 }
             }
         });
@@ -252,22 +206,15 @@ Demonstrates the fundamental connect-send-receive pattern using `TcpStream::conn
 use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Connect to a server and exchange messages
 async fn tcp_client_example() -> tokio::io::Result<()> {
-    // Connect to the server
     let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
     println!("Connected to server");
 
-    // Send a message
-    let message = "Hello, Server!\n";
-    stream.write_all(message.as_bytes()).await?;
+    stream.write_all(b"Hello, Server!\n").await?;  // Send
 
-    // Read the response
     let mut buffer = vec![0; 1024];
-    let n = stream.read(&mut buffer).await?;
-
+    let n = stream.read(&mut buffer).await?;  // Receive
     println!("Received: {}", String::from_utf8_lossy(&buffer[..n]));
-
     Ok(())
 }
 tcp_client_example().await?; // Simple send/receive TCP client
@@ -279,30 +226,24 @@ For more complex clients, you might want to separate reading and writing:
 use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// Interactive client that can send and receive concurrently
-async fn interactive_client() -> tokio::io::Result<()> {
+async fn interactive_client() -> tokio::io::Result<()> {  // Concurrent read/write
     let stream = TcpStream::connect("127.0.0.1:8080").await?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
-    // Spawn a task to handle incoming messages
-    let read_handle = tokio::spawn(async move {
+    let read_handle = tokio::spawn(async move {  // Incoming messages
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line).await {
-                Ok(0) => break, // Connection closed
+                Ok(0) => break,
                 Ok(_) => print!("Server: {}", line),
-                Err(e) => {
-                    eprintln!("Read error: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
     });
 
-    // Main task handles user input and sending
-    let write_handle = tokio::spawn(async move {
+    let write_handle = tokio::spawn(async move {  // User input
         use tokio::io::{stdin, AsyncBufReadExt, BufReader};
 
         let stdin = BufReader::new(stdin());
@@ -337,9 +278,7 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::collections::VecDeque;
 
-/// Simple connection pool for reusing TCP connections
-/// In production, use libraries like deadpool or bb8
-struct ConnectionPool {
+struct ConnectionPool {  // Production: use deadpool or bb8
     available: Arc<Mutex<VecDeque<TcpStream>>>,
     address: String,
     max_size: usize,
@@ -357,16 +296,11 @@ impl ConnectionPool {
     async fn acquire(&self) -> tokio::io::Result<PooledConnection> {
         let mut pool = self.available.lock().await;
 
-        // Try to reuse an existing connection
-        if let Some(stream) = pool.pop_front() {
-            return Ok(PooledConnection {
-                stream: Some(stream),
-                pool: self.available.clone(),
-            });
+        if let Some(stream) = pool.pop_front() {  // Reuse existing
+            return Ok(PooledConnection { stream: Some(stream), pool: self.available.clone() });
         }
 
-        // Otherwise create a new connection
-        drop(pool); // Release lock before async operation
+        drop(pool);  // Release lock before async connect
         let stream = TcpStream::connect(&self.address).await?;
 
         Ok(PooledConnection {
@@ -426,24 +360,16 @@ Connectionless protocol requiring no handshake or connection tracking—each dat
 use tokio::net::UdpSocket;
 use std::io;
 
-/// UDP echo server
-/// Receives datagrams and echoes them back to the sender
-async fn udp_echo_server() -> io::Result<()> {
-    // Bind to a port
+async fn udp_echo_server() -> io::Result<()> {  // Connectionless, no state
     let socket = UdpSocket::bind("127.0.0.1:8080").await?;
     println!("UDP server listening on port 8080");
 
     let mut buffer = vec![0u8; 1024];
 
     loop {
-        // Receive a datagram
-        // recv_from returns the number of bytes and the sender's address
-        let (len, addr) = socket.recv_from(&mut buffer).await?;
-
+        let (len, addr) = socket.recv_from(&mut buffer).await?;  // Returns sender addr
         println!("Received {} bytes from {}", len, addr);
-
-        // Echo it back
-        socket.send_to(&buffer[..len], addr).await?;
+        socket.send_to(&buffer[..len], addr).await?;  // Echo back
     }
 }
 udp_echo_server().await?; // Connectionless, echoes datagrams
@@ -457,15 +383,9 @@ The `connect()` method sets a default destination address, allowing simpler `sen
 ```rust
 use tokio::net::UdpSocket;
 
-/// Send a UDP message and wait for a response
 async fn udp_client_example() -> tokio::io::Result<()> {
-    // Bind to any available port
-    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-
-    // Connect sets the default destination
-    // This doesn't establish a connection (UDP is connectionless)
-    // but allows using send/recv instead of send_to/recv_from
-    socket.connect("127.0.0.1:8080").await?;
+    let socket = UdpSocket::bind("0.0.0.0:0").await?;  // Any available port
+    socket.connect("127.0.0.1:8080").await?;  // Sets default dest (no actual connection)
 
     // Send a message
     let message = b"Hello, UDP Server!";
@@ -489,15 +409,11 @@ Calling `set_broadcast(true)` enables sending datagrams to the broadcast address
 use tokio::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-/// Broadcast a message to all hosts on the local network
-async fn udp_broadcast() -> tokio::io::Result<()> {
+async fn udp_broadcast() -> tokio::io::Result<()> {  // Service discovery
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
-
-    // Enable broadcast
     socket.set_broadcast(true)?;
 
-    // Broadcast address (255.255.255.255 reaches all hosts on local network)
-    let broadcast_addr = SocketAddr::new(
+    let broadcast_addr = SocketAddr::new(  // 255.255.255.255 = all local hosts
         IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
         8080
     );
@@ -509,8 +425,7 @@ async fn udp_broadcast() -> tokio::io::Result<()> {
     Ok(())
 }
 
-/// Listen for broadcast messages
-async fn udp_broadcast_listener() -> tokio::io::Result<()> {
+async fn udp_broadcast_listener() -> tokio::io::Result<()> {  // Receives broadcasts
     let socket = UdpSocket::bind("0.0.0.0:8080").await?;
     socket.set_broadcast(true)?;
 
@@ -534,8 +449,7 @@ Adds application-layer reliability to UDP through timeouts and retry logic. The 
 use tokio::net::UdpSocket;
 use tokio::time::{timeout, Duration};
 
-/// Send a UDP request with retries
-async fn reliable_udp_request(
+async fn reliable_udp_request(  // DNS-style retry logic
     socket: &UdpSocket,
     message: &[u8],
     server_addr: &str,
@@ -549,16 +463,9 @@ async fn reliable_udp_request(
 
         // Wait for response with timeout
         match timeout(Duration::from_secs(2), socket.recv_from(&mut buffer)).await {
-            Ok(Ok((len, _addr))) => {
-                // Success! Return the response
-                return Ok(buffer[..len].to_vec());
-            }
+            Ok(Ok((len, _addr))) => return Ok(buffer[..len].to_vec()),  // Success
             Ok(Err(e)) => return Err(e),
-            Err(_) => {
-                // Timeout - retry
-                println!("Attempt {} timed out, retrying...", attempt + 1);
-                continue;
-            }
+            Err(_) => { println!("Attempt {} timed out", attempt + 1); continue; }  // Retry
         }
     }
 
@@ -595,9 +502,7 @@ struct ApiResponse {
     status: String,
 }
 
-/// Simple GET request
 async fn simple_get_request() -> Result<(), Box<dyn std::error::Error>> {
-    // GET request returns a Response
     let response = reqwest::get("https://httpbin.org/get").await?;
 
     println!("Status: {}", response.status());
@@ -610,12 +515,8 @@ async fn simple_get_request() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// GET request with JSON deserialization
-async fn get_json() -> Result<(), Box<dyn std::error::Error>> {
-    let response = reqwest::get("https://api.example.com/data")
-        .await?
-        .json::<ApiResponse>()
-        .await?;
+async fn get_json() -> Result<(), Box<dyn std::error::Error>> {  // Auto-deserialize JSON
+    let response = reqwest::get("https://api.example.com/data").await?.json::<ApiResponse>().await?;
 
     println!("Response: {:?}", response);
     Ok(())
@@ -646,41 +547,23 @@ struct User {
     email: String,
 }
 
-/// POST request with JSON body
-async fn create_user() -> Result<(), Box<dyn std::error::Error>> {
+async fn create_user() -> Result<(), Box<dyn std::error::Error>> {  // POST JSON
     let client = Client::new();
+    let new_user = CreateUser { username: "alice".to_string(), email: "alice@example.com".to_string() };
 
-    let new_user = CreateUser {
-        username: "alice".to_string(),
-        email: "alice@example.com".to_string(),
-    };
-
-    let response = client
-        .post("https://api.example.com/users")
-        .json(&new_user)
-        .send()
-        .await?;
-
+    let response = client.post("https://api.example.com/users").json(&new_user).send().await?;
     let created_user: User = response.json().await?;
     println!("Created user: {:?}", created_user);
-
     Ok(())
 }
 
-/// POST with form data
-async fn post_form() -> Result<(), Box<dyn std::error::Error>> {
+async fn post_form() -> Result<(), Box<dyn std::error::Error>> {  // URL-encoded form
     let client = Client::new();
-
     let mut form_data = HashMap::new();
     form_data.insert("username", "bob");
     form_data.insert("password", "secret123");
 
-    let response = client
-        .post("https://example.com/login")
-        .form(&form_data)
-        .send()
-        .await?;
-
+    let response = client.post("https://example.com/login").form(&form_data).send().await?;
     println!("Login status: {}", response.status());
     Ok(())
 }
@@ -693,45 +576,27 @@ Use `.header()` for per-request authentication headers, or configure `default_he
 ```rust
 use reqwest::{Client, header};
 
-/// Request with custom headers
 async fn request_with_auth() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
-
-    let response = client
-        .get("https://api.example.com/protected")
+    let response = client.get("https://api.example.com/protected")
         .header(header::AUTHORIZATION, "Bearer YOUR_API_TOKEN")
         .header(header::USER_AGENT, "MyApp/1.0")
-        .send()
-        .await?;
-
+        .send().await?;
     println!("Response: {}", response.text().await?);
     Ok(())
 }
 
-/// Client with default headers
 async fn client_with_defaults() -> Result<(), Box<dyn std::error::Error>> {
     let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::AUTHORIZATION,
-        header::HeaderValue::from_static("Bearer YOUR_API_TOKEN")
-    );
-    headers.insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("application/json")
-    );
+    headers.insert(header::AUTHORIZATION, header::HeaderValue::from_static("Bearer YOUR_API_TOKEN"));
+    headers.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
 
-    // Create a client with default headers
     let client = Client::builder()
-        .default_headers(headers)
+        .default_headers(headers)  // All requests include these
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 
-    // All requests with this client will include the default headers
-    let response = client
-        .get("https://api.example.com/data")
-        .send()
-        .await?;
-
+    let _response = client.get("https://api.example.com/data").send().await?;
     Ok(())
 }
 client_with_defaults().await?; // All requests include Bearer token
@@ -744,8 +609,7 @@ Implements intelligent retry logic: exponential backoff for 5xx server errors al
 use reqwest::{Client, StatusCode};
 use tokio::time::{sleep, Duration};
 
-/// Retry a request on failure
-async fn request_with_retry(
+async fn request_with_retry(  // Exponential backoff
     client: &Client,
     url: &str,
     max_retries: u32,
@@ -761,29 +625,17 @@ async fn request_with_retry(
                     StatusCode::OK => {
                         return Ok(response.text().await?);
                     }
-                    StatusCode::TOO_MANY_REQUESTS => {
-                        // Rate limited - wait and retry
-                        if attempts >= max_retries {
-                            return Err("Max retries exceeded".into());
-                        }
-                        println!("Rate limited, waiting...");
+                    StatusCode::TOO_MANY_REQUESTS => {  // Rate limited
+                        if attempts >= max_retries { return Err("Max retries exceeded".into()); }
                         sleep(Duration::from_secs(5)).await;
                         continue;
                     }
-                    status if status.is_server_error() => {
-                        // Server error - retry with backoff
-                        if attempts >= max_retries {
-                            return Err(format!("Server error: {}", status).into());
-                        }
-                        let backoff = Duration::from_secs(2u64.pow(attempts));
-                        println!("Server error, retrying in {:?}", backoff);
-                        sleep(backoff).await;
+                    status if status.is_server_error() => {  // 5xx - backoff
+                        if attempts >= max_retries { return Err(format!("Server error: {}", status).into()); }
+                        sleep(Duration::from_secs(2u64.pow(attempts))).await;
                         continue;
                     }
-                    status => {
-                        // Client error - don't retry
-                        return Err(format!("HTTP error: {}", status).into());
-                    }
+                    status => return Err(format!("HTTP error: {}", status).into()),  // 4xx - no retry
                 }
             }
             Err(e) => {
@@ -811,24 +663,17 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
 
-/// Download a file with progress tracking
-async fn download_file(
+async fn download_file(  // Streaming download with progress
     url: &str,
     output_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
     let response = client.get(url).send().await?;
 
-    // Get the total file size
     let total_size = response.content_length().unwrap_or(0);
-    println!("Downloading {} bytes", total_size);
-
-    // Create output file
     let mut file = File::create(output_path).await?;
     let mut downloaded = 0u64;
-
-    // Stream the response body
-    let mut stream = response.bytes_stream();
+    let mut stream = response.bytes_stream();  // Chunk-by-chunk
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
@@ -893,40 +738,22 @@ struct ListQuery {
 
 #[tokio::main]
 async fn basic_axum_server() {
-    // Build our application with routes
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/users", get(list_users).post(create_user))
         .route("/users/:id", get(get_user));
 
-    // Run the server
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Server running on http://{}", addr);
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    axum::Server::bind(&addr).serve(app.into_make_service()).await.unwrap();
 }
 
-//==================
-// Handler for GET /
-//==================
-async fn root_handler() -> &'static str {
-    "Hello, World!"
-}
+async fn root_handler() -> &'static str { "Hello, World!" }
 
-//=======================
-// Handler for GET /users
-//=======================
 async fn list_users(Query(params): Query<ListQuery>) -> Json<Vec<User>> {
     let page = params.page.unwrap_or(1);
     let per_page = params.per_page.unwrap_or(10);
 
-    println!("Listing users: page={}, per_page={}", page, per_page);
-
-    // In a real app, fetch from database
-    let users = vec![
+    let users = vec![  // Real app: fetch from database
         User {
             id: 1,
             username: "alice".to_string(),
@@ -942,14 +769,8 @@ async fn list_users(Query(params): Query<ListQuery>) -> Json<Vec<User>> {
     Json(users)
 }
 
-//===========================
-// Handler for GET /users/:id
-//===========================
 async fn get_user(Path(user_id): Path<u64>) -> Result<Json<User>, StatusCode> {
-    println!("Getting user {}", user_id);
-
-    // Simulate database lookup
-    if user_id == 1 {
+    if user_id == 1 {  // Real app: database lookup
         Ok(Json(User {
             id: 1,
             username: "alice".to_string(),
@@ -960,21 +781,8 @@ async fn get_user(Path(user_id): Path<u64>) -> Result<Json<User>, StatusCode> {
     }
 }
 
-//========================
-// Handler for POST /users
-//========================
-async fn create_user(
-    Json(payload): Json<CreateUserRequest>,
-) -> (StatusCode, Json<User>) {
-    println!("Creating user: {}", payload.username);
-
-    // In a real app, save to database and return the created user
-    let user = User {
-        id: 42, // Would come from database
-        username: payload.username,
-        email: payload.email,
-    };
-
+async fn create_user(Json(payload): Json<CreateUserRequest>) -> (StatusCode, Json<User>) {
+    let user = User { id: 42, username: payload.username, email: payload.email };  // ID from DB
     (StatusCode::CREATED, Json(user))
 }
 basic_axum_server(); // Routes: GET /, GET/POST /users, GET /users/:id
@@ -998,9 +806,7 @@ use serde::Serialize;
 
 #[derive(Clone)]
 struct AppState {
-    // Use Arc for shared ownership across tasks
-    // RwLock allows multiple readers or one writer
-    db: Arc<RwLock<Database>>,
+    db: Arc<RwLock<Database>>,  // Arc: shared, RwLock: multi-reader/single-writer
     config: Arc<Config>,
 }
 
@@ -1036,14 +842,9 @@ async fn stateful_server() {
     // Run server...
 }
 
-async fn get_all_users(
-    State(state): State<AppState>,
-) -> Json<Vec<User>> {
-    // Acquire read lock
-    let db = state.db.read().await;
-
-    // Clone the users (in real app, might want to use pagination)
-    Json(db.users.clone())
+async fn get_all_users(State(state): State<AppState>) -> Json<Vec<User>> {
+    let db = state.db.read().await;  // Read lock
+    Json(db.users.clone())  // Real app: paginate
 }
 stateful_server(); // Shared Arc<RwLock<Database>> across handlers
 ```
@@ -1067,15 +868,11 @@ use std::time::Instant;
 async fn middleware_example() {
     let app = Router::new()
         .route("/", get(|| async { "Hello!" }))
-        // Add middleware to all routes
-        .layer(middleware::from_fn(timing_middleware))
+        .layer(middleware::from_fn(timing_middleware))   // All routes
         .layer(middleware::from_fn(auth_middleware));
-
-    // Run server...
 }
 
-/// Middleware that logs request timing
-async fn timing_middleware<B>(
+async fn timing_middleware<B>(  // Logs request duration
     request: Request<B>,
     next: Next<B>,
 ) -> Response {
@@ -1090,24 +887,13 @@ async fn timing_middleware<B>(
     response
 }
 
-/// Middleware that checks authentication
-async fn auth_middleware<B>(
-    request: Request<B>,
-    next: Next<B>,
-) -> Response {
-    // Check for auth header
-    if let Some(auth_header) = request.headers().get("authorization") {
-        if auth_header.to_str().unwrap_or("").starts_with("Bearer ") {
-            // Valid auth, continue
-            return next.run(request).await;
+async fn auth_middleware<B>(request: Request<B>, next: Next<B>) -> Response {
+    if let Some(auth) = request.headers().get("authorization") {
+        if auth.to_str().unwrap_or("").starts_with("Bearer ") {
+            return next.run(request).await;  // Valid auth
         }
     }
-
-    // No valid auth
-    Response::builder()
-        .status(401)
-        .body("Unauthorized".into())
-        .unwrap()
+    Response::builder().status(401).body("Unauthorized".into()).unwrap()
 }
 middleware_example(); // Timing + auth middleware on all routes
 ```
@@ -1204,74 +990,42 @@ use tokio::sync::broadcast;
 
 #[derive(Clone)]
 struct AppState {
-    // Broadcast channel for sending messages to all clients
-    tx: broadcast::Sender<String>,
+    tx: broadcast::Sender<String>,  // Fan-out to all clients
 }
 
 #[tokio::main]
 async fn websocket_server() {
-    // Create broadcast channel
     let (tx, _rx) = broadcast::channel(100);
-
     let state = AppState { tx };
-
-    let app = Router::new()
-        .route("/ws", get(websocket_handler))
-        .with_state(state);
-
-    println!("WebSocket server running on http://127.0.0.1:3000");
-
-    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let app = Router::new().route("/ws", get(websocket_handler)).with_state(state);
+    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap()).serve(app.into_make_service()).await.unwrap();
 }
 
-/// Handle WebSocket upgrade requests
-async fn websocket_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    // Complete the WebSocket upgrade
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+async fn websocket_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))  // HTTP → WebSocket upgrade
 }
 
-/// Handle an individual WebSocket connection
 async fn handle_socket(socket: WebSocket, state: AppState) {
-    // Split the socket into sender and receiver
-    let (mut sender, mut receiver) = socket.split();
-
-    // Subscribe to broadcast channel
+    let (mut sender, mut receiver) = socket.split();  // Separate read/write
     let mut rx = state.tx.subscribe();
 
-    // Spawn a task to send broadcast messages to this client
-    let mut send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {  // Broadcast → client
         while let Ok(msg) = rx.recv().await {
-            // Send message to this client
-            if sender.send(Message::Text(msg)).await.is_err() {
-                break;
-            }
+            if sender.send(Message::Text(msg)).await.is_err() { break; }
         }
     });
 
-    // Spawn a task to receive messages from this client
     let tx = state.tx.clone();
-    let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            if let Message::Text(text) = msg {
-                // Broadcast the message to all clients
-                let _ = tx.send(text);
-            }
+    let mut recv_task = tokio::spawn(async move {  // Client → broadcast
+        while let Some(Ok(Message::Text(text))) = receiver.next().await {
+            let _ = tx.send(text);
         }
     });
 
-    // Wait for either task to finish
-    tokio::select! {
+    tokio::select! {  // Clean up when either task finishes
         _ = (&mut send_task) => recv_task.abort(),
         _ = (&mut recv_task) => send_task.abort(),
     }
-
-    println!("Client disconnected");
 }
 websocket_server(); // Broadcast chat: all clients receive all messages
 ```
@@ -1286,46 +1040,27 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures_util::{StreamExt, SinkExt};
 
 async fn websocket_client() -> Result<(), Box<dyn std::error::Error>> {
-    let url = "ws://127.0.0.1:3000/ws";
-
-    // Connect to the server
-    let (ws_stream, _) = connect_async(url).await?;
-    println!("Connected to {}", url);
-
+    let (ws_stream, _) = connect_async("ws://127.0.0.1:3000/ws").await?;
     let (mut write, mut read) = ws_stream.split();
 
-    // Spawn a task to handle incoming messages
-    let read_handle = tokio::spawn(async move {
+    let read_handle = tokio::spawn(async move {  // Handle incoming
         while let Some(msg) = read.next().await {
             match msg {
-                Ok(Message::Text(text)) => {
-                    println!("Received: {}", text);
-                }
-                Ok(Message::Close(_)) => {
-                    println!("Server closed connection");
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    break;
-                }
+                Ok(Message::Text(text)) => println!("Received: {}", text),
+                Ok(Message::Close(_)) => break,
+                Err(_) => break,
                 _ => {}
             }
         }
     });
 
-    // Send some messages
-    for i in 0..5 {
-        let msg = format!("Message {}", i);
-        write.send(Message::Text(msg)).await?;
+    for i in 0..5 {  // Send messages
+        write.send(Message::Text(format!("Message {}", i))).await?;
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    // Close the connection
-    write.send(Message::Close(None)).await?;
-
+    write.send(Message::Close(None)).await?;  // Graceful close
     read_handle.await?;
-
     Ok(())
 }
 websocket_client().await?; // Connect, send 5 messages, close
@@ -1348,9 +1083,7 @@ struct ChatServer {
 }
 
 struct Room {
-    // Broadcast channel for this room
-    tx: broadcast::Sender<ChatMessage>,
-    // Connected users
+    tx: broadcast::Sender<ChatMessage>,  // Per-room broadcast
     users: HashMap<UserId, UserInfo>,
 }
 
@@ -1398,11 +1131,7 @@ impl ChatServer {
         let mut rooms = self.rooms.write().await;
         if let Some(room) = rooms.get_mut(room_id) {
             room.users.remove(user_id);
-
-            // Clean up empty rooms
-            if room.users.is_empty() {
-                rooms.remove(room_id);
-            }
+            if room.users.is_empty() { rooms.remove(room_id); }  // GC empty rooms
         }
     }
 }

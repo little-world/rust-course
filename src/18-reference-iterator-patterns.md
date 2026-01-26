@@ -59,7 +59,7 @@ fn mixed_bindings(record: &Record) {
     let Record { id, data, name } = record;
     // id: u64 (copied), data: &Vec<u8>, name: &String
 
-    // This works because u64: Copy, so it's copied rather than moved
+    // u64: Copy, so it's copied rather than moved
 }
 
 fn force_ref_for_copy(record: &Record) {
@@ -68,9 +68,8 @@ fn force_ref_for_copy(record: &Record) {
     // id: &u64
 }
 
-// Usage:
-// let r = Record { id: 42, data: vec![1, 2], name: "test".into() };
-// mixed_bindings(&r);  // id copies, data/name are references
+// let r = Record { id: 42, data: vec![1,2], name: "test".into() };
+// mixed_bindings(&r);  // id copies, data/name borrow
 ```
 
 ### Example: Pattern Matching with Enums and Nested References
@@ -87,7 +86,7 @@ impl<T> Tree<T> {
     fn left(&self) -> Option<&Tree<T>> {
         match self {
             Tree::Node(left, _) => Some(left),
-            // left: &Box<Tree<T>>, deref coercion gives &Tree<T>
+            // left: &Box<Tree<T>>, coerced to &Tree<T>
             Tree::Leaf(_) => None,
         }
     }
@@ -102,9 +101,10 @@ impl<T> Tree<T> {
     }
 }
 
-// Usage:
-// let tree = Tree::Node(Box::new(Tree::Leaf(1)), Box::new(Tree::Leaf(2)));
-// if let Some(left) = tree.left() { println!("has left subtree"); }
+// let tree = Tree::Node(
+//     Box::new(Tree::Leaf(1)), Box::new(Tree::Leaf(2))
+// );
+// if let Some(l) = tree.left() { println!("has left"); }
 ```
 
 ## Pattern 2: Deref Trait Mechanics and Type Resolution
@@ -121,7 +121,7 @@ impl<T> Tree<T> {
 use std::ops::{Deref, DerefMut};
 
 // Deref defines: fn deref(&self) -> &Self::Target
-// DerefMut defines: fn deref_mut(&mut self) -> &mut Self::Target
+// DerefMut: fn deref_mut(&mut self) -> &mut Self::Target
 
 // The relationship between * and deref:
 // *x where x: T is equivalent to *Deref::deref(&x)
@@ -139,15 +139,15 @@ impl<T> DerefMut for Wrapper<T> {
 }
 
 fn deref_typing() {
-    let w: Wrapper<String> = Wrapper(String::from("hello"));
+    let w: Wrapper<String> = Wrapper("hello".into());
 
     // Type of expressions:
     let _: &String = &*w;           // explicit deref then ref
     let _: &String = w.deref();     // method call
-    let _: &str = &*w;              // deref coercion: &String -> &str
+    let _: &str = &*w;              // coercion: &String -> &str
 
-    // The * operator dereferences the return value of deref()
-    // *w is sugar for *(w.deref()), which is *(&self.0), which is self.0
+    // The * operator dereferences the return of deref()
+    // *w is sugar for *(w.deref()) = *(&self.0) = self.0
 }
 
 // Usage:
@@ -170,7 +170,7 @@ fn coercion_contexts() {
     // Coercion sites:
     // 1. Function/method arguments
     takes_str(&s);          // &String -> &str
-    takes_str(&boxed);      // &Box<String> -> &String -> &str
+    takes_str(&boxed);      // &Box<String> -> &str
 
     // 2. Let bindings with explicit type
     let _: &str = &s;       // coerced
@@ -187,12 +187,12 @@ fn coercion_contexts() {
 // Coercion rules:
 // &T      -> &U       where T: Deref<Target=U>
 // &mut T  -> &mut U   where T: DerefMut<Target=U>
-// &mut T  -> &U       where T: Deref<Target=U>  (mut to shared OK)
+// &mut T  -> &U       where T: Deref<Target=U> (mut->shared OK)
 // &T      -> &mut U   NEVER (shared to mut forbidden)
 
 // Usage:
 // let s = String::from("hello");
-// takes_str(&s);  // automatic coercion from &String to &str
+// takes_str(&s);  // auto coercion: &String to &str
 ```
 
 ### Example: DerefMut and Interior Mutability Interaction
@@ -220,15 +220,16 @@ impl<T> DerefMut for TrackedMut<T> {
     }
 }
 
-// Key insight: DerefMut requires &mut self, but the RefCell
-// allows mutation through &self. This is a valid pattern because
-// we're not mutating through DerefMut, we're using interior mutability
-// for metadata while DerefMut gives mutable access to the wrapped value.
+// Key insight: DerefMut requires &mut self, but RefCell
+// allows mutation through &self. Valid because we use
+// interior mutability for metadata, while DerefMut gives
+// mutable access to the wrapped value.
 
-// Usage:
-// let mut t = TrackedMut { value: String::new(), write_count: RefCell::new(0) };
-// t.push_str("hello");  // increments write_count via DerefMut
-// println!("writes: {}", t.write_count.borrow());  // prints 1
+// let mut t = TrackedMut {
+//     value: String::new(), write_count: RefCell::new(0)
+// };
+// t.push_str("hello");  // increments write_count
+// println!("writes: {}", t.write_count.borrow());
 ```
 
 ## Pattern 3: Type System Rules for Auto-Referencing
@@ -259,12 +260,12 @@ fn resolution_order() {
     // 3. S::method(&mut s)      - inherent, by mut ref
     // 4. <S as Trait>::method(s)    - trait, by value
     // 5. <S as Trait>::method(&s)   - trait, by ref
-    // 6. <S as Trait>::method(&mut s) - trait, by mut ref
+    // 6. <S as Trait>::method(&mut s) - trait, by mut
     // 7. Deref to U, repeat 1-6 with U
     // 8. Unsized coercion, repeat
 
-    // This order means by_ref is NOT called via auto-ref when
-    // by_value exists, unless by_value's receiver doesn't match.
+    // by_ref is NOT called via auto-ref when by_value exists,
+    // unless by_value's receiver doesn't match.
 }
 
 // Usage:
@@ -292,7 +293,7 @@ impl std::ops::Deref for Outer {
     fn deref(&self) -> &Inner { &self.0 }
 }
 
-fn deref_chain_resolution() {
+fn deref_chain() {
     let rc: Rc<Outer> = Rc::new(Outer(Inner));
 
     // rc.inner_method() resolution:
@@ -306,9 +307,8 @@ fn deref_chain_resolution() {
     let _: &str = rc.inner_method();
 }
 
-// Usage:
 // let rc = Rc::new(Outer(Inner));
-// rc.inner_method();  // resolves through Rc -> Outer -> Inner
+// rc.inner_method();  // resolves: Rc -> Outer -> Inner
 ```
 
 ### Example: Ambiguity and Explicit Disambiguation
@@ -380,8 +380,7 @@ fn invariance_demo<'a>(
     // even though &'static str: 'a
 }
 
-// Usage:
-// covariance_demo("static", &String::from("temp"));  // 'static outlives temp
+// covariance_demo("static", &"temp".to_string());
 ```
 
 ### Example: PhantomData for Variance Control
@@ -400,10 +399,10 @@ struct Contravariant<T>(PhantomData<fn(T)>);
 // Invariant in T (like storing &mut T)
 struct Invariant<T>(PhantomData<fn(T) -> T>);
 
-// Practical example: a handle that conceptually "owns" T
+// Practical example: handle that conceptually "owns" T
 struct Handle<T> {
     id: u64,
-    _marker: PhantomData<T>,  // Covariant: Handle<Cat> can be Handle<Animal>
+    _marker: PhantomData<T>,  // Covariant
 }
 
 // A handle that can produce T values
@@ -418,9 +417,9 @@ struct Consumer<T> {
     _marker: PhantomData<fn(T)>,  // Contravariant in T
 }
 
-// Usage:
-// let h: Handle<String> = Handle { id: 1, _marker: PhantomData };
-// // Handle<String> can be used where Handle<&str> might be expected (covariant)
+// let h: Handle<String> = Handle {
+//     id: 1, _marker: PhantomData
+// };
 ```
 
 ### Example: Lifetime Bounds and Higher-Ranked Trait Bounds
@@ -447,12 +446,12 @@ where
 }
 
 // Practical example: comparison functions
-fn sort_by<T, F>(slice: &mut [T], compare: F)
+fn sort_by<T, F>(slice: &mut [T], cmp: F)
 where
-    F: for<'a> Fn(&'a T, &'a T) -> std::cmp::Ordering
+    F: for<'a> Fn(&'a T, &'a T) -> std::cmp::Ordering,
 {
-    // compare must work with any borrowed elements
-    slice.sort_by(|a, b| compare(a, b));
+    // cmp must work with any borrowed elements
+    slice.sort_by(|a, b| cmp(a, b));
 }
 
 // Usage:
@@ -519,7 +518,7 @@ struct Data {
 }
 
 impl Data {
-    // Returns mutable references to both fields simultaneously
+    // Returns mut refs to both fields simultaneously
     fn split(&mut self) -> (&mut Vec<i32>, &mut Vec<i32>) {
         (&mut self.left, &mut self.right)
     }
@@ -529,32 +528,36 @@ impl Data {
 fn slice_split() {
     let mut arr = [1, 2, 3, 4, 5];
 
-    // split_at_mut returns two non-overlapping mutable slices
+    // split_at_mut returns two non-overlapping mut slices
     let (left, right) = arr.split_at_mut(2);
     // left: &mut [1, 2], right: &mut [3, 4, 5]
 
     left[0] = 10;
     right[0] = 30;
-    // Both mutations are valid because slices don't overlap
+    // Both valid because slices don't overlap
 }
 
-// Manual split with unsafe (when safe API isn't available)
-fn manual_split<T>(slice: &mut [T], mid: usize) -> (&mut [T], &mut [T]) {
+// Manual split with unsafe (when safe API unavailable)
+fn manual_split<T>(
+    slice: &mut [T],
+    mid: usize,
+) -> (&mut [T], &mut [T]) {
     assert!(mid <= slice.len());
-
+    let len = slice.len();
     let ptr = slice.as_mut_ptr();
     unsafe {
         (
             std::slice::from_raw_parts_mut(ptr, mid),
-            std::slice::from_raw_parts_mut(ptr.add(mid), slice.len() - mid),
+            std::slice::from_raw_parts_mut(
+                ptr.add(mid), len - mid
+            ),
         )
     }
 }
 
-// Usage:
-// let mut data = Data { left: vec![1], right: vec![2] };
-// let (l, r) = data.split();  // borrow both fields mutably
-// l.push(10); r.push(20);     // modify both simultaneously
+// let mut d = Data { left: vec![1], right: vec![2] };
+// let (l, r) = d.split();  // borrow both fields mutably
+// l.push(10); r.push(20);  // modify both simultaneously
 ```
 
 ## Pattern 6: Method Receivers and Self Types
@@ -580,36 +583,35 @@ impl Widget {
     fn mut_method(&mut self) { self.name.push_str("!"); }
     fn owned_method(self) -> String { self.name }
 
-    // Arbitrary self types (requires #![feature(arbitrary_self_types)]
-    // for custom types, but these work in stable):
+    // Arbitrary self types (stable for Box/Rc/Arc/Pin):
     fn box_method(self: Box<Self>) -> String { self.name }
     fn rc_method(self: Rc<Self>) -> Rc<Self> { self }
     fn arc_method(self: Arc<Self>) -> Arc<Self> { self }
-    fn pin_method(self: Pin<&Self>) -> &str { &self.get_ref().name }
+    fn pin_method(self: Pin<&Self>) -> &str {
+        &self.get_ref().name
+    }
     fn pin_mut_method(self: Pin<&mut Self>) {
-        // Must maintain pin invariants
         self.get_mut().name.push_str("!");
     }
 }
 
 fn receiver_types() {
-    // Each receiver type determines how the method is called
+    // Each receiver determines how the method is called
     let w = Widget { name: "w".into() };
     let _ = w.ref_method();      // auto-ref to &Widget
 
-    let boxed = Box::new(Widget { name: "boxed".into() });
+    let boxed = Box::new(Widget { name: "b".into() });
     let _ = boxed.box_method();  // consumes Box<Widget>
 
     let rc = Rc::new(Widget { name: "rc".into() });
     let rc2 = rc.clone();
-    let _ = rc.rc_method();      // consumes one Rc handle
-    let _ = rc2.ref_method();    // Deref through Rc to call &self method
+    let _ = rc.rc_method();   // consumes one Rc handle
+    let _ = rc2.ref_method(); // Deref to call &self method
 }
 
-// Usage:
 // let w = Widget { name: "test".into() };
 // println!("{}", w.ref_method());  // "test"
-// let name = w.owned_method();     // consumes w, returns "test"
+// let name = w.owned_method();     // consumes w
 ```
 
 ### Example: Trait Object Receivers and Object Safety
@@ -626,9 +628,9 @@ trait ObjectSafe {
 
 trait NotObjectSafe {
     // NOT allowed in trait objects:
-    fn by_value(self);  // Requires knowing size at compile time
-    fn generic<T>(&self, t: T);  // Generic methods can't use vtable
-    fn returns_self(&self) -> Self;  // Size of Self unknown
+    fn by_value(self);  // Requires knowing size
+    fn generic<T>(&self, t: T);  // Can't use vtable
+    fn returns_self(&self) -> Self;  // Size unknown
 }
 
 struct MyType;
@@ -673,24 +675,23 @@ trait Iterator {
 // impl IntoIterator for &mut Vec<T>  -> Item = &mut T
 
 fn type_signatures() {
-    let vec: Vec<String> = vec!["a".into(), "b".into()];
+    let v: Vec<String> = vec!["a".into(), "b".into()];
 
     // Type of iterator and items:
-    let iter: std::vec::IntoIter<String> = vec.into_iter();
+    let iter: std::vec::IntoIter<String> = v.into_iter();
     // iter.next() returns Option<String>
 
-    let vec: Vec<String> = vec!["a".into(), "b".into()];
-    let iter: std::slice::Iter<'_, String> = vec.iter();
+    let v: Vec<String> = vec!["a".into(), "b".into()];
+    let iter: std::slice::Iter<'_, String> = v.iter();
     // iter.next() returns Option<&String>
 
-    let mut vec: Vec<String> = vec!["a".into(), "b".into()];
-    let iter: std::slice::IterMut<'_, String> = vec.iter_mut();
+    let mut v: Vec<String> = vec!["a".into(), "b".into()];
+    let iter: std::slice::IterMut<'_, String> = v.iter_mut();
     // iter.next() returns Option<&mut String>
 }
 
-// Usage:
-// for s in vec.iter() { println!("{}", s); }      // borrows
-// for s in vec.into_iter() { println!("{}", s); } // consumes
+// for s in v.iter() { println!("{}", s); }      // borrows
+// for s in v.into_iter() { println!("{}", s); } // consumes
 ```
 
 ### Example: Lifetime Bounds in Iterators
@@ -716,19 +717,19 @@ impl<'a, T> Iterator for Windows<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos + self.size <= self.slice.len() {
-            let window = &self.slice[self.pos..self.pos + self.size];
+            let start = self.pos;
+            let end = self.pos + self.size;
             self.pos += 1;
-            Some(window)
+            Some(&self.slice[start..end])
         } else {
             None
         }
     }
 }
 
-// Usage:
 // let data = [1, 2, 3, 4, 5];
-// let windows = Windows { slice: &data, size: 3, pos: 0 };
-// for w in windows { println!("{:?}", w); }  // [1,2,3], [2,3,4], [3,4,5]
+// let w = Windows { slice: &data, size: 3, pos: 0 };
+// for win in w { println!("{:?}", win); }
 ```
 
 ### Example: Returning Iterators with Type Inference
@@ -741,10 +742,10 @@ fn even_numbers(limit: i32) -> impl Iterator<Item = i32> {
     (0..limit).filter(|n| n % 2 == 0)
 }
 
-// With lifetime
+// With lifetime bound
 fn filter_prefix<'a>(
     strings: &'a [String],
-    prefix: &'a str
+    prefix: &'a str,
 ) -> impl Iterator<Item = &'a String> + 'a {
     strings.iter().filter(move |s| s.starts_with(prefix))
 }
@@ -768,10 +769,9 @@ impl Iterator for Evens {
     }
 }
 
-// Usage:
-// for n in even_numbers(10) { print!("{} ", n); }  // 0 2 4 6 8
-// let evens = Evens { current: 0, limit: 6 };
-// let v: Vec<_> = evens.collect();  // [0, 2, 4]
+// for n in even_numbers(10) { print!("{n} "); } // 0 2 4 6 8
+// let e = Evens { current: 0, limit: 6 };
+// let v: Vec<_> = e.collect();  // [0, 2, 4]
 ```
 
 ## Pattern 8: Reference Conversion Trait Hierarchy
@@ -788,14 +788,17 @@ impl Iterator for Evens {
 use std::borrow::Borrow;
 
 // AsRef: cheap reference conversion
-// Use when you want to accept anything that can be viewed as &T
+// Accept anything that can be viewed as &T
 fn print_path<P: AsRef<std::path::Path>>(path: P) {
     println!("{:?}", path.as_ref());
 }
 
 // Borrow: semantic equivalence (same Hash, Eq, Ord)
 // Use for lookup keys in collections
-fn lookup<'a, K, V, Q>(map: &'a std::collections::HashMap<K, V>, key: &Q) -> Option<&'a V>
+fn lookup<'a, K, V, Q>(
+    map: &'a std::collections::HashMap<K, V>,
+    key: &Q,
+) -> Option<&'a V>
 where
     K: Borrow<Q> + std::hash::Hash + Eq,
     Q: std::hash::Hash + Eq + ?Sized,
@@ -804,8 +807,8 @@ where
 }
 
 // Key distinction:
-// - AsRef is for type conversion (String -> Path is valid)
-// - Borrow requires semantic equivalence (String::borrow() -> &str has same hash)
+// - AsRef: type conversion (String -> Path is valid)
+// - Borrow: semantic equivalence (same hash)
 
 fn trait_differences() {
     let s = String::from("hello");
@@ -818,13 +821,12 @@ fn trait_differences() {
 
     // Borrow: semantic equivalence only
     let _: &str = s.borrow();
-    // String doesn't impl Borrow<[u8]> because hash would differ
+    // String doesn't impl Borrow<[u8]> (hash differs)
 }
 
-// Usage:
 // print_path("file.txt");  // &str -> &Path via AsRef
-// let map: HashMap<String, i32> = [("key".into(), 1)].into();
-// map.get("key");  // &str lookup on String keys via Borrow
+// let map: HashMap<String, i32> = [("k".into(), 1)].into();
+// map.get("k");  // &str lookup on String keys
 ```
 
 ### Example: ToOwned and Cow
@@ -869,16 +871,15 @@ fn cow_in_structs() {
     };
 
     let config2 = Config {
-        name: Cow::Owned(String::from("dynamic")),
+        name: Cow::Owned("dynamic".into()),
         data: Cow::Owned(vec![4, 5, 6]),
     };
 
     // Both have the same type: Config<'_>
 }
 
-// Usage:
-// let name = process_name("John");       // Cow::Borrowed (no alloc)
-// let name = process_name("Jane Doe");   // Cow::Owned (allocates)
+// let n = process_name("John");       // Cow::Borrowed (no alloc)
+// let n = process_name("Jane Doe");   // Cow::Owned (allocates)
 ```
 
 ## Pattern 9: Conversion Naming Conventions
@@ -908,15 +909,18 @@ impl Buffer {
     // to_: returns owned, may allocate/clone
     fn to_vec(&self) -> Vec<u8> { self.data.clone() }
     fn to_hex(&self) -> String {
-        self.data.iter().map(|b| format!("{:02x}", b)).collect()
+        self.data.iter()
+            .map(|b| format!("{:02x}", b))
+            .collect()
     }
 
     // into_: consumes self, returns owned
     fn into_vec(self) -> Vec<u8> { self.data }
-    fn into_boxed_slice(self) -> Box<[u8]> { self.data.into_boxed_slice() }
+    fn into_boxed_slice(self) -> Box<[u8]> {
+        self.data.into_boxed_slice()
+    }
 }
 
-// Usage:
 // let buf = Buffer { data: vec![1, 2, 3] };
 // let slice: &[u8] = buf.as_slice();   // borrows
 // let owned: Vec<u8> = buf.into_vec(); // consumes buf
@@ -953,18 +957,16 @@ impl Handle {
 impl Drop for Handle {
     fn drop(&mut self) {
         unsafe {
-            std::alloc::dealloc(
-                self.ptr,
-                std::alloc::Layout::from_size_align_unchecked(self.len, 1)
-            );
+            let layout = std::alloc::Layout::
+                from_size_align_unchecked(self.len, 1);
+            std::alloc::dealloc(self.ptr, layout);
         }
     }
 }
 
-// Usage:
-// let raw = handle.into_raw();           // transfer ownership out
-// let handle = Handle::from_raw(raw, len); // reclaim ownership
-// let ptr = handle.as_ptr();             // borrow as raw ptr (no transfer)
+// let raw = handle.into_raw();      // transfer ownership out
+// let h = Handle::from_raw(raw, n); // reclaim ownership
+// let ptr = h.as_ptr();             // borrow as raw ptr
 ```
 
 ## Pattern 10: Pin and Self-Referential Types
@@ -1016,10 +1018,9 @@ impl SelfReferential {
     }
 }
 
-// Usage:
 // let pinned = SelfReferential::new("hello".into());
-// println!("{}", pinned.as_ref().data());  // access through Pin
-// // let moved = *pinned;  // ERROR: can't move out of Pin<!Unpin>
+// println!("{}", pinned.as_ref().data()); // via Pin
+// // let moved = *pinned;  // ERROR: can't move Pin<!Unpin>
 ```
 
 These patterns form the foundation of Rust's zero-cost abstractions around references. The type system enforces borrowing rules at compile time, while traits like `Deref` and `AsRef` enable ergonomic APIs without runtime overhead.

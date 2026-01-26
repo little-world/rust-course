@@ -209,8 +209,7 @@ static mut Q: Queue<[u8; 32], 8> = Queue::new();
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
 fn producer_task() {
-    // Safety: only called before RTOS start, so we get a unique splitter.
-    let (mut prod, _) = unsafe { Q.split() };
+    let (mut prod, _) = unsafe { Q.split() };  // Safety: called before RTOS start
     let mut packet = [0u8; 32];
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     packet[..4].copy_from_slice(&id.to_le_bytes());
@@ -219,9 +218,7 @@ fn producer_task() {
 
 fn consumer_task() {
     let (_, mut cons) = unsafe { Q.split() };
-    while let Some(pkt) = cons.dequeue() {
-        process_packet(&pkt);
-    }
+    while let Some(pkt) = cons.dequeue() { process_packet(&pkt); }
 }
 ```
 
@@ -279,16 +276,8 @@ Configure a double-buffered DMA for continuous audio streaming. Two pre-allocate
 static mut AUDIO_BUFFERS: [[i16; 256]; 2] = [[0; 256]; 2];
 
 fn start_audio_dma(dma: &mut stm32h7xx_hal::dma::StreamX<DMA1>) {
-    let (buf_a, buf_b) = unsafe {
-        (
-            &mut AUDIO_BUFFERS[0] as *mut _,
-            &mut AUDIO_BUFFERS[1] as *mut _,
-        )
-    };
-    unsafe {
-        dma.set_memory0(buf_a as *mut _);
-        dma.set_memory1(buf_b as *mut _);
-    }
+    let (buf_a, buf_b) = unsafe { (&mut AUDIO_BUFFERS[0] as *mut _, &mut AUDIO_BUFFERS[1] as *mut _) };
+    unsafe { dma.set_memory0(buf_a as *mut _); dma.set_memory1(buf_b as *mut _); }
     dma.enable_double_buffer();
     dma.start();
 }
@@ -368,16 +357,11 @@ static SENSOR: Mutex<RefCell<Option<EnvSensor<I2cDriver>>>> =
     Mutex::new(RefCell::new(None));
 
 fn init_sensor(bus: I2cDriver) {
-    critical_section::with(|cs| {
-        *SENSOR.borrow(cs).borrow_mut() = Some(EnvSensor { bus });
-    });
+    critical_section::with(|cs| { *SENSOR.borrow(cs).borrow_mut() = Some(EnvSensor { bus }); });
 }
 
 fn read_temperature() -> Option<i16> {
-    critical_section::with(|cs| {
-        let mut guard = SENSOR.borrow(cs).borrow_mut();
-        guard.as_mut().and_then(|sensor| sensor.bus.read_temp().ok())
-    })
+    critical_section::with(|cs| SENSOR.borrow(cs).borrow_mut().as_mut().and_then(|s| s.bus.read_temp().ok()))
 }
 ```
 

@@ -46,18 +46,11 @@ fn basic_serialization() -> Result<(), Box<dyn std::error::Error>> {
         email: "alice@example.com".to_string(),
     };
 
-    // Serialize to JSON (compact representation)
-    let json = serde_json::to_string(&person)?;
+    let json = serde_json::to_string(&person)?; // Compact
     println!("JSON: {}", json);
-    // Output: {"name":"Alice","age":30,"email":"alice@example.com"}
-
-    // Pretty print (human-readable with indentation)
-    let json_pretty = serde_json::to_string_pretty(&person)?;
+    let json_pretty = serde_json::to_string_pretty(&person)?; // Indented
     println!("Pretty JSON:\n{}", json_pretty);
-
-    // Deserialize from JSON back to a Rust struct
-    // Serde validates types: wrong types or missing fields → error
-    let deserialized: Person = serde_json::from_str(&json)?;
+    let deserialized: Person = serde_json::from_str(&json)?; // Validates types
     println!("Deserialized: {:?}", deserialized);
 
     Ok(())
@@ -82,34 +75,22 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct User {
-    // Rename: use "username" in JSON, but "name" in Rust code
-    #[serde(rename = "username")]
+    #[serde(rename = "username")]     // JSON: "username", Rust: "name"
     name: String,
 
-    // Skip serializing if None (reduces JSON size)
-    // Field is serialized as "middleName": "value" only when Some
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")] // Omit None values
     middle_name: Option<String>,
 
-    // Provide default value when deserializing if field is missing
-    // If JSON doesn't include "age", this becomes 0
-    #[serde(default)]
+    #[serde(default)]                 // Missing → 0
     age: u32,
 
-    // Skip this field entirely (never serialize or deserialize)
-    // Useful for runtime-only data or secrets
-    #[serde(skip)]
+    #[serde(skip)]                    // Never serialized
     password_hash: String,
 
-    // Accept multiple names during deserialization
-    // Deserializes from "mail", "e-mail", or "email"
-    #[serde(alias = "mail", alias = "e-mail")]
+    #[serde(alias = "mail", alias = "e-mail")] // Accept old names
     email: String,
 
-    // Flatten: merge nested struct's fields into parent
-    // Instead of "metadata": {"created_at": ...}
-    // you get "created_at": ... at the top level
-    #[serde(flatten)]
+    #[serde(flatten)]                 // Merge nested fields to parent
     metadata: Metadata,
 }
 
@@ -122,13 +103,13 @@ struct Metadata {
 fn field_attributes_example() -> Result<(), Box<dyn std::error::Error>> {
     let user = User {
         name: "Bob".to_string(),
-        middle_name: None,  // Won't appear in JSON
+        middle_name: None,
         age: 25,
-        password_hash: "secret".to_string(),  // Never serialized
+        password_hash: "secret".to_string(),
         email: "bob@example.com".to_string(),
         metadata: Metadata {
             created_at: Some("2024-01-01".to_string()),
-            updated_at: None,  // Won't appear in JSON
+            updated_at: None,
         },
     };
 
@@ -158,18 +139,16 @@ The `#[serde(rename_all = "camelCase")]` converts `snake_case` to `camelCase` fo
 Use `deny_unknown_fields` to reject unexpected fields, and `#[serde(tag = "type")]` for discriminated enum unions.
 
 ```rust
-// Rust: status_code → JSON: statusCode
+// snake_case → camelCase automatically
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApiResponse {
-    status_code: u32,        // → statusCode in JSON
-    error_message: Option<String>,  // → errorMessage in JSON
-    response_data: Vec<String>,     // → responseData in JSON
+    status_code: u32,               // → statusCode
+    error_message: Option<String>,  // → errorMessage
+    response_data: Vec<String>,     // → responseData
 }
 
-// Deny unknown fields during deserialization
-// Fails if JSON contains fields not defined in the struct
-// Use this to detect API version mismatches early
+// Reject unknown fields (detect API mismatches)
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StrictConfig {
@@ -177,19 +156,16 @@ struct StrictConfig {
     port: u16,
 }
 
-// Tagged enum: adds a "type" field to identify the variant
-// Useful for discriminated unions in JSON
+// Tagged enum: "type" field identifies variant
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 enum Message {
     Text { content: String },
     Image { url: String, width: u32, height: u32 },
     Video { url: String, duration: u32 },
-}
-// Serializes as: {"type": "Image", "url": "...", "width": 1920, "height": 1080}
+} // {"type": "Image", "url": "...", ...}
 
-// Untagged enum: no type field, variant determined by structure
-// Serde tries to deserialize as each variant until one succeeds
+// Untagged: tries variants until one succeeds
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum Value {
@@ -197,8 +173,7 @@ enum Value {
     Float(f64),
     String(String),
     Bool(bool),
-}
-// Serializes as: 42, 3.14, "hello", or true (no type tag)
+} // Serializes as: 42, 3.14, "hello", true
 
 fn enum_serialization() -> Result<(), Box<dyn std::error::Error>> {
     let message = Message::Image {
@@ -251,14 +226,11 @@ use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Config {
-    // Serialize Duration as seconds (u64) instead of nanos
-    // Makes JSON more readable: "timeout": 300 instead of "timeout": 300000000000
     #[serde(serialize_with = "serialize_duration", deserialize_with = "deserialize_duration")]
-    timeout: std::time::Duration,
+    timeout: std::time::Duration, // Serializes as seconds (u64)
 
-    // Custom date format
     #[serde(serialize_with = "serialize_date", deserialize_with = "deserialize_date")]
-    created_at: chrono::NaiveDate,
+    created_at: chrono::NaiveDate, // Custom format
 }
 
 ```
@@ -272,8 +244,7 @@ fn serialize_duration<S>(duration: &std::time::Duration, serializer: S) -> Resul
 where
     S: Serializer,
 {
-    // Convert to seconds and serialize as a simple number
-    serializer.serialize_u64(duration.as_secs())
+    serializer.serialize_u64(duration.as_secs()) // Duration → seconds
 }
 
 ```
@@ -319,26 +290,18 @@ fn deserialize_date<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
 where
     D: Deserializer<'de>,
 {
-    // Implement Visitor pattern for type-safe deserialization
     struct DateVisitor;
-
     impl<'de> Visitor<'de> for DateVisitor {
         type Value = NaiveDate;
-
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a date string in YYYY-MM-DD format")
+            formatter.write_str("date string YYYY-MM-DD")
         }
-
         fn visit_str<E>(self, value: &str) -> Result<NaiveDate, E>
-        where
-            E: de::Error,
-        {
-            // Parse string, convert parse errors to serde errors
+        where E: de::Error {
             NaiveDate::parse_from_str(value, "%Y-%m-%d")
                 .map_err(|e| E::custom(format!("Invalid date: {}", e)))
         }
     }
-
     deserializer.deserialize_str(DateVisitor)
 }
 Config { timeout: Duration::from_secs(300), created_at: NaiveDate::from_ymd(2024, 1, 1) }
@@ -376,10 +339,7 @@ Call `end()` to finalize—forgetting it is a compile error.
 ```rust
 impl Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize as a struct with 2 fields
+    where S: Serializer {
         let mut state = serializer.serialize_struct("Point", 2)?;
         state.serialize_field("x", &self.x)?;
         state.serialize_field("y", &self.y)?;
@@ -396,13 +356,8 @@ This pattern catches duplicate, missing, and unknown fields with descriptive err
 ```rust
 impl<'de> Deserialize<'de> for Point {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Define field identifiers
+    where D: Deserializer<'de> {
         enum Field { X, Y }
-
-        // Implement Deserialize for Field enum
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
             where
@@ -450,7 +405,6 @@ impl<'de> Deserialize<'de> for Point {
                 let mut x = None;
                 let mut y = None;
 
-                // Read each field from the map
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::X => {
@@ -467,17 +421,13 @@ impl<'de> Deserialize<'de> for Point {
                         }
                     }
                 }
-
-                // Ensure required fields are present
                 let x = x.ok_or_else(|| de::Error::missing_field("x"))?;
                 let y = y.ok_or_else(|| de::Error::missing_field("y"))?;
-
                 Ok(Point { x, y })
             }
         }
 
-        const FIELDS: &[&str] = &["x", "y"];
-        deserializer.deserialize_struct("Point", FIELDS, PointVisitor)
+        deserializer.deserialize_struct("Point", &["x", "y"], PointVisitor)
     }
 }
 let json = serde_json::to_string(&Point { x: 1.0, y: 2.0 })?;
@@ -503,18 +453,13 @@ Serialized output can include computed data not stored in the struct—here `use
 The serializer sees 2 fields even though `Database` stores one, keeping in-memory representation minimal.
 
 ```rust
-// Adds a "user_count" field that isn't stored in the struct
 impl Serialize for Database {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         use serde::ser::SerializeStruct;
-
         let mut state = serializer.serialize_struct("Database", 2)?;
         state.serialize_field("users", &self.users)?;
-        // Serialize computed field
-        state.serialize_field("user_count", &self.users.len())?;
+        state.serialize_field("user_count", &self.users.len())?; // Computed
         state.end()
     }
 }
@@ -526,26 +471,18 @@ A wrapper struct carries configuration affecting serialization—here `include_m
 The wrapper holds a reference (`&'a T`) to avoid copying, enabling runtime-configurable serialization.
 
 ```rust
-// Allows passing configuration to serialization logic
-struct SerializeWithContext<'a, T> {
-    value: &'a T,
-    include_metadata: bool,
-}
+struct SerializeWithContext<'a, T> { value: &'a T, include_metadata: bool }
 
 impl<'a, T: Serialize> Serialize for SerializeWithContext<'a, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    where S: Serializer {
         if self.include_metadata {
-            // Wrap value with metadata
             use serde::ser::SerializeStruct;
             let mut state = serializer.serialize_struct("WithMetadata", 2)?;
             state.serialize_field("data", self.value)?;
             state.serialize_field("serialized_at", &chrono::Utc::now().to_rfc3339())?;
             state.end()
         } else {
-            // Serialize value directly
             self.value.serialize(serializer)
         }
     }
@@ -580,33 +517,20 @@ Zero-copy deserialization borrows directly from input—`#[serde(borrow)]` uses 
 The lifetime `'a` ties the struct to input; this is 10x faster and uses O(1) memory regardless of string length.
 
 ```rust
-// Lifetimes ensure the struct can't outlive the input
 #[derive(Deserialize, Debug)]
 struct BorrowedData<'a> {
-    // #[serde(borrow)] tells serde to borrow instead of copying
     #[serde(borrow)]
-    name: &'a str,
-
+    name: &'a str,           // Borrows from input
     #[serde(borrow)]
-    description: &'a str,
-
-    count: u32,  // Primitive types are always copied
+    description: &'a str,    // Borrows from input
+    count: u32,              // Primitives always copied
 }
 
 fn zero_copy_example() -> Result<(), Box<dyn std::error::Error>> {
     let json = r#"{"name": "Product", "description": "A great product", "count": 42}"#;
-
-    // No string allocation happens here!
-    // name and description borrow from the `json` string
-    let data: BorrowedData = serde_json::from_str(json)?;
-
-    println!("Name: {}", data.name);
-    println!("Description: {}", data.description);
-    println!("Count: {}", data.count);
-
-    // data can't outlive json due to lifetime 'a
-    // This won't compile: return data;
-
+    let data: BorrowedData = serde_json::from_str(json)?; // No allocation!
+    println!("Name: {}, Count: {}", data.name, data.count);
+    // data can't outlive json (won't compile: return data;)
     Ok(())
 }
 zero_copy_example()?; // Borrows strings from JSON input
@@ -618,26 +542,18 @@ zero_copy_example()?; // Borrows strings from JSON input
 This gives zero-copy performance for clean data while automatically handling complex cases correctly.
 
 ```rust
-// Borrows when possible, owns when necessary
 #[derive(Deserialize, Serialize, Debug)]
 struct FlexibleData<'a> {
     #[serde(borrow)]
-    name: std::borrow::Cow<'a, str>,
-
+    name: std::borrow::Cow<'a, str>,     // Borrows or owns as needed
     #[serde(borrow)]
     tags: std::borrow::Cow<'a, [String]>,
 }
 
 fn cow_example() -> Result<(), Box<dyn std::error::Error>> {
     let json = r#"{"name": "Item", "tags": ["tag1", "tag2"]}"#;
-
     let data: FlexibleData = serde_json::from_str(json)?;
-
-    // Borrowed if input didn't need transformation
-    // Owned if input needed unescaping or conversion
-    println!("Name: {}", data.name);
-    println!("Tags: {:?}", data.tags);
-
+    println!("Name: {}, Tags: {:?}", data.name, data.tags);
     Ok(())
 }
 cow_example()?; // Cow: borrows when possible, owns when needed
@@ -654,13 +570,10 @@ use serde_bytes::{ByteBuf, Bytes};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct BinaryData<'a> {
-    // Serialize as compact binary array instead of JSON array of numbers
     #[serde(with = "serde_bytes")]
-    owned_data: Vec<u8>,
-
-    // Borrow from input buffer (zero-copy)
+    owned_data: Vec<u8>,     // Compact binary (not JSON array)
     #[serde(borrow, with = "serde_bytes")]
-    borrowed_data: &'a [u8],
+    borrowed_data: &'a [u8], // Zero-copy
 }
 
 ```
@@ -677,14 +590,9 @@ struct OptimizedBinaryData {
 }
 
 fn binary_data_example() -> Result<(), Box<dyn std::error::Error>> {
-    let data = OptimizedBinaryData {
-        data: vec![1, 2, 3, 4, 5],
-    };
-
-    // With serde_bytes, binary data is more efficiently encoded
+    let data = OptimizedBinaryData { data: vec![1, 2, 3, 4, 5] };
     let json = serde_json::to_string(&data)?;
     println!("Serialized: {}", json);
-
     Ok(())
 }
 binary_data_example()?; // Efficient byte array serialization
@@ -710,20 +618,10 @@ struct Record<'a> {
 }
 
 fn bincode_zero_copy() -> Result<(), Box<dyn std::error::Error>> {
-    let record = Record {
-        id: 123,
-        name: "Test",
-        data: &[1, 2, 3, 4, 5],
-    };
-
-    // Serialize to bytes (very compact)
+    let record = Record { id: 123, name: "Test", data: &[1, 2, 3, 4, 5] };
     let encoded = bincode::serialize(&record)?;
-
-    // Zero-copy deserialization: borrows from `encoded` buffer
-    let decoded: Record = bincode::deserialize(&encoded)?;
-
+    let decoded: Record = bincode::deserialize(&encoded)?; // Borrows from encoded
     println!("Decoded: {:?}", decoded);
-
     Ok(())
 }
 bincode_zero_copy()?; // Binary zero-copy deserialization
@@ -748,12 +646,9 @@ where
             formatter.write_str("a borrowed byte slice")
         }
 
-        // This borrows directly from the input buffer
         fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            Ok(v)
+        where E: de::Error {
+            Ok(v) // Borrows directly from input
         }
     }
 
@@ -799,16 +694,12 @@ The `#[serde(default)]` makes fields optional—missing `timeout` deserializes a
 This backward compatibility lets V2 code read V1 JSON; `Option<T>` is the safest way to add new fields.
 
 ```rust
-// Can deserialize V1 data without errors
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigV2 {
     host: String,
     port: u16,
-
-    // New field - defaults to None if missing
-    // Old JSON without "timeout" → timeout: None
     #[serde(default)]
-    timeout: Option<u32>,
+    timeout: Option<u32>, // Missing → None (backward compatible)
 }
 
 ```
@@ -822,14 +713,10 @@ This adds required fields without breaking compatibility; `default_max_connectio
 struct ConfigV3 {
     host: String,
     port: u16,
-
     #[serde(default)]
     timeout: Option<u32>,
-
-    // Defaults to 10 if missing
-    // Allows reading old configs without this field
     #[serde(default = "default_max_connections")]
-    max_connections: u32,
+    max_connections: u32, // Missing → 10
 }
 
 fn default_max_connections() -> u32 {
@@ -837,14 +724,9 @@ fn default_max_connections() -> u32 {
 }
 
 fn schema_evolution_example() -> Result<(), Box<dyn std::error::Error>> {
-    // Old JSON (v1) can be deserialized into new struct (v3)
-    let old_json = r#"{"host": "localhost", "port": 8080}"#;
-    let config: ConfigV3 = serde_json::from_str(old_json)?;
-
-    println!("Config: {:?}", config);
-    println!("Max connections (defaulted): {}", config.max_connections);
-    // Output: max_connections: 10 (from default function)
-
+    let old_json = r#"{"host": "localhost", "port": 8080}"#; // V1 JSON
+    let config: ConfigV3 = serde_json::from_str(old_json)?;  // Works with V3
+    println!("Config: {:?}, max_connections: {}", config, config.max_connections);
     Ok(())
 }
 schema_evolution_example()?; // V1 JSON works with V3 struct
@@ -856,9 +738,8 @@ Tagged enums represent multiple schema versions—`#[serde(tag = "version")]` id
 Each variant has its own fields; the `to_latest()` method migrates any version to the current format.
 
 ```rust
-// The "version" field discriminates between versions
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "version")]
+#[serde(tag = "version")] // "version" field identifies variant
 enum VersionedMessage {
     #[serde(rename = "1")]
     V1 { content: String },
@@ -878,23 +759,16 @@ enum VersionedMessage {
 }
 
 impl VersionedMessage {
-    // Migrate any version to the latest
-    fn to_latest(self) -> MessageV3 {
+    fn to_latest(self) -> MessageV3 { // Migrate to latest
         match self {
             VersionedMessage::V1 { content } => MessageV3 {
-                content,
-                timestamp: 0,  // Default for old messages
-                metadata: Default::default(),
+                content, timestamp: 0, metadata: Default::default(),
             },
             VersionedMessage::V2 { content, timestamp } => MessageV3 {
-                content,
-                timestamp,
-                metadata: Default::default(),
+                content, timestamp, metadata: Default::default(),
             },
             VersionedMessage::V3 { content, timestamp, metadata } => MessageV3 {
-                content,
-                timestamp,
-                metadata,
+                content, timestamp, metadata,
             },
         }
     }
@@ -911,19 +785,16 @@ struct MessageV3 {
 
 ### Example: Handling Renamed Fields
 
+Use `alias` to accept old field names during deserialization while `rename` controls the serialized output. This enables gradual migration from legacy formats without breaking existing clients.
+
 ```rust
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct UserProfile {
-    // Accept both old and new names during deserialization
-    // Deserializes from "user_name", "userName", or "name"
-    #[serde(alias = "user_name", alias = "userName")]
+    #[serde(alias = "user_name", alias = "userName")] // Accept old names
     name: String,
-
-    // Serialize as "emailAddress", accept "email" or "emailAddress" when deserializing
-    // This allows gradual migration: old clients use "email", new ones use "emailAddress"
-    #[serde(rename = "emailAddress", alias = "email")]
+    #[serde(rename = "emailAddress", alias = "email")] // Gradual migration
     email_address: String,
 }
 
@@ -994,11 +865,8 @@ impl<'de> Deserialize<'de> for MigratableConfig {
                     }
                 }
 
-                // Migration logic: build connection_string from host and port if missing
-                // This allows old configs (with host+port) to work with new code (expects connection_string)
-                let connection_string = if let Some(cs) = connection_string {
-                    cs
-                } else {
+                // Migration: build connection_string from host+port if missing
+                let connection_string = if let Some(cs) = connection_string { cs } else {
                     let host = host.ok_or_else(|| de::Error::missing_field("host"))?;
                     let port = port.ok_or_else(|| de::Error::missing_field("port"))?;
                     format!("{}:{}", host, port)
@@ -1072,26 +940,11 @@ struct Product {
 }
 
 fn json_format() -> Result<(), Box<dyn std::error::Error>> {
-    let product = Product {
-        id: 12345,
-        name: "Widget".to_string(),
-        price: 29.99,
-        in_stock: true,
-    };
-
-    // Serialize to JSON with pretty formatting
+    let product = Product { id: 12345, name: "Widget".to_string(), price: 29.99, in_stock: true };
     let json = serde_json::to_string_pretty(&product)?;
     println!("JSON ({} bytes):\n{}", json.len(), json);
-    // Output (~80 bytes with whitespace):
-    // {
-    //   "id": 12345,
-    //   "name": "Widget",
-    //   "price": 29.99,
-    //   "in_stock": true
-    // Deserialize back to Rust struct
     let deserialized: Product = serde_json::from_str(&json)?;
     println!("Deserialized: {:?}", deserialized);
-
     Ok(())
 }
 json_format()?; // Human-readable, ~80 bytes
@@ -1120,22 +973,11 @@ struct Product {
 }
 
 fn bincode_format() -> Result<(), Box<dyn std::error::Error>> {
-    let product = Product {
-        id: 12345,
-        name: "Widget".to_string(),
-        price: 29.99,
-        in_stock: true,
-    };
-
-    // Serialize to compact binary
+    let product = Product { id: 12345, name: "Widget".to_string(), price: 29.99, in_stock: true };
     let encoded = bincode::serialize(&product)?;
-    println!("Bincode ({} bytes): {:?}", encoded.len(), encoded);
-    // Output: ~30 bytes (vs ~80 bytes JSON)
-
-    // Deserialize from binary
+    println!("Bincode ({} bytes): {:?}", encoded.len(), encoded); // ~30 bytes vs ~80 JSON
     let decoded: Product = bincode::deserialize(&encoded)?;
     println!("Deserialized: {:?}", decoded);
-
     Ok(())
 }
 bincode_format()?; // Compact binary, ~30 bytes
@@ -1166,22 +1008,11 @@ struct Product {
 }
 
 fn messagepack_format() -> Result<(), Box<dyn std::error::Error>> {
-    let product = Product {
-        id: 12345,
-        name: "Widget".to_string(),
-        price: 29.99,
-        in_stock: true,
-    };
-
-    // Serialize to MessagePack
+    let product = Product { id: 12345, name: "Widget".to_string(), price: 29.99, in_stock: true };
     let encoded = rmp_serde::to_vec(&product)?;
-    println!("MessagePack ({} bytes): {:?}", encoded.len(), encoded);
-    // Output: ~35 bytes (compact, self-describing)
-
-    // Deserialize
+    println!("MessagePack ({} bytes): {:?}", encoded.len(), encoded); // ~35 bytes
     let decoded: Product = rmp_serde::from_slice(&encoded)?;
     println!("Deserialized: {:?}", decoded);
-
     Ok(())
 }
 messagepack_format()?; // Cross-language binary, ~35 bytes
@@ -1206,21 +1037,11 @@ struct Product {
 }
 
 fn cbor_format() -> Result<(), Box<dyn std::error::Error>> {
-    let product = Product {
-        id: 12345,
-        name: "Widget".to_string(),
-        price: 29.99,
-        in_stock: true,
-    };
-
-    // Serialize to CBOR
+    let product = Product { id: 12345, name: "Widget".to_string(), price: 29.99, in_stock: true };
     let encoded = serde_cbor::to_vec(&product)?;
     println!("CBOR ({} bytes): {:?}", encoded.len(), encoded);
-
-    // Deserialize
     let decoded: Product = serde_cbor::from_slice(&encoded)?;
     println!("Deserialized: {:?}", decoded);
-
     Ok(())
 }
 cbor_format()?; // IoT/embedded binary format
@@ -1244,26 +1065,11 @@ struct Product {
 }
 
 fn yaml_format() -> Result<(), Box<dyn std::error::Error>> {
-    let product = Product {
-        id: 12345,
-        name: "Widget".to_string(),
-        price: 29.99,
-        in_stock: true,
-    };
-
-    // Serialize to YAML
+    let product = Product { id: 12345, name: "Widget".to_string(), price: 29.99, in_stock: true };
     let yaml = serde_yaml::to_string(&product)?;
     println!("YAML ({} bytes):\n{}", yaml.len(), yaml);
-    // Output:
-    // id: 12345
-    // name: Widget
-    // price: 29.99
-    // in_stock: true
-
-    // Deserialize
     let deserialized: Product = serde_yaml::from_str(&yaml)?;
     println!("Deserialized: {:?}", deserialized);
-
     Ok(())
 }
 yaml_format()?; // Human-readable config format
@@ -1301,36 +1107,13 @@ struct ServerConfig {
 
 fn toml_format() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config {
-        database: DatabaseConfig {
-            host: "localhost".to_string(),
-            port: 5432,
-            username: "admin".to_string(),
-        },
-        server: ServerConfig {
-            host: "0.0.0.0".to_string(),
-            port: 8080,
-            workers: 4,
-        },
+        database: DatabaseConfig { host: "localhost".to_string(), port: 5432, username: "admin".to_string() },
+        server: ServerConfig { host: "0.0.0.0".to_string(), port: 8080, workers: 4 },
     };
-
-    // Serialize to TOML
     let toml = toml::to_string_pretty(&config)?;
     println!("TOML ({} bytes):\n{}", toml.len(), toml);
-    // Output:
-    // [database]
-    // host = "localhost"
-    // port = 5432
-    // username = "admin"
-    //
-    // [server]
-    // host = "0.0.0.0"
-    // port = 8080
-    // workers = 4
-
-    // Deserialize
     let deserialized: Config = toml::from_str(&toml)?;
     println!("Deserialized: {:?}", deserialized);
-
     Ok(())
 }
 toml_format()?; // Application config file format
@@ -1419,23 +1202,13 @@ struct Record {
 
 fn stream_json_array<W: Write>(mut writer: W, records: &[Record]) -> io::Result<()> {
     writer.write_all(b"[")?;
-
     for (i, record) in records.iter().enumerate() {
-        if i > 0 {
-            writer.write_all(b",")?;
-        }
-
-        // Serialize each record individually
-        let json = serde_json::to_string(record)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
+        if i > 0 { writer.write_all(b",")?; }
+        let json = serde_json::to_string(record).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         writer.write_all(json.as_bytes())?;
     }
-
     writer.write_all(b"]")?;
-    writer.flush()?;
-
-    Ok(())
+    writer.flush()
 }
 
 fn streaming_array_example() -> io::Result<()> {
@@ -1475,30 +1248,20 @@ struct LogEntry {
 fn stream_to_file(path: &str) -> io::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
-
-    // Write JSON lines (one JSON object per line)
-    for i in 0..1000 {
-        let entry = LogEntry {
-            timestamp: i,
-            level: "INFO".to_string(),
-            message: format!("Log message {}", i),
-        };
-
-        let json = serde_json::to_string(&entry)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
+    for i in 0..1000 { // One JSON object per line
+        let entry = LogEntry { timestamp: i, level: "INFO".to_string(), message: format!("Log message {}", i) };
+        let json = serde_json::to_string(&entry).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         writeln!(writer, "{}", json)?;
     }
-
-    writer.flush()?;
-
-    Ok(())
+    writer.flush()
 }
 stream_to_file("logs.jsonl")?; // JSON Lines format
 ```
 
 
 ### Example: Streaming Deserialization
+
+Process JSON Lines (newline-delimited JSON) one record at a time using a buffered reader. This maintains O(1) memory regardless of file size, enabling processing of multi-gigabyte log files.
 
 ```rust
 use serde::Deserialize;
@@ -1515,22 +1278,13 @@ struct LogEntry {
 fn stream_from_file(path: &str) -> io::Result<()> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-
-    // Process one line at a time (constant memory usage)
-    for (line_num, line) in reader.lines().enumerate() {
+    for (line_num, line) in reader.lines().enumerate() { // O(1) memory
         let line = line?;
-
         match serde_json::from_str::<LogEntry>(&line) {
-            Ok(entry) => {
-                // Process entry (filter, transform, aggregate, etc.)
-                println!("Entry {}: {:?}", line_num, entry);
-            }
-            Err(e) => {
-                eprintln!("Error parsing line {}: {}", line_num, e);
-            }
+            Ok(entry) => println!("Entry {}: {:?}", line_num, entry),
+            Err(e) => eprintln!("Error parsing line {}: {}", line_num, e),
         }
     }
-
     Ok(())
 }
 stream_from_file("logs.jsonl")?; // O(1) memory processing
@@ -1559,17 +1313,13 @@ fn streaming_deserializer() -> Result<(), Box<dyn std::error::Error>> {
         {"id": 3, "name": "Item 3"}
     "#;
 
-    let cursor = Cursor::new(json);
-    let deserializer = serde_json::Deserializer::from_reader(cursor);
-
-    // Stream items one at a time
-    for item in deserializer.into_iter::<Item>() {
+    let deserializer = serde_json::Deserializer::from_reader(Cursor::new(json));
+    for item in deserializer.into_iter::<Item>() { // Stream one at a time
         match item {
             Ok(item) => println!("Deserialized: {:?}", item),
             Err(e) => eprintln!("Error: {}", e),
         }
     }
-
     Ok(())
 }
 streaming_deserializer()?; // Stream multiple JSON objects
@@ -1593,37 +1343,25 @@ struct Record {
 
 async fn async_stream_write(path: &str) -> tokio::io::Result<()> {
     let mut file = File::create(path).await?;
-
     for i in 0..100 {
-        let record = Record {
-            id: i,
-            data: format!("Data {}", i),
-        };
-
-        let json = serde_json::to_string(&record)
-            .map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::Other, e))?;
-
+        let record = Record { id: i, data: format!("Data {}", i) };
+        let json = serde_json::to_string(&record).map_err(|e| tokio::io::Error::new(tokio::io::ErrorKind::Other, e))?;
         file.write_all(json.as_bytes()).await?;
         file.write_all(b"\n").await?;
     }
-
-    file.flush().await?;
-    Ok(())
+    file.flush().await
 }
 async_stream_write("data.jsonl").await?;
 
 async fn async_stream_read(path: &str) -> tokio::io::Result<()> {
     let file = File::open(path).await?;
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
-
+    let mut lines = BufReader::new(file).lines();
     while let Some(line) = lines.next_line().await? {
         match serde_json::from_str::<Record>(&line) {
             Ok(record) => println!("Record: {:?}", record),
             Err(e) => eprintln!("Parse error: {}", e),
         }
     }
-
     Ok(())
 }
 async_stream_read("data.jsonl").await?; // Async line-by-line
@@ -1667,11 +1405,7 @@ impl<W: Write> DataStreamWriter<W> {
         self.writer.write_all(json.as_bytes())?;
         self.count += 1;
 
-        // Flush every 100 records to balance memory and I/O
-        if self.count % 100 == 0 {
-            self.writer.flush()?;
-        }
-
+        if self.count % 100 == 0 { self.writer.flush()?; } // Periodic flush
         Ok(())
     }
 
@@ -1685,21 +1419,11 @@ impl<W: Write> DataStreamWriter<W> {
 fn stream_large_dataset() -> io::Result<()> {
     let file = std::fs::File::create("dataset.json")?;
     let mut writer = DataStreamWriter::new(file)?;
-
-    // Stream 1 million points without loading them all into memory
-    for i in 0..1_000_000 {
-        let point = DataPoint {
-            x: i as f64,
-            y: (i as f64).sin(),
-            timestamp: i,
-        };
-
+    for i in 0..1_000_000 { // 1M points, constant memory
+        let point = DataPoint { x: i as f64, y: (i as f64).sin(), timestamp: i };
         writer.write_point(&point)?;
     }
-
-    writer.finish()?;
-
-    Ok(())
+    writer.finish()
 }
 stream_large_dataset()?; // 1M points, constant memory
 ```
@@ -1720,18 +1444,9 @@ impl<W: Write> BinaryStreamWriter<W> {
     }
 
     fn write_record<T: Serialize>(&mut self, record: &T) -> io::Result<()> {
-        // Serialize to bytes
-        let bytes = bincode::serialize(record)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        // Write length prefix (4 bytes, big-endian)
-        let len = bytes.len() as u32;
-        self.writer.write_all(&len.to_be_bytes())?;
-
-        // Write data
-        self.writer.write_all(&bytes)?;
-
-        Ok(())
+        let bytes = bincode::serialize(record).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        self.writer.write_all(&(bytes.len() as u32).to_be_bytes())?; // Length prefix
+        self.writer.write_all(&bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> {

@@ -29,57 +29,32 @@ use std::error::Error;
 type PostgresPool = Pool<PostgresConnectionManager<NoTls>>;
 type PostgresPooledConnection = PooledConnection<PostgresConnectionManager<NoTls>>;
 
-/// Initialize a connection pool
 fn create_pool(database_url: &str) -> Result<PostgresPool, Box<dyn Error>> {
-    let manager = PostgresConnectionManager::new(
-        database_url.parse()?,
-        NoTls,
-    );
+    let manager = PostgresConnectionManager::new(database_url.parse()?, NoTls);
 
     let pool = Pool::builder()
-        .max_size(15)                    // Maximum 15 connections
-        .min_idle(Some(5))               // Keep at least 5 idle connections
+        .max_size(15)
+        .min_idle(Some(5))
         .connection_timeout(std::time::Duration::from_secs(5))
         .build(manager)?;
-
     Ok(pool)
 }
 
-/// Example: Using the pool
 async fn fetch_user(pool: &PostgresPool, user_id: i32) -> Result<String, Box<dyn Error>> {
-    // Get a connection from the pool
-    // This blocks if all connections are in use, until one becomes available
-    let mut conn = pool.get()?;
-
-    // Use the connection
-    let row = conn.query_one(
-        "SELECT username FROM users WHERE id = $1",
-        &[&user_id],
-    )?;
-
+    let mut conn = pool.get()?;  // Blocks if exhausted
+    let row = conn.query_one("SELECT username FROM users WHERE id = $1", &[&user_id])?;
     let username: String = row.get(0);
-
-    // Connection automatically returns to pool when `conn` is dropped
-    Ok(username)
+    Ok(username)  // Connection returns to pool on drop
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let pool = create_pool("postgresql://user:pass@localhost/mydb")?;
+    let pool_clone = pool.clone();  // Cheap clone (Arc internally)
 
-    // The pool can be cloned cheaply (Arc internally)
-    // and shared across threads
-    let pool_clone = pool.clone();
-
-    let handle = std::thread::spawn(move || {
-        fetch_user(&pool_clone, 42)
-    });
-
-    // Both threads can use the pool concurrently
-    let username = fetch_user(&pool, 42)?;
+    let handle = std::thread::spawn(move || fetch_user(&pool_clone, 42));
+    let username = fetch_user(&pool, 42)?;  // Both threads use pool concurrently
     println!("User: {}", username);
-
     handle.join().unwrap()?;
-
     Ok(())
 }
 let pool = create_pool("postgres://...")?; 
@@ -98,31 +73,12 @@ use std::time::Duration;
 
 fn configure_pool_detailed(manager: PostgresConnectionManager<NoTls>) -> PostgresPool {
     Pool::builder()
-        // Maximum number of connections to create
-        // Higher = more concurrent requests, but more database load
-        .max_size(20)
-
-        // Minimum idle connections to maintain
-        // Higher = faster response for bursts, but more idle resources
-        .min_idle(Some(5))
-
-        // How long to wait for a connection before timing out
-        // Too low = errors during load spikes
-        // Too high = slow responses when pool exhausted
-        .connection_timeout(Duration::from_secs(10))
-
-        // Test connections before use to ensure they're alive
-        // Adds overhead but prevents using dead connections
-        .test_on_check_out(true)
-
-        // How long a connection can be idle before being closed
-        // Prevents accumulating stale connections
-        .idle_timeout(Some(Duration::from_secs(300)))
-
-        // Maximum lifetime of a connection before forced recreation
-        // Ensures connections don't grow stale over time
-        .max_lifetime(Some(Duration::from_secs(1800)))
-
+        .max_size(20)                    // More = more concurrency, more DB load
+        .min_idle(Some(5))               // Pre-warm for bursts
+        .connection_timeout(Duration::from_secs(10))  // Wait before timeout
+        .test_on_check_out(true)         // Validate connections (~1ms overhead)
+        .idle_timeout(Some(Duration::from_secs(300)))  // Close stale connections
+        .max_lifetime(Some(Duration::from_secs(1800))) // Force recreation
         .build(manager)
         .unwrap()
 }
@@ -151,8 +107,7 @@ use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::NoTls;
 use std::error::Error;
 
-/// Create an async connection pool
-fn create_async_pool() -> Result<Pool, Box<dyn Error>> {
+fn create_async_pool() -> Result<Pool, Box<dyn Error>> {  // Async-native pool
     let mut cfg = Config::new();
     cfg.host = Some("localhost".to_string());
     cfg.user = Some("user".to_string());
@@ -175,40 +130,24 @@ fn create_async_pool() -> Result<Pool, Box<dyn Error>> {
     Ok(cfg.create_pool(None, NoTls)?)
 }
 
-/// Fetch user asynchronously
 async fn fetch_user_async(pool: &Pool, user_id: i32) -> Result<String, Box<dyn Error>> {
-    // Get connection asynchronously
-    // This awaits instead of blocking
-    let client = pool.get().await?;
-
-    // Execute query
-    let row = client
-        .query_one("SELECT username FROM users WHERE id = $1", &[&user_id])
-        .await?;
-
+    let client = pool.get().await?;  // Awaits instead of blocking
+    let row = client.query_one("SELECT username FROM users WHERE id = $1", &[&user_id]).await?;
     let username: String = row.get(0);
-
-    // Connection returns to pool on drop
-    Ok(username)
+    Ok(username)  // Returns to pool on drop
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let pool = create_async_pool()?;
 
-    // Can handle many concurrent queries efficiently
-    let tasks = (1..=100).map(|id| {
+    let tasks = (1..=100).map(|id| {  // 100 concurrent queries
         let pool = pool.clone();
-        tokio::spawn(async move {
-            fetch_user_async(&pool, id).await
-        })
+        tokio::spawn(async move { fetch_user_async(&pool, id).await })
     });
 
-    // Wait for all queries
     let results = futures::future::join_all(tasks).await;
-
     println!("Completed {} queries", results.len());
-
     Ok(())
 }
 fetch_user_async(&pool, 42).await?; // Non-blocking async pool access
@@ -225,34 +164,15 @@ use deadpool_postgres::Pool;
 
 async fn monitor_pool_health(pool: &Pool) {
     let status = pool.status();
+    println!("Available: {}, Size: {}, Max: {}", status.available, status.size, status.max_size);
 
-    println!("Pool status:");
-    println!("  Available connections: {}", status.available);
-    println!("  Size: {}", status.size);
-    println!("  Max size: {}", status.max_size);
-
-    // Alert if pool is exhausted
-    if status.available == 0 {
-        eprintln!("WARNING: Connection pool exhausted!");
-    }
-
-    // Alert if pool is mostly idle (might be oversized)
-    if status.available > status.max_size * 3 / 4 {
-        eprintln!("INFO: Pool mostly idle, consider reducing size");
-    }
+    if status.available == 0 { eprintln!("WARNING: Pool exhausted!"); }
+    if status.available > status.max_size * 3 / 4 { eprintln!("INFO: Pool oversized"); }
 }
 
-/// Graceful shutdown
-async fn shutdown_pool(pool: Pool) {
-    println!("Shutting down pool...");
-
-    // Close the pool
+async fn shutdown_pool(pool: Pool) {  // Graceful shutdown
     pool.close();
-
-    // Give active connections time to finish
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-    println!("Pool shutdown complete");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;  // Wait for active conns
 }
 monitor_pool_health(&pool).await; // Check available/size/max_size
 ```
@@ -288,19 +208,11 @@ struct User {
 }
 
 async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
-    // SQLx has built-in connection pooling
-    PgPool::connect(database_url).await
+    PgPool::connect(database_url).await  // Built-in connection pooling
 }
 
-/// Compile-time verified query
 async fn fetch_user(pool: &PgPool, user_id: i32) -> Result<User, sqlx::Error> {
-    // The query! macro verifies this SQL at compile time
-    // It checks:
-    // - SQL syntax is valid
-    // - Table and columns exist
-    // - Parameter types match
-    // - Return types match
-    let user = sqlx::query_as!(
+    let user = sqlx::query_as!(  // Compile-time verified: syntax, tables, columns, types
         User,
         "SELECT id, username, email, created_at FROM users WHERE id = $1",
         user_id
@@ -311,7 +223,6 @@ async fn fetch_user(pool: &PgPool, user_id: i32) -> Result<User, sqlx::Error> {
     Ok(user)
 }
 
-/// Insert with query!
 async fn create_user(
     pool: &PgPool,
     username: &str,
@@ -360,13 +271,12 @@ The `WHERE 1=1` trick simplifies conditional clauses; `build_query_as::<T>()` co
 ```rust
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
-async fn search_users(
+async fn search_users(  // Dynamic query building
     pool: &PgPool,
     username_filter: Option<&str>,
     email_filter: Option<&str>,
     limit: i64,
 ) -> Result<Vec<User>, sqlx::Error> {
-    // QueryBuilder for dynamic queries
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         "SELECT id, username, email, created_at FROM users WHERE 1=1"
     );
@@ -408,10 +318,7 @@ The compiler catches type mismatches at compile time. Trade-off: steeper learnin
 use diesel::prelude::*;
 use diesel::pg::PgConnection;
 
-//==================================================
-// Define schema (typically generated by Diesel CLI)
-//==================================================
-table! {
+table! {  // Schema (typically generated by Diesel CLI)
     users (id) {
         id -> Int4,
         username -> Varchar,
@@ -420,10 +327,7 @@ table! {
     }
 }
 
-//=============
-// Define model
-//=============
-#[derive(Queryable, Selectable, Debug)]
+#[derive(Queryable, Selectable, Debug)]  // Model
 #[diesel(table_name = users)]
 struct User {
     id: i32,
@@ -439,23 +343,15 @@ struct NewUser<'a> {
     email: &'a str,
 }
 
-/// Connect to database
 fn establish_connection(database_url: &str) -> PgConnection {
-    PgConnection::establish(database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+    PgConnection::establish(database_url).unwrap()
 }
 
-/// Fetch user with Diesel's query DSL
 fn fetch_user_diesel(conn: &mut PgConnection, user_id: i32) -> QueryResult<User> {
     use self::users::dsl::*;
-
-    users
-        .find(user_id)
-        .select(User::as_select())
-        .first(conn)
+    users.find(user_id).select(User::as_select()).first(conn)
 }
 
-/// Create user
 fn create_user_diesel(
     conn: &mut PgConnection,
     new_username: &str,
@@ -468,22 +364,13 @@ fn create_user_diesel(
         email: new_email,
     };
 
-    diesel::insert_into(users)
-        .values(&new_user)
-        .returning(User::as_returning())
-        .get_result(conn)
+    diesel::insert_into(users).values(&new_user).returning(User::as_returning()).get_result(conn)
 }
 
-/// Complex query with joins
-fn find_active_users(conn: &mut PgConnection) -> QueryResult<Vec<User>> {
+fn find_active_users(conn: &mut PgConnection) -> QueryResult<Vec<User>> {  // Complex query
     use self::users::dsl::*;
-
-    users
-        .filter(created_at.gt(chrono::Utc::now().naive_utc() - chrono::Duration::days(30)))
-        .order(username.asc())
-        .limit(100)
-        .select(User::as_select())
-        .load(conn)
+    users.filter(created_at.gt(chrono::Utc::now().naive_utc() - chrono::Duration::days(30)))
+        .order(username.asc()).limit(100).select(User::as_select()).load(conn)
 }
 let user = fetch_user_diesel(&mut conn, 1)?; // Type-safe Diesel DSL
 ```
@@ -538,36 +425,17 @@ This example demonstrates the classic money transfer problem: debit one account 
 use sqlx::{PgPool, Postgres, Transaction};
 
 async fn transfer_money(
-    pool: &PgPool,
-    from_account: i32,
-    to_account: i32,
-    amount: f64,
+    pool: &PgPool, from_account: i32, to_account: i32, amount: f64,
 ) -> Result<(), sqlx::Error> {
-    // Start a transaction
     let mut tx: Transaction<Postgres> = pool.begin().await?;
 
-    // Debit from account
-    sqlx::query!(
-        "UPDATE accounts SET balance = balance - $1 WHERE id = $2",
-        amount,
-        from_account
-    )
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query!("UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, from_account)
+        .execute(&mut *tx).await?;
 
-    // Credit to account
-    sqlx::query!(
-        "UPDATE accounts SET balance = balance + $1 WHERE id = $2",
-        amount,
-        to_account
-    )
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query!("UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, to_account)
+        .execute(&mut *tx).await?;
 
-    // Commit the transaction
-    // If we return early (error), the transaction auto-rollbacks on drop
-    tx.commit().await?;
-
+    tx.commit().await?;  // Auto-rollback on early return/error
     Ok(())
 }
 transfer_money(&pool, 1, 2, 100.0).await?; // Atomic transfer with rollback on error
@@ -586,35 +454,17 @@ use sqlx::{Acquire, PgPool, Postgres, Transaction};
 async fn complex_operation(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    // Operation 1
-    sqlx::query!("INSERT INTO logs (message) VALUES ('Starting')")
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!("INSERT INTO logs (message) VALUES ('Starting')").execute(&mut *tx).await?;
 
-    // Create a savepoint for nested transaction
-    let mut savepoint = tx.begin().await?;
+    let mut savepoint = tx.begin().await?;  // Savepoint for partial rollback
 
-    // Try a risky operation
     match risky_operation(&mut savepoint).await {
-        Ok(_) => {
-            // Success - commit the savepoint
-            savepoint.commit().await?;
-        }
-        Err(e) => {
-            // Failure - rollback just the savepoint
-            // The outer transaction continues
-            eprintln!("Risky operation failed: {}", e);
-            savepoint.rollback().await?;
-        }
+        Ok(_) => savepoint.commit().await?,       // Commit savepoint
+        Err(e) => { eprintln!("Failed: {}", e); savepoint.rollback().await?; }  // Rollback only savepoint
     }
 
-    // Operation 2 (happens regardless of risky_operation outcome)
-    sqlx::query!("INSERT INTO logs (message) VALUES ('Completed')")
-        .execute(&mut *tx)
-        .await?;
-
+    sqlx::query!("INSERT INTO logs (message) VALUES ('Completed')").execute(&mut *tx).await?;
     tx.commit().await?;
-
     Ok(())
 }
 
@@ -640,17 +490,9 @@ use sqlx::{PgPool, Postgres};
 
 async fn set_isolation_level(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
-
-    // Set isolation level
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *tx)
-        .await?;
-
-    // Perform operations with serializable isolation
-    // This prevents phantom reads and ensures true serializability
-
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await?;
+    // Operations here have full isolation (prevents phantom reads)
     tx.commit().await?;
-
     Ok(())
 }
 set_isolation_level(&pool).await?; // SERIALIZABLE prevents phantom reads
@@ -674,24 +516,12 @@ Diesel uses a different pattern for transactions:
 use diesel::prelude::*;
 use diesel::result::Error;
 
-fn transfer_with_diesel(
-    conn: &mut PgConnection,
-    from: i32,
-    to: i32,
-    amount: i32,
-) -> Result<(), Error> {
-    conn.transaction(|conn| {
-        // All operations inside this closure are in a transaction
-
+fn transfer_with_diesel(conn: &mut PgConnection, from: i32, to: i32, amount: i32) -> Result<(), Error> {
+    conn.transaction(|conn| {  // Ok = commit, Err = rollback
         diesel::update(accounts::table.find(from))
-            .set(accounts::balance.eq(accounts::balance - amount))
-            .execute(conn)?;
-
+            .set(accounts::balance.eq(accounts::balance - amount)).execute(conn)?;
         diesel::update(accounts::table.find(to))
-            .set(accounts::balance.eq(accounts::balance + amount))
-            .execute(conn)?;
-
-        // Return Ok to commit, Err to rollback
+            .set(accounts::balance.eq(accounts::balance + amount)).execute(conn)?;
         Ok(())
     })
 }
@@ -715,42 +545,19 @@ struct Document {
     version: i32,
 }
 
-async fn update_with_optimistic_lock(
-    pool: &PgPool,
-    doc_id: i32,
-    new_content: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn update_with_optimistic_lock(pool: &PgPool, doc_id: i32, new_content: String) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        // Fetch current document
-        let doc = sqlx::query_as!(
-            Document,
-            "SELECT id, content, version FROM documents WHERE id = $1",
-            doc_id
-        )
-        .fetch_one(pool)
-        .await?;
+        let doc = sqlx::query_as!(Document, "SELECT id, content, version FROM documents WHERE id = $1", doc_id)
+            .fetch_one(pool).await?;
 
-        // Try to update if version hasn't changed
         let result = sqlx::query!(
-            r#"
-            UPDATE documents
-            SET content = $1, version = version + 1
-            WHERE id = $2 AND version = $3
-            "#,
-            new_content,
-            doc_id,
-            doc.version
-        )
-        .execute(pool)
-        .await?;
+            "UPDATE documents SET content = $1, version = version + 1 WHERE id = $2 AND version = $3",
+            new_content, doc_id, doc.version
+        ).execute(pool).await?;
 
-        if result.rows_affected() > 0 {
-            // Success - we updated it
-            return Ok(());
-        }
+        if result.rows_affected() > 0 { return Ok(()); }  // Success
 
-        // Someone else updated it - retry
-        println!("Conflict detected, retrying...");
+        println!("Conflict, retrying...");  // Version changed - retry
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
@@ -806,18 +613,10 @@ use sqlx::postgres::PgPoolOptions;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect("postgresql://user:pass@localhost/mydb")
-        .await?;
+    let pool = PgPoolOptions::new().max_connections(5)
+        .connect("postgresql://user:pass@localhost/mydb").await?;
 
-    // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
-
-    println!("Migrations completed successfully");
-
+    sqlx::migrate!("./migrations").run(&pool).await?;  // Run pending migrations
     Ok(())
 }
 sqlx::migrate!("./migrations").run(&pool).await?; // Run pending migrations
@@ -1066,19 +865,11 @@ The best solution often combines both:
 use sqlx::PgPool;
 use diesel::prelude::*;
 
-//=====================
-// Simple CRUD: Use ORM
-//=====================
-fn create_user_orm(conn: &mut PgConnection, name: &str) -> QueryResult<User> {
-    diesel::insert_into(users::table)
-        .values(users::username.eq(name))
-        .get_result(conn)
+fn create_user_orm(conn: &mut PgConnection, name: &str) -> QueryResult<User> {  // ORM for CRUD
+    diesel::insert_into(users::table).values(users::username.eq(name)).get_result(conn)
 }
 
-//===============================
-// Complex analytics: Use raw SQL
-//===============================
-async fn get_sales_report(pool: &PgPool) -> Result<Vec<SalesData>, sqlx::Error> {
+async fn get_sales_report(pool: &PgPool) -> Result<Vec<SalesData>, sqlx::Error> {  // Raw SQL for analytics
     sqlx::query_as!(SalesData, r#"
         SELECT
             date_trunc('day', created_at) as day,
@@ -1094,10 +885,7 @@ async fn get_sales_report(pool: &PgPool) -> Result<Vec<SalesData>, sqlx::Error> 
     .await
 }
 
-//========================================
-// Database-specific features: Use raw SQL
-//========================================
-async fn full_text_search(pool: &PgPool, query: &str) -> Result<Vec<Document>, sqlx::Error> {
+async fn full_text_search(pool: &PgPool, query: &str) -> Result<Vec<Document>, sqlx::Error> {  // DB-specific features
     sqlx::query_as!(Document, r#"
         SELECT id, title, content
         FROM documents
@@ -1141,17 +929,9 @@ Here's a realistic application structure combining patterns:
 use sqlx::PgPool;
 use deadpool_postgres::Pool;
 
-//==========================
-// Application configuration
-//==========================
-pub struct AppState {
-    pool: PgPool,
-}
+pub struct AppState { pool: PgPool }
 
-//===========================
-// User repository using SQLx
-//===========================
-pub struct UserRepository {
+pub struct UserRepository {  // Repository pattern
     pool: PgPool,
 }
 
@@ -1201,10 +981,7 @@ impl UserRepository {
     }
 }
 
-//============================================
-// Analytics using raw SQL for complex queries
-//============================================
-pub struct Analytics {
+pub struct Analytics {  // Raw SQL for complex queries
     pool: PgPool,
 }
 

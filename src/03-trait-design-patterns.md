@@ -29,10 +29,10 @@ struct Document {
 
 impl Printable for Document {}
 
-// Usage: Implementing Printable gives you print() via Debug supertrait.
+// Implementing Printable gives you print() via Debug
 let doc = Document {
-    title: "Rust Guide".to_string(),
-    content: "Learning Rust".to_string()
+    title: "Rust Guide".into(),
+    content: "Learning Rust".into()
 };
 doc.print();
 ```
@@ -71,9 +71,9 @@ fn use_loggable<T: Loggable>(item: &T) {
     item.log();
 }
 
-// Usage: Loggable requires both Debug and Display implementations.
-let user = User { name: "Alice".to_string(), id: 42 };
-user.log(); // Prints both [DEBUG] and [INFO] lines
+// Loggable requires both Debug and Display implementations
+let user = User { name: "Alice".into(), id: 42 };
+user.log(); // Prints [DEBUG] and [INFO] lines
 use_loggable(&user);
 ```
 
@@ -104,7 +104,7 @@ where
     format!("{:?} and {}", t, u)
 }
 
-// Usage: Bounds specify required capabilities for generic parameters.
+// Bounds specify required capabilities for generics
 print_item("hello");
 process(vec![1, 2, 3]);
 let result = complex_function(vec![1, 2], String::new());
@@ -142,10 +142,10 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Wrapper<T> {
     }
 }
 
-// Usage: Wrapper gains Clone and Debug only when inner type has them.
+// Wrapper gains Clone/Debug when inner type has them
 let w = Wrapper("hello".to_string());
-let w_clone = w.clone(); // Works because String is Clone
-println!("{:?}", w); // Works because String is Debug
+let w_clone = w.clone(); // Works: String is Clone
+println!("{:?}", w); // Works: String is Debug
 ```
 
 This pattern allows `Wrapper<String>` to be `Clone` and `Debug`. The compiler automatically determines which implementations apply based on the inner type's capabilities.
@@ -175,7 +175,7 @@ impl<T: Clone> Query<T> {
     }
 }
 
-// Note: Requires serde and serde_json crates
+// Requires serde and serde_json crates
 impl<T: serde::Serialize> Query<T> {
     // Only available if T is Serialize
     fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -192,7 +192,7 @@ where
     println!("{}", result);
 }
 
-// Usage: Methods appear based on type parameter's capabilities.
+// Methods appear based on type parameter's capabilities
 let q = Query::new(vec![1, 2, 3]);
 let q_dup = q.duplicate();
 process_with_lifetime(|s| s);
@@ -204,6 +204,7 @@ The builder pattern becomes particularly powerful with conditional trait impleme
 
 *   **Problem**: A generic trait like `Parser<Output>` allows a single type to have multiple implementations (e.g., for different `Output` types), which can be confusing. Call sites become verbose (`parser.parse::<serde_json::Value>()`), and it's unclear if a type parameter is an "input" or an "output".
 *   **Solution**: Use **associated types** when an implementing type determines a single, specific "output" type (`trait Parser { type Output; }`). Use **generics** when the caller chooses an "input" type and multiple implementations are desirable (`trait From<T>`).
+*   **Why It Matters**: This distinction shapes your API's ergonomics. Associated types eliminate turbofish syntax and let the compiler infer types. Generics enable flexibility but require explicit type annotations. Choosing correctly makes APIs intuitive versus frustrating.
 
 #### Example: Generics
 
@@ -215,7 +216,7 @@ trait GenericParser<Output> {
     fn parse(&self, input: &str) -> Result<Output, String>;
 }
 
-// A single type can implement GenericParser for multiple Output types
+// One type can implement GenericParser for multiple Output types
 struct SimpleParser;
 
 impl GenericParser<i32> for SimpleParser {
@@ -234,10 +235,12 @@ impl GenericParser<bool> for SimpleParser {
     }
 }
 
-// Usage: Same parser, multiple Output types; caller specifies which.
+// Same parser, multiple Output types; caller specifies
 let parser = SimpleParser;
-let num: Result<i32, _> = GenericParser::<i32>::parse(&parser, "42");
-let b: Result<bool, _> = GenericParser::<bool>::parse(&parser, "true");
+let num: Result<i32, _> =
+    GenericParser::<i32>::parse(&parser, "42");
+let b: Result<bool, _> =
+    GenericParser::<bool>::parse(&parser, "true");
 ```
 
 #### Example: Associated Types: One Implementation
@@ -283,22 +286,28 @@ let flt = float_parser.parse("3.14"); // Output inferred as f64
 Associated types lead to cleaner call sites because the output type is determined by the implementor. With generics, functions need extra type parameters that callers must specify. With associated types, the compiler infers everything from the concrete type.
 
 ```rust
-// With generic parameter (from earlier Parser<Output> trait)
-fn use_generic_parser<T, P: GenericParser<T>>(parser: P, input: &str) -> T {
+// With generic parameter
+fn use_generic_parser<T, P: GenericParser<T>>(
+    parser: P,
+    input: &str
+) -> T {
     parser.parse(input).unwrap()
 }
 
 // Caller must specify T with turbofish
 let num = use_generic_parser::<i32, _>(SimpleParser, "42");
 
-// With associated type (from Parser trait with type Output)
-fn use_associated_parser<P: Parser>(parser: P, input: &str) -> P::Output {
+// With associated type
+fn use_associated_parser<P: Parser>(
+    parser: P,
+    input: &str
+) -> P::Output {
     parser.parse(input).unwrap()
 }
 
-// Usage: Associated types let compiler infer Output automatically.
-let num = use_associated_parser(IntParser, "42"); // i32 inferred
-let flt = use_associated_parser(FloatParser, "3.14"); // f64 inferred
+// Associated types let compiler infer Output automatically
+let num = use_associated_parser(IntParser, "42");   // i32
+let flt = use_associated_parser(FloatParser, "3.14"); // f64
 ```
 
 #### Example: When to Use Each
@@ -345,7 +354,8 @@ trait Converter<Input> {
     type Output;
     type Error;
 
-    fn convert(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    fn convert(&self, input: Input)
+        -> Result<Self::Output, Self::Error>;
 }
 
 struct TemperatureConverter;
@@ -359,9 +369,9 @@ impl Converter<f64> for TemperatureConverter {
     }
 }
 
-// Usage: Generic Input chosen by caller; Output fixed by implementation.
+// Generic Input chosen by caller; Output fixed by impl
 let conv = TemperatureConverter;
-let fahrenheit = conv.convert(100.0); // Celsius to Fahrenheit
+let fahrenheit = conv.convert(100.0); // Celsius to F
 ```
 
 #### Example: Associated Types with Bounds
@@ -381,11 +391,11 @@ trait Graph {
 struct SimpleGraph;
 
 impl Graph for SimpleGraph {
-    type Node = String; // String implements Display ✓
-    type Edge = (usize, usize); // Tuple implements Clone ✓
+    type Node = String; // Display ✓
+    type Edge = (usize, usize); // Clone ✓
 
     fn nodes(&self) -> Vec<String> {
-        vec!["A".to_string(), "B".to_string()]
+        vec!["A".into(), "B".into()]
     }
 
     fn edges(&self) -> Vec<(usize, usize)> {
@@ -393,7 +403,7 @@ impl Graph for SimpleGraph {
     }
 }
 
-// Usage: Associated type bounds ensure Node is Display, Edge is Clone.
+// Associated type bounds: Node is Display, Edge is Clone
 let graph = SimpleGraph;
 for node in graph.nodes() { println!("{}", node); }
 ```
@@ -409,12 +419,12 @@ pub trait Iterator {
     fn next(&mut self) -> Option<Self::Item>;
 
     // Many provided methods using Self::Item
-    fn count(self) -> usize where Self: Sized { /* ... */ }
+    fn count(self) -> usize where Self: Sized { todo!() }
     fn map<B, F>(self, f: F) -> Map<Self, F>
     where
         Self: Sized,
         F: FnMut(Self::Item) -> B,
-    { /* ... */ }
+    { todo!() }
 }
 ```
 
@@ -427,6 +437,7 @@ Why associated type instead of generic?
 
 *   **Problem**: Static dispatch via generics (`fn foo<T: Trait>`) creates a copy of the function for each concrete type, leading to code bloat. It's also impossible to create a collection of different types that share a behavior, like `Vec<[Circle, Rectangle]>`.
 *   **Solution**: Use trait objects (`&dyn Trait`) for dynamic dispatch. This creates a single version of the function that accepts any type implementing the trait, looking up the correct method at runtime via a vtable. Dynamic dispatch results in smaller binary sizes and allows for runtime polymorphism (e.g., plugin systems).
+*   **Why It Matters**: This is the key to runtime polymorphism in Rust. Plugin systems, GUI frameworks, and event handlers need heterogeneous collections. The vtable overhead (~2-3ns per call) is negligible for most use cases compared to binary size savings.
 
 ### Example: static dispatch
 
@@ -457,7 +468,7 @@ fn process(item: &dyn Display) {
     println!("{}", item);
 }
 
-// Usage: One function handles all types; enables heterogeneous collections.
+// One function handles all types; heterogeneous collections
 let num: i32 = 42;
 let text: &str = "hello";
 process(&num);
@@ -481,7 +492,7 @@ struct Circle {
 
 impl Drawable for Circle {
     fn draw(&self) {
-        println!("Drawing circle with radius {}", self.radius);
+        println!("Circle r={}", self.radius);
     }
 }
 
@@ -492,7 +503,7 @@ struct Rectangle {
 
 impl Drawable for Rectangle {
     fn draw(&self) {
-        println!("Drawing rectangle {}x{}", self.width, self.height);
+        println!("Rect {}x{}", self.width, self.height);
     }
 }
 
@@ -502,12 +513,12 @@ fn draw_all(shapes: &[Box<dyn Drawable>]) {
     }
 }
 
-// Usage: Vec holds different concrete types via shared trait interface.
+// Vec holds different concrete types via trait interface
 let shapes: Vec<Box<dyn Drawable>> = vec![
     Box::new(Circle { radius: 5.0 }),
     Box::new(Rectangle { width: 10.0, height: 20.0 }),
 ];
-draw_all(&shapes); // Each shape drawn via trait method
+draw_all(&shapes);
 ```
 
 ### Example: Object Safety Requirements
@@ -593,7 +604,7 @@ struct Circle {
 
 impl Shape for Circle {
     fn area(&self) -> f64 {
-        std::f64::consts::PI * self.radius * self.radius
+        std::f64::consts::PI * self.radius.powi(2)
     }
 }
 
@@ -601,11 +612,11 @@ fn try_as_circle(shape: &dyn Shape) -> Option<&Circle> {
     shape.as_any().downcast_ref::<Circle>()
 }
 
-// Usage: Downcast from trait object back to concrete type when needed.
+// Downcast from trait object to concrete type
 let circle = Circle { radius: 5.0 };
 let shape: &dyn Shape = &circle;
 if let Some(c) = try_as_circle(shape) {
-    println!("Radius: {}", c.radius); // Access concrete type fields
+    println!("Radius: {}", c.radius);
 }
 ```
 
@@ -651,7 +662,7 @@ impl<'a> Processor for PrefixProcessor<'a> {
     }
 }
 
-// Usage: Lifetime bounds ensure trait object outlives borrowed data.
+// Lifetime bounds ensure trait object outlives borrowed data
 let prefix = String::from(">>> ");
 let prefixer = PrefixProcessor { prefix: &prefix };
 let result = process_data(&prefixer, "message");
@@ -663,6 +674,7 @@ The `+ 'a` syntax means "the trait object must live at least as long as `'a`". T
 
 *   **Problem**: You can't add methods to types from other crates (the "orphan rule"). You want to extend standard types like `Vec` or `String` with domain-specific helpers, but can't modify their source code.
 *   **Solution**: Define a new trait (an "extension trait") with the desired methods. Then, implement that trait for the external type.
+*   **Why It Matters**: Extension traits let you customize the standard library for your domain without forking code. Crates like `itertools` add dozens of iterator methods this way. The pattern enables clean, chainable APIs on any type you don't own.
 
 
 ### Example: Basic Extension Trait
@@ -717,7 +729,7 @@ trait IteratorExt: Iterator {
 // Blanket impl: applies to any type that is an Iterator.
 impl<I: Iterator> IteratorExt for I {}
 
-// Usage: Blanket impl gives counts() to all iterators automatically.
+// Blanket impl gives counts() to all iterators automatically
 let words = vec!["apple", "banana", "apple"];
 let counts = words.into_iter().counts();
 ```
@@ -745,12 +757,13 @@ trait ResultContextExt<T, E> {
     fn with_context(self, msg: &str) -> Result<T, String>;
 }
 
-impl<T, E: std::fmt::Display> ResultContextExt<T, E> for Result<T, E> {
+impl<T, E: std::fmt::Display> ResultContextExt<T, E>
+for Result<T, E> {
     fn with_context(self, msg: &str) -> Result<T, String> {
         self.map_err(|e| format!("{}: {}", msg, e))
     }
 }
-// Usage: Extension adds with_context() to any Result for error chaining.
+// Extension adds with_context() to Result for error chaining
 let result: Result<i32, &str> = Err("not found");
 let contexted = result.with_context("Loading user");
 ```
@@ -806,6 +819,7 @@ numbers.debug_print(); // Prints "[1, 2, 3]"
 
 *   **Problem**: As a library author, you want to publish a trait that users can depend on, but you want to prevent them from implementing it themselves. This allows you to add new methods to the trait later without it being a breaking change.
 *   **Solution**: Create a private `sealed` module with a public but un-implementable `Sealed` trait. Make your public trait a supertrait of `sealed::Sealed`.
+*   **Why It Matters**: Sealed traits enable API evolution without semver breakage. Adding a required method to an open trait is a breaking change; with sealed traits, you control all implementations. This is essential for stable, long-lived library APIs.
 
 ### Example: Basic Sealed Trait
 
@@ -940,7 +954,7 @@ impl EmailService for MockEmail {
     }
 }
 
-// Usage: Trait bounds enable swapping real services for mocks in tests.
+// Trait bounds enable swapping real services for mocks in tests
 let db = MockDb { users: RefCell::new(vec![]) };
 let email = MockEmail { sent: RefCell::new(vec![]) };
 let service = UserService::new(db, email);

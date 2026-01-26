@@ -16,22 +16,22 @@
      to learn how Rc/Arc-like structures manage shared ownership.
   7. [safe-configuration](06-safe-configuration.md) – Define configuration
      newtypes and builders that prevent invalid server configs at compile time.
-  8. [streaming-iterator-hrtb](06-streaming-iterator-hrtb.md) – Implement a
+  8. [streaming-iterator-hrtb](06-streaming-iterator.md) – Implement a
      streaming iterator that yields borrowed data via higher-ranked trait bounds
      and GATs.
   9. [validated-wrappers](03-reference-project-1-validated-wrappers.md) - Implement validated wrapper types (Email, Url, NonEmptyString, PositiveInt)
-  10. [zero-copy-protpocol](06-zero-copy-protocol-parser.md) – Parse text by borrowing slices
+  10. [zero-copy-protpocol](06-protocol-parser.md) – Parse text by borrowing slices
       from the input so tokens remain valid without allocations.
-  11. [parser-combinator](04-functional-project1-parser-combinator.md)  - functional parser combinator library
-  12. [middleware-pipeline](04-functional-project2-middleware-pipeline.md)   - functional middleware pipeline
-  13. [json-parser-validator](07-json-parser-validator.md) – Parse JSON into an
+  11. [parser-combinator](04-parser-combinator.md)  - functional parser combinator library
+  12. [middleware-pipeline](04-middleware-pipeline.md)   - functional middleware pipeline
+  13. [json-parser-validator](07-json-parser.md) – Parse JSON into an
      AST and validate against schemas using pattern matching.
   14. [network-packet-inspector](07-network-packet-inspector.md) – Inspect multi-
      layer network packets, enforce firewall rules, and detect malicious
      patterns.
   15. [order-strate-machine](07-order-strate-machine.md) – Model an order
      workflow with enums so illegal state transitions can’t compile.
-  16. [regex-engine-pattern-matching](07-regex-engine-pattern-matching.md) –
+  16. [regex-engine-pattern-matching](07-regex-engine.md) –
      Build a regex engine that parses patterns, supports captures/alternation,
      and backtracks correctly.
   17. [csv-parser](08-csv-parser.md) – Stream massive CSV files using iterators
@@ -40,33 +40,33 @@
      endpoints as lazy iterators that fetch pages on demand.
   19. [plugins](08-plugins.md) – Load runtime-selected plugins safely so user
      code can extend the host app.
-  20. [config-validator-error-handling](09-config-validator-error-handling.md) –
+  20. [config-validator-error-handling](09-config-validator.md) –
      Parse TOML/JSON configs and emit precise schema errors for bad inputs.
   21. [parser-combinator](09-parser-combinator.md) – Build parser combinators
      with associated types so small parsers compose ergonomically.
-  22. [web-scraper-retry-breaker](09-web-scraper-retry-breaker.md) – Crawl many
+  22. [web-scraper-retry-breaker](09-web-scraper.md) – Crawl many
      URLs concurrently with retries, rate limits, and circuit breakers.
   23. [generics-queue](10-generics-queue.md) – Implement a generic priority queue
      that accepts any Ord payload.
-  24. [csv-processor](10-vec-project-1-csv-processor.md) – Process multi-gig CSVs
+  24. [csv-processor](10-csv-processor.md) – Process multi-gig CSVs
      by chunking, transforming, validating, and batching inserts efficiently.
-  25. [timeseries](10-vec-project-2-timeseries.md) – Analyze time-series streams
+  25. [timeseries](10-timeseries.md) – Analyze time-series streams
      by computing sliding-window statistics in O(n).
-  26. [binary-search](10-vec-project-3-binary-search.md) – Provide binary-search
+  26. [binary-search](10-binary-search.md) – Provide binary-search
      helpers that power fast queries over sorted data.
-  27. [log-parser](11-string-project-1-log-parser.md) – Parse huge log files into
+  27. [log-parser](11-log-parser.md) – Parse huge log files into
      structured events with zero-copy string handling.
-  28. [text-editor-gap-buffer](11-string-project-2-text-editor-gap-buffer.md)
+  28. [text-editor-gap-buffer](11-text-editor-gap-buffer.md)
      – Implement a gap-buffer editor core that makes insert/delete near the
      cursor cheap.
-  29. [boyer-moore-search](11-string-project-3-boyer-moore-search.md) – Apply
+  29. [boyer-moore-search](11-boyer-moore-search.md) – Apply
      Boyer–Moore substring search to find patterns efficiently in large texts.
-  30. [analytics-engine](12-hashmap-project-1-analytics-engine.md) – Maintain
+  30. [analytics-engine](12-analytics-engine.md) – Maintain
      real-time analytics over streaming events with HashMaps for aggregations.
-  31. [custom-hash-functions](12-hashmap-project-2-custom-hash-functions.md) –
+  31. [custom-hash-functions](12-custom-hash-functions.md) –
      Create custom hashers for spatial/geographic data to keep maps performant
      and correct.
-  32. [cache-alternative-maps](12-hashmap-project-3-cache-alternative-maps.md)
+  32. [cache-alternative-maps](12-cache-alternative-maps.md)
      – Compare alternative map types to build a multi-tier cache with varied
      access patterns.
   33. [autocomplete](13-advanced-collections-autocomplete.md) – Build a trie-

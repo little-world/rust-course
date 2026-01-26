@@ -30,7 +30,7 @@ Returns an error if the file doesn't exist, lacks read permission, or contains i
 fn read_to_string(path: &str) -> io::Result<String> {
     std::fs::read_to_string(path)
     // Allocates a String big enough for the entire file
-    // Returns Err if file doesn't exist, isn't readable, or isn't valid UTF-8
+    // Err if missing, unreadable, or invalid UTF-8
 }
 
 // Usage: Load configuration file
@@ -63,7 +63,7 @@ fn read_with_buffer(path: &str) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut contents = String::new();
 
-    // read_to_string reads until EOF, automatically resizing the String
+    // Reads until EOF, auto-resizing the String
     file.read_to_string(&mut contents)?;
     Ok(contents)
 }
@@ -82,8 +82,8 @@ fn read_exact_bytes(path: &str, n: usize) -> io::Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let mut buffer = vec![0; n];
 
-    // read_exact returns Err if fewer than n bytes are available
-    // This guarantees you get all n bytes or an error—no partial reads
+    // Err if fewer than n bytes available
+    // Guarantees all n bytes or error—no partial reads
     file.read_exact(&mut buffer)?;
     Ok(buffer)
 }
@@ -227,7 +227,7 @@ fn advanced_file_opening() -> io::Result<()> {
     // Use this to avoid overwriting important files
     let file = OpenOptions::new()
         .write(true)
-        .create_new(true)   // Fail if exists (atomic check-and-create)
+        .create_new(true)   // Fail if exists (atomic)
         .open("unique.txt")?;
 
     // Read and write mode (for in-place modification)
@@ -245,7 +245,7 @@ fn advanced_file_opening() -> io::Result<()> {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
-            .mode(0o644)      // rw-r--r-- (owner can write, others can read)
+            .mode(0o644)      // rw-r--r--
             .open("secure.txt")?;
     }
 
@@ -357,7 +357,7 @@ Always call `flush()` at the end to ensure the final partial buffer reaches disk
 ```rust
 fn buffered_write(path: &str, lines: &[&str]) -> io::Result<()> {
     let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);  // 8 KB buffer by default
+    let mut writer = BufWriter::new(file);  // 8 KB default buf
 
     for line in lines {
         writeln!(writer, "{}", line)?;  // Writes to buffer
@@ -502,14 +502,15 @@ mod memmap_examples {
 
         // Access memory like a byte slice
         let data: &[u8] = &mmap[..];
-        println!("First 10 bytes: {:?}", &data[..10.min(data.len())]);
+        let n = 10.min(data.len());
+        println!("First {} bytes: {:?}", n, &data[..n]);
 
         // mmap is unmapped when dropped
         Ok(())
     }
 
     // Mutable memory map
-    // Use this for: In-place file modification, persistent data structures
+    // In-place file modification, persistent data structures
     fn mmap_write(path: &str) -> io::Result<()> {
         let file = File::options()
             .read(true)
@@ -544,7 +545,7 @@ mod memmap_examples {
     }
 
     // Large file processing with mmap
-    // Use this when: File is too large for RAM but you need random access
+    // For files too large for RAM requiring random access
     fn process_large_file_mmap(path: &str) -> io::Result<usize> {
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
@@ -731,7 +732,9 @@ Case-sensitive on most platforms. Combine with recursive walking for "find all .
 
 ```rust
 // Use this for: Finding all .rs files, .txt files, etc.
-fn list_by_extension(path: &str, ext: &str) -> io::Result<Vec<PathBuf>> {
+fn list_by_extension(
+    path: &str, ext: &str
+) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
     for entry in fs::read_dir(path)? {
@@ -757,7 +760,9 @@ Essential for sorting by size or date. Returns symlink target metadata; use `sym
 
 ```rust
 // Use this for: Sorting by size, filtering by date, etc.
-fn list_with_metadata(path: &str) -> io::Result<Vec<(PathBuf, fs::Metadata)>> {
+fn list_with_metadata(path: &str)
+    -> io::Result<Vec<(PathBuf, fs::Metadata)>>
+{
     let mut entries = Vec::new();
 
     for entry in fs::read_dir(path)? {
@@ -784,7 +789,10 @@ Uses mutable Vec by reference to avoid allocations. Warning: doesn't detect syml
 
 ```rust
 // Classic depth-first search pattern
-fn walk_directory(path: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+fn walk_directory(
+    path: &Path,
+    files: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     if path.is_dir() {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
@@ -831,10 +839,11 @@ fn print_tree(path: &Path, prefix: &str) -> io::Result<()> {
 
     for (i, entry) in entries.iter().enumerate() {
         let is_last = i == entries.len() - 1;
-        let connector = if is_last { "└── " } else { "├── " };
+        let conn = if is_last { "└── " } else { "├── " };
         let extension = if is_last { "    " } else { "│   " };
 
-        println!("{}{}{}", prefix, connector, entry.file_name().to_string_lossy());
+        let name = entry.file_name();
+        println!("{}{}{}", prefix, conn, name.to_string_lossy());
 
         if entry.file_type()?.is_dir() {
             let new_prefix = format!("{}{}", prefix, extension);
@@ -855,10 +864,16 @@ Implements `find . -name '*pattern*'`—combines recursive walking with filename
 Uses `contains()` for substring matching; use regex or glob crates for full patterns. Returns all matches.
 
 ```rust
-fn find_files(root: &Path, pattern: &str) -> io::Result<Vec<PathBuf>> {
+fn find_files(
+    root: &Path, pattern: &str
+) -> io::Result<Vec<PathBuf>> {
     let mut matches = Vec::new();
 
-    fn search(path: &Path, pattern: &str, matches: &mut Vec<PathBuf>) -> io::Result<()> {
+    fn search(
+        path: &Path,
+        pattern: &str,
+        matches: &mut Vec<PathBuf>,
+    ) -> io::Result<()> {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
@@ -915,8 +930,10 @@ fn run_command() -> io::Result<()> {
         .output()?;  // Waits for completion, captures all output
 
     println!("Status: {}", output.status);
-    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
-    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let out = String::from_utf8_lossy(&output.stdout);
+    let err = String::from_utf8_lossy(&output.stderr);
+    println!("Stdout: {}", out);
+    println!("Stderr: {}", err);
 
     Ok(())
 }
@@ -934,7 +951,7 @@ Returns exit status only; use `success()` for boolean or `code()` for exit code.
 fn run_command_check() -> io::Result<()> {
     let status = Command::new("cargo")
         .arg("build")
-        .status()?;  // Inherits stdin/stdout/stderr, just waits for completion
+        .status()?;  // Inherits streams, waits for exit
 
     if status.success() {
         println!("Build succeeded!");
@@ -980,7 +997,8 @@ fn run_in_directory() -> io::Result<()> {
         .current_dir("/tmp")
         .output()?;
 
-    println!("Working directory: {}", String::from_utf8_lossy(&output.stdout));
+    let cwd = String::from_utf8_lossy(&output.stdout);
+    println!("Working directory: {}", cwd);
     Ok(())
 }
 
@@ -1140,7 +1158,8 @@ fn complex_pipeline(file: &str, pattern: &str) -> io::Result<()> {
         .spawn()?;
 
     let output = wc.wait_with_output()?;
-    println!("Lines matching '{}': {}", pattern, String::from_utf8_lossy(&output.stdout).trim());
+    let count = String::from_utf8_lossy(&output.stdout);
+    println!("Lines matching '{}': {}", pattern, count.trim());
 
     Ok(())
 }

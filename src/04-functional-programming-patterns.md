@@ -6,6 +6,7 @@ Rust's functional programming features are deeply integrated with its ownership 
 
 *   **Problem**: Rust functions have behaviors that surprise programmers coming from other languages: every function has a unique type, generic functions don't have a single address, and the return type affects control flow in unexpected ways.
 *   **Solution**: Understand function item types vs function pointer types, how monomorphization affects function identity, and how the never type (`!`) enables powerful patterns.
+*   **Why It Matters**: These details explain why generic functions can't be stored in arrays, why `panic!` works in any match arm, and why function items are zero-cost. Mastering these concepts unlocks advanced patterns like type-level dispatch tables and compile-time function composition.
 
 ### Example: Function Item Types vs Function Pointers
 
@@ -32,8 +33,10 @@ fn demonstrate_function_types() {
     let f2: fn(i32, i32) -> i32 = sub;
 
     // Size difference:
-    println!("Size of add (item): {}", std::mem::size_of_val(&add));  // 0
-    println!("Size of fn pointer: {}", std::mem::size_of::<fn(i32, i32) -> i32>());  // 8
+    // 0 bytes (function item is zero-sized)
+    println!("Size of add (item): {}", std::mem::size_of_val(&add));
+    // 8 bytes (pointer-sized)
+    println!("Fn pointer: {}", std::mem::size_of::<fn() -> i32>());
 
     // Function items are zero-sized, so this is free:
     struct Callback<F> {
@@ -41,8 +44,8 @@ fn demonstrate_function_types() {
     }
 }
 
-// Usage: Store different functions in an array by coercing to fn pointer type.
-// Function items are zero-sized; fn pointers are 8 bytes (pointer-sized).
+// Store different functions by coercing to fn pointer type.
+// Function items are zero-sized; fn pointers are 8 bytes.
 let funcs: [fn(i32, i32) -> i32; 2] = [add, sub];
 println!("{}", funcs[0](5, 3)); // 8
 println!("{}", funcs[1](5, 3)); // 2
@@ -67,9 +70,9 @@ fn monomorphization_surprise() {
     println!("identity::<&str> at {:p}", str_id as *const ());
 
     // This is why you can't do this:
-    // let generic_ptr: fn<T>(T) -> T = identity;  // No such type exists!
+    // let generic_ptr: fn<T>(T) -> T = identity;  // No such type!
 
-    // Generic functions don't exist at runtime—only their monomorphizations do
+    // Generic fns don't exist at runtime—only monomorphizations
 }
 
 // Implications for function pointer tables:
@@ -85,8 +88,8 @@ fn build_dispatch_table() -> Vec<fn(&str) -> String> {
     vec![handler_a, handler_b]
 }
 
-// Usage: Each monomorphization is a separate function with its own address.
-// You can't take a pointer to a generic function—only to specific instantiations.
+// Each monomorphization is a separate fn with its own address.
+// Can't take pointer to generic fn—only to instantiations.
 let int_id: fn(i32) -> i32 = identity;
 let u8_id: fn(u8) -> u8 = identity;
 println!("{}, {}", int_id(42), u8_id(255)); // 42, 255
@@ -124,10 +127,12 @@ fn the_never_type() {
 }
 
 // Practical use: functions that handle "impossible" cases
-fn unwrap_infallible<T>(result: Result<T, std::convert::Infallible>) -> T {
+fn unwrap_infallible<T>(
+    result: Result<T, std::convert::Infallible>,
+) -> T {
     match result {
         Ok(value) => value,
-        Err(never) => match never {},  // Empty match on uninhabited type
+        Err(never) => match never {}, // Empty match on uninhabited
     }
 }
 
@@ -151,7 +156,7 @@ impl Builder {
 
     fn build(self) -> Result<Config, &'static str> {
         Ok(Config {
-            required: self.required.ok_or("required field missing")?,
+            required: self.required.ok_or("required field")?,
         })
     }
 }
@@ -160,8 +165,8 @@ struct Config {
     required: String,
 }
 
-// Usage: The never type (!) coerces to any type, enabling mixed match arms.
-// Use empty match on uninhabited types to prove a case is impossible.
+// The never type (!) coerces to any type, enabling mixed match.
+// Empty match on uninhabited types proves a case is impossible.
 let value: i32 = match Some(42) {
     Some(n) => n,
     None => panic!("oops"), // ! coerces to i32
@@ -217,10 +222,10 @@ fn count_bits(byte: u8) -> u8 {
     POPCOUNT_TABLE[byte as usize]
 }
 
-// Usage: const fn runs at compile time when called in const contexts.
-// The result is embedded directly in the binary with zero runtime cost.
+// const fn runs at compile time when called in const contexts.
+// The result is embedded directly in the binary with zero cost.
 const FACT_5: u64 = factorial(5); // Computed at compile time
-const SQUARES: [i32; 5] = generate_lookup_table(); // Build lookup tables statically
+const TABLE: [u8; 256] = generate_lookup_table(); // Static table
 ```
 
 ## Pattern 2: Closure Internals
@@ -251,23 +256,22 @@ fn closure_desugaring() {
     //     }
     // }
 
-    // Proof - check the size:
-    println!("Closure size: {}", std::mem::size_of_val(&closure));  // 8 (one reference)
+    // Proof - check the size (8 bytes = one reference)
+    println!("Closure size: {}", std::mem::size_of_val(&closure));
 
-    // A closure capturing more:
+    // A closure capturing more (32 bytes = String + &i32)
     let closure2 = |a: i32| format!("{}: {}", y, a + x);
-    println!("Closure2 size: {}", std::mem::size_of_val(&closure2));  // 32 (String + &i32)
+    println!("Closure2 size: {}", std::mem::size_of_val(&closure2));
 
     // move closure: captures by value
     let closure3 = move |a: i32| a + x;
-    // struct __closure_3 {
-    //     x: i32,  // captured by value (copied, since i32: Copy)
-    // }
-    println!("Move closure size: {}", std::mem::size_of_val(&closure3));  // 4 (i32)
+    // struct __closure_3 { x: i32 } // captured by value (copied)
+    // 4 bytes = i32 size
+    println!("Move closure: {}", std::mem::size_of_val(&closure3));
 }
 
-// Usage: Closure size reflects captured data—references are 8 bytes, values vary.
-// A by-reference closure capturing &i32 is 8 bytes; a move closure copying i32 is 4 bytes.
+// Closure size reflects captures—refs are 8 bytes, values vary
+// By-reference closure: 8 bytes; move closure with i32: 4 bytes
 let by_ref = |a: i32| a + x; // Captures &x (8 bytes)
 let by_val = move |a: i32| a + x; // Captures x by value (4 bytes)
 ```
@@ -320,10 +324,11 @@ fn unique_closure_types() {
     }
 }
 
-// Usage: Use Box<dyn Fn> to store different closures together.
-// Non-capturing closures can coerce to fn pointers for lighter-weight storage.
-let ops: Vec<Box<dyn Fn(i32) -> i32>> = vec![Box::new(|x| x + 1), Box::new(|x| x * 2)];
-let fn_ptrs: Vec<fn(i32) -> i32> = vec![|x| x + 1, |x| x * 2]; // No captures needed
+// Use Box<dyn Fn> to store different closures together.
+// Non-capturing closures can coerce to fn pointers for storage.
+let ops: Vec<Box<dyn Fn(i32) -> i32>> =
+    vec![Box::new(|x| x + 1), Box::new(|x| x * 2)];
+let fn_ptrs: Vec<fn(i32) -> i32> = vec![|x| x + 1, |x| x * 2];
 ```
 
 ### Example: When Closures Are Copy and Clone
@@ -346,7 +351,7 @@ fn closure_copy_clone() {
     // move + Copy capture - closure is Copy
     let by_val = move || x + 1;
     let copy3 = by_val;
-    let copy4 = by_val;  // OK, x was copied into closure, closure is Copy
+    let copy4 = by_val;  // OK, x was copied, closure is Copy
 
     // Non-Copy capture - closure is NOT Copy
     let s = String::from("hello");
@@ -357,7 +362,7 @@ fn closure_copy_clone() {
     // Clone works if all captures are Clone
     let s = String::from("hello");
     let cloneable = move || s.clone();
-    // let c1 = cloneable.clone();  // Works if closure derives Clone
+    // let c1 = cloneable.clone();  // Works if closure is Clone
 
     // Practical implication: thread spawning
     let data = vec![1, 2, 3];  // Vec is not Copy
@@ -367,8 +372,8 @@ fn closure_copy_clone() {
     });
 }
 
-// Usage: Closures capturing only Copy types (or references) are Copy themselves.
-// A closure capturing String by move is not Copy—assigning it moves the closure.
+// Closures capturing only Copy types (or refs) are Copy themselves.
+// A closure capturing String by move is not Copy—it gets moved.
 let x = 10;
 let by_ref = || x + 1; // Copy: captures &i32
 let c1 = by_ref;
@@ -385,7 +390,7 @@ fn inference_pitfalls() {
     let closure = |x| x;  // Type not yet determined
 
     let _: i32 = closure(5);  // Now it's fn(i32) -> i32
-    // let _: &str = closure("hello");  // Error! Already inferred as i32
+    // let _: &str = closure("hello");  // Error! Type already fixed
 
     // This is why you sometimes need annotations:
     let explicit = |x: &str| -> String { x.to_uppercase() };
@@ -412,8 +417,8 @@ where
     f(s)
 }
 
-// Usage: Closure types are inferred from first use—once fixed, they can't change.
-// Use a factory function to create "generic" closures for different types.
+// Closure types inferred from first use—once fixed, can't change.
+// Use a factory function to create closures for each type.
 let closure = |x| x;
 let _: i32 = closure(42); // Type locked to fn(i32) -> i32
 fn make_identity<T>() -> impl Fn(T) -> T { |x| x }
@@ -449,7 +454,7 @@ fn field_capture() {
 
     // So this still works:
     println!("Value: {}", data.value);  // `data.value` not captured
-    println!("Items: {:?}", data.items); // `data.items` not captured
+    println!("Items: {:?}", data.items); // not captured
 
     // But this closure captures all used fields:
     let closure2 = || {
@@ -465,8 +470,8 @@ fn field_capture() {
     };
 }
 
-// Usage: Rust 2021 captures individual fields, not the whole struct.
-// A closure using only data.name leaves data.value accessible outside.
+// Rust 2021 captures individual fields, not the whole struct.
+// A closure using data.name leaves data.value accessible outside.
 let get_name = || data.name.len(); // Only captures data.name
 println!("{}", data.value); // Still accessible—not captured
 ```
@@ -512,10 +517,10 @@ fn capture_mode_inference() {
     // println!("{:?}", vec);  // OK after `pushing` is done
 }
 
-// Usage: The compiler infers capture mode: &T for reads, &mut T for mutations, T for moves.
-// Read-only closures implement Fn; mutating implement FnMut; consuming implement FnOnce.
+// Compiler infers capture: &T for reads, &mut T for mut, T for move
+// Read-only = Fn; mutating = FnMut; consuming = FnOnce
 let read = || x + 1; // Fn: captures &x
-let mut increment = || { count += 1; count }; // FnMut: captures &mut count
+let mut inc = || { count += 1; count }; // FnMut: captures &mut
 let consume = || drop(s); // FnOnce: takes ownership of s
 ```
 
@@ -553,7 +558,7 @@ fn move_semantics() {
     // Only moves pair.a
     let partial = || drop(pair.a);
     // pair.a is moved, but pair.b is still accessible... kind of
-    // println!("{}", pair.b);  // Depends on edition and exact usage
+    // println!("{}", pair.b);  // Depends on edition
 
     // To move specific fields:
     let Pair { a, b } = pair;
@@ -578,9 +583,9 @@ use std::thread;
 fn move_and_borrow() {
     let data = vec![1, 2, 3, 4, 5];
 
-    // Problem: thread needs owned data, but we want to use data after
+    // Problem: thread needs owned data, but we want data after
     // let handle = thread::spawn(|| {
-    //     data.iter().sum::<i32>()  // Error: `data` doesn't live long enough
+    //     data.iter().sum::<i32>()  // Error: lifetime
     // });
 
     // Solution 1: Clone
@@ -614,8 +619,8 @@ fn move_and_borrow() {
     handle3.join().unwrap();
 }
 
-// Usage: Clone data before spawning threads to keep using the original.
-// Use Arc for shared ownership across threads without cloning the data itself.
+// Clone data before spawning threads to keep using the original.
+// Use Arc for shared ownership across threads without full cloning.
 let data_clone = data.clone();
 let handle = thread::spawn(move || data_clone.iter().sum::<i32>());
 println!("{:?}", data); // Original still accessible
@@ -651,11 +656,11 @@ fn fn_landscape() {
 
     // 4. Trait object (dynamic dispatch, pointer + vtable)
     let dyn_ref: &dyn Fn(i32) -> i32 = &regular;
-    println!("&dyn Fn size: {}", std::mem::size_of_val(&dyn_ref));  // 16 (fat ptr)
+    println!("&dyn Fn: {}", std::mem::size_of_val(&dyn_ref)); // 16
 
     // 5. Boxed trait object (heap allocated)
     let boxed: Box<dyn Fn(i32) -> i32> = Box::new(regular);
-    println!("Box<dyn Fn> size: {}", std::mem::size_of_val(&boxed));  // 16
+    println!("Boxed: {}", std::mem::size_of_val(&boxed)); // 16
 }
 
 // Performance hierarchy (best to worst):
@@ -664,8 +669,8 @@ fn fn_landscape() {
 // 3. &dyn Fn - vtable lookup + indirect call
 // 4. Box<dyn Fn> - heap allocation + vtable lookup
 
-// Usage: Function items are 0 bytes, fn pointers are 8 bytes, &dyn Fn is 16 bytes.
-// All callable types work similarly but have different performance characteristics.
+// Function items = 0 bytes, fn pointers = 8 bytes, &dyn Fn = 16.
+// All callable types work similarly but have different performance.
 let item = regular; // Zero-sized function item
 let ptr: fn(i32) -> i32 = regular; // 8-byte pointer
 let dyn_ref: &dyn Fn(i32) -> i32 = &regular; // 16-byte fat pointer
@@ -676,7 +681,7 @@ let dyn_ref: &dyn Fn(i32) -> i32 = &regular; // 16-byte fat pointer
 Use `fn` pointers for C FFI callbacks and static dispatch tables with non-capturing functions. Use `impl Fn` generics for best performance when callers provide the function. Use `Box<dyn Fn>` when storing closures with captures or building event emitters.
 
 ```rust
-// Use `fn` for: C FFI, dispatch tables, when you KNOW no captures needed
+// Use `fn` for: C FFI, dispatch tables, no captures needed
 
 // C FFI callback
 extern "C" {
@@ -690,13 +695,13 @@ static HANDLERS: [fn(&str) -> String; 3] = [
     |s| s.chars().rev().collect(),
 ];
 
-// Use generic `impl Fn` for: best performance, when caller decides type
+// Use generic `impl Fn` for: best performance, caller decides type
 
 fn process_all<F: Fn(i32) -> i32>(items: &[i32], f: F) -> Vec<i32> {
     items.iter().map(|&x| f(x)).collect()
 }
 
-// Use `&dyn Fn` for: heterogeneous callbacks, when you need type erasure without heap
+// Use `&dyn Fn` for: heterogeneous callbacks, type erasure no heap
 
 fn with_callbacks(callbacks: &[&dyn Fn(i32)]) {
     for (i, cb) in callbacks.iter().enumerate() {
@@ -704,7 +709,7 @@ fn with_callbacks(callbacks: &[&dyn Fn(i32)]) {
     }
 }
 
-// Use `Box<dyn Fn>` for: storing closures with captures, returning closures
+// Use `Box<dyn Fn>` for: storing closures with captures, returns
 
 struct EventEmitter {
     listeners: Vec<Box<dyn Fn(&str)>>,
@@ -722,7 +727,7 @@ impl EventEmitter {
     }
 }
 
-// Usage: fn pointers for dispatch tables; impl Fn for performance; Box<dyn Fn> for storage.
+// fn ptrs for dispatch; impl Fn for perf; Box<dyn Fn> for storage
 static HANDLERS: [fn(i32) -> i32; 2] = [|x| x + 1, |x| x * 2];
 fn process<F: Fn(i32) -> i32>(items: &[i32], f: F) -> Vec<i32> {
     items.iter().map(|&x| f(x)).collect()
@@ -763,10 +768,10 @@ fn coercion_rules() {
     take_fn_trait(ptr);  // fn implements Fn
 }
 
-// Usage: Non-capturing closures coerce to fn pointers; capturing closures need impl Fn.
-// Function pointers implement all Fn traits, so they work wherever closures are accepted.
-let ptr: fn(i32) -> i32 = named; // Function item -> fn pointer: OK
-let closure_ptr: fn(i32) -> i32 = |x| x * 2; // Non-capturing -> fn pointer: OK
+// Non-capturing closures coerce to fn ptrs; capturing need impl Fn
+// Function pointers implement all Fn traits, work where closures do
+let ptr: fn(i32) -> i32 = named; // Item -> fn pointer: OK
+let closure_ptr: fn(i32) -> i32 = |x| x * 2; // Non-capturing: OK
 ```
 
 ## Pattern 5: Higher-Order Functions and Type Inference
@@ -803,11 +808,13 @@ fn apply_v3(value: i32, f: &dyn Fn(i32) -> i32) -> i32 {
 // When does it matter?
 
 // Multiple uses of same type - need generic:
-fn apply_both<F: Fn(i32) -> i32>(a: i32, b: i32, f: F) -> (i32, i32) {
-    (f(a), f(b))  // Same F used twice - guaranteed same function
+fn apply_both<F: Fn(i32) -> i32>(
+    a: i32, b: i32, f: F
+) -> (i32, i32) {
+    (f(a), f(b)) // Same F used twice
 }
 
-// Different function types - need separate generics or trait objects:
+// Different fn types - need separate generics or trait objects
 fn apply_two<F, G>(value: i32, f: F, g: G) -> i32
 where
     F: Fn(i32) -> i32,
@@ -816,16 +823,15 @@ where
     g(f(value))
 }
 
-// Recursive or self-referential - need trait object:
-fn recursive_apply(value: i32, f: &dyn Fn(i32, &dyn Fn(i32, &dyn Fn(i32, _) -> i32) -> i32) -> i32) -> i32 {
-    // Complex case - easier with trait objects
-    todo!()
-}
+// Recursive or self-referential - need trait object
+// Complex nested fn types are easier with trait objects
 
-// Usage: Use impl Fn for simple cases, generics <F: Fn> when the type appears multiple times.
-// Generics enable composition patterns like apply_both(a, b, f) where f is reused.
-fn apply_v1(value: i32, f: impl Fn(i32) -> i32) -> i32 { f(value) }
-fn apply_both<F: Fn(i32) -> i32>(a: i32, b: i32, f: F) -> (i32, i32) { (f(a), f(b)) }
+// Use impl Fn for simple cases; generics when type appears 2x
+// Generics enable composition: apply_both(a, b, f) reuses f
+fn apply1(v: i32, f: impl Fn(i32) -> i32) -> i32 { f(v) }
+fn apply2<F: Fn(i32) -> i32>(a: i32, b: i32, f: F) -> (i32, i32) {
+    (f(a), f(b))
+}
 ```
 
 ### Example: Returning Functions
@@ -838,7 +844,7 @@ fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
     move |x| x + n
 }
 
-// Return type is opaque but FIXED - can't return different closures:
+// Return type is opaque but FIXED - can't return different closures
 // fn broken(condition: bool) -> impl Fn(i32) -> i32 {
 //     if condition {
 //         |x| x + 1  // Type A
@@ -886,8 +892,8 @@ fn make_op_same(multiply: bool, n: i32) -> impl Fn(i32) -> i32 {
     move |x| if multiply { x * n } else { x + n }
 }
 
-// Usage: Return impl Fn for a single closure type; Box<dyn Fn> for conditional returns.
-// A single closure with conditional logic avoids Box when the types would otherwise differ.
+// Return impl Fn for single closure; Box<dyn Fn> for conditionals.
+// One closure with conditional logic avoids Box for differing types
 fn make_adder(n: i32) -> impl Fn(i32) -> i32 { move |x| x + n }
 let add_5 = make_adder(5);
 println!("{}", add_5(10)); // 15
@@ -901,16 +907,16 @@ Closures that borrow must include the lifetime in the return type: `impl Fn() + 
 // Functions returning references need careful lifetime handling
 
 // Simple case: input lifetime flows to output
-fn first_that<'a, F>(items: &'a [i32], predicate: F) -> Option<&'a i32>
+fn first_that<'a, F>(items: &'a [i32], pred: F) -> Option<&'a i32>
 where
     F: Fn(&i32) -> bool,
 {
-    items.iter().find(|x| predicate(x))
+    items.iter().find(|x| pred(x))
 }
 
 // Returning closure that borrows - needs explicit lifetime
-fn make_checker<'a>(threshold: &'a i32) -> impl Fn(i32) -> bool + 'a {
-    move |x| x > *threshold
+fn make_checker<'a>(t: &'a i32) -> impl Fn(i32) -> bool + 'a {
+    move |x| x > *t
 }
 
 // Higher-ranked trait bounds (HRTB) for generic lifetimes
@@ -934,10 +940,10 @@ fn hrtb_example() {
     // bound to each iteration of the loop
 }
 
-// Usage: Add lifetime bounds to returned closures that borrow: impl Fn() + 'a.
-// Use HRTB (for<'a>) when the closure must work with any lifetime, like in iterators.
-fn make_checker<'a>(threshold: &'a i32) -> impl Fn(i32) -> bool + 'a {
-    move |x| x > *threshold
+// Add lifetime bounds to returned closures: impl Fn() + 'a.
+// Use HRTB (for<'a>) when closure must work with any lifetime.
+fn make_check<'a>(t: &'a i32) -> impl Fn(i32) -> bool + 'a {
+    move |x| x > *t
 }
 ```
 
@@ -994,10 +1000,12 @@ fn sum_even_doubled_imperative(data: &[i32]) -> i32 {
 }
 // These compile to IDENTICAL assembly with optimizations on!
 
-// Usage: Iterator chains compile to the same assembly as hand-written loops.
-// Filter-map-sum becomes a single optimized loop with no intermediate allocations.
-let result: Vec<i32> = v.iter().map(|x| x * 2).filter(|x| *x > 4).collect();
-let sum: i32 = data.iter().filter(|&&x| x % 2 == 0).map(|&x| x * 2).sum();
+// Iterator chains compile to same assembly as hand-written loops.
+// Filter-map-sum becomes a single optimized loop, no allocations.
+let res: Vec<i32> =
+    v.iter().map(|x| x * 2).filter(|x| *x > 4).collect();
+let sum: i32 =
+    data.iter().filter(|&&x| x % 2 == 0).map(|&x| x * 2).sum();
 ```
 
 ### Example: When Iterators Have Overhead
@@ -1010,8 +1018,10 @@ fn iterator_overhead() {
     let data = vec![1, 2, 3, 4, 5];
 
     // This CAN'T be fully inlined:
-    let iter: Box<dyn Iterator<Item = i32>> = Box::new(data.into_iter());
-    let doubled: Box<dyn Iterator<Item = i32>> = Box::new(iter.map(|x| x * 2));
+    let iter: Box<dyn Iterator<Item = i32>> =
+        Box::new(data.into_iter());
+    let doubled: Box<dyn Iterator<Item = i32>> =
+        Box::new(iter.map(|x| x * 2));
     // Each .next() is a virtual call
 
     // 2. Collect to intermediate collections
@@ -1037,10 +1047,10 @@ fn iterator_overhead() {
     }
 }
 
-// Usage: Keep iterator chains lazy—avoid collect() to intermediate Vec.
-// Use generic iterator types in structs instead of Box<dyn Iterator> for inlining.
+// Keep iterator chains lazy—avoid collect() to intermediate Vec.
+// Use generic iterators in structs instead of Box<dyn Iterator>.
 let good: i32 = data.iter().map(|x| x * 2).sum(); // Lazy, efficient
-// Avoid: data.iter().map(...).collect::<Vec<_>>().iter().sum() // Extra allocation
+// Avoid: .collect::<Vec<_>>().iter().sum() // Extra allocation
 ```
 
 ### Example: Custom Iterator for Efficiency
@@ -1072,8 +1082,9 @@ impl<'a, T> Iterator for Windows<'a, T> {
 
     // Implement size_hint for collect optimization
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.data.len().saturating_sub(self.pos + self.size - 1);
-        (remaining, Some(remaining))
+        let rem = self.data.len()
+            .saturating_sub(self.pos + self.size - 1);
+        (rem, Some(rem))
     }
 }
 
@@ -1093,10 +1104,10 @@ fn parallel_example() {
     // let sum: i32 = data.par_iter().map(|x| x * 2).sum();
 }
 
-// Usage: Implement Iterator for custom traversal patterns.
-// Add size_hint() for collect() optimization; use #[inline] on next() for performance.
+// Implement Iterator for custom traversal patterns.
+// Add size_hint() for collect() optimization; #[inline] on next().
 let windows = Windows { data: &data, size: 3, pos: 0 };
-let result: Vec<_> = windows.collect(); // [[1,2,3], [2,3,4], [3,4,5]]
+let result: Vec<_> = windows.collect(); // [[1,2,3], [2,3,4],...]
 ```
 
 ## Pattern 7: Closure Patterns for APIs
@@ -1170,8 +1181,8 @@ fn builder_usage() {
         .build();
 }
 
-// Usage: Store callbacks as Option<Box<dyn Fn>> with Send + Sync for thread safety.
-// Accept any Fn via generics and box it internally in builder methods.
+// Store callbacks as Option<Box<dyn Fn>> with Send + Sync
+// Accept any Fn via generics and box it internally in builder.
 let client = HttpClient::builder()
     .timeout(5000)
     .on_request(|url| println!("Requesting: {}", url))
@@ -1235,7 +1246,8 @@ where
 
     impl<T, C: FnOnce(T)> Drop for Guard<T, C> {
         fn drop(&mut self) {
-            if let (Some(v), Some(c)) = (self.value.take(), self.cleanup.take()) {
+            let pair = (self.value.take(), self.cleanup.take());
+            if let (Some(v), Some(c)) = pair {
                 c(v);
             }
         }
@@ -1249,7 +1261,7 @@ where
     // cleanup runs when guard drops
 }
 
-// Usage: Use with_* pattern for scoped resource management—no Box allocation needed.
+// Use with_* pattern for scoped resource management—no Box.
 // Cleanup happens via RAII even if the closure panics.
 let result = with_transaction(|tx| {
     tx.execute("INSERT INTO users ...");
@@ -1266,7 +1278,7 @@ use std::collections::HashMap;
 
 // Type-erased plugin registry
 struct PluginRegistry {
-    processors: HashMap<String, Box<dyn Fn(&str) -> String + Send + Sync>>,
+    processors: HashMap<String, Box<dyn Fn(&str) -> String + Send>>,
 }
 
 impl PluginRegistry {
@@ -1280,7 +1292,7 @@ impl PluginRegistry {
     where
         F: Fn(&str) -> String + Send + Sync + 'static,
     {
-        self.processors.insert(name.to_string(), Box::new(processor));
+        self.processors.insert(name.into(), Box::new(processor));
     }
 
     fn process(&self, name: &str, input: &str) -> Option<String> {
@@ -1311,8 +1323,8 @@ impl TraitRegistry {
     }
 }
 
-// Usage: Store closures in HashMap<String, Box<dyn Fn>> for runtime plugin lookup.
-// Closures must be 'static to be stored; use trait objects for richer plugin APIs.
+// Store closures in HashMap<String, Box<dyn Fn>> for lookup.
+// Closures must be 'static; use trait objects for richer APIs.
 let mut registry = PluginRegistry::new();
 registry.register("upper", |s| s.to_uppercase());
 registry.process("upper", "hello"); // Some("HELLO")
@@ -1358,7 +1370,7 @@ impl<T: 'static> Pipeline<T> {
 }
 
 // Simpler approach with impl Fn
-fn compose_middleware<T, F, G>(outer: F, inner: G) -> impl Fn(T) -> T
+fn compose<T, F, G>(outer: F, inner: G) -> impl Fn(T) -> T
 where
     F: Fn(T) -> T,
     G: Fn(T) -> T,
@@ -1372,13 +1384,13 @@ fn middleware_example() {
     let square = |x: i32| x * x;
 
     // Compose: square(double(add_one(x)))
-    let pipeline = compose_middleware(square, compose_middleware(double, add_one));
+    let pipeline = compose(square, compose(double, add_one));
     println!("Result: {}", pipeline(5));  // ((5+1)*2)^2 = 144
 }
 
-// Usage: Compose functions with nested calls or fold over a collection of transforms.
-// compose(square, compose(double, add_one)) applies: square(double(add_one(x)))
-let pipeline = compose_middleware(square, compose_middleware(double, add_one));
+// Compose functions with nested calls or fold over transforms.
+// compose(sq, compose(dbl, add_one)) = sq(dbl(add_one(x)))
+let pipeline = compose(square, compose(double, add_one));
 println!("{}", pipeline(5)); // ((5+1)*2)^2 = 144
 ```
 
@@ -1444,10 +1456,12 @@ fn validate_all(name: &str, age: i32) -> Result<User, Vec<String>> {
     }
 }
 
-// Usage: Chain fallible operations with and_then() or the ? operator.
-// The ? operator is often clearer than combinator chains for sequential validation.
-let result = validate_name(name).and_then(|n| validate_age(age).map(|a| User { name: n, age: a }));
-// Or: let name = validate_name(name)?; let age = validate_age(age)?;
+// Chain fallible operations with and_then() or the ? operator.
+// The ? operator is often clearer for sequential validation.
+let result = validate_name(name).and_then(|n| {
+    validate_age(age).map(|a| User { name: n, age: a })
+});
+// Or: let n = validate_name(name)?; let a = validate_age(age)?;
 ```
 
 ### Example: Lazy Evaluation with Closures
@@ -1486,7 +1500,8 @@ impl Config {
     fn database_url(&self) -> &str {
         self.database_url.get_or_init(|| {
             // Expensive initialization, only done once
-            std::env::var("DATABASE_URL").unwrap_or_else(|_| "localhost".into())
+            std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "localhost".into())
         })
     }
 }
@@ -1512,10 +1527,12 @@ where
     }
 }
 
-// Usage: Defer expensive computation with OnceCell::get_or_init().
-// The closure runs only on first access; subsequent calls return the cached value.
+// Defer expensive computation with OnceCell::get_or_init().
+// Closure runs once on first access; later calls return cached val
 let cell: OnceCell<String> = OnceCell::new();
-let url = cell.get_or_init(|| std::env::var("DATABASE_URL").unwrap_or("localhost".into()));
+let url = cell.get_or_init(|| {
+    std::env::var("DATABASE_URL").unwrap_or("localhost".into())
+});
 ```
 
 ### Summary

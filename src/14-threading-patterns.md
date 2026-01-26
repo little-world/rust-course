@@ -23,16 +23,16 @@ use std::thread;
 fn spawn_with_owned_data() {
     let data = vec![1, 2, 3, 4, 5];
 
-    // The 'move' keyword transfers ownership of 'data' to the new thread.
+    // 'move' transfers ownership of 'data' to the new thread.
     let handle = thread::spawn(move || {
         let sum: i32 = data.iter().sum();
         println!("Sum calculated by thread: {}", sum);
         sum // The thread returns the sum.
     });
 
-    // The join() method waits for the thread to finish and returns a Result.
+    // join() waits for the thread to finish and returns a Result.
     let result = handle.join().unwrap();
-    println!("Result received from thread: {}", result);
+    println!("Result from thread: {}", result);
 
     // This would fail to compile, as 'data' has been moved:
     // println!("Data in main thread: {:?}", data);
@@ -61,12 +61,12 @@ fn parallel_computations() {
         numbers_clone2.iter().product::<i32>()
     });
 
-    // Wait for both threads to complete and collect their results.
+    // Wait for both threads and collect results.
     let sum = sum_handle.join().unwrap();
     let product = product_handle.join().unwrap();
 
     println!("Original data: {:?}", numbers);
-    println!("Parallel Sum: {}, Parallel Product: {}", sum, product);
+    println!("Sum: {}, Product: {}", sum, product);
 }
 ```
 
@@ -79,7 +79,7 @@ use std::thread;
 
 fn thread_with_error_handling() {
     let handle = thread::spawn(|| {
-        // Simulate a computation that might fail.
+        // Simulate a computation that can fail.
         let value = 42;
         if value > 0 {
             Ok(value)
@@ -90,7 +90,7 @@ fn thread_with_error_handling() {
 
     match handle.join() {
         Ok(Ok(value)) => {
-            println!("Thread completed with value: {}", value)
+            println!("Thread succeeded: {}", value)
         }
         Ok(Err(e)) => {
             println!("Thread returned error: {}", e)
@@ -130,7 +130,7 @@ fn named_threads() {
         .map(|h| h.join().unwrap())
         .collect();
 
-    println!("Results from named threads: {:?}", results);
+    println!("Results: {:?}", results);
 }
 ```
 
@@ -171,7 +171,9 @@ fn process_file(path: &PathBuf) -> ProcessResult {
     }
 }
 
-fn process_files_parallel(paths: Vec<PathBuf>) -> Vec<ProcessResult> {
+fn process_files_parallel(
+    paths: Vec<PathBuf>,
+) -> Vec<ProcessResult> {
     let handles: Vec<_> = paths
         .into_iter()
         .map(|path| {
@@ -197,7 +199,9 @@ fn main() {
     let results = process_files_parallel(paths);
     for result in results {
         match result.error {
-            Some(e) => println!("{}: Error - {}", result.path.display(), e),
+            Some(e) => {
+                println!("{}: {}", result.path.display(), e)
+            }
             None => println!(
                 "{}: {} lines, {} words, {} bytes",
                 result.path.display(),
@@ -220,8 +224,7 @@ use std::thread;
 fn scoped_threads_for_borrowing() {
     let mut data = vec![1, 2, 3, 4, 5];
 
-    // 'thread::scope' creates a scope for spawning threads.
-    // The scope guarantees that all threads within it will join before it exits.
+    // thread::scope guarantees all threads join before it exits.
     thread::scope(|s| {
         // This thread borrows 'data' immutably.
         s.spawn(|| {
@@ -234,7 +237,7 @@ fn scoped_threads_for_borrowing() {
             let product: i32 = data.iter().product();
             println!("Scoped thread sees product: {}", product);
         });
-    }); // The scope blocks here until all spawned threads complete.
+    }); // Scope blocks until all threads complete.
 
     // After the scope, we can mutate 'data' again.
     data.push(6);
@@ -294,12 +297,12 @@ use rayon::prelude::*;
 
 fn parallel_sorting_with_rayon() {
     let mut data: Vec<i32> = (0..1_000_000).rev().collect();
-    println!("First 10 elements (before sort): {:?}", &data[..10]);
+    println!("Before sort: {:?}", &data[..10]);
 
-    // Parallel sort is much faster for large collections.
+    // Parallel sort is faster for large collections.
     data.par_sort();
 
-    println!("First 10 elements (after sort): {:?}", &data[..10]);
+    println!("After sort: {:?}", &data[..10]);
 }
 ```
 
@@ -326,18 +329,16 @@ impl Image {
         }
     }
 
-    fn apply_filter_parallel(&mut self, filter: impl Fn(u8) -> u8 + Sync) {
-        self.pixels.par_iter_mut().for_each(|pixel| {
-            *pixel = filter(*pixel);
-        });
+    fn apply_filter(&mut self, f: impl Fn(u8) -> u8 + Sync) {
+        self.pixels.par_iter_mut().for_each(|p| *p = f(*p));
     }
 
     fn brighten(&mut self, amount: u8) {
-        self.apply_filter_parallel(|p| p.saturating_add(amount));
+        self.apply_filter(|p| p.saturating_add(amount));
     }
 
     fn invert(&mut self) {
-        self.apply_filter_parallel(|p| 255 - p);
+        self.apply_filter(|p| 255 - p);
     }
 }
 
@@ -379,7 +380,7 @@ use std::thread;
 use std::time::Duration;
 
 fn basic_mpsc_channel() {
-    let (tx, rx) = mpsc::channel(); // tx = transmitter, rx = receiver
+    let (tx, rx) = mpsc::channel(); // tx=transmitter, rx=receiver
 
     // Spawn a producer thread.
     thread::spawn(move || {
@@ -390,7 +391,7 @@ fn basic_mpsc_channel() {
         }
     });
 
-    // The receiver can be used as an iterator that blocks until a message is received.
+    // The receiver blocks until a message is received.
     for received in rx {
         println!("Received: {}", received);
     }
@@ -419,10 +420,10 @@ fn multiple_producers() {
         });
     }
 
-    // Drop the original transmitter so the receiver knows when to stop waiting.
+    // Drop original tx so receiver knows when to stop.
     drop(tx);
 
-    // The receiver will automatically close when all transmitters have been dropped.
+    // Receiver closes when all transmitters are dropped.
     for received in rx {
         println!("Received: {}", received);
     }
@@ -446,8 +447,8 @@ fn bounded_channel_backpressure() {
     // A fast producer.
     thread::spawn(move || {
         for i in 0..10 {
-            println!("Producer: trying to send {}", i);
-            tx.send(i).unwrap(); // This will block if the channel is full.
+            println!("Producer: sending {}", i);
+            tx.send(i).unwrap(); // Blocks if channel full.
             println!("Producer: sent {}", i);
         }
     });
@@ -468,13 +469,14 @@ The actor model is a concurrency pattern where "actors" are isolated entities th
 
 ```rust
 // Add `crossbeam = "0.8"` to Cargo.toml
-use crossbeam::channel::{unbounded, Sender, Receiver};
+use crossbeam::channel::{unbounded, Sender};
+use crossbeam::channel::Receiver;
 use std::thread;
 
 // Messages the actor can receive.
 enum ActorMessage {
     Process(String),
-    GetState(Sender<String>), // Message to request the actor's state.
+    GetState(Sender<String>), // Request actor's state.
     Shutdown,
 }
 
@@ -511,11 +513,11 @@ impl Actor {
 
 fn actor_pattern_example() {
     let (tx, rx) = unbounded();
-    let actor_handle = thread::spawn(move || Actor::new(rx).run());
+    let handle = thread::spawn(move || Actor::new(rx).run());
 
     // Send messages to the actor.
-    tx.send(ActorMessage::Process("Hello, ".to_string())).unwrap();
-    tx.send(ActorMessage::Process("Actor!".to_string())).unwrap();
+    tx.send(ActorMessage::Process("Hello, ".into())).ok();
+    tx.send(ActorMessage::Process("Actor!".into())).ok();
 
     // Send a message to get the actor's state.
     let (reply_tx, reply_rx) = unbounded();
@@ -525,7 +527,7 @@ fn actor_pattern_example() {
 
     // Shut down the actor.
     tx.send(ActorMessage::Shutdown).unwrap();
-    actor_handle.join().unwrap();
+    handle.join().unwrap();
 }
 ```
 
@@ -548,19 +550,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn shared_counter() {
-    // Arc<Mutex<T>> is the standard way to share mutable state.
+    // Arc<Mutex<T>> is the standard shared mutable state.
     let counter = Arc::new(Mutex::new(0));
     let mut handles = vec![];
 
     for _ in 0..10 {
-        // Clone the Arc to give each thread a reference to the Mutex.
+        // Clone the Arc for each thread.
         let counter_clone = Arc::clone(&counter);
         let handle = thread::spawn(move || {
-            // lock() acquires the mutex, blocking until it's available.
-            // The returned "lock guard" provides access to the data.
+            // lock() acquires mutex, blocks until available.
+            // Lock guard provides access; releases on drop.
             let mut num = counter_clone.lock().unwrap();
             *num += 1;
-            // The lock is automatically released when 'num' goes out of scope.
         });
         handles.push(handle);
     }
@@ -583,16 +584,16 @@ use std::thread;
 use std::time::Duration;
 
 fn rwlock_for_read_heavy_data() {
-    let config = Arc::new(RwLock::new("initial_config".to_string()));
+    let config = Arc::new(RwLock::new("initial_config".into()));
     let mut handles = vec![];
 
     // Spawn multiple reader threads.
     for i in 0..5 {
         let config_clone = Arc::clone(&config);
         let handle = thread::spawn(move || {
-            // read() acquires a read lock. Multiple threads can hold a read lock.
+            // read() acquires read lock; multiple can hold it.
             let cfg = config_clone.read().unwrap();
-            println!("Reader {}: Current config is '{}'", i, *cfg);
+            println!("Reader {}: config='{}'", i, *cfg);
         });
         handles.push(handle);
     }
@@ -601,10 +602,9 @@ fn rwlock_for_read_heavy_data() {
     thread::sleep(Duration::from_millis(10));
     let config_clone = Arc::clone(&config);
     let writer_handle = thread::spawn(move || {
-        // write() acquires a write lock. This will wait until all read locks are released.
-        // No new readers can acquire a lock while the writer is waiting.
+        // write() waits for all read locks to release.
         let mut cfg = config_clone.write().unwrap();
-        *cfg = "updated_config".to_string();
+        *cfg = "updated_config".into();
         println!("Writer: Updated config.");
     });
     handles.push(writer_handle);
@@ -646,7 +646,7 @@ fn barrier_for_phased_work() {
             // ... do some work ...
             barrier_clone.wait(); // All threads wait here.
 
-            println!("Thread {}: Phase 1 done. Starting phase 2.", id);
+            println!("Thread {}: Phase 1 done. Phase 2...", id);
             // ... do some work ...
             barrier_clone.wait(); // Wait again.
 
@@ -676,11 +676,11 @@ struct BoundedQueue<T> {
 }
 
 impl<T> BoundedQueue<T> {
-    fn new(capacity: usize) -> Self {
+    fn new(cap: usize) -> Self {
         Self {
-            queue: Mutex::new(VecDeque::with_capacity(capacity)),
+            queue: Mutex::new(VecDeque::with_capacity(cap)),
             condvar: Condvar::new(),
-            capacity,
+            capacity: cap,
         }
     }
 
@@ -691,7 +691,7 @@ impl<T> BoundedQueue<T> {
             queue = self.condvar.wait(queue).unwrap();
         }
         queue.push_back(item);
-        // Notify one waiting consumer that there's new data.
+        // Notify one waiting consumer.
         self.condvar.notify_one();
     }
 
@@ -702,7 +702,7 @@ impl<T> BoundedQueue<T> {
             queue = self.condvar.wait(queue).unwrap();
         }
         let item = queue.pop_front().unwrap();
-        // Notify one waiting producer that there's new space.
+        // Notify one waiting producer.
         self.condvar.notify_one();
         item
     }

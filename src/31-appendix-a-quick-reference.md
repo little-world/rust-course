@@ -35,16 +35,12 @@ Understanding when to use each conversion trait is crucial for API design. Here'
 // The conversion trait landscape
 use std::convert::{From, Into, TryFrom, TryInto, AsRef, AsMut};
 
-//===============================================
 // Pattern 1: Implementing From (Into comes free)
-//===============================================
 struct UserId(u64);
 struct DatabaseId(u64);
 
 impl From<DatabaseId> for UserId {
-    fn from(db_id: DatabaseId) -> Self {
-        UserId(db_id.0)  // Infallible conversion
-    }
+    fn from(db_id: DatabaseId) -> Self { UserId(db_id.0) }
 }
 
 // Now both directions work
@@ -52,9 +48,7 @@ let db_id = DatabaseId(42);
 let user_id: UserId = db_id.into();           // Into is automatic
 let user_id2 = UserId::from(DatabaseId(43));  // From is explicit
 
-//==========================================================
-// Pattern 2: Implementing TryFrom for validated conversions
-//==========================================================
+// Pattern 2: TryFrom for validated conversions
 use std::num::TryFromIntError;
 
 struct Port(u16);
@@ -71,27 +65,19 @@ impl TryFrom<u32> for Port {
     }
 }
 
-// Use with ? for error propagation
 fn parse_port(input: u32) -> Result<Port, &'static str> {
-    let port = Port::try_from(input)?;
-    Ok(port)
+    Ok(Port::try_from(input)?)  // ? propagates Err
 }
 
-//===================================
 // Pattern 3: AsRef for flexible APIs
-//===================================
-fn log_message<S: AsRef<str>>(msg: S) {
-    println!("{}", msg.as_ref());
-}
+fn log_message<S: AsRef<str>>(msg: S) { println!("{}", msg.as_ref()); }
 
 // Works with many string types
 log_message("literal");           // &str
 log_message(String::from("owned")); // String
 log_message("owned".to_string());  // String
 
-//======================================
 // Pattern 4: AsMut for generic mutation
-//======================================
 fn clear_buffer<T: AsMut<[u8]>>(buffer: &mut T) {
     for byte in buffer.as_mut() {
         *byte = 0;
@@ -217,10 +203,8 @@ struct User {
     email: String,
 }
 
-// Debug: Required for debugging, logging, and error messages
-// Clone: Enables explicit duplication
-// PartialEq/Eq: Enables == comparisons and use in HashSet/HashMap
-// Hash: Enables use as HashMap keys
+// Debug: debugging/logging. Clone: explicit duplication
+// PartialEq/Eq: == and HashSet/HashMap. Hash: HashMap keys
 ```
 
 **When to skip derives:**
@@ -242,9 +226,7 @@ struct LargeBuffer {
 struct CaseInsensitiveString(String);
 
 impl PartialEq for CaseInsensitiveString {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.to_lowercase() == other.0.to_lowercase()
-    }
+    fn eq(&self, other: &Self) -> bool { self.0.to_lowercase() == other.0.to_lowercase() }
 }
 ```
 
@@ -274,16 +256,11 @@ tasks.insert(Priority { level: 2, timestamp: 50 });
 struct ReverseScore(u32);
 
 impl Ord for ReverseScore {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse the natural ordering
-        other.0.cmp(&self.0)
-    }
+    fn cmp(&self, other: &Self) -> Ordering { other.0.cmp(&self.0) }  // Reversed
 }
 
 impl PartialOrd for ReverseScore {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 ```
 
@@ -295,10 +272,7 @@ impl PartialOrd for ReverseScore {
 struct FloatWrapper(f64);
 
 impl PartialOrd for FloatWrapper {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Returns None for NaN comparisons
-        self.0.partial_cmp(&other.0)
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.0.partial_cmp(&other.0) }  // None for NaN
 }
 ```
 
@@ -339,10 +313,7 @@ let conn = Connection {
     ..Default::default()  // Fill remaining fields
 };
 
-// Use with Option::unwrap_or_default
-fn get_config(maybe_config: Option<Config>) -> Config {
-    maybe_config.unwrap_or_default()
-}
+fn get_config(maybe_config: Option<Config>) -> Config { maybe_config.unwrap_or_default() }
 ```
 
 ### Display and Debug: Human-Readable Output
@@ -357,11 +328,8 @@ struct Timestamp {
     unix_seconds: i64,
 }
 
-// Manual Display for user-facing output
-impl fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Timestamp({})", self.unix_seconds)
-    }
+impl fmt::Display for Timestamp {  // User-facing output
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "Timestamp({})", self.unix_seconds) }
 }
 
 // Using both
@@ -406,14 +374,12 @@ impl fmt::Display for ApiError {
 
 impl Error for ApiError {}
 
-// Use in Result types
 fn fetch_data() -> Result<String, ApiError> {
     Err(ApiError::NetworkFailure("Connection timeout".to_string()))
 }
 
-// Chain with ? operator
 fn process() -> Result<(), Box<dyn Error>> {
-    let data = fetch_data()?;  // Automatically converts
+    let data = fetch_data()?;  // ? converts error type automatically
     Ok(())
 }
 ```
@@ -532,7 +498,7 @@ The key insight: iterators are **adapters and consumers**. Adapters transform it
 Every collection can produce iterators in three flavors, each with different ownership semantics:
 
 ```rust
-// Usage: iter() borrows, iter_mut() borrows mutably, into_iter() consumes
+// iter() borrows, iter_mut() borrows mutably, into_iter() consumes
 let data = vec![1, 2, 3];
 
 // iter() - borrows elements immutably
@@ -893,7 +859,7 @@ Rust's standard library provides a rich set of collection types, each optimized 
 `Vec<T>` is the workhorse collection—use it as your default choice unless you have specific requirements for other types. It provides O(1) indexed access and amortized O(1) push/pop at the end.
 
 ```rust
-// Usage: Vec is the default collection; O(1) push/pop at end, O(1) index access
+// Default collection; O(1) push/pop at end, O(1) index
 use std::vec::Vec;
 
 // Creating vectors
@@ -904,10 +870,10 @@ let v4 = vec![0; 5];                       // [0, 0, 0, 0, 0]
 
 // Adding elements
 let mut numbers = Vec::new();
-numbers.push(1);                           // Add to end - O(1) amortized
+numbers.push(1);                           // O(1) amortized
 numbers.extend([2, 3, 4]);                 // Add multiple
-numbers.append(&mut vec![5, 6]);           // Move elements from another vec
-numbers.insert(0, 0);                      // Insert at index - O(n)
+numbers.append(&mut vec![5, 6]);           // Move from another vec
+numbers.insert(0, 0);                      // O(n) - shifts elements
 
 // Accessing elements
 let first = numbers[0];                    // Panics if out of bounds
@@ -916,9 +882,9 @@ let last = numbers.last();                 // Option<&T>
 let slice = &numbers[1..4];                // Borrow a slice
 
 // Removing elements
-let last = numbers.pop();                  // Option<T> - O(1)
-let removed = numbers.remove(0);           // T - O(n), shifts elements
-numbers.clear();                           // Empty the vec
+let last = numbers.pop();                  // Option<T>, O(1)
+let removed = numbers.remove(0);           // T, O(n) shifts
+numbers.clear();
 
 // Iteration
 for num in &numbers {                      // Immutable borrow
@@ -941,8 +907,8 @@ v.shrink_to_fit();                         // Release unused memory
 
 // Deduplication and sorting
 let mut data = vec![3, 1, 4, 1, 5, 9, 2, 6, 5];
-data.sort();                               // Sort in place - O(n log n)
-data.dedup();                              // Remove consecutive duplicates
+data.sort();                               // O(n log n)
+data.dedup();                              // Remove consecutive dups
 // [1, 2, 3, 4, 5, 6, 9]
 
 // Binary search (requires sorted data)
@@ -958,7 +924,7 @@ match sorted.binary_search(&3) {
 Use `VecDeque<T>` when you need efficient insertion/removal at both ends. It's implemented as a ring buffer.
 
 ```rust
-// Usage: VecDeque for O(1) push/pop at both ends (ring buffer)
+// O(1) push/pop at both ends (ring buffer)
 use std::collections::VecDeque;
 
 // Creating VecDeque
@@ -966,13 +932,11 @@ let mut deque = VecDeque::new();
 let mut deque2 = VecDeque::from(vec![1, 2, 3]);
 
 // Adding at both ends - O(1)
-deque.push_back(1);                        // Add to back
-deque.push_front(0);                       // Add to front
-// [0, 1]
+deque.push_back(1);
+deque.push_front(0);                       // [0, 1]
 
-// Removing from both ends - O(1)
-let back = deque.pop_back();               // Some(1)
-let front = deque.pop_front();             // Some(0)
+let back = deque.pop_back();               // Some(1), O(1)
+let front = deque.pop_front();             // Some(0), O(1)
 
 // Use cases
 // Queue (FIFO)
@@ -993,7 +957,7 @@ let last = stack.pop_back();               // LIFO order
 `HashMap<K, V>` provides O(1) average-case insertion and lookup. Use it when you need fast key-based access and don't care about ordering.
 
 ```rust
-// Usage: HashMap for O(1) avg key lookup; keys need Hash + Eq
+// O(1) avg lookup; keys need Hash + Eq
 use std::collections::HashMap;
 
 // Creating HashMaps
@@ -1004,8 +968,7 @@ let mut map: HashMap<String, i32> = HashMap::with_capacity(100);
 scores.insert("Alice".to_string(), 10);
 scores.insert("Bob".to_string(), 20);
 
-// Returns previous value if key existed
-let old = scores.insert("Alice".to_string(), 15);  // Some(10)
+let old = scores.insert("Alice".to_string(), 15);  // Some(10) - old value
 
 // Accessing values
 let alice_score = scores.get("Alice");             // Option<&i32>
@@ -1022,15 +985,11 @@ if scores.contains_key("Alice") {
 // Removing entries
 let removed = scores.remove("Bob");                // Option<V>
 
-// Entry API (powerful pattern)
-// Insert if missing
+// Entry API
 scores.entry("Charlie".to_string()).or_insert(0);
 
-// Modify existing or insert default
-let alice = scores.entry("Alice".to_string()).or_insert(0);
+let alice = scores.entry("Alice".to_string()).or_insert(0);  // Get or create
 *alice += 5;
-
-// Complex logic with entry
 let word_counts = vec!["apple", "banana", "apple"];
 let mut counts = HashMap::new();
 for word in word_counts {
@@ -1070,9 +1029,8 @@ use std::collections::HashSet;
 let mut set = HashSet::new();
 let set2: HashSet<i32> = [1, 2, 3].iter().cloned().collect();
 
-// Adding and removing - O(1)
-set.insert(1);                             // true if inserted
-set.insert(1);                             // false (already exists)
+set.insert(1);                             // true if new, O(1)
+set.insert(1);                             // false (exists)
 set.remove(&1);                            // true if removed
 
 // Checking membership
@@ -1179,16 +1137,9 @@ use std::collections::BinaryHeap;
 // Creating a BinaryHeap
 let mut heap = BinaryHeap::new();
 
-// Adding elements - O(log n)
-heap.push(3);
-heap.push(1);
-heap.push(5);
-heap.push(2);
+heap.push(3); heap.push(1); heap.push(5); heap.push(2);  // O(log n) each
 
-// Peeking at largest - O(1)
-let largest = heap.peek();                 // Some(&5)
-
-// Removing largest - O(log n)
+let largest = heap.peek();                 // Some(&5), O(1)
 while let Some(max) = heap.pop() {
     println!("{}", max);
 }
@@ -1214,15 +1165,10 @@ struct Task {
 }
 
 impl Ord for Task {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.priority.cmp(&other.priority)
-    }
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.priority.cmp(&other.priority) }
 }
-
 impl PartialOrd for Task {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
 }
 
 let mut tasks = BinaryHeap::new();
@@ -1294,22 +1240,14 @@ Rust distinguishes between owned strings (`String`) and borrowed string slices (
 let literal: &str = "Hello, world!";       // String literals are &str
 let slice: &str = &String::from("hello")[0..2];  // Slice of String
 
-// &str is:
-// - Immutable
-// - Fixed size (known at compile time or stored as fat pointer)
-// - Doesn't own its data
-// - Cheap to pass around
+// &str: immutable, fixed size, doesn't own data, cheap to pass
 
-// String: Owned, growable
+// String: owned, growable
 let mut owned = String::from("Hello");
 let mut owned2 = "Hello".to_string();
 let mut owned3 = String::new();
 
-// String is:
-// - Mutable
-// - Heap-allocated
-// - Growable
-// - UTF-8 encoded
+// String: mutable, heap-allocated, growable, UTF-8 encoded
 
 // Converting between
 let s = String::from("hello");
@@ -1340,14 +1278,11 @@ s.push('!');                               // Append char
 let s1 = String::from("Hello");
 let s2 = String::from(" world");
 
-// Using + (takes ownership of left operand)
-let s3 = s1 + &s2;                         // s1 moved, s2 borrowed
-// s1 is now invalid!
+let s3 = s1 + &s2;                         // + takes ownership of s1, borrows s2
 
-// Using format! (doesn't take ownership)
 let s1 = String::from("Hello");
 let s2 = String::from(" world");
-let s3 = format!("{}{}", s1, s2);          // Both still valid
+let s3 = format!("{}{}", s1, s2);          // format! borrows, both still valid
 let s4 = format!("{s1}{s2}");              // Shorter syntax
 
 // Inserting and removing
@@ -1500,13 +1435,9 @@ format!("{:e}", 1000.0);                   // "1e3" (scientific notation)
 format!("{:#x}", 255);                     // "0xff" (hex with prefix)
 format!("{:#b}", 10);                      // "0b1010" (binary with prefix)
 
-// Custom Display implementation
 struct Point { x: i32, y: i32 }
-
 impl fmt::Display for Point {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({}, {})", self.x, self.y)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "({}, {})", self.x, self.y) }
 }
 
 let p = Point { x: 10, y: 20 };
@@ -1522,9 +1453,8 @@ let s = "Hello, World!";
 let lower = s.to_lowercase();              // "hello, world!"
 let upper = s.to_uppercase();              // "HELLO, WORLD!"
 
-// Unicode-aware (handles special cases)
 let german = "Straße";
-let upper = german.to_uppercase();         // "STRASSE" (ß -> SS)
+let upper = german.to_uppercase();         // "STRASSE" - Unicode-aware (ß -> SS)
 
 // Case checking
 let all_lower = s.chars().all(|c| c.is_lowercase() || !c.is_alphabetic());
@@ -1616,12 +1546,12 @@ if let Some(x) = some_value {
     println!("Value: {}", x);
 }
 
-// Unwrapping (use with caution!)
+// Unwrapping (use with caution in production!)
 let value = some_value.unwrap();           // Panics if None
-let value = some_value.expect("No value"); // Panics with custom message
-let value = some_value.unwrap_or(0);       // Provides default
-let value = some_value.unwrap_or_else(|| expensive_default());
-let value = some_value.unwrap_or_default(); // Uses Default::default()
+let value = some_value.expect("No value"); // Custom panic message
+let value = some_value.unwrap_or(0);       // Default if None
+let value = some_value.unwrap_or_else(|| expensive_default());  // Lazy default
+let value = some_value.unwrap_or_default(); // Default::default()
 
 // Checking for presence
 if some_value.is_some() {
@@ -1924,10 +1854,8 @@ let boxed = Box::new(42);
 let value = *boxed;                        // Dereference to get value
 println!("{}", boxed);                     // Auto-deref for Display
 
-// Box provides unique ownership
 let boxed = Box::new(42);
-let moved = boxed;                         // Ownership transferred
-// boxed is now invalid
+let moved = boxed;                         // Ownership transferred; boxed invalid
 
 // Converting to raw pointer
 let boxed = Box::new(42);
@@ -1956,8 +1884,7 @@ println!("{}, {}, {}", rc1, rc2, rc3);     // 42, 42, 42
 // Checking reference count
 println!("Count: {}", Rc::strong_count(&rc1));  // 3
 
-// Drop decrements count, frees when 0
-drop(rc2);
+drop(rc2);  // Decrement count, frees at 0
 println!("Count: {}", Rc::strong_count(&rc1));  // 2
 
 // Use case: Shared graph nodes
@@ -2069,7 +1996,6 @@ let cell = RefCell::new(42);
 let value = cell.borrow();                 // Immutable borrow
 println!("{}", *value);                    // 43
 
-// DANGER: Runtime panics on borrow violations
 let cell = RefCell::new(42);
 let borrow1 = cell.borrow_mut();
 // let borrow2 = cell.borrow();            // Panics! Already mutably borrowed

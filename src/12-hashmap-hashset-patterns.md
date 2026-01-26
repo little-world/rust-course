@@ -32,7 +32,7 @@ fn word_frequency_counter() {
 
     for word in text.split_whitespace() {
         // Get the entry for the word, insert 0 if it's vacant,
-        // and then get a mutable reference to the value to increment it.
+        // then get a mutable reference to increment it.
         *counts.entry(word.to_string()).or_insert(0) += 1;
     }
 
@@ -57,16 +57,16 @@ struct Sale {
 
 fn group_sales_by_category() {
     let sales = vec![
-        Sale { category: "Electronics".to_string(), amount: 1200.0 },
-        Sale { category: "Furniture".to_string(), amount: 450.0 },
-        Sale { category: "Electronics".to_string(), amount: 25.0 },
+        Sale { category: "Electronics".into(), amount: 1200.0 },
+        Sale { category: "Furniture".into(), amount: 450.0 },
+        Sale { category: "Electronics".into(), amount: 25.0 },
     ];
 
     let mut sales_by_category: HashMap<String, Vec<Sale>> =
         HashMap::new();
 
     for sale in sales {
-        // Find the vector for the category, creating a new one if it doesn't exist,
+        // Find the vector for the category (create if missing),
         // and then push the sale into it.
         sales_by_category
             .entry(sale.category.clone())
@@ -75,7 +75,8 @@ fn group_sales_by_category() {
     }
 
     println!("Sales grouped by category: {:?}", sales_by_category);
-    assert_eq!(sales_by_category.get("Electronics").unwrap().len(), 2);
+    let elec = sales_by_category.get("Electronics").unwrap();
+    assert_eq!(elec.len(), 2);
 }
 ```
 
@@ -90,7 +91,7 @@ use std::hash::Hash;
 struct LruCache<K, V> {
     capacity: usize,
     map: HashMap<K, V>,
-    order: VecDeque<K>, // Tracks usage order, from least to most recent.
+    order: VecDeque<K>, // Usage order: least to most recent.
 }
 
 impl<K: Eq + Hash + Clone> LruCache<K, V> {
@@ -111,13 +112,13 @@ impl<K: Eq + Hash + Clone> LruCache<K, V> {
             self.order.retain(|k| k != &key);
             self.order.push_back(key);
         } else {
-            // Key is new. First, check if we need to evict an old entry.
+            // Key is new. Check if we need to evict an old entry.
             if self.map.len() >= self.capacity {
                 if let Some(lru_key) = self.order.pop_front() {
                     self.map.remove(&lru_key);
                 }
             }
-            // Insert the new value and add it to the back of the usage queue.
+            // Insert new value and add to back of usage queue.
             self.map.insert(key.clone(), value);
             self.order.push_back(key);
         }
@@ -218,7 +219,7 @@ fn benchmark_fxhashmap() {
     for i in 0..SIZE {
         std_map.insert(i, i);
     }
-    println!("Standard HashMap insertion time: {:?}", start.elapsed());
+    println!("HashMap insertion time: {:?}", start.elapsed());
 }
 // Usage: compare FxHashMap vs standard HashMap performance
 benchmark_fxhashmap(); // FxHashMap: ~50ms vs HashMap: ~150ms
@@ -357,7 +358,7 @@ fn ordered_json() {
     user_data.insert("name", "Alice".to_string());
     user_data.insert("email", "alice@example.com".to_string());
 
-    // When serialized (e.g., to JSON), the fields will appear in the order they were inserted.
+    // When serialized to JSON, fields appear in insertion order.
     // This is not guaranteed with a standard HashMap.
     let as_vec: Vec<_> = user_data.iter()
         .map(|(k,v)| (k.to_string(), v.clone())).collect();
@@ -399,7 +400,7 @@ fn concurrent_request_counter() {
     // Simulate 1000 concurrent requests to different endpoints.
     (0..1000).into_par_iter().for_each(|i| {
         let endpoint = format!("/endpoint_{}", i % 10);
-        // DashMap's entry API is similar to HashMap's and is thread-safe.
+        // DashMap's entry API is similar to HashMap's, thread-safe.
         *counters.entry(endpoint).or_insert(0) += 1;
     });
 

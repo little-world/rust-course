@@ -63,7 +63,7 @@ fn cow_example<'a>(data: &'a str, uppercase: bool) -> Cow<'a, str> {
     }
 }
 // Usage: conditionally allocate based on transformation needs
-let s = cow_example("hello", false); // Cow::Borrowed, no allocation
+let s = cow_example("hello", false); // Cow::Borrowed, no alloc
 let s = cow_example("hello", true);  // Cow::Owned("HELLO")
 ```
 
@@ -125,7 +125,7 @@ use std::path::Path;
 fn main() {
     // Demonstrate type conversions
     let string = String::from("Hello");
-    let str_slice: &str = &string;  // String -> &str (deref coercion)
+    let str_slice: &str = &string;  // String -> &str (deref)
     let cow: Cow<str> = Cow::Borrowed(str_slice);
 
     // String from &str
@@ -208,7 +208,9 @@ impl StringBuilder {
         self
     }
 
-    fn append_fmt(&mut self, args: std::fmt::Arguments) -> &mut Self {
+    fn append_fmt(
+        &mut self, args: std::fmt::Arguments,
+    ) -> &mut Self {
         use std::fmt::Write;
         let _ = write!(&mut self.buffer, "{}", args);
         self
@@ -359,12 +361,12 @@ impl<'a> LineParser<'a> {
     }
 
     // Split by delimiter without allocation
-    fn split(&self, delimiter: &str) -> impl Iterator<Item = &'a str> {
-        self.data.split(delimiter)
+    fn split(&self, delim: &str) -> impl Iterator<Item = &'a str> {
+        self.data.split(delim)
     }
 
     // Extract field by index
-    fn field(&self, line: &'a str, index: usize) -> Option<&'a str> {
+    fn field(&self, line: &'a str, idx: usize) -> Option<&'a str> {
         line.split(',').nth(index)
     }
 }
@@ -389,9 +391,9 @@ impl<'a> CsvParser<'a> {
 
     fn parse(&self) -> Vec<Vec<&'a str>> {
         self.data
-            .lines()
-            .map(|line| line.split(',').map(|field| field.trim()).collect())
-            .collect()
+           .lines()
+           .map(|line| line.split(',').map(|f| f.trim()).collect())
+           .collect()
     }
 
     // Process without intermediate allocations
@@ -400,7 +402,8 @@ impl<'a> CsvParser<'a> {
         F: FnMut(&[&str]),
     {
         for line in self.data.lines() {
-            let fields: Vec<&str> = line.split(',').map(|f| f.trim()).collect();
+            let fields: Vec<&str> =
+                line.split(',').map(|f| f.trim()).collect();
             f(&fields);
         }
     }
@@ -422,9 +425,10 @@ struct StringView<'a> {
 }
 
 impl<'a> StringView<'a> {
-    fn new(data: &'a str, start: usize, len: usize) -> Option<Self> {
-        if start + len <= data.len() && data.is_char_boundary(start) {
-            if start + len == data.len() || data.is_char_boundary(start + len) {
+    fn new(data: &'a str, start: usize, len: usize) -> Option<Self>{
+        let end = start + len;
+        if end <= data.len() && data.is_char_boundary(start) {
+            if end == data.len() || data.is_char_boundary(end) {
                 return Some(StringView { data, start, len });
             }
         }
@@ -435,9 +439,11 @@ impl<'a> StringView<'a> {
         &self.data[self.start..self.start + self.len]
     }
 
-    fn slice(&self, start: usize, len: usize) -> Option<StringView<'a>> {
-        if start + len <= self.len {
-            StringView::new(self.data, self.start + start, len)
+    fn slice(
+        &self, s: usize, len: usize,
+    ) -> Option<StringView<'a>> {
+        if s + len <= self.len {
+            StringView::new(self.data, self.start + s, len)
         } else {
             None
         }
@@ -551,7 +557,7 @@ fn normalize_whitespace(s: &str) -> Cow<str> {
 }
 // Usage: normalize whitespace, allocating only if needed
 let s1 = normalize_whitespace("hello world");   // Cow::Borrowed
-let s2 = normalize_whitespace("hello  world");  // Cow::Owned("hello world")
+let s2 = normalize_whitespace("hello  world");  // Cow::Owned
 ```
 
 ### Example: Conditional HTML Escaping
@@ -583,7 +589,7 @@ fn escape_html(s: &str) -> Cow<str> {
 }
 // Usage: escape HTML, skipping allocation when safe
 let safe = escape_html("hello");        // Cow::Borrowed
-let esc = escape_html("<script>");      // Cow::Owned("&lt;script&gt;")
+let esc = escape_html("<script>");      // Cow::Owned
 ```
 
 ### Example: Strip Prefix/Suffix Without Allocation
@@ -593,7 +599,9 @@ Only allocate a new string if prefix or suffix actually exists. Otherwise return
 ```rust
 use std::borrow::Cow;
 
-fn strip_affixes<'a>(s: &'a str, prefix: &str, suffix: &str) -> Cow<'a, str> {
+fn strip_affixes<'a>(
+    s: &'a str, prefix: &str, suffix: &str,
+) -> Cow<'a, str> {
     let mut start = 0;
     let mut end = s.len();
 
@@ -650,11 +658,11 @@ fn main() {
     println!("Unsafe: {:?}", escape_html(unsafe_text));  // Owned
 
     // Prefix/suffix stripping
-    println!("{:?}", strip_affixes("hello", "", ""));        // Borrowed
+    println!("{:?}", strip_affixes("hello", "", "")); // Borrowed
     println!("{:?}", strip_affixes("[hello]", "[", "]"));   // Owned
 
     // Case normalization
-    println!("{:?}", to_lowercase_if_needed("hello"));     // Borrowed
+    println!("{:?}", to_lowercase_if_needed("hello"));  // Borrowed
     println!("{:?}", to_lowercase_if_needed("Hello"));     // Owned
 }
 ```
@@ -709,7 +717,9 @@ let s = validate_utf8_lossy(&[0x48, 0x65, 0xFF, 0x6C]); // "He�l"
 When you need to know if data is valid UTF-8, use `from_utf8` which returns an error for invalid sequences.
 
 ```rust
-fn validate_utf8_strict(data: &[u8]) -> Result<&str, std::str::Utf8Error> {
+fn validate_utf8_strict(
+    data: &[u8],
+) -> Result<&str, std::str::Utf8Error> {
     std::str::from_utf8(data)
 }
 // Usage: validate UTF-8, returning error on invalid bytes
@@ -749,7 +759,9 @@ impl<'a> Utf8Validator<'a> {
         unsafe { Ok(std::str::from_utf8_unchecked(self.data)) }
     }
 
-    fn decode_char(&self, pos: usize) -> Result<(char, usize), usize> {
+    fn decode_char(
+        &self, pos: usize,
+    ) -> Result<(char, usize), usize> {
         if pos >= self.data.len() {
             return Err(pos);
         }
@@ -866,7 +878,7 @@ fn main() {
     let validator = Utf8Validator::new(invalid);
     match validator.validate() {
         Ok(_) => println!("Valid"),
-        Err(e) => println!("Invalid UTF-8 at position {}", e.valid_up_to),
+        Err(e) => println!("Invalid at pos {}", e.valid_up_to),
     }
 
     // Lossy conversion
@@ -951,7 +963,7 @@ fn analyze_string(s: &str) {
         println!("{}: '{}' (U+{:04X})", i, ch, ch as u32);
     }
 
-    // Grapheme cluster iteration (requires unicode-segmentation crate)
+    // Grapheme cluster iteration (unicode-segmentation crate)
     println!("\nGrapheme clusters:");
     for (i, grapheme) in s.graphemes(true).enumerate() {
         println!("{}: '{}'", i, grapheme);
@@ -1092,6 +1104,8 @@ fn main() {
 **Use Cases**: Lexers for programming languages (keywords, operators, literals, comments), protocol parsers (HTTP headers, binary formats), markup languages (Markdown, HTML fragments), configuration file parsers (TOML, INI), CSV/TSV with escaping, syntax highlighting (real-time tokenization), code completion (incomplete token recovery), template languages (text + interpolation), log parsing (structured formats).
 
 ### Examples
+
+This complete lexer implementation uses an enum to represent parser states and processes input character by character. Each state handles specific characters and transitions to appropriate new states, producing tokens as output.
 
 ```rust
 //=========================
@@ -1282,7 +1296,8 @@ impl Lexer {
             "if", "else", "while", "for", "return", "fn", "let"
         ];
 
-        let token = if keywords.contains(&self.current_token.as_str()) {
+        let kw = self.current_token.as_str();
+        let token = if keywords.contains(&kw) {
             Token::Keyword(self.current_token.clone())
         } else {
             Token::Identifier(self.current_token.clone())
@@ -1340,6 +1355,8 @@ fn main() {
 **Use Cases**: Web frameworks (route parsing, request URL decomposition), HTTP clients (validating and normalizing URLs), web scraping (extracting links, resolving relative URLs), URL shorteners (parsing and validating input), API gateways (routing based on URL structure), browser implementations (address bar parsing), link checkers (validating URL format), sitemap generators, OAuth redirect URI validation.
 
 ### Examples
+
+This URL parser implements RFC 3986 as a state machine. It extracts scheme, authority, path, query, and fragment components in a single pass through the input string.
 
 ```rust
 //===============================
@@ -1402,7 +1419,7 @@ impl UrlParser {
                         scheme.push(ch);
                         self.pos += 1;
                     } else {
-                        return Err(format!("Invalid scheme character: {}", ch));
+                        return Err(format!("Bad char: {}", ch));
                     }
                 }
 
@@ -1524,6 +1541,8 @@ fn main() {
 
 ### Examples
 
+The gap buffer maintains a contiguous block of unused space at the cursor position. Insertions and deletions at the cursor are O(1), while cursor movement shifts the gap through the buffer.
+
 ```rust
 //======================
 // Gap Buffer (complete)
@@ -1634,12 +1653,13 @@ impl GapBuffer {
         self.buffer.resize(new_capacity, '\0');
 
         // Move content after gap to end
-        let content_after_gap = self.buffer.len() - self.gap_end - additional;
-        for i in (0..content_after_gap).rev() {
-            self.buffer[new_capacity - 1 - i] = self.buffer[self.gap_end + i];
+        let tail = self.buffer.len() - self.gap_end - additional;
+        for i in (0..tail).rev() {
+            let src = self.gap_end + i;
+            self.buffer[new_capacity - 1 - i] = self.buffer[src];
         }
 
-        self.gap_end = new_capacity - content_after_gap;
+        self.gap_end = new_capacity - tail;
     }
 
     fn to_string(&self) -> String {
@@ -1830,7 +1850,8 @@ impl Rope {
 
     // Insert string at position
     fn insert(&mut self, pos: usize, text: &str) {
-        let current = std::mem::replace(self, Rope::Leaf(String::new()));
+        let empty = Rope::Leaf(String::new());
+        let current = std::mem::replace(self, empty);
         let (left, right) = current.split(pos);
         let inner = Rope::concat(left, Rope::from_str(text));
         *self = Rope::concat(inner, right);
@@ -1838,7 +1859,8 @@ impl Rope {
 
     // Delete range
     fn delete(&mut self, start: usize, end: usize) {
-        let current = std::mem::replace(self, Rope::Leaf(String::new()));
+        let empty = Rope::Leaf(String::new());
+        let current = std::mem::replace(self, empty);
         let (left, rest) = current.split(start);
         let (_, right) = rest.split(end - start);
         *self = Rope::concat(left, right);
@@ -2022,7 +2044,7 @@ Without rebalancing, a rope can degenerate into a linked list (height O(N)). Reb
 Old rope versions can coexist with new versions:
 ```rust
 let v1 = rope.clone();          // Cheap: just Arc/Rc clone
-rope.insert(100, "text");       // Creates new nodes, reuses old leaves
+rope.insert(100, "text");       // New nodes, reuses old leaves
 // v1 still valid, shares leaves with new rope
 ```
 
@@ -2073,7 +2095,9 @@ Undo is just reverting to the old rope reference—no need to "unapply" operatio
 
 **Use Cases**: Text search in editors (Boyer-Moore for interactive search), genomic analysis (KMP for ATCG sequences), log filtering (pattern matching millions of lines), compiler lexical analysis (token recognition), intrusion detection (packet payload scanning), plagiarism detection (document comparison), virus scanning.
 
-### Examples 
+### Examples
+
+The KMP algorithm precomputes a failure function that tells the matcher how far to backtrack when a mismatch occurs. This avoids re-examining characters that have already been matched.
 
 ```rust
 //===========================================================
@@ -2224,7 +2248,9 @@ The key insight: each text character is examined at most once. The `j` variable 
 
 **Use Cases**: Interactive text search in editors (fast visual feedback), grep/ripgrep tools (searching codebases), plagiarism detection (comparing documents), bioinformatics (protein sequence search has 20-letter alphabet), large document search (legal discovery, log analysis), web page search.
 
-### Examples 
+### Examples
+
+Boyer-Moore uses a bad character table to skip ahead when mismatches occur. The algorithm compares from right to left, allowing larger jumps when the mismatched character doesn't appear in the pattern.
 
 ```rust
 use std::collections::HashMap;
@@ -2245,7 +2271,7 @@ impl BoyerMoore {
         BoyerMoore { pattern, bad_char }
     }
 
-    fn build_bad_char_table(pattern: &[char]) -> HashMap<char, usize> {
+    fn build_bad_char_table(pat: &[char]) -> HashMap<char, usize> {
         let mut table = HashMap::new();
 
         for (i, &ch) in pattern.iter().enumerate() {
@@ -2281,16 +2307,18 @@ impl BoyerMoore {
 
                 // Shift pattern
                 if s + m < n {
-                    let next_char = text[s + m];
-                    let skip = self.bad_char.get(&next_char).unwrap_or(&0);
+                    let next = text[s + m];
+                    let bc = &self.bad_char;
+                    let skip = bc.get(&next).unwrap_or(&0);
                     s += m - skip;
                 } else {
                     s += 1;
                 }
             } else {
                 // Mismatch: use bad character rule
-                let bad_char = text[s + j - 1];
-                let shift = if let Some(&pos) = self.bad_char.get(&bad_char) {
+                let bad = text[s + j - 1];
+                let bc = self.bad_char.get(&bad);
+                let shift = if let Some(&pos) = bc {
                     if pos < j - 1 {
                         j - 1 - pos
                     } else {
@@ -2396,6 +2424,8 @@ The full Boyer-Moore includes both "bad character" and "good suffix" heuristics.
 
 ### Examples
 
+The string interner maintains a pool of unique strings. When you intern a string, you get back a handle that can be compared in O(1) time using pointer equality instead of O(N) string comparison.
+
 ```rust
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -2456,7 +2486,7 @@ fn main() {
     println!("Unique strings: {}", interner.len());
 
     // Demonstrate memory savings
-    let tags = vec!["rust", "programming", "rust", "tutorial", "rust"];
+    let tags = vec!["rust", "prog", "rust", "tutorial", "rust"];
     let interned_tags: Vec<_> = tags.iter()
         .map(|&s| interner.intern(s))
         .collect();

@@ -44,17 +44,10 @@ This example showcases Rust's assertion macros: `assert_eq!` for equality, `asse
 ```rust
 #[test]
 fn assertion_examples() {
-    // Basic equality
-    assert_eq!(5, 2 + 3);
-
-    // Inequality
-    assert_ne!(5, 6);
-
-    // Boolean assertions
-    assert!(true);
-    assert!(5 > 3, "5 should be greater than 3");
-
-    // Custom error messages
+    assert_eq!(5, 2 + 3);                        // Equality
+    assert_ne!(5, 6);                            // Inequality
+    assert!(true);                               // Boolean
+    assert!(5 > 3, "5 should be greater than 3"); // Custom message
     let x = 10;
     assert_eq!(x, 10, "x should be 10, but was {}", x);
 }
@@ -204,24 +197,16 @@ impl TestContext {
 }
 
 impl Drop for TestContext {
-    fn drop(&mut self) {
-        // Cleanup happens automatically when TestContext is dropped
-        let _ = std::fs::remove_dir_all(&self.temp_dir);
-    }
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.temp_dir); }  // Auto-cleanup
 }
 
 #[test]
 fn test_with_temp_directory() {
     let ctx = TestContext::new();
-
-    // Use ctx.temp_dir for testing
     let test_file = ctx.temp_dir.join("test.txt");
     std::fs::write(&test_file, "test content").unwrap();
-
     assert!(test_file.exists());
-
-    // ctx is dropped here, cleaning up temp_dir
-}
+}  // ctx dropped here, temp_dir cleaned up
 ```
 
 This pattern uses RAII (Resource Acquisition Is Initialization) for automatic cleanup. The compiler guarantees cleanup happens, even if the test panics.
@@ -300,6 +285,9 @@ This is a deliberate design decision. Tests in the same module are part of the i
 **Use Cases**: Pure functions, data-structure invariants, serialization round-trips, parsers, crypto/compression transforms, and deterministic state machines.
 
 ### Example: Can do better
+
+A single example-based test verifies one specific input. This test passes, but it doesn't exercise edge cases that could reveal bugs.
+
 ```rust
 fn sort(mut vec: Vec<i32>) -> Vec<i32> {
     vec.sort();
@@ -338,18 +326,10 @@ proptest! {
     #[test]
     fn test_sort_properties(mut vec: Vec<i32>) {
         let sorted = sort(vec.clone());
-
-        // Property 1: Output length equals input length
-        prop_assert_eq!(sorted.len(), vec.len());
-
-        // Property 2: Output is sorted
-        for i in 1..sorted.len() {
-            prop_assert!(sorted[i - 1] <= sorted[i]);
-        }
-
-        // Property 3: Output contains same elements as input
+        prop_assert_eq!(sorted.len(), vec.len());  // Prop 1: length preserved
+        for i in 1..sorted.len() { prop_assert!(sorted[i - 1] <= sorted[i]); }  // Prop 2: sorted
         vec.sort();
-        prop_assert_eq!(sorted, vec);
+        prop_assert_eq!(sorted, vec);  // Prop 3: same elements
     }
 }
 ```
@@ -439,26 +419,20 @@ fn merge_maps(mut a: HashMap<String, i32>, b: HashMap<String, i32>) -> HashMap<S
 
 proptest! {
     #[test]
-    fn test_merge_properties(
-        a: HashMap<String, i32>,
-        b: HashMap<String, i32>,
-    ) {
+    fn test_merge_properties(a: HashMap<String, i32>, b: HashMap<String, i32>) {
         let merged = merge_maps(a.clone(), b.clone());
 
-        // Property 1: All keys from both maps are in the result
-        for key in a.keys().chain(b.keys()) {
-            prop_assert!(merged.contains_key(key));
-        }
+        // Prop 1: All keys preserved
+        for key in a.keys().chain(b.keys()) { prop_assert!(merged.contains_key(key)); }
 
-        // Property 2: Values are summed correctly (with saturation)
+        // Prop 2: Values summed correctly
         for key in merged.keys() {
             let expected = a.get(key).unwrap_or(&0).saturating_add(*b.get(key).unwrap_or(&0));
             prop_assert_eq!(merged[key], expected);
         }
 
-        // Property 3: Merging with empty map is identity
-        let empty: HashMap<String, i32> = HashMap::new();
-        prop_assert_eq!(merge_maps(a.clone(), empty.clone()), a);
+        // Prop 3: Identity with empty map
+        prop_assert_eq!(merge_maps(a.clone(), HashMap::new()), a);
     }
 }
 ```
@@ -538,8 +512,7 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(expr) = my_crate::Expr::parse_from_bytes(data) {
-        // Round trip: serialize then parse again
-        let encoded = expr.to_bytes();
+        let encoded = expr.to_bytes();  // Round-trip test
         let decoded = my_crate::Expr::parse_from_bytes(&encoded).unwrap();
         assert_eq!(expr, decoded);
     }
@@ -740,21 +713,13 @@ impl EmailService for SmtpEmailService {
     }
 }
 
-// Mock for testing
-struct MockEmailService {
+struct MockEmailService {  // Mock for testing
     sent_emails: std::sync::Mutex<Vec<(String, String, String)>>,
 }
 
 impl MockEmailService {
-    fn new() -> Self {
-        MockEmailService {
-            sent_emails: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-
-    fn emails_sent(&self) -> Vec<(String, String, String)> {
-        self.sent_emails.lock().unwrap().clone()
-    }
+    fn new() -> Self { MockEmailService { sent_emails: std::sync::Mutex::new(Vec::new()) } }
+    fn emails_sent(&self) -> Vec<(String, String, String)> { self.sent_emails.lock().unwrap().clone() }
 }
 
 impl EmailService for MockEmailService {
@@ -768,8 +733,7 @@ impl EmailService for MockEmailService {
     }
 }
 
-// Application code uses the trait
-struct UserService<E: EmailService> {
+struct UserService<E: EmailService> {  // Generic over email service
     email_service: E,
 }
 
@@ -840,23 +804,14 @@ mod tests {
     fn test_with_mock() {
         let mut mock = MockDatabase::new();
 
-        // Set expectations
-        mock.expect_get_user()
-            .with(eq(42))
-            .times(1)
+        mock.expect_get_user().with(eq(42)).times(1)
             .returning(|_| Some(User { id: 42, name: "Alice".to_string() }));
+        mock.expect_save_user().times(1).returning(|_| Ok(()));
 
-        mock.expect_save_user()
-            .times(1)
-            .returning(|_| Ok(()));
-
-        // Use the mock
         let user = mock.get_user(42).unwrap();
         assert_eq!(user.name, "Alice");
-
         mock.save_user(user).unwrap();
-
-        // Automatically verifies expectations were met
+        // Expectations auto-verified on drop
     }
 }
 ```
@@ -868,19 +823,13 @@ mockall automatically generates mock implementations and verifies expectations, 
 This example contrasts hard-coded dependencies with trait-based dependency injection. `PaymentProcessor<G: PaymentGateway>` accepts any gateway implementation, enabling `MockGateway` injection for testing success and failure scenarios without real API calls.
 
 ```rust
-// Poor: Hard to test
-struct PaymentProcessor {
-    // Hard-coded dependency
-}
-
+// Poor: Hard-coded dependency, hard to test
+struct PaymentProcessor {}
 impl PaymentProcessor {
-    fn process_payment(&self, amount: f64) -> Result<(), String> {
-        // Directly calls external API
-        external_api::charge_card(amount)
-    }
+    fn process_payment(&self, amount: f64) -> Result<(), String> { external_api::charge_card(amount) }
 }
 
-// Better: Dependency injection
+// Better: Dependency injection via trait
 trait PaymentGateway {
     fn charge(&self, amount: f64) -> Result<String, String>;
 }
@@ -901,18 +850,11 @@ impl<G: PaymentGateway> PaymentProcessor<G> {
     }
 }
 
-// Test with mock gateway
-struct MockGateway {
-    should_succeed: bool,
-}
+struct MockGateway { should_succeed: bool }  // Test mock
 
 impl PaymentGateway for MockGateway {
     fn charge(&self, amount: f64) -> Result<String, String> {
-        if self.should_succeed {
-            Ok(format!("txn_{}", amount))
-        } else {
-            Err("Payment failed".to_string())
-        }
+        if self.should_succeed { Ok(format!("txn_{}", amount)) } else { Err("Payment failed".into()) }
     }
 }
 
@@ -958,40 +900,23 @@ impl FileSystem for RealFileSystem {
     }
 }
 
-// In-memory fake for testing
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-struct FakeFileSystem {
-    files: Mutex<HashMap<String, String>>,
-}
+struct FakeFileSystem { files: Mutex<HashMap<String, String>> }  // In-memory fake
 
 impl FakeFileSystem {
-    fn new() -> Self {
-        FakeFileSystem {
-            files: Mutex::new(HashMap::new()),
-        }
-    }
+    fn new() -> Self { FakeFileSystem { files: Mutex::new(HashMap::new()) } }
 }
 
 impl FileSystem for FakeFileSystem {
     fn read_file(&self, path: &str) -> std::io::Result<String> {
-        self.files
-            .lock()
-            .unwrap()
-            .get(path)
-            .cloned()
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "File not found"
-            ))
+        self.files.lock().unwrap().get(path).cloned()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Not found"))
     }
 
     fn write_file(&self, path: &str, content: &str) -> std::io::Result<()> {
-        self.files
-            .lock()
-            .unwrap()
-            .insert(path.to_string(), content.to_string());
+        self.files.lock().unwrap().insert(path.to_string(), content.to_string());
         Ok(())
     }
 }
@@ -1136,21 +1061,9 @@ use sqlx::PgPool;
 async fn setup_test_db() -> PgPool {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://localhost/test".to_string());
-
     let pool = PgPool::connect(&database_url).await.unwrap();
-
-    // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .unwrap();
-
-    // Clear existing data
-    sqlx::query("TRUNCATE TABLE users, posts CASCADE")
-        .execute(&pool)
-        .await
-        .unwrap();
-
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();  // Migrations
+    sqlx::query("TRUNCATE TABLE users, posts CASCADE").execute(&pool).await.unwrap();  // Clean
     pool
 }
 
@@ -1174,12 +1087,9 @@ where
     F: FnOnce(Transaction<Postgres>) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let mut tx = pool.begin().await.unwrap();
-
+    let tx = pool.begin().await.unwrap();
     test(tx).await;
-
-    // Always rollback - test changes never persist
-    // (Transaction is dropped here, triggering rollback)
+    // Always rollback—tx dropped here
 }
 
 #[tokio::test]
@@ -1223,19 +1133,11 @@ async fn create_test_app() -> Router {
 #[tokio::test]
 async fn test_hello_endpoint() {
     let app = create_test_app().await;
-
-    let response = app
-        .oneshot(
-            axum::http::Request::builder()
-                .uri("/")
-                .body(axum::body::Body::empty())
-                .unwrap()
-        )
-        .await
-        .unwrap();
+    let response = app.oneshot(
+        axum::http::Request::builder().uri("/").body(axum::body::Body::empty()).unwrap()
+    ).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
     assert_eq!(&body[..], b"Hello, World!");
 }
@@ -1248,28 +1150,18 @@ use tokio::net::TcpListener;
 
 #[tokio::test]
 async fn test_full_server() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();  // Random port
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
-        axum::Server::from_tcp(listener.into_std().unwrap())
-            .unwrap()
-            .serve(create_test_app().await.into_make_service())
-            .await
-            .unwrap();
+        axum::Server::from_tcp(listener.into_std().unwrap()).unwrap()
+            .serve(create_test_app().await.into_make_service()).await.unwrap();
     });
 
-    // Wait for server to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;  // Wait for server
 
-    // Make real HTTP request
     let client = reqwest::Client::new();
-    let response = client
-        .get(&format!("http://{}/", addr))
-        .send()
-        .await
-        .unwrap();
-
+    let response = client.get(&format!("http://{}/", addr)).send().await.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "Hello, World!");
 }
@@ -1349,21 +1241,11 @@ fn sum_fold(data: &[i32]) -> i32 {
 
 fn benchmark_sum_implementations(c: &mut Criterion) {
     let mut group = c.benchmark_group("sum_implementations");
-
     let data: Vec<i32> = (0..1000).collect();
 
-    group.bench_with_input(BenchmarkId::new("loop", data.len()), &data, |b, data| {
-        b.iter(|| sum_loop(black_box(data)))
-    });
-
-    group.bench_with_input(BenchmarkId::new("iterator", data.len()), &data, |b, data| {
-        b.iter(|| sum_iterator(black_box(data)))
-    });
-
-    group.bench_with_input(BenchmarkId::new("fold", data.len()), &data, |b, data| {
-        b.iter(|| sum_fold(black_box(data)))
-    });
-
+    group.bench_with_input(BenchmarkId::new("loop", data.len()), &data, |b, d| b.iter(|| sum_loop(black_box(d))));
+    group.bench_with_input(BenchmarkId::new("iterator", data.len()), &data, |b, d| b.iter(|| sum_iterator(black_box(d))));
+    group.bench_with_input(BenchmarkId::new("fold", data.len()), &data, |b, d| b.iter(|| sum_fold(black_box(d))));
     group.finish();
 }
 
@@ -1382,18 +1264,12 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 
 fn sort_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("sort");
-
-    for size in [10, 100, 1000, 10000].iter() {
-        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            let mut data: Vec<i32> = (0..size).rev().collect();
-            b.iter(|| {
-                let mut d = data.clone();
-                d.sort();
-                black_box(d);
-            });
+    for size in [10, 100, 1000, 10000] {
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
+            let data: Vec<i32> = (0..size).rev().collect();
+            b.iter(|| { let mut d = data.clone(); d.sort(); black_box(d); });
         });
     }
-
     group.finish();
 }
 
@@ -1418,15 +1294,10 @@ fn parse_numbers(data: &str) -> Vec<i32> {
 
 fn throughput_benchmark(c: &mut Criterion) {
     let data = (0..10000).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
-    let data_bytes = data.len();
 
     let mut group = c.benchmark_group("parse_throughput");
-    group.throughput(Throughput::Bytes(data_bytes as u64));
-
-    group.bench_function("parse", |b| {
-        b.iter(|| parse_numbers(black_box(&data)))
-    });
-
+    group.throughput(Throughput::Bytes(data.len() as u64));
+    group.bench_function("parse", |b| b.iter(|| parse_numbers(black_box(&data))));
     group.finish();
 }
 

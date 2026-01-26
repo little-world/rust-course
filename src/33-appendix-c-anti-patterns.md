@@ -1,4 +1,4 @@
-# Appendix C: Anti-Patterns
+# Appendix B: Anti-Patterns
 **Common Pitfalls:**
 
 - [Excessive Cloning](#anti-pattern-excessive-cloning)
@@ -65,8 +65,7 @@ These anti-patterns emerge from misunderstanding Rust's fundamental concepts. Th
 **The Pattern**: Cloning data unnecessarily to satisfy the borrow checker rather than understanding borrowing rules.
 
 ```rust
-//  Avoid: clone() on every use wastes memory and CPU; 3 clones = 3x memory
-//  ANTI-PATTERN: Clone to avoid borrow checker errors
+//  ANTI-PATTERN: clone() to avoid borrow checker - 3 clones = 3x memory
 fn process_data(data: Vec<String>) {
     let copy1 = data.clone();  // Unnecessary
     print_data(copy1);
@@ -78,19 +77,9 @@ fn process_data(data: Vec<String>) {
     save_data(copy3);
 }
 
-fn print_data(data: Vec<String>) {
-    for item in &data {
-        println!("{}", item);
-    }
-}
-
-fn transform_data(data: Vec<String>) -> Vec<String> {
-    data.iter().map(|s| s.to_uppercase()).collect()
-}
-
-fn save_data(data: Vec<String>) {
-    // Save to database
-}
+fn print_data(data: Vec<String>) { for item in &data { println!("{}", item); } }
+fn transform_data(data: Vec<String>) -> Vec<String> { data.iter().map(|s| s.to_uppercase()).collect() }
+fn save_data(data: Vec<String>) { /* Save to database */ }
 ```
 
 **Why It's Problematic**:
@@ -102,8 +91,7 @@ fn save_data(data: Vec<String>) {
 **The Solution**: Use references for read-only access, mutable references for modifications, or move ownership when appropriate.
 
 ```rust
-// Better: &data borrows for reads, move data when done; zero clones needed
-// CORRECT: Use borrowing appropriately
+// CORRECT: Use borrowing - &data for reads, move when done
 fn process_data(data: Vec<String>) {
     // Borrow for read-only access
     print_data(&data);
@@ -115,19 +103,9 @@ fn process_data(data: Vec<String>) {
     save_data(data);
 }
 
-fn print_data(data: &[String]) {
-    for item in data {
-        println!("{}", item);
-    }
-}
-
-fn transform_data(data: &[String]) -> Vec<String> {
-    data.iter().map(|s| s.to_uppercase()).collect()
-}
-
-fn save_data(data: Vec<String>) {
-    // Takes ownership, no clone needed
-}
+fn print_data(data: &[String]) { for item in data { println!("{}", item); } }
+fn transform_data(data: &[String]) -> Vec<String> { data.iter().map(|s| s.to_uppercase()).collect() }
+fn save_data(data: Vec<String>) { /* Takes ownership */ }
 ```
 
 **Real-World Impact**: A web service cloning request data at every processing step saw 3x memory usage and 40% latency increase. Switching to borrowing reduced memory by 66% and improved response times significantly.
@@ -139,10 +117,8 @@ fn save_data(data: Vec<String>) {
 **The Pattern**: Using reference counting for shared ownership when simple borrowing or restructuring would work.
 
 ```rust
-//  Avoid: Rc adds heap allocation + refcount overhead for single-owner data
 use std::rc::Rc;
-
-//  ANTI-PATTERN: Rc when not needed
+//  ANTI-PATTERN: Rc adds heap + refcount overhead for single-owner data
 struct DataProcessor {
     config: Rc<Config>,
     logger: Rc<Logger>,
@@ -158,10 +134,7 @@ impl DataProcessor {
         }
     }
 
-    fn process(&self, data: &str) {
-        self.logger.log("Processing...");
-        // Uses Rc for simple single-owner scenario
-    }
+    fn process(&self, data: &str) { self.logger.log("Processing..."); }  // Rc overhead for no reason
 }
 ```
 
@@ -175,8 +148,7 @@ impl DataProcessor {
 **The Solution**: Use references with explicit lifetimes, restructure ownership, or only use Rc/Arc when genuinely needed for shared ownership.
 
 ```rust
-// Better: Use &'a references for borrowed data; Arc only for true multi-owner
-// CORRECT: Use references with lifetimes
+// CORRECT: Use &'a references for borrowed data
 struct DataProcessor<'a> {
     config: &'a Config,
     logger: &'a Logger,
@@ -184,13 +156,8 @@ struct DataProcessor<'a> {
 }
 
 impl<'a> DataProcessor<'a> {
-    fn new(config: &'a Config, logger: &'a Logger, cache: &'a Cache) -> Self {
-        Self { config, logger, cache }
-    }
-
-    fn process(&self, data: &str) {
-        self.logger.log("Processing...");
-    }
+    fn new(config: &'a Config, logger: &'a Logger, cache: &'a Cache) -> Self { Self { config, logger, cache } }
+    fn process(&self, data: &str) { self.logger.log("Processing..."); }
 }
 
 // Or restructure to owned data when sharing isn't needed
@@ -224,8 +191,7 @@ fn multiple_threads_need_shared_data() {
 **The Pattern**: Using manual loops and mutable accumulators instead of iterator methods.
 
 ```rust
-//  Avoid: Manual loops with mutable accumulators; harder to read and parallelize
-//  ANTI-PATTERN: Manual loops instead of iterators
+//  ANTI-PATTERN: Manual loops instead of iterators - harder to read/parallelize
 fn process_numbers(numbers: &[i32]) -> Vec<i32> {
     let mut result = Vec::new();
     for &num in numbers {
@@ -264,8 +230,7 @@ fn sum_squares(numbers: &[i32]) -> i32 {
 **The Solution**: Use iterator combinators for declarative, composable data processing.
 
 ```rust
-// Better: .filter().map().sum() chains are declarative and easy to parallelize
-// CORRECT: Use iterator combinators
+// CORRECT: .filter().map().sum() - declarative, easy to parallelize
 fn process_numbers(numbers: &[i32]) -> Vec<i32> {
     numbers.iter()
         .filter(|&&num| num % 2 == 0)
@@ -273,25 +238,12 @@ fn process_numbers(numbers: &[i32]) -> Vec<i32> {
         .collect()
 }
 
-fn find_first_large(numbers: &[i32]) -> Option<i32> {
-    numbers.iter()
-        .find(|&&num| num > 100)
-        .copied()
-}
+fn find_first_large(numbers: &[i32]) -> Option<i32> { numbers.iter().find(|&&num| num > 100).copied() }
+fn sum_squares(numbers: &[i32]) -> i32 { numbers.iter().map(|&num| num * num).sum() }
 
-fn sum_squares(numbers: &[i32]) -> i32 {
-    numbers.iter()
-        .map(|&num| num * num)
-        .sum()
-}
-
-// Easy to make parallel with rayon
 use rayon::prelude::*;
-
 fn parallel_sum_squares(numbers: &[i32]) -> i32 {
-    numbers.par_iter()  // Just change iter() to par_iter()
-        .map(|&num| num * num)
-        .sum()
+    numbers.par_iter().map(|&num| num * num).sum()  // Just iter() -> par_iter()
 }
 ```
 
@@ -304,10 +256,8 @@ fn parallel_sum_squares(numbers: &[i32]) -> i32 {
 **The Pattern**: Relying on Deref coercion for API design, making code implicit and confusing.
 
 ```rust
-//  Avoid: Deref coercion for inheritance; use explicit delegation instead
 use std::ops::Deref;
-
-//  ANTI-PATTERN: Abusing Deref for inheritance-like behavior
+//  ANTI-PATTERN: Abusing Deref for inheritance - use explicit delegation
 struct Employee {
     name: String,
     id: u32,
@@ -320,16 +270,10 @@ struct Manager {
 
 impl Deref for Manager {
     type Target = Employee;
-
-    fn deref(&self) -> &Self::Target {
-        &self.employee
-    }
+    fn deref(&self) -> &Self::Target { &self.employee }
 }
 
-// Now Manager "inherits" Employee methods
-fn print_employee_info(emp: &Employee) {
-    println!("{}: {}", emp.id, emp.name);
-}
+fn print_employee_info(emp: &Employee) { println!("{}: {}", emp.id, emp.name); }
 
 let manager = Manager {
     employee: Employee { name: "Alice".to_string(), id: 1 },
@@ -349,26 +293,16 @@ print_employee_info(&manager);
 **The Solution**: Use explicit methods or trait implementations for delegation.
 
 ```rust
-// Better: manager.employee() or manager.name() makes relationship explicit
-// CORRECT: Explicit delegation
+// CORRECT: manager.employee() or manager.name() makes relationship explicit
 struct Manager {
     employee: Employee,
     team_size: usize,
 }
 
 impl Manager {
-    fn employee(&self) -> &Employee {
-        &self.employee
-    }
-
-    // Or delegate specific methods explicitly
-    fn name(&self) -> &str {
-        &self.employee.name
-    }
-
-    fn id(&self) -> u32 {
-        self.employee.id
-    }
+    fn employee(&self) -> &Employee { &self.employee }
+    fn name(&self) -> &str { &self.employee.name }  // Explicit delegation
+    fn id(&self) -> u32 { self.employee.id }
 }
 
 // Explicit conversion
@@ -394,11 +328,8 @@ print_employee_info(manager.employee());
 **The Pattern**: Unnecessary string allocations and confusing conversions between String and &str.
 
 ```rust
-//  Avoid: fn greet(name: String) forces callers to allocate; use &str instead
-//  ANTI-PATTERN: Unnecessary allocations
-fn greet(name: String) -> String {
-    format!("Hello, {}", name)
-}
+//  ANTI-PATTERN: fn greet(name: String) forces callers to allocate
+fn greet(name: String) -> String { format!("Hello, {}", name) }
 
 fn process_names(names: Vec<&str>) {
     for name in names {
@@ -421,11 +352,8 @@ greet(name);
 **The Solution**: Accept &str in function parameters, return String when ownership is transferred.
 
 ```rust
-// Better: Accept &str for flexibility; greet("Alice") or greet(&owned_string)
-// CORRECT: Accept &str, return String when needed
-fn greet(name: &str) -> String {
-    format!("Hello, {}", name)
-}
+// CORRECT: Accept &str - greet("Alice") or greet(&owned) both work
+fn greet(name: &str) -> String { format!("Hello, {}", name) }
 
 fn process_names(names: &[&str]) {
     for &name in names {
@@ -439,10 +367,7 @@ greet("Alice");              // No allocation needed
 let owned = String::from("Bob");
 greet(&owned);               // Also works
 
-// For more flexibility, use generic trait bounds
-fn greet_generic<S: AsRef<str>>(name: S) -> String {
-    format!("Hello, {}", name.as_ref())
-}
+fn greet_generic<S: AsRef<str>>(name: S) -> String { format!("Hello, {}", name.as_ref()) }  // Works with &str, String, Cow
 
 // Works with &str, String, Cow<str>, etc.
 greet_generic("Alice");
@@ -462,8 +387,7 @@ These patterns sacrifice performance without good reason, often from not underst
 **The Pattern**: Calling `.collect()` in the middle of iterator chains when the final consumer can work with iterators.
 
 ```rust
-//  Avoid: .collect() between each step allocates intermediate Vec; chain instead
-//  ANTI-PATTERN: Unnecessary intermediate collections
+//  ANTI-PATTERN: .collect() between steps allocates intermediate Vecs
 fn process_data(numbers: &[i32]) -> i32 {
     let evens: Vec<i32> = numbers.iter()
         .filter(|&&x| x % 2 == 0)
@@ -487,8 +411,7 @@ fn process_data(numbers: &[i32]) -> i32 {
 **The Solution**: Chain iterators without intermediate collections.
 
 ```rust
-// Better: .filter().map().sum() in one chain; zero allocations, single pass
-// CORRECT: Single iterator chain
+// CORRECT: .filter().map().sum() in one chain; zero allocations
 fn process_data(numbers: &[i32]) -> i32 {
     numbers.iter()
         .filter(|&&x| x % 2 == 0)
@@ -515,8 +438,7 @@ fn process_data_reusable(numbers: &[i32]) -> Vec<i32> {
 **The Pattern**: Using heap-allocated `Vec<T>` for fixed-size, small collections when stack-allocated arrays would work.
 
 ```rust
-//  Avoid: vec![r, g, b] allocates heap for 3 bytes; use [u8; 3] on stack
-//  ANTI-PATTERN: Heap allocation for fixed-size data
+//  ANTI-PATTERN: vec![r, g, b] allocates heap for 3 bytes; [u8; 3] is stack
 fn get_rgb_channels(pixel: u32) -> Vec<u8> {
     vec![
         ((pixel >> 16) & 0xFF) as u8,
@@ -541,8 +463,7 @@ fn multiply_3x3(a: Vec<Vec<f64>>, b: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
 **The Solution**: Use arrays for fixed-size data.
 
 ```rust
-// Better: [u8; 3] is stack-allocated, no heap; [f64; 3]; 3] for 3x3 matrix
-// CORRECT: Stack-allocated arrays
+// CORRECT: [u8; 3] stack-allocated; [[f64; 3]; 3] for matrix
 fn get_rgb_channels(pixel: u32) -> [u8; 3] {
     [
         ((pixel >> 16) & 0xFF) as u8,
@@ -579,10 +500,8 @@ fn get_pixels(count: usize) -> Vec<[u8; 3]> {
 **The Pattern**: Using `HashMap` for collections with few items when linear search would be faster.
 
 ```rust
-//  Avoid: HashMap for 3 items; match or array is 10x faster for small sets
 use std::collections::HashMap;
-
-//  ANTI-PATTERN: HashMap for 3 items
+//  ANTI-PATTERN: HashMap for 3 items - match is 10x faster for small sets
 fn get_status_code(status: &str) -> u16 {
     let mut codes = HashMap::new();
     codes.insert("ok", 200);
@@ -604,8 +523,7 @@ fn get_status_code(status: &str) -> u16 {
 **The Solution**: Use arrays or match statements for small, known key sets.
 
 ```rust
-// Better: match compiles to jump table; const array for slightly larger sets
-// CORRECT: Match for small known sets
+// CORRECT: match compiles to jump table for small known sets
 fn get_status_code(status: &str) -> u16 {
     match status {
         "ok" => 200,
@@ -653,8 +571,7 @@ static LARGE_CODES: LazyLock<HashMap<&'static str, u16>> = LazyLock::new(|| {
 **The Pattern**: Converting to String early when working with string data, causing unnecessary allocations.
 
 ```rust
-//  Avoid: line.to_string() before checking; 90% of lines may be filtered out
-//  ANTI-PATTERN: Allocate early, use late
+//  ANTI-PATTERN: line.to_string() before checking - 90% may be filtered
 fn process_log_line(line: &str) -> Option<String> {
     let owned = line.to_string();  // Allocate immediately
 
@@ -682,8 +599,7 @@ fn extract_field(data: &str, field: &str) -> String {
 **The Solution**: Work with &str as long as possible, allocate only when necessary.
 
 ```rust
-// Better: Check line.starts_with() first; allocate only if check passes
-// CORRECT: Delay allocation
+// CORRECT: Check first, allocate only if needed
 fn process_log_line(line: &str) -> Option<String> {
     if !line.starts_with("ERROR") {
         return None;  // No allocation for filtered lines
@@ -693,10 +609,7 @@ fn process_log_line(line: &str) -> Option<String> {
 }
 
 fn extract_field<'a>(data: &'a str, field: &str) -> &'a str {
-    data.split(',')
-        .find(|s| s.starts_with(field))
-        .unwrap_or("")
-    // No allocations at all, returns slice of input
+    data.split(',').find(|s| s.starts_with(field)).unwrap_or("")  // No allocations
 }
 
 // If ownership needed, use Cow for conditional allocation
@@ -720,8 +633,7 @@ fn normalize<'a>(s: &'a str) -> Cow<'a, str> {
 **The Pattern**: Using `Box<dyn Trait>` when static dispatch with generics would work.
 
 ```rust
-//  Avoid: Box<dyn Trait> when types known at compile time; 2-10x slower
-//  ANTI-PATTERN: Dynamic dispatch when static suffices
+//  ANTI-PATTERN: Box<dyn Trait> when types known at compile time; 2-10x slower
 trait Processor {
     fn process(&self, data: &str) -> String;
 }
@@ -744,8 +656,7 @@ fn pipeline(processors: Vec<Box<dyn Processor>>, data: &str) -> String {
 **The Solution**: Use generics for static dispatch when types are known at compile-time.
 
 ```rust
-// Better: Use generics for static dispatch; fn process<P: Processor> is inlined
-// CORRECT: Static dispatch with generics
+// CORRECT: Generics for static dispatch - inlined, no heap
 fn pipeline<P1, P2, P3>(p1: P1, p2: P2, p3: P3, data: &str) -> String
 where
     P1: Processor,
@@ -788,8 +699,7 @@ These patterns undermine Rust's safety guarantees, creating opportunities for bu
 **The Pattern**: Using `unsafe` to bypass borrow checker restrictions without genuine need or proper justification.
 
 ```rust
-//  Avoid: unsafe to bypass borrow checker; if i==j, creates aliased &mut = UB
-//  ANTI-PATTERN: Unsafe to "fix" borrow checker errors
+//  ANTI-PATTERN: unsafe to bypass borrow checker; if i==j, aliased &mut = UB
 struct Cache {
     data: Vec<String>,
 }
@@ -816,8 +726,7 @@ impl Cache {
 **The Solution**: Use safe alternatives or properly validate unsafe code.
 
 ```rust
-// Better: Use split_at_mut() for disjoint mutable borrows; safe and idiomatic
-// CORRECT: Safe solution
+// CORRECT: Use split_at_mut() for disjoint mutable borrows
 impl Cache {
     fn get_mut_two(&mut self, i: usize, j: usize) -> Option<(&mut String, &mut String)> {
         if i == j {
@@ -863,8 +772,7 @@ impl Cache {
 **The Pattern**: Using `.unwrap()` or `.expect()` liberally without proper error handling.
 
 ```rust
-//  Avoid: .unwrap() crashes on errors; use Result/? for production code
-//  ANTI-PATTERN: Unwrap everywhere
+//  ANTI-PATTERN: .unwrap() crashes on errors; use Result/? for production
 fn load_config(path: &str) -> Config {
     let contents = std::fs::read_to_string(path).unwrap();  // Panics if file missing
     let config: Config = serde_json::from_str(&contents).unwrap();  // Panics if invalid JSON
@@ -890,8 +798,7 @@ fn divide(a: i32, b: i32) -> i32 {
 **The Solution**: Handle errors properly with Result/Option or document why unwrap is safe.
 
 ```rust
-// Better: Return Result<T, E> and use ? operator; caller decides how to handle
-// CORRECT: Proper error handling
+// CORRECT: Return Result<T, E> and use ?; caller handles errors
 use std::io;
 use serde_json;
 
@@ -901,17 +808,8 @@ enum ConfigError {
     Parse(serde_json::Error),
 }
 
-impl From<io::Error> for ConfigError {
-    fn from(err: io::Error) -> Self {
-        ConfigError::Io(err)
-    }
-}
-
-impl From<serde_json::Error> for ConfigError {
-    fn from(err: serde_json::Error) -> Self {
-        ConfigError::Parse(err)
-    }
-}
+impl From<io::Error> for ConfigError { fn from(err: io::Error) -> Self { ConfigError::Io(err) } }
+impl From<serde_json::Error> for ConfigError { fn from(err: serde_json::Error) -> Self { ConfigError::Parse(err) } }
 
 fn load_config(path: &str) -> Result<Config, ConfigError> {
     let contents = std::fs::read_to_string(path)?;
@@ -919,13 +817,8 @@ fn load_config(path: &str) -> Result<Config, ConfigError> {
     Ok(config)
 }
 
-fn get_user_age(users: &HashMap<String, User>, id: &str) -> Option<u32> {
-    users.get(id).map(|user| user.age)
-}
-
-fn divide(a: i32, b: i32) -> Option<i32> {
-    a.checked_div(b)
-}
+fn get_user_age(users: &HashMap<String, User>, id: &str) -> Option<u32> { users.get(id).map(|user| user.age) }
+fn divide(a: i32, b: i32) -> Option<i32> { a.checked_div(b) }
 
 // If unwrap is genuinely safe, document why
 fn get_first_line(text: &str) -> &str {
@@ -944,10 +837,8 @@ fn get_first_line(text: &str) -> &str {
 **The Pattern**: Using interior mutability as a first resort rather than last resort.
 
 ```rust
-//  Avoid: RefCell everywhere adds runtime borrow checks; use &mut self instead
 use std::cell::RefCell;
-
-//  ANTI-PATTERN: RefCell to bypass borrow checker
+//  ANTI-PATTERN: RefCell everywhere adds runtime borrow checks; use &mut self
 struct Application {
     state: RefCell<AppState>,
     config: RefCell<Config>,
@@ -977,8 +868,7 @@ impl Application {
 **The Solution**: Design with proper ownership and mutability; use RefCell only when genuinely needed.
 
 ```rust
-// Better: fn process(&mut self) is honest about mutation; compile-time checked
-// CORRECT: Proper mutability
+// CORRECT: fn process(&mut self) is honest about mutation; compile-time checked
 struct Application {
     state: AppState,
     config: Config,
@@ -986,14 +876,8 @@ struct Application {
 }
 
 impl Application {
-    fn process(&mut self) {  // Honest about mutation
-        // Compile-time borrow checking
-        // Clear ownership and mutation
-    }
-
-    fn read_config(&self) -> &Config {
-        &self.config  // No runtime overhead
-    }
+    fn process(&mut self) { /* Compile-time checked */ }  // Honest about mutation
+    fn read_config(&self) -> &Config { &self.config }  // No runtime overhead
 }
 
 // Use RefCell only when necessary (e.g., graph structures, caching)
@@ -1026,12 +910,10 @@ fn concurrent_modification() {
 **The Pattern**: Using thread-unsafe types across threads without understanding Send/Sync bounds.
 
 ```rust
-//  Avoid: Rc/RefCell aren't Send; using unsafe to share them causes data races
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::thread;
-
-//  ANTI-PATTERN: Thread-unsafe types in threads
+//  ANTI-PATTERN: Rc/RefCell aren't Send; unsafe sharing causes data races
 fn share_across_threads() {
     let data = Rc::new(RefCell::new(vec![1, 2, 3]));
     let data_clone = Rc::clone(&data);
@@ -1062,11 +944,9 @@ fn share_across_threads() {
 **The Solution**: Use thread-safe alternatives (Arc, Mutex) or restructure to avoid sharing.
 
 ```rust
-// Better: Arc<Mutex<T>> for shared mutable state; or use channels for message passing
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-// CORRECT: Thread-safe types
+// CORRECT: Arc<Mutex<T>> for shared mutable state; or channels
 fn share_across_threads_safely() {
     let data = Arc::new(Mutex::new(vec![1, 2, 3]));
     let data_clone = Arc::clone(&data);
@@ -1109,8 +989,7 @@ These anti-patterns create poor interfaces that are hard to use correctly or inc
 **The Pattern**: Using strings to represent structured data that should have proper types.
 
 ```rust
-//  Avoid: set_log_level("degub") typo compiles; enum catches at compile time
-//  ANTI-PATTERN: String-based API
+//  ANTI-PATTERN: set_log_level("degub") typo compiles; enum catches at compile time
 fn set_log_level(level: &str) {
     match level {
         "debug" | "info" | "warn" | "error" => { /* ... */ }
@@ -1141,8 +1020,7 @@ set_log_level("degub");  // Typo! Runtime panic
 **The Solution**: Use enums for fixed sets of values.
 
 ```rust
-// Better: set_log_level(LogLevel::Debug) has IDE autocomplete, compile-time check
-// CORRECT: Type-safe enums
+// CORRECT: set_log_level(LogLevel::Debug) - IDE autocomplete, compile-time check
 #[derive(Debug, Clone, Copy)]
 enum LogLevel {
     Debug,
@@ -1170,12 +1048,7 @@ enum Color {
 
 impl Color {
     fn to_rgb(self) -> (u8, u8, u8) {
-        match self {
-            Color::Red => (255, 0, 0),
-            Color::Green => (0, 255, 0),
-            Color::Blue => (0, 0, 255),
-            Color::Rgb(r, g, b) => (r, g, b),
-        }
+        match self { Color::Red => (255, 0, 0), Color::Green => (0, 255, 0), Color::Blue => (0, 0, 255), Color::Rgb(r, g, b) => (r, g, b) }
     }
 }
 
@@ -1196,8 +1069,7 @@ let custom = Color::Rgb(128, 128, 128);
 **The Pattern**: Using boolean parameters where the meaning is unclear at call sites.
 
 ```rust
-//  Avoid: connect("host", true, false, true) - what do those booleans mean?
-//  ANTI-PATTERN: Unclear boolean parameters
+//  ANTI-PATTERN: connect("host", true, false, true) - what do booleans mean?
 fn connect(host: &str, encrypted: bool, persistent: bool, verbose: bool) {
     // ...
 }
@@ -1216,8 +1088,7 @@ connect("localhost", false, true, false);  // What?
 **The Solution**: Use enums or builder pattern for clarity.
 
 ```rust
-// Better: connect(host, Encryption::Encrypted, Connection::Transient) is self-documenting
-// CORRECT: Explicit enum parameters
+// CORRECT: connect(host, Encryption::Encrypted, Connection::Transient) - self-documenting
 enum Encryption {
     Encrypted,
     Plaintext,
@@ -1268,25 +1139,10 @@ impl ConnectionBuilder {
         }
     }
 
-    fn encrypted(mut self) -> Self {
-        self.encrypted = true;
-        self
-    }
-
-    fn persistent(mut self) -> Self {
-        self.persistent = true;
-        self
-    }
-
-    fn verbose(mut self) -> Self {
-        self.verbose = true;
-        self
-    }
-
-    fn connect(self) -> Connection {
-        // ...
-        unimplemented!()
-    }
+    fn encrypted(mut self) -> Self { self.encrypted = true; self }
+    fn persistent(mut self) -> Self { self.persistent = true; self }
+    fn verbose(mut self) -> Self { self.verbose = true; self }
+    fn connect(self) -> Connection { unimplemented!() }
 }
 
 // Clear and fluent
@@ -1305,8 +1161,7 @@ let conn = ConnectionBuilder::new("localhost")
 **The Pattern**: Exposing implementation details in public APIs.
 
 ```rust
-//  Avoid: pub connection_pool exposes internals; can't change implementation later
-//  ANTI-PATTERN: Exposing internal details
+//  ANTI-PATTERN: pub connection_pool exposes internals; can't change later
 pub struct Database {
     pub connection_pool: Vec<Connection>,  // Internal detail exposed
     pub cache: HashMap<String, Vec<u8>>,   // Implementation leaked
@@ -1335,8 +1190,7 @@ impl Database {
 **The Solution**: Hide implementation details, expose only necessary interfaces.
 
 ```rust
-// Better: Private fields with public methods; db.query(sql) hides pool management
-// CORRECT: Proper encapsulation
+// CORRECT: Private fields with public methods; hides implementation
 pub struct Database {
     connection_pool: Vec<Connection>,  // Private
     cache: HashMap<String, Vec<u8>>,   // Private
@@ -1363,10 +1217,8 @@ impl Database {
         Ok(result)
     }
 
-    // Private helper
     fn get_connection_internal(&mut self) -> Result<&mut Connection, Error> {
-        self.connection_pool.first_mut()
-            .ok_or(Error::NoConnections)
+        self.connection_pool.first_mut().ok_or(Error::NoConnections)
     }
 }
 
@@ -1392,21 +1244,15 @@ fn deserialize_rows(data: &[u8]) -> Vec<Row> {
 **The Pattern**: Returning owned `String` or `Vec<T>` when a borrowed reference would work.
 
 ```rust
-//  Avoid: fn get_name(&self) -> String clones on every call; return &str instead
-//  ANTI-PATTERN: Unnecessary ownership transfer
+//  ANTI-PATTERN: fn get_name(&self) -> String clones on every call; use &str
 struct User {
     name: String,
     email: String,
 }
 
 impl User {
-    fn get_name(&self) -> String {
-        self.name.clone()  // Allocates on every call
-    }
-
-    fn get_email(&self) -> String {
-        self.email.clone()  // Unnecessary clone
-    }
+    fn get_name(&self) -> String { self.name.clone() }   // Allocates every call
+    fn get_email(&self) -> String { self.email.clone() }  // Unnecessary clone
 }
 
 fn format_user(user: &User) -> String {
@@ -1423,29 +1269,15 @@ fn format_user(user: &User) -> String {
 **The Solution**: Return references for data you already own.
 
 ```rust
-// Better: fn name(&self) -> &str borrows; zero allocation, format!() if needed
-// CORRECT: Return references
+// CORRECT: fn name(&self) -> &str borrows; zero allocation
 impl User {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
+    fn name(&self) -> &str { &self.name }
+    fn email(&self) -> &str { &self.email }
 }
+fn format_user(user: &User) -> String { format!("{} <{}>", user.name(), user.email()) }  // No extra allocs
 
-fn format_user(user: &User) -> String {
-    format!("{} <{}>", user.name(), user.email())
-    // No extra allocations
-}
-
-// Only return owned when you create new data
-impl User {
-    fn display_name(&self) -> String {
-        format!("{} ({})", self.name, self.email)
-        // Creating new data, ownership transfer makes sense
-    }
+impl User {  // Return owned only when creating new data
+    fn display_name(&self) -> String { format!("{} ({})", self.name, self.email) }
 }
 ```
 
@@ -1458,8 +1290,7 @@ impl User {
 **The Pattern**: Using complex generic bounds when concrete types would suffice.
 
 ```rust
-//  Avoid: 6 trait bounds for println!(); &[impl Display] suffices
-//  ANTI-PATTERN: Overly generic for no benefit
+//  ANTI-PATTERN: 6 trait bounds for println!(); &[impl Display] suffices
 fn print_items<I, T>(items: I)
 where
     I: IntoIterator<Item = T>,
@@ -1482,20 +1313,9 @@ where
 **The Solution**: Use concrete types or simple generics that provide real value.
 
 ```rust
-// Better: fn print_items(items: &[impl Display]) is simpler and clearer
-// CORRECT: Simple and clear
-fn print_items(items: &[impl std::fmt::Display]) {
-    for item in items {
-        println!("{}", item);
-    }
-}
-
-// Or be generic only where it adds value
-fn print_items_generic<T: std::fmt::Display>(items: &[T]) {
-    for item in items {
-        println!("{}", item);
-    }
-}
+// CORRECT: fn print_items(items: &[impl Display]) is simpler and clearer
+fn print_items(items: &[impl std::fmt::Display]) { for item in items { println!("{}", item); } }
+fn print_items_generic<T: std::fmt::Display>(items: &[T]) { for item in items { println!("{}", item); } }
 
 // Reserve complex bounds for when truly needed
 use std::hash::Hash;

@@ -54,28 +54,17 @@ Multiple patterns separated by semicolons create overloaded behavior; patterns a
 Literal tokens like `add`, `sub`, `mul` must appear exactly as written, creating a mini DSL syntax.
 
 ```rust
-// This demonstrates how one macro can have different "overloads"
 macro_rules! calculate {
-    // Pattern 1: literal "add" followed by two expressions
-    (add $a:expr, $b:expr) => {
-        $a + $b
-    };
-    // Pattern 2: literal "sub" followed by two expressions
-    (sub $a:expr, $b:expr) => {
-        $a - $b
-    };
-    // Pattern 3: literal "mul" followed by two expressions
-    (mul $a:expr, $b:expr) => {
-        $a * $b
-    };
+    (add $a:expr, $b:expr) => { $a + $b };
+    (sub $a:expr, $b:expr) => { $a - $b };
+    (mul $a:expr, $b:expr) => { $a * $b };
 }
 
 fn basic_examples() {
-    say_hello!();  // Expands to: println!("Hello, World!");
-    greet!("Alice");  // Expands to: println!("Hello, {}!", "Alice");
-
-    let sum = calculate!(add 5, 3);  // Expands to: 5 + 3
-    let product = calculate!(mul 4, 7);  // Expands to: 4 * 7
+    say_hello!();
+    greet!("Alice");
+    let sum = calculate!(add 5, 3);     // → 5 + 3
+    let product = calculate!(mul 4, 7); // → 4 * 7
     println!("Sum: {}, Product: {}", sum, product);
 }
 basic_examples(); // Demonstrates say_hello!, greet!, calculate! macros
@@ -104,56 +93,15 @@ Fragment specifiers tell the macro what kind of syntax to expect. Each specifier
 
 ```rust
 macro_rules! fragment_examples {
-    // expr - expression
-    // Matches: 5 + 3, vec![1, 2], function_call()
-    ($e:expr) => {
-        println!("Expression: {}", $e);
-    };
-    // ident - identifier
-    // Matches: x, my_var, SomeStruct
-    // This creates a variable with that name
-    ($i:ident) => {
-        let $i = 42;
-    };
-    // ty - type
-    // Matches: i32, Vec<String>, &str
-    ($t:ty) => {
-        std::mem::size_of::<$t>()
-    };
-    // pat - pattern
-    // Matches: Some(42), _, x @ 1..=5
-    ($p:pat) => {
-        match Some(42) {
-            $p => println!("Matched!"),
-            _ => println!("Not matched"),
-        }
-    };
-    // stmt - statement
-    // Matches: let x = 5;, println!("hi");
-    ($s:stmt) => {
-        $s
-    };
-    // block - block expression
-    // Matches: { let x = 5; x * 2 }
-    ($b:block) => {
-        $b
-    };
-    // item - item (function, struct, impl, etc.)
-    // Matches: fn foo() {}, struct Bar {}, impl Trait for Type {}
-    ($it:item) => {
-        $it
-    };
-    // meta - attribute contents
-    // Matches: derive(Debug), inline, cfg(test)
-    ($m:meta) => {
-        #[$m]
-        fn dummy() {}
-    };
-    // tt - token tree (single token or group in delimiters)
-    // Matches: x, (a, b), {code}, "string"
-    ($tt:tt) => {
-        stringify!($tt)
-    };
+    ($e:expr) => { println!("Expression: {}", $e); };         // expr: 5+3, vec![1,2]
+    ($i:ident) => { let $i = 42; };                           // ident: x, my_var
+    ($t:ty) => { std::mem::size_of::<$t>() };                // ty: i32, Vec<String>
+    ($p:pat) => { match Some(42) { $p => println!("Matched!"), _ => () } }; // pat
+    ($s:stmt) => { $s };                                      // stmt: let x = 5;
+    ($b:block) => { $b };                                     // block: { ... }
+    ($it:item) => { $it };                                    // item: fn, struct
+    ($m:meta) => { #[$m] fn dummy() {} };                     // meta: derive(Debug)
+    ($tt:tt) => { stringify!($tt) };                          // tt: any token
 }
 
 fn fragment_usage() {
@@ -185,21 +133,12 @@ The `$(...)*` syntax matches zero or more comma-separated occurrences; in the ex
 This is exactly how the standard library's `vec!` macro works internally.
 
 ```rust
-// This is how vec! works internally
 macro_rules! create_vec {
-    // $($elem:expr),* means:
-    // - Match zero or more expressions
-    // - Separated by commas
-    // - Bind each to $elem
-    ($($elem:expr),*) => {
-        {
-            let mut v = Vec::new();
-            $(
-                v.push($elem);  // Repeat this for each matched $elem
-            )*
-            v
-        }
-    };
+    ($($elem:expr),*) => {{  // Match comma-separated exprs
+        let mut v = Vec::new();
+        $( v.push($elem); )*  // Repeat for each
+        v
+    }};
 }
 let v = create_vec![1, 2, 3]; // Creates Vec containing [1, 2, 3]
 ```
@@ -209,17 +148,12 @@ The `+` repetition requires at least one match, unlike `*` which accepts zero; `
 Choose `+` when an empty invocation doesn't make semantic sense, providing better error messages.
 
 ```rust
-// Requires at least one argument, unlike *
 macro_rules! sum {
-    ($($num:expr),+) => {
-        {
-            let mut total = 0;
-            $(
-                total += $num;  // Repeat for each number
-            )+
-            total
-        }
-    };
+    ($($num:expr),+) => {{ // + requires at least one
+        let mut total = 0;
+        $( total += $num; )+
+        total
+    }};
 }
 let total = sum!(1, 2, 3, 4); // Returns 10
 ```
@@ -244,35 +178,19 @@ Multiple metavariables in one repetition group like `$key:expr => $val:expr` cap
 The `$(,)?` allows optional trailing commas; this pattern is the foundation for HashMap literal macros.
 
 ```rust
-// This is how HashMap literals could work
 macro_rules! hash_map {
-    // Trailing comma is optional: $(,)?
-    ($($key:expr => $val:expr),* $(,)?) => {
-        {
-            let mut map = std::collections::HashMap::new();
-            $(
-                map.insert($key, $val);
-            )*
-            map
-        }
-    };
+    ($($key:expr => $val:expr),* $(,)?) => {{ // $(,)? allows trailing comma
+        let mut map = std::collections::HashMap::new();
+        $( map.insert($key, $val); )*
+        map
+    }};
 }
 
 fn repetition_examples() {
-    // create_vec! accepts any number of arguments
     let v = create_vec![1, 2, 3, 4, 5];
-    println!("Vector: {:?}", v);
-
-    // sum! requires at least one argument
     let total = sum!(1, 2, 3, 4, 5);
-    println!("Sum: {}", total);
-
-    // hash_map! with optional trailing comma
-    let map = hash_map! {
-        "name" => "Alice",
-        "role" => "Developer",  // Trailing comma works
-    };
-    println!("Map: {:?}", map);
+    let map = hash_map! { "name" => "Alice", "role" => "Developer", }; // Trailing comma ok
+    println!("Vec: {:?}, Sum: {}, Map: {:?}", v, total, map);
 }
 repetition_examples(); // Demonstrates *, +, and HashMap macro patterns
 ```
@@ -288,16 +206,9 @@ Nested repetitions allow matching multi-dimensional structures like matrices or 
 - Creating multiple related items with shared structure
 
 ```rust
-// Matrix creation with nested repetitions
-// Outer repetition: rows
-// Inner repetition: elements in each row
 macro_rules! matrix {
-    ($([$($elem:expr),*]),* $(,)?) => {
-        vec![
-            $(
-                vec![$($elem),*]  // Inner: elements in row
-            ),*  // Outer: rows
-        ]
+    ($([$($elem:expr),*]),* $(,)?) => { // Outer: rows, Inner: elements
+        vec![$( vec![$($elem),*] ),*]
     };
 }
 let m = matrix![[1,2,3], [4,5,6]]; // Creates Vec<Vec<i32>>
@@ -308,16 +219,9 @@ Nested repetitions use multiple `$(...)*` patterns—outer for functions, inner 
 This technique generates multiple complete function definitions from a single macro invocation.
 
 ```rust
-// Generate multiple functions from a template
 macro_rules! function_table {
-    {
-        $(
-            fn $name:ident($($param:ident: $type:ty),*) -> $ret:ty $body:block
-        )*
-    } => {
-        $(
-            fn $name($($param: $type),*) -> $ret $body
-        )*
+    { $( fn $name:ident($($param:ident: $type:ty),*) -> $ret:ty $body:block )* } => {
+        $( fn $name($($param: $type),*) -> $ret $body )*
     };
 }
 
@@ -359,12 +263,10 @@ Counting elements in a macro requires recursive expansion—declarative macros d
 Use recursion to add 1 for each element until you hit the base case (empty).
 
 ```rust
-// Count arguments using recursive expansion
-// How it works:
-// count!(a b c) → 1 + count!(b c) → 1 + 1 + count!(c) → 1 + 1 + 1 + count!() → 1 + 1 + 1 + 0 → 3
+// count!(a b c) → 1 + 1 + 1 + 0 = 3
 macro_rules! count {
-    () => (0);  // Base case: no tokens = 0
-    ($head:tt $($tail:tt)*) => (1 + count!($($tail)*));  // Recursive: 1 + count(rest)
+    () => (0);
+    ($head:tt $($tail:tt)*) => (1 + count!($($tail)*));
 }
 const N: usize = count!(a b c d e); // N = 5 at compile time
 ```
@@ -374,21 +276,13 @@ The `ident` fragment captures identifiers that become field names; each `$name` 
 This pattern generates structs with user-specified field names, fully type-checked after expansion.
 
 ```rust
-// Creates a struct with the specified field names
 macro_rules! create_fields {
     ($($name:ident),*) => {
-        struct GeneratedStruct {
-            $(
-                $name: i32,
-            )*
-        }
+        struct GeneratedStruct { $( $name: i32, )* }
     };
 }
 
-
- Tuple indexing pattern
-// Manually provides accessors for tuple elements
-======================
+// Tuple indexing pattern
 macro_rules! tuple_access {
     ($tuple:expr, 0) => { $tuple.0 };
     ($tuple:expr, 1) => { $tuple.1 };
@@ -397,13 +291,9 @@ macro_rules! tuple_access {
 }
 
 fn counting_examples() {
-    // Count tokens at compile time
-    let count = count!(a b c d e);
-    println!("Count: {}", count);  // Prints 5
-
+    let count = count!(a b c d e);  // 5 at compile time
     let tuple = (1, "hello", 3.14, true);
-    println!("First: {}", tuple_access!(tuple, 0));
-    println!("Second: {}", tuple_access!(tuple, 1));
+    println!("Count: {}, First: {}", count, tuple_access!(tuple, 0));
 }
 counting_examples(); // Demonstrates compile-time counting and tuple access
 ```
@@ -452,19 +342,10 @@ Each pattern generates different code; this is the foundation for expression DSL
 
 ```rust
 macro_rules! operation {
-    // Match literal operators as tokens
-    ($a:expr, +, $b:expr) => {
-        $a + $b
-    };
-    ($a:expr, -, $b:expr) => {
-        $a - $b
-    };
-    ($a:expr, *, $b:expr) => {
-        $a * $b
-    };
-    ($a:expr, /, $b:expr) => {
-        $a / $b
-    };
+    ($a:expr, +, $b:expr) => { $a + $b };
+    ($a:expr, -, $b:expr) => { $a - $b };
+    ($a:expr, *, $b:expr) => { $a * $b };
+    ($a:expr, /, $b:expr) => { $a / $b };
 }
 
 fn pattern_matching_examples() {
@@ -499,21 +380,17 @@ Rust's macro hygiene means variables inside macros exist in a separate "syntax c
 The compiler renames macro-generated identifiers internally, a major improvement over C's `#define` bugs.
 
 ```rust
-// The 'x' inside the macro is separate from the 'x' outside
 macro_rules! hygienic_example {
     () => {
-        let x = 42; // This x doesn't conflict with outer x
+        let x = 42; // Separate from outer x
         println!("Inner x: {}", x);
     };
 }
 
 fn hygiene_test() {
     let x = 100;
-    println!("Outer x: {}", x);  // Prints 100
-
-    hygienic_example!();  // Prints "Inner x: 42"
-
-    println!("Outer x again: {}", x);  // Still 100 (not affected by macro)
+    hygienic_example!();  // Inner x: 42
+    println!("Outer x: {}", x);  // Still 100
 }
 hygiene_test(); // Demonstrates macro hygiene - inner x doesn't shadow outer x
 ```
@@ -533,25 +410,18 @@ The `ident` fragment passes identifiers without hygiene protection, creating var
 Use this pattern for DSLs that need to define variables, like `let_mut!` or test setup macros.
 
 ```rust
-// The ident fragment specifier creates a variable in the outer scope
 macro_rules! set_value {
-    ($var:ident = $val:expr) => {
-        let $var = $val;  // Creates $var in caller's scope
-    };
+    ($var:ident = $val:expr) => { let $var = $val; }; // In caller's scope
 }
 
 macro_rules! increment {
-    ($var:ident) => {
-        $var += 1;  // Modifies caller's variable
-    };
+    ($var:ident) => { $var += 1; }; // Modifies caller's var
 }
 
 fn breaking_hygiene() {
     set_value!(counter = 0);
-    println!("Counter: {}", counter);  // Works because we used ident
-
     increment!(counter);
-    println!("Counter: {}", counter);  // 1
+    println!("Counter: {}", counter); // 1
 }
 breaking_hygiene(); // Creates and modifies 'counter' in caller's scope
 ```
@@ -581,10 +451,7 @@ fn can_use_early() {
     early_macro!(); // Works - macro defined above
 }
 
-===============================================
-// This won't compile if called before definition:
 // late_macro!();  // ERROR: macro not yet defined
-===============================================
 macro_rules! late_macro {
     () => {
         println!("Defined late");
@@ -612,24 +479,16 @@ Non-exported macros are private to their module; functions can use private macro
 
 ```rust
 mod macros {
-    // #[macro_export] makes this available at crate root
-    #[macro_export]
+    #[macro_export]  // Available at crate root
     macro_rules! public_macro {
-        () => {
-            println!("Public macro from module");
-        };
+        () => { println!("Public macro"); };
     }
 
-    // Non-exported macros are private to the module
-    macro_rules! private_macro {
-        () => {
-            println!("Private macro");
-        };
+    macro_rules! private_macro {  // Private to module
+        () => { println!("Private macro"); };
     }
 
-    pub fn use_private() {
-        private_macro!();  // Module can use its own private macros
-    }
+    pub fn use_private() { private_macro!(); }
 }
 
 ```
@@ -655,18 +514,12 @@ Macros can intentionally capture context to provide convenient DSLs.
 Create a scope with predefined variables that the user's code can access.
 
 ```rust
-=================================================
-// Capture context intentionally
-// Provides a 'context' variable to the user's block
-=================================================
 macro_rules! with_context {
-    ($name:ident, $body:block) => {
-        {
-            let context = "macro context";
-            let $name = context;  // Bind to user's chosen name
-            $body  // User code can access $name
-        }
-    };
+    ($name:ident, $body:block) => {{
+        let context = "macro context";
+        let $name = context;  // Bind to user's name
+        $body
+    }};
 }
 
 fn context_example() {
@@ -698,19 +551,12 @@ The expansion generates `filter()` for WHERE and `map()` for SELECT—efficient,
 
 ```rust
 macro_rules! select {
-    // select field1, field2 from table where condition
-    ($($field:ident),+ from $table:ident where $condition:expr) => {
-        {
-            let results = $table
-                .iter()
-                .filter(|row| $condition(row))  // WHERE clause
-                .map(|row| {
-                    ($(row.$field,)+)  // SELECT clause
-                })
-                .collect::<Vec<_>>();
-            results
-        }
-    };
+    ($($field:ident),+ from $table:ident where $condition:expr) => {{
+        $table.iter()
+            .filter(|row| $condition(row))    // WHERE
+            .map(|row| ($(row.$field,)+))     // SELECT
+            .collect::<Vec<_>>()
+    }};
 }
 
 #[derive(Debug)]
@@ -726,11 +572,8 @@ fn sql_dsl_example() {
         User { id: 2, name: "Bob".to_string(), age: 25 },
         User { id: 3, name: "Carol".to_string(), age: 35 },
     ];
-
-    // Looks like SQL, compiles to efficient iterator code
     let results = select!(name, age from users where |u: &User| u.age > 26);
-    println!("Results: {:?}", results);
-    // Output: [("Alice", 30), ("Carol", 35)]
+    println!("Results: {:?}", results); // [("Alice", 30), ("Carol", 35)]
 }
 sql_dsl_example(); // SQL-like syntax: select!(field from table where cond)
 ```
@@ -741,52 +584,25 @@ sql_dsl_example(); // SQL-like syntax: select!(field from table where cond)
 Create a structured configuration syntax that parses at compile time.
 
 ```rust
-// Configuration DSL with nested structure
-// section { key: value, key: value }
 macro_rules! config {
-    {
-        $(
-            $section:ident {
-                $(
-                    $key:ident: $value:expr
-                ),* $(,)?
-            }
-        )*
-    } => {
-        {
-            use std::collections::HashMap;
-
-            let mut config = HashMap::new();
-
-            $(
-                let mut section = HashMap::new();
-                $(
-                    section.insert(stringify!($key), $value.to_string());
-                )*
-                config.insert(stringify!($section), section);
-            )*
-
-            config
-        }
-    };
+    { $( $section:ident { $( $key:ident: $value:expr ),* $(,)? } )* } => {{
+        use std::collections::HashMap;
+        let mut config = HashMap::new();
+        $({
+            let mut section = HashMap::new();
+            $( section.insert(stringify!($key), $value.to_string()); )*
+            config.insert(stringify!($section), section);
+        })*
+        config
+    }};
 }
 
 fn config_dsl_example() {
     let settings = config! {
-        database {
-            host: "localhost",
-            port: 5432,
-            name: "mydb",
-        }
-        server {
-            host: "0.0.0.0",
-            port: 8080,
-            workers: 4,
-        }
+        database { host: "localhost", port: 5432, name: "mydb", }
+        server { host: "0.0.0.0", port: 8080, workers: 4, }
     };
-
     println!("Config: {:?}", settings);
-    // Produces a nested HashMap structure
 }
 config_dsl_example(); // Nested config syntax → HashMap<&str, HashMap<&str, String>>
 ```
@@ -1105,12 +921,7 @@ generate_tests! {
         test_add_zero: (0, 5) => 5,
     }
 }
-===============================================
-// Expands to:
-// #[test] fn test_add_positive() { assert_eq!(add(2, 3), 5); }
-// #[test] fn test_add_negative() { assert_eq!(add(-2, -3), -5); }
-// #[test] fn test_add_zero() { assert_eq!(add(0, 5), 5); }
-===============================================
+// Expands to 3 #[test] functions with assert_eq! calls
 ```
 
 
@@ -1239,11 +1050,8 @@ macro_rules! debug_macro {
     };
 }
 
-==============================================
-// This will show the exact input at compile time
 // debug_macro!(some input here);
-// Compile error: "Macro input: some input here"
-==============================================
+// → Compile error: "Macro input: some input here"
 ```
 
 
@@ -1257,19 +1065,15 @@ The block wraps everything so the macro returns the expression's value—debug w
 
 ```rust
 macro_rules! trace {
-    ($($arg:tt)*) => {
-        {
-            eprintln!("Macro trace: {}", stringify!($($arg)*));
-            $($arg)*  // Still execute the code
-        }
-    };
+    ($($arg:tt)*) => {{
+        eprintln!("Macro trace: {}", stringify!($($arg)*));
+        $($arg)*
+    }};
 }
 
 fn tracing_example() {
-    let x = trace!(5 + 3);
+    let x = trace!(5 + 3); // Logs "5 + 3" to stderr, returns 8
     println!("Result: {}", x);
-    // Stderr: "Macro trace: 5 + 3"
-    // Stdout: "Result: 8"
 }
 tracing_example(); // Logs macro input to stderr, then executes
 ```
@@ -1281,12 +1085,7 @@ Using `$($tt:tt)*` captures any valid Rust syntax—the simplest debugging macro
 
 ```rust
 macro_rules! echo {
-    ($($tt:tt)*) => {
-        {
-            println!("Macro received: {}", stringify!($($tt)*));
-            $($tt)*
-        }
-    };
+    ($($tt:tt)*) => {{ println!("Macro received: {}", stringify!($($tt)*)); $($tt)* }};
 }
 echo!(let x = 5); // Prints input, then executes it
 ```
@@ -1297,16 +1096,12 @@ The macro stores, prints the type, and returns the value—usable anywhere an ex
 
 ```rust
 macro_rules! show_type {
-    ($expr:expr) => {
-        {
-            fn type_of<T>(_: &T) -> &'static str {
-                std::any::type_name::<T>()
-            }
-            let value = $expr;
-            println!("Type of {}: {}", stringify!($expr), type_of(&value));
-            value
-        }
-    };
+    ($expr:expr) => {{
+        fn type_of<T>(_: &T) -> &'static str { std::any::type_name::<T>() }
+        let value = $expr;
+        println!("Type of {}: {}", stringify!($expr), type_of(&value));
+        value
+    }};
 }
 let v = show_type!(vec![1,2,3]); // Prints type, returns value
 ```

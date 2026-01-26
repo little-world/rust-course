@@ -51,20 +51,20 @@ Dereferencing requires `unsafe` because the compiler can't verify that claim; ar
 ```rust
 fn raw_pointer_basics() {
     let mut num = 42;
-    let r1: *const i32 = &num;            // Immutable raw pointer
-    let r2: *mut i32 = &mut num;          // Mutable raw pointer
+    let r1: *const i32 = &num;       // Immutable raw ptr
+    let r2: *mut i32 = &mut num;     // Mutable raw ptr
     let address = 0x12345usize;
-    let r3 = address as *const i32;       // Might point to invalid memory!
+    let r3 = address as *const i32;  // May be invalid!
 
     unsafe {
         println!("r1 points to: {}", *r1);
         *r2 = 100;
         println!("num is now: {}", num);
-        // Dereferencing r3 would be UB - it points to random memory!
+        // r3 dereference would be UB - random memory!
     }
 }
 
-// Usage: Create pointer from reference, dereference in unsafe block
+// Create pointer from reference, deref in unsafe block
 let x = 42;
 let ptr: *const i32 = &x;
 unsafe { println!("Value: {}", *ptr); }
@@ -84,7 +84,8 @@ fn pointer_arithmetic() {
 
     unsafe {
         for i in 0..arr.len() {
-            let element_ptr = ptr.add(i);  // Equivalent to ptr + i * sizeof(i32)
+            // ptr + i * sizeof(i32)
+            let element_ptr = ptr.add(i);
             println!("Element {}: {}", i, *element_ptr);
         }
 
@@ -97,7 +98,8 @@ fn pointer_arithmetic() {
 
 // Usage: Iterate array via pointer offset
 let data = [10, 20, 30];
-unsafe { println!("Second: {}", *data.as_ptr().add(1)); }
+let ptr = data.as_ptr();
+unsafe { println!("Second: {}", *ptr.add(1)); }
 ```
 
 **The critical rule**: Pointer arithmetic must stay within the bounds of the original allocation (or one byte past the end). Going beyond is undefined behavior even if you don't dereference. The CPU's memory protection won't save you—UB means the compiler can assume it never happens and optimize accordingly, leading to bizarre bugs.
@@ -124,7 +126,7 @@ impl<T> RawVec<T> {
     /// Creates an empty RawVec with no allocation.
     pub fn new() -> Self {
         RawVec {
-            ptr: std::ptr::null_mut(),  // null_mut() is a safe operation
+            ptr: std::ptr::null_mut(),  // Safe when cap == 0
             cap: 0,
         }
     }
@@ -152,7 +154,7 @@ impl<T> RawVec<T> {
             let old_layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
                 realloc(
-                    self.ptr as *mut u8,  // realloc works with u8 pointers
+                    self.ptr as *mut u8,
                     old_layout,
                     new_layout.size()
                 ) as *mut T
@@ -209,7 +211,7 @@ use std::ptr::NonNull;
 /// A node in a linked list using NonNull for efficiency.
 struct Node<T> {
     value: T,
-    next: Option<NonNull<Node<T>>>,  // Same size as *mut Node<T>
+    next: Option<NonNull<Node<T>>>,  // Same size as *mut
 }
 
 impl<T> Node<T> {
@@ -240,7 +242,8 @@ impl<T> LinkedList<T> {
 
     fn push_back(&mut self, value: T) {
         let node = Box::new(Node::new(value));
-        let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
+        let raw = Box::into_raw(node);
+        let node_ptr = NonNull::new(raw).unwrap();
 
         unsafe {
             if let Some(mut tail) = self.tail {
@@ -323,7 +326,8 @@ fn use_c_functions() {
         println!("abs(-42) = {}", result);
 
         let c_str = b"Hello\0";
-        let len = strlen(c_str.as_ptr() as *const std::os::raw::c_char);
+        let ptr = c_str.as_ptr() as *const std::os::raw::c_char;
+        let len = strlen(ptr);
         println!("String length: {}", len);
 
         let ptr = malloc(100);
@@ -365,7 +369,7 @@ fn rust_to_c_string(s: &str) -> *mut c_char {
 ///
 /// # Safety
 /// - `c_str` must be a valid null-terminated C string
-/// - The memory must remain valid for the duration of this call
+/// - The memory must remain valid for this call
 unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
     let c_str = CStr::from_ptr(c_str);
     c_str.to_string_lossy().into_owned()
@@ -375,7 +379,7 @@ unsafe fn c_to_rust_string(c_str: *const c_char) -> String {
 ///
 /// # Safety
 /// - `ptr` must have been created by rust_to_c_string()
-/// - `ptr` must not be used after this call (use-after-free)
+/// - `ptr` must not be used after this call
 unsafe fn free_rust_c_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         let _ = CString::from_raw(ptr);
@@ -393,7 +397,7 @@ fn c_string_example() {
     }
 }
 
-// Usage: Convert Rust string to C, pass to C function, convert back
+// Convert Rust string to C, pass to C function
 let c_str = CString::new("hello").unwrap();
 extern "C" { fn puts(s: *const c_char); }
 unsafe { puts(c_str.as_ptr()); }
@@ -414,14 +418,14 @@ use std::os::raw::{c_int, c_char};
 /// A point with C-compatible layout.
 #[repr(C)]
 struct Point {
-    x: c_int,  // Use c_int, not i32 (they're the same on most platforms but not guaranteed)
+    x: c_int,  // Use c_int for portability
     y: c_int,
 }
 
 /// A person struct that C can understand.
 #[repr(C)]
 struct Person {
-    name: *const c_char,  // C expects raw pointers, not &str
+    name: *const c_char,  // C expects raw ptrs
     age: c_int,
     height: f64,
 }
@@ -437,7 +441,10 @@ enum Status {
 // Declare C functions that work with these structs
 extern "C" {
     fn process_point(point: *const Point) -> c_int;
-    fn create_person(name: *const c_char, age: c_int) -> *mut Person;
+    fn create_person(
+    name: *const c_char,
+    age: c_int
+) -> *mut Person;
     fn free_person(person: *mut Person);
 }
 
@@ -474,7 +481,10 @@ use std::os::raw::c_char;
 extern "C" {
     fn create_context() -> *mut std::os::raw::c_void;
     fn destroy_context(ctx: *mut std::os::raw::c_void);
-    fn context_do_work(ctx: *mut std::os::raw::c_void, data: *const c_char) -> i32;
+    fn context_do_work(
+        ctx: *mut std::os::raw::c_void,
+        data: *const c_char
+    ) -> i32;
 }
 
 // Safe Rust wrapper for the C context API.
@@ -485,7 +495,7 @@ pub struct Context {
 
 impl Context {
     // Creates a new context.
-    // Returns None if the C library fails to create a context.
+    // Returns None if C library fails to create context.
     pub fn new() -> Option<Self> {
         let ptr = unsafe { create_context() };
 
@@ -498,8 +508,12 @@ impl Context {
 
     // Performs work with the given data.
     // Returns Ok(result) on success, Err(message) on failure.
-    pub fn do_work(&mut self, data: &str) -> Result<i32, String> {
-        let c_data = CString::new(data).map_err(|e| e.to_string())?;
+    pub fn do_work(
+        &mut self,
+        data: &str
+    ) -> Result<i32, String> {
+        let c_data = CString::new(data)
+            .map_err(|e| e.to_string())?;
 
         let result = unsafe {
             context_do_work(self.inner, c_data.as_ptr())
@@ -508,7 +522,7 @@ impl Context {
         if result >= 0 {
             Ok(result)
         } else {
-            Err(format!("Operation failed with code: {}", result))
+            Err(format!("Failed with code: {}", result))
         }
     }
 }
@@ -566,9 +580,15 @@ fn callback_example() {
 }
 
 // Advanced: Callback with user data (context pointer)
-type CallbackWithData = extern "C" fn(*mut std::os::raw::c_void, c_int) -> c_int;
+type CbWithData = extern "C" fn(
+    *mut std::os::raw::c_void,
+    c_int
+) -> c_int;
 
-extern "C" fn callback_with_context(user_data: *mut std::os::raw::c_void, value: c_int) -> c_int {
+extern "C" fn callback_with_context(
+    user_data: *mut std::os::raw::c_void,
+    value: c_int
+) -> c_int {
     unsafe {
         let data = &mut *(user_data as *mut i32);
         *data += value;
@@ -581,14 +601,18 @@ fn callback_with_state_example() {
     let mut state = 0i32;
 
     extern "C" {
-        fn register_callback_with_data(cb: CallbackWithData, user_data: *mut std::os::raw::c_void);
+        fn register_callback_with_data(
+            cb: CbWithData,
+            user_data: *mut std::os::raw::c_void
+        );
         fn trigger_callback_with_data(value: c_int);
     }
 
     unsafe {
+        let ptr = &mut state as *mut i32;
         register_callback_with_data(
             callback_with_context,
-            &mut state as *mut i32 as *mut std::os::raw::c_void
+            ptr as *mut std::os::raw::c_void
         );
         trigger_callback_with_data(10);
     }
@@ -603,9 +627,9 @@ extern "C" fn on_event(code: c_int) -> c_int { code * 2 }
 
 **Critical rules for callbacks:**
 1. **Use `extern "C"`**: Ensures C calling convention
-2. **No panics**: Unwinding through C code is UB. Use `catch_unwind` if needed
+2. **No panics**: Unwinding through C is UB. Use `catch_unwind`
 3. **Document user_data**: What type must be passed? Who owns it?
-4. **Lifetime safety**: Ensure callback doesn't outlive data it references
+4. **Lifetime safety**: Callback must not outlive referenced data
 
 **User data pattern**: C libraries pass a `void*` context pointer through to callbacks. This lets you maintain state without globals.
 
@@ -635,7 +659,7 @@ Large stack arrays can overflow if initialized naively; `MaybeUninit` lets you a
 ```rust
 use std::mem::MaybeUninit;
 
-/// Create a large array efficiently without stack overflow.
+/// Create large array efficiently without stack overflow.
 fn create_array_uninit() -> [i32; 1000] {
     let mut arr: [MaybeUninit<i32>; 1000] = unsafe {
         MaybeUninit::uninit().assume_init()
@@ -661,9 +685,9 @@ fn create_array_uninit_safe() -> [i32; 1000] {
     unsafe { MaybeUninit::array_assume_init(arr) }
 }
 
-// Usage: Create large array without stack overflow
+// Create large array without stack overflow
 let mut uninit: MaybeUninit<[u8; 10000]> = MaybeUninit::uninit();
-unsafe { (*uninit.as_mut_ptr()).fill(0); } // Initialize all bytes
+unsafe { (*uninit.as_mut_ptr()).fill(0); }  // Init all
 let arr = unsafe { uninit.assume_init() };
 ```
 
@@ -686,14 +710,18 @@ struct ComplexStruct {
 }
 
 fn initialize_complex_struct() -> ComplexStruct {
-    let mut uninit: MaybeUninit<ComplexStruct> = MaybeUninit::uninit();
+    let mut uninit: MaybeUninit<ComplexStruct> =
+        MaybeUninit::uninit();
     let ptr = uninit.as_mut_ptr();
 
     unsafe {
-        // SAFETY: Using addr_of_mut! to get field pointers without creating references
-        std::ptr::addr_of_mut!((*ptr).field1).write(String::from("hello"));
-        std::ptr::addr_of_mut!((*ptr).field2).write(vec![1, 2, 3]);
-        std::ptr::addr_of_mut!((*ptr).field3).write(Box::new(42));
+        // addr_of_mut! gets field ptr without creating refs
+        std::ptr::addr_of_mut!((*ptr).field1)
+            .write(String::from("hello"));
+        std::ptr::addr_of_mut!((*ptr).field2)
+            .write(vec![1, 2, 3]);
+        std::ptr::addr_of_mut!((*ptr).field3)
+            .write(Box::new(42));
 
         uninit.assume_init()
     }
@@ -729,7 +757,7 @@ fn actual_undefined_behavior() {
     let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
 
     // ❌ UB: Reading uninitialized memory!
-    // let value = unsafe { uninit.assume_init() };  // DON'T DO THIS
+    // let v = unsafe { uninit.assume_init() }; // UB!
 }
 
 // Usage: Correct pattern - write before assume_init
@@ -775,7 +803,9 @@ fn call_out_parameter_function() -> Option<i32> {
     }
 } 
 // Usage
-if let Some(val) = call_out_parameter_function() { println!("{}", val); }
+if let Some(v) = call_out_parameter_function() {
+    println!("{}", v);
+}
 ```
 
 **Pattern**: Create `MaybeUninit`, pass its pointer to C, check return code, assume init only on success.
@@ -797,21 +827,25 @@ extern "C" {
 }
 
 fn read_into_buffer(size: usize) -> Option<Vec<u8>> {
-    let mut buffer: Vec<MaybeUninit<u8>> = Vec::with_capacity(size);
+    let mut buf: Vec<MaybeUninit<u8>> = Vec::with_capacity(size);
 
     unsafe {
-        buffer.set_len(size);  // Set length without initializing
+        buf.set_len(size);  // Set len without init
     }
 
     let result = unsafe {
-        fill_buffer(buffer.as_mut_ptr() as *mut u8, size)
+        fill_buffer(buf.as_mut_ptr() as *mut u8, size)
     };
 
     if result == 0 {
-        let buffer = unsafe {
-            std::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(buffer)
+        // Safe: layouts identical, C initialized bytes
+        let buf = unsafe {
+            std::mem::transmute::<
+                Vec<MaybeUninit<u8>>,
+                Vec<u8>
+            >(buf)
         };
-        Some(buffer)
+        Some(buf)
     } else {
         None
     }
@@ -839,13 +873,13 @@ if let Some(data) = read_into_buffer(1024) { process(&data); }
 `std::mem::transmute` is the most dangerous function in Rust. It reinterprets bytes from one type as another, no questions asked. Get it wrong and you invoke undefined behavior. Use it only when necessary and document why it's correct.
 
 **Valid uses:**
-- Converting between types with identical layout (e.g., `[u8; 4]` ↔ `u32`)
+- Converting types with identical layout (`[u8; 4]` to `u32`)
 - Implementing zero-copy protocols
 - Optimized numerical code
 
 **Invalid uses:**
 - Extending lifetimes (creates dangling references)
-- Converting between different-sized types (compile error)
+- Converting different-sized types (compile error)
 - Type confusion (pointers to different types)
 
 ### Example: Basic Transmute
@@ -859,7 +893,7 @@ use std::mem;
 fn transmute_basics() {
     let a: u32 = 0x12345678;
     let b: [u8; 4] = unsafe { mem::transmute(a) };
-    println!("Bytes: {:?}", b);  // Depends on endianness!
+    println!("Bytes: {:?}", b);  // Endianness-dependent
 
     let f: f32 = 3.14;
     let bits: u32 = unsafe { mem::transmute(f) };
@@ -873,7 +907,7 @@ fn transmute_basics() {
     assert_eq!(f, f2);
 }
 
-// Usage: Get raw float bits (prefer to_bits() in real code)
+// Get raw float bits (prefer to_bits())
 let pi: f32 = 3.14159;
 let bits = pi.to_bits(); // Safe alternative to transmute
 ```
@@ -948,7 +982,8 @@ fn slice_transmute() {
 // Usage: View u32 slice as bytes for serialization
 let numbers: [u32; 2] = [1, 2];
 let bytes: &[u8] = unsafe {
-    std::slice::from_raw_parts(numbers.as_ptr() as *const u8, 8)
+    let ptr = numbers.as_ptr() as *const u8;
+    std::slice::from_raw_parts(ptr, 8)
 };
 ```
 
@@ -984,7 +1019,9 @@ fn enum_discriminant_safe(e: &MyEnum) -> u8 {
 }
 
 // Also safe: std::mem::discriminant
-fn enum_discriminant_std(e: &MyEnum) -> std::mem::Discriminant<MyEnum> {
+fn enum_discriminant_std(
+    e: &MyEnum
+) -> std::mem::Discriminant<MyEnum> {
     std::mem::discriminant(e)
 }
 
@@ -1016,7 +1053,7 @@ fn correct_float_bits(f: f32) -> u32 {
     f.to_bits()
 }
 
-let bits = fast_float_bits(3.14); // Gets raw bits of float via union
+let bits = fast_float_bits(3.14); // Raw bits via union
 ```
 
 **Union safety**: Writing one field and reading another is safe only if both types are valid for all bit patterns (e.g., integers, floats). Reading a `bool` from a union where you wrote `u8` would be UB if the byte is not 0 or 1.
@@ -1035,7 +1072,7 @@ fn extend_lifetime_bad<'a>(x: &'a str) -> &'static str {
 }
 
 fn extend_lifetime_good<'a>(x: &'a str) -> &'a str {
-    x  // Just return the original with its real lifetime
+    x  // Return with its real lifetime
 }
 
 // WRONG: Different sized types
@@ -1055,7 +1092,7 @@ fn change_mutability_bad(x: &i32) -> &mut i32 {
 //  WRONG: Bypassing type safety
 fn type_confusion_bad() {
     let x: &str = "hello";
-    // UB: str has invariants (valid UTF-8) that might be violated
+    // UB: str has invariants that might be violated
     // let y: &[u8] = unsafe { std::mem::transmute(x) };
 }
 ```
@@ -1104,7 +1141,7 @@ impl<T> MyVec<T> {
     /// Creates an empty vector.
     pub fn new() -> Self {
         MyVec {
-            ptr: std::ptr::null_mut(),  // Null is fine when cap == 0
+            ptr: std::ptr::null_mut(),  // OK when cap == 0
             len: 0,
             cap: 0,
         }
@@ -1150,7 +1187,7 @@ impl<T> MyVec<T> {
         self.len
     }
 
-    /// Grows the capacity, doubling it or setting to 1 if currently 0.
+    /// Grows capacity: doubles it, or sets to 1 if currently 0.
     fn grow(&mut self) {
         let new_cap = if self.cap == 0 { 1 } else { self.cap * 2 };
         let new_layout = Layout::array::<T>(new_cap).unwrap();
@@ -1240,7 +1277,7 @@ impl<'a, T> NonEmptySlice<'a, T> {
     }
 
     // Creates a non-empty slice without checking.
-    // # Safety: The caller must ensure that the slice is not empty.
+    // # Safety: Caller must ensure slice is not empty.
     pub unsafe fn new_unchecked(slice: &'a [T]) -> Self {
         debug_assert!(!slice.is_empty());
         NonEmptySlice { slice }
@@ -1288,7 +1325,8 @@ impl<T> RawPtr<T> {
     pub fn new(value: T) -> Self {
         let boxed = Box::new(value);
         RawPtr {
-            ptr: NonNull::new(Box::into_raw(boxed)).unwrap(),
+            ptr: NonNull::new(Box::into_raw(boxed))
+                .unwrap(),
             _marker: PhantomData,
         }
     }
@@ -1433,14 +1471,14 @@ mod tests {
 
     #[test]
     fn test_my_vec_drop() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicUsize, Ordering as Ord};
 
         static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
         struct DropCounter;
         impl Drop for DropCounter {
             fn drop(&mut self) {
-                DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+                DROP_COUNT.fetch_add(1, Ord::SeqCst);
             }
         }
 
@@ -1451,7 +1489,7 @@ mod tests {
             vec.push(DropCounter);
         }  // vec dropped here
 
-        assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 3);
+        assert_eq!(DROP_COUNT.load(Ord::SeqCst), 3);
     }
 
 
@@ -1481,8 +1519,8 @@ mod tests {
 
 **Testing strategies**:
 1. **Basic correctness**: Does it work for normal cases?
-2. **Edge cases**: Empty collections, single elements, capacity boundaries
-3. **Drop tracking**: Use `DropCounter` to ensure no leaks or double-drops
+2. **Edge cases**: Empty, single element, capacity boundaries
+3. **Drop tracking**: Use `DropCounter` for leak/double-drop check
 4. **Thread safety**: Test concurrent access with multiple threads
 5. **Miri**: Run tests with Miri to detect UB
 
@@ -1496,7 +1534,7 @@ Unsafe Rust is powerful but dangerous. These practices help you wield that power
 
 ### 1. Minimize Unsafe Boundaries
 
-Keep unsafe code localized. Encapsulate it in small, well-tested functions or types.
+Keep unsafe code localized. Encapsulate in small, well-tested functions.
 
 ```rust
 // BAD: Unsafe spreads throughout the code
@@ -1521,12 +1559,15 @@ Every unsafe function must document its preconditions. This is for your future s
 ```rust
 /// Interprets a raw pointer as a slice.
 /// # Safety: The caller must ensure that:
-/// - `ptr` is valid for reads of `len * size_of::<T>()` bytes
+/// - `ptr` valid for reads of `len * size_of::<T>()` bytes
 /// - `ptr` is properly aligned for type `T`
-/// - The memory referenced by `ptr` is not concurrently accessed for writes
-/// - `len` is exactly the number of elements in the allocation
+/// - Memory at `ptr` is not concurrently written
+/// - `len` is exactly the element count in allocation
 /// - The memory contains valid values of type `T`
-pub unsafe fn from_raw_parts<T>(ptr: *const T, len: usize) -> &'static [T] {
+pub unsafe fn from_raw_parts<T>(
+    ptr: *const T,
+    len: usize
+) -> &'static [T] {
     std::slice::from_raw_parts(ptr, len)
 }
 ```
@@ -1543,19 +1584,22 @@ Extract unsafe operations into well-named, well-tested helper functions.
 
 ```rust
 mod unsafe_helpers {
-    /// Writes a value to a pointer without dropping the old value.
+    /// Writes value to ptr without dropping old value.
     /// # Safety
     /// `ptr` must be valid for writes and properly aligned.
-    pub(crate) unsafe fn write_unchecked<T>(ptr: *mut T, value: T) {
-        debug_assert!(!ptr.is_null(), "write_unchecked: null pointer");
+    pub(crate) unsafe fn write_unchecked<T>(
+        ptr: *mut T,
+        value: T
+    ) {
+        debug_assert!(!ptr.is_null(), "null pointer");
         std::ptr::write(ptr, value);
     }
 
     /// Reads a value from a pointer without moving it.
     /// # Safety
-    /// `ptr` must be valid for reads, properly aligned, and point to initialized data.
+    /// `ptr` must be valid, aligned, point to init data.
     pub(crate) unsafe fn read_unchecked<T>(ptr: *const T) -> T {
-        debug_assert!(!ptr.is_null(), "read_unchecked: null pointer");
+        debug_assert!(!ptr.is_null(), "null pointer");
         std::ptr::read(ptr)
     }
 }
@@ -1606,10 +1650,10 @@ Before writing unsafe code, check if a safe solution exists.
 //===================================
 // - std::pin::Pin for self-referential structs
 // - std::rc::Rc or std::sync::Arc for shared ownership
-// - std::cell::UnsafeCell for interior mutability (still unsafe, but more targeted)
+// - std::cell::UnsafeCell for interior mutability
 // - std::sync::atomic for lock-free operations
 // - ouroboros crate for self-referential structs
-// - bytemuck crate for safe transmutes (compile-time checks)
+// - bytemuck crate for safe transmutes
 // - zerocopy crate for zero-copy parsing with safety
 
 //======================================
@@ -1626,7 +1670,7 @@ struct Point {
 
 fn safe_transmute_example() {
     let bytes: [u8; 8] = [0; 8];
-    let point: Point = bytemuck::cast(bytes);  // Compile-time verified safe
+    let point: Point = bytemuck::cast(bytes);  // Safe
 }
 ```
 

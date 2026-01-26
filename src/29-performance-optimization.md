@@ -289,51 +289,35 @@ Allocating is often 10-100x slower than stack allocation. Reducing allocations c
  Progressive optimization from per-iteration allocation to buffer reuse to pre-allocation. Using clear() retains capacity, with_capacity() prevents resizing, and iterators enable the compiler to optimize the entire pipeline efficiently.
 
 ```rust
-// Bad: Allocates every iteration
-fn process_bad(items: &[String]) -> Vec<String> {
+fn process_bad(items: &[String]) -> Vec<String> {  // Bad: allocates per iteration
     let mut results = Vec::new();
     for item in items {
-        let mut buffer = String::new();  // Allocates!
-        buffer.push_str("processed_");
-        buffer.push_str(item);
+        let mut buffer = String::new();  // Allocates each time!
+        buffer.push_str("processed_"); buffer.push_str(item);
         results.push(buffer);
     }
     results
 }
 
-// Good: Reuses buffer
-fn process_good(items: &[String]) -> Vec<String> {
+fn process_good(items: &[String]) -> Vec<String> {  // Good: reuses buffer
     let mut results = Vec::new();
     let mut buffer = String::new();  // Allocate once
     for item in items {
-        buffer.clear();  // Reuse allocation
-        buffer.push_str("processed_");
-        buffer.push_str(item);
-        results.push(buffer.clone());  // Still allocates, but see next example
+        buffer.clear();  // Retain capacity
+        buffer.push_str("processed_"); buffer.push_str(item);
+        results.push(buffer.clone());
     }
     results
 }
 
-//================================================
-// Better: Pre-allocate and avoid unnecessary work
-//================================================
-fn process_better(items: &[String]) -> Vec<String> {
-    let mut results = Vec::with_capacity(items.len());  // Pre-allocate
-    for item in items {
-        let processed = format!("processed_{}", item);  // One allocation
-        results.push(processed);
-    }
+fn process_better(items: &[String]) -> Vec<String> {  // Better: pre-allocate
+    let mut results = Vec::with_capacity(items.len());
+    for item in items { results.push(format!("processed_{}", item)); }
     results
 }
 
-//==================================
-// Best for this case: Use iterators
-//==================================
-fn process_best(items: &[String]) -> Vec<String> {
-    items
-        .iter()
-        .map(|item| format!("processed_{}", item))
-        .collect()
+fn process_best(items: &[String]) -> Vec<String> {  // Best: iterators
+    items.iter().map(|item| format!("processed_{}", item)).collect()
 }
 ```
 
@@ -433,9 +417,7 @@ fn build_tree<'a>(arena: &'a Arena<Node<'a>>) -> &'a Node<'a> {
 fn example() {
     let arena = Arena::new();
     let tree = build_tree(&arena);
-
-    // All nodes allocated from arena
-    // Deallocated together when arena drops
+    // All nodes deallocated together when arena drops
 }
 ```
 
@@ -457,39 +439,24 @@ struct StringInterner {
 }
 
 impl StringInterner {
-    fn new() -> Self {
-        StringInterner {
-            strings: HashMap::new(),
-            reverse: Vec::new(),
-        }
-    }
+    fn new() -> Self { StringInterner { strings: HashMap::new(), reverse: Vec::new() } }
 
     fn intern(&mut self, s: &str) -> usize {
-        if let Some(&id) = self.strings.get(s) {
-            id
-        } else {
-            let id = self.reverse.len();
-            self.reverse.push(s.to_string());
-            self.strings.insert(s.to_string(), id);
-            id
-        }
+        if let Some(&id) = self.strings.get(s) { return id; }
+        let id = self.reverse.len();
+        self.reverse.push(s.to_string());
+        self.strings.insert(s.to_string(), id);
+        id
     }
 
-    fn get(&self, id: usize) -> &str {
-        &self.reverse[id]
-    }
+    fn get(&self, id: usize) -> &str { &self.reverse[id] }
 }
 
 fn example() {
     let mut interner = StringInterner::new();
-
-    // Same strings map to same ID
     let id1 = interner.intern("hello");
     let id2 = interner.intern("hello");
-
-    assert_eq!(id1, id2);  // No duplicate allocation
-
-    println!("{}", interner.get(id1));
+    assert_eq!(id1, id2);  // Same string = same ID, no duplicate allocation
 }
 ```
 
@@ -510,43 +477,18 @@ Use interning when you have many duplicate strings (like identifiers in a compil
 This example contrasts AoS versus SoA memory layouts. AoS loads entire particles even when accessing only positions, wasting cache bandwidth. SoA stores positions contiguously, enabling efficient prefetching and SIMD operations. Often 2-3x faster for bulk operations.
 
 ```rust
-// Array of Structs (AoS) - bad for cache
-struct ParticleAoS {
-    x: f32,
-    y: f32,
-    z: f32,
-    vx: f32,
-    vy: f32,
-    vz: f32,
-}
+struct ParticleAoS { x: f32, y: f32, z: f32, vx: f32, vy: f32, vz: f32 }  // AoS
 
 fn update_positions_aos(particles: &mut [ParticleAoS], dt: f32) {
-    for p in particles {
-        // Loads entire particle (24 bytes)
-        // But we only need x, y, z (12 bytes)
-        // Wastes cache bandwidth
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.z += p.vz * dt;
+    for p in particles {  // Loads 24B per particle, wastes cache bandwidth
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     }
 }
 
-//========================================
-// Struct of Arrays (SoA) - cache-friendly
-//========================================
-struct ParticlesSoA {
-    x: Vec<f32>,
-    y: Vec<f32>,
-    z: Vec<f32>,
-    vx: Vec<f32>,
-    vy: Vec<f32>,
-    vz: Vec<f32>,
-}
+struct ParticlesSoA { x: Vec<f32>, y: Vec<f32>, z: Vec<f32>, vx: Vec<f32>, vy: Vec<f32>, vz: Vec<f32> }  // SoA
 
 fn update_positions_soa(particles: &mut ParticlesSoA, dt: f32) {
-    for i in 0..particles.x.len() {
-        // Loads contiguous x, y, z values
-        // Much better cache usage
+    for i in 0..particles.x.len() {  // Contiguous access, cache-friendly
         particles.x[i] += particles.vx[i] * dt;
         particles.y[i] += particles.vy[i] * dt;
         particles.z[i] += particles.vz[i] * dt;
@@ -682,26 +624,16 @@ fn compare_hashmaps() {
     // But less secure (predictable hashes)
 }
 
-//==================
-// Pre-size HashMaps
-//==================
 fn presized_hashmap() {
     let items = vec![(1, "a"), (2, "b"), (3, "c")];
 
-    // Bad: Allocates multiple times as it grows
-    let mut map1 = HashMap::new();
-    for (k, v) in &items {
-        map1.insert(*k, *v);
-    }
+    let mut map1 = HashMap::new();  // Bad: grows multiple times
+    for (k, v) in &items { map1.insert(*k, *v); }
 
-    // Good: Allocates once
-    let mut map2 = HashMap::with_capacity(items.len());
-    for (k, v) in &items {
-        map2.insert(*k, *v);
-    }
+    let mut map2 = HashMap::with_capacity(items.len());  // Good: one allocation
+    for (k, v) in &items { map2.insert(*k, *v); }
 
-    // Better: Use FromIterator
-    let map3: HashMap<_, _> = items.iter().copied().collect();
+    let map3: HashMap<_, _> = items.iter().copied().collect();  // Best: FromIterator
 }
 ```
 
@@ -724,21 +656,13 @@ use std::time::Instant;
 
 fn with_unpredictable_branch(data: &[i32]) -> i32 {
     let mut sum = 0;
-    for &x in data {
-        // Unpredictable - depends on data
-        if x % 2 == 0 {
-            sum += x;
-        }
-    }
+    for &x in data { if x % 2 == 0 { sum += x; } }  // Unpredictable branches
     sum
 }
 
 fn without_branch(data: &[i32]) -> i32 {
     let mut sum = 0;
-    for &x in data {
-        // Branchless - uses arithmetic
-        sum += x * (x % 2 == 0) as i32;
-    }
+    for &x in data { sum += x * (x % 2 == 0) as i32; }  // Branchless arithmetic
     sum
 }
 
@@ -864,10 +788,7 @@ enum Message {
     ChangeColor(u8, u8, u8),
 }
 
-//==========================================
-// Less optimizable - many possible branches
-//==========================================
-fn process_message_bad(msg: &Message) -> String {
+fn process_message_bad(msg: &Message) -> String {  // Random order
     match msg {
         Message::Quit => "quit".to_string(),
         Message::Move { x, y } => format!("move {} {}", x, y),
@@ -876,12 +797,9 @@ fn process_message_bad(msg: &Message) -> String {
     }
 }
 
-//=====================================
-// More optimizable - common case first
-//=====================================
-fn process_message_good(msg: &Message) -> String {
+fn process_message_good(msg: &Message) -> String {  // Common case first
     match msg {
-        Message::Write(s) => s.clone(),  // Assume this is most common
+        Message::Write(s) => s.clone(),  // Most common first
         Message::Move { x, y } => format!("move {} {}", x, y),
         Message::ChangeColor(r, g, b) => format!("color {} {} {}", r, g, b),
         Message::Quit => "quit".to_string(),

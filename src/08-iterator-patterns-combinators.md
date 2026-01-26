@@ -602,7 +602,8 @@ fn sliding_window_sum(
     })
 }
 // Usage: compute rolling sums with window size 3
-let sums: Vec<_> = sliding_window_sum([1, 2, 3, 4, 5].into_iter(), 3).collect();
+let sums: Vec<_> =
+    sliding_window_sum([1, 2, 3, 4, 5].into_iter(), 3).collect();
 // sums = [6, 9, 12]  (1+2+3, 2+3+4, 3+4+5)
 ```
 
@@ -668,7 +669,8 @@ impl<I: Iterator> Iterator for RateLimited<I> {
 }
 // Usage: throttle API calls to one per second
 let api_calls = vec!["request1", "request2", "request3"];
-for call in RateLimited::new(api_calls.into_iter(), Duration::from_secs(1)) {
+let calls = api_calls.into_iter();
+for call in RateLimited::new(calls, Duration::from_secs(1)) {
     println!("Making: {}", call);
 }
 ```
@@ -702,10 +704,11 @@ fn process_in_batches<T, F>(
     }
 }
 // Usage: process database records in batches of 100
-process_in_batches((0..250).collect::<Vec<_>>().into_iter(), 100, |batch| {
+let items = (0..250).collect::<Vec<_>>().into_iter();
+process_in_batches(items, 100, |batch| {
     println!("Processing batch of {} items", batch.len());
 });
-// Output: "Processing batch of 100 items" (x2), then "Processing batch of 50 items"
+// Output: "Batch of 100 items" (x2), then "Batch of 50 items"
 ```
 
 ### Example: Streaming merge of sorted iterators
@@ -929,7 +932,8 @@ fn parallel_word_count(lines: &[String]) -> usize {
         .sum()
 }
 // Usage: count words across lines in parallel
-let count = parallel_word_count(&["hello world".into(), "foo".into()]); // 3
+let lines = &["hello world".into(), "foo".into()];
+let count = parallel_word_count(lines); // 3
 ```
 
 ### Example: Parallel partition
