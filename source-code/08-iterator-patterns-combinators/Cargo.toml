@@ -1,0 +1,161 @@
+[package]
+name = "iterator-patterns-combinators"
+version = "0.1.0"
+edition = "2021"
+description = "Examples for Chapter 8: Iterator Patterns & Combinators"
+
+[dependencies]
+rayon = "1.10"
+
+# Pattern 1: Custom Iterators and IntoIterator
+[[example]]
+name = "p1_counter"
+path = "examples/p1_counter.rs"
+
+[[example]]
+name = "p1_ring_buffer"
+path = "examples/p1_ring_buffer.rs"
+
+[[example]]
+name = "p1_fibonacci"
+path = "examples/p1_fibonacci.rs"
+
+# Pattern 2: Zero-Allocation Iteration
+[[example]]
+name = "p2_chaining"
+path = "examples/p2_chaining.rs"
+
+[[example]]
+name = "p2_windows"
+path = "examples/p2_windows.rs"
+
+[[example]]
+name = "p2_fold"
+path = "examples/p2_fold.rs"
+
+# Pattern 3: Advanced Iterator Composition
+[[example]]
+name = "p3_log_analysis"
+path = "examples/p3_log_analysis.rs"
+
+[[example]]
+name = "p3_chunking"
+path = "examples/p3_chunking.rs"
+
+[[example]]
+name = "p3_interleave"
+path = "examples/p3_interleave.rs"
+
+[[example]]
+name = "p3_cartesian_product"
+path = "examples/p3_cartesian_product.rs"
+
+[[example]]
+name = "p3_group_by"
+path = "examples/p3_group_by.rs"
+
+[[example]]
+name = "p3_scan"
+path = "examples/p3_scan.rs"
+
+[[example]]
+name = "p3_take_skip_while"
+path = "examples/p3_take_skip_while.rs"
+
+[[example]]
+name = "p3_peekable"
+path = "examples/p3_peekable.rs"
+
+# Pattern 4a: Streaming Algorithms
+[[example]]
+name = "p4a_file_processing"
+path = "examples/p4a_file_processing.rs"
+
+[[example]]
+name = "p4a_streaming_average"
+path = "examples/p4a_streaming_average.rs"
+
+[[example]]
+name = "p4a_top_k"
+path = "examples/p4a_top_k.rs"
+
+[[example]]
+name = "p4a_sliding_window"
+path = "examples/p4a_sliding_window.rs"
+
+[[example]]
+name = "p4a_deduplication"
+path = "examples/p4a_deduplication.rs"
+
+[[example]]
+name = "p4a_rate_limiting"
+path = "examples/p4a_rate_limiting.rs"
+
+[[example]]
+name = "p4a_batch_processing"
+path = "examples/p4a_batch_processing.rs"
+
+[[example]]
+name = "p4a_merge_sorted"
+path = "examples/p4a_merge_sorted.rs"
+
+[[example]]
+name = "p4a_csv_parsing"
+path = "examples/p4a_csv_parsing.rs"
+
+[[example]]
+name = "p4a_lazy_transformation"
+path = "examples/p4a_lazy_transformation.rs"
+
+# Pattern 4b: Parallel Iteration with Rayon
+[[example]]
+name = "p4b_parallel_basics"
+path = "examples/p4b_parallel_basics.rs"
+
+[[example]]
+name = "p4b_parallel_sort"
+path = "examples/p4b_parallel_sort.rs"
+
+[[example]]
+name = "p4b_parallel_chunks"
+path = "examples/p4b_parallel_chunks.rs"
+
+[[example]]
+name = "p4b_parallel_files"
+path = "examples/p4b_parallel_files.rs"
+
+[[example]]
+name = "p4b_parallel_find"
+path = "examples/p4b_parallel_find.rs"
+
+[[example]]
+name = "p4b_parallel_word_count"
+path = "examples/p4b_parallel_word_count.rs"
+
+[[example]]
+name = "p4b_parallel_partition"
+path = "examples/p4b_parallel_partition.rs"
+
+[[example]]
+name = "p4b_parallel_matrix"
+path = "examples/p4b_parallel_matrix.rs"
+
+[[example]]
+name = "p4b_parallel_bridge"
+path = "examples/p4b_parallel_bridge.rs"
+
+[[example]]
+name = "p4b_parallel_scope"
+path = "examples/p4b_parallel_scope.rs"
+
+[[example]]
+name = "p4b_parallel_map_reduce"
+path = "examples/p4b_parallel_map_reduce.rs"
+
+[[example]]
+name = "p4b_parallel_pipeline"
+path = "examples/p4b_parallel_pipeline.rs"
+
+[[example]]
+name = "p4b_parallel_join"
+path = "examples/p4b_parallel_join.rs"

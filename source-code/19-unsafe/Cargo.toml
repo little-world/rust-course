@@ -1,0 +1,80 @@
+[package]
+name = "unsafe-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "p1_raw_pointer_basics"
+path = "p1_raw_pointer_basics.rs"
+
+[[bin]]
+name = "p1_pointer_arithmetic"
+path = "p1_pointer_arithmetic.rs"
+
+[[bin]]
+name = "p1_raw_vec"
+path = "p1_raw_vec.rs"
+
+[[bin]]
+name = "p1_nonnull_list"
+path = "p1_nonnull_list.rs"
+
+[[bin]]
+name = "p2_c_functions"
+path = "p2_c_functions.rs"
+
+[[bin]]
+name = "p2_c_strings"
+path = "p2_c_strings.rs"
+
+[[bin]]
+name = "p2_c_structs"
+path = "p2_c_structs.rs"
+
+[[bin]]
+name = "p3_maybe_uninit_array"
+path = "p3_maybe_uninit_array.rs"
+
+[[bin]]
+name = "p3_partial_init"
+path = "p3_partial_init.rs"
+
+[[bin]]
+name = "p3_uninit_examples"
+path = "p3_uninit_examples.rs"
+
+[[bin]]
+name = "p4_transmute_basics"
+path = "p4_transmute_basics.rs"
+
+[[bin]]
+name = "p4_transmute_refs"
+path = "p4_transmute_refs.rs"
+
+[[bin]]
+name = "p4_slice_transmute"
+path = "p4_slice_transmute.rs"
+
+[[bin]]
+name = "p4_enum_discriminant"
+path = "p4_enum_discriminant.rs"
+
+[[bin]]
+name = "p4_type_punning"
+path = "p4_type_punning.rs"
+
+[[bin]]
+name = "p5_my_vec"
+path = "p5_my_vec.rs"
+
+[[bin]]
+name = "p5_non_empty_slice"
+path = "p5_non_empty_slice.rs"
+
+[[bin]]
+name = "p5_phantom_data"
+path = "p5_phantom_data.rs"
+
+[[bin]]
+name = "p5_spinlock"
+path = "p5_spinlock.rs"

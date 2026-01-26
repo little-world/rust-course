@@ -1,0 +1,111 @@
+[package]
+name = "network-programming"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+axum = { version = "0.6", features = ["ws"] }
+actix-web = "4"
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Pattern 1: TCP examples
+[[bin]]
+name = "p1_tcp_sync"
+path = "src/p1_tcp_sync.rs"
+
+[[bin]]
+name = "p1_tcp_threaded"
+path = "src/p1_tcp_threaded.rs"
+
+[[bin]]
+name = "p1_tcp_async"
+path = "src/p1_tcp_async.rs"
+
+[[bin]]
+name = "p1_line_protocol"
+path = "src/p1_line_protocol.rs"
+
+[[bin]]
+name = "p1_tcp_client"
+path = "src/p1_tcp_client.rs"
+
+[[bin]]
+name = "p1_connection_pool"
+path = "src/p1_connection_pool.rs"
+
+# Pattern 2: UDP examples
+[[bin]]
+name = "p2_udp_server"
+path = "src/p2_udp_server.rs"
+
+[[bin]]
+name = "p2_udp_client"
+path = "src/p2_udp_client.rs"
+
+[[bin]]
+name = "p2_udp_broadcast"
+path = "src/p2_udp_broadcast.rs"
+
+[[bin]]
+name = "p2_udp_reliable"
+path = "src/p2_udp_reliable.rs"
+
+# Pattern 3: HTTP Client examples
+[[bin]]
+name = "p3_http_basic"
+path = "src/p3_http_basic.rs"
+
+[[bin]]
+name = "p3_http_post"
+path = "src/p3_http_post.rs"
+
+[[bin]]
+name = "p3_http_headers"
+path = "src/p3_http_headers.rs"
+
+[[bin]]
+name = "p3_http_retry"
+path = "src/p3_http_retry.rs"
+
+[[bin]]
+name = "p3_http_download"
+path = "src/p3_http_download.rs"
+
+# Pattern 4: HTTP Server examples
+[[bin]]
+name = "p4_axum_basic"
+path = "src/p4_axum_basic.rs"
+
+[[bin]]
+name = "p4_axum_state"
+path = "src/p4_axum_state.rs"
+
+[[bin]]
+name = "p4_axum_middleware"
+path = "src/p4_axum_middleware.rs"
+
+[[bin]]
+name = "p4_actix"
+path = "src/p4_actix.rs"
+
+# Pattern 5: WebSocket examples
+[[bin]]
+name = "p5_websocket_broadcast"
+path = "src/p5_websocket_broadcast.rs"
+
+[[bin]]
+name = "p5_websocket_client"
+path = "src/p5_websocket_client.rs"
+
+[[bin]]
+name = "p5_websocket_rooms"
+path = "src/p5_websocket_rooms.rs"
+
+[[bin]]
+name = "p5_websocket_keepalive"
+path = "src/p5_websocket_keepalive.rs"

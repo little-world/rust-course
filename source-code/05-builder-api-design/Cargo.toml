@@ -1,0 +1,34 @@
+[package]
+name = "builder-api-design"
+version = "0.1.0"
+edition = "2021"
+description = "Examples for Chapter 5: Builder & API Design Patterns"
+
+[dependencies]
+
+# Pattern 1: Builder Pattern Variations
+[[example]]
+name = "p1_consuming_builder"
+path = "examples/p1_consuming_builder.rs"
+
+[[example]]
+name = "p1_runtime_validation"
+path = "examples/p1_runtime_validation.rs"
+
+[[example]]
+name = "p1_mutable_builder"
+path = "examples/p1_mutable_builder.rs"
+
+# Pattern 2: Typestate Pattern
+[[example]]
+name = "p2_typestate_connection"
+path = "examples/p2_typestate_connection.rs"
+
+[[example]]
+name = "p2_typestate_builder"
+path = "examples/p2_typestate_builder.rs"
+
+# Pattern 3: #[must_use] Attribute
+[[example]]
+name = "p3_must_use"
+path = "examples/p3_must_use.rs"

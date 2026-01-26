@@ -1,0 +1,27 @@
+[package]
+name = "declarative-macros"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+paste = "1.0"
+
+[[bin]]
+name = "p1_macro_patterns"
+path = "p1_macro_patterns.rs"
+
+[[bin]]
+name = "p2_hygiene"
+path = "p2_hygiene.rs"
+
+[[bin]]
+name = "p3_dsl"
+path = "p3_dsl.rs"
+
+[[bin]]
+name = "p4_code_generation"
+path = "p4_code_generation.rs"
+
+[[bin]]
+name = "p5_debugging"
+path = "p5_debugging.rs"

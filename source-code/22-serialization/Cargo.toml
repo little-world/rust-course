@@ -1,0 +1,49 @@
+[package]
+name = "serialization-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+rmp-serde = "1.1"
+serde_cbor = "0.11"
+serde_yaml = "0.9"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+serde_bytes = "0.11"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+[[bin]]
+name = "p1_serde_basics"
+path = "p1_serde_basics.rs"
+
+[[bin]]
+name = "p1_field_attributes"
+path = "p1_field_attributes.rs"
+
+[[bin]]
+name = "p1_container_attributes"
+path = "p1_container_attributes.rs"
+
+[[bin]]
+name = "p1_custom_serialization"
+path = "p1_custom_serialization.rs"
+
+[[bin]]
+name = "p2_zero_copy"
+path = "p2_zero_copy.rs"
+
+[[bin]]
+name = "p3_schema_evolution"
+path = "p3_schema_evolution.rs"
+
+[[bin]]
+name = "p4_format_comparison"
+path = "p4_format_comparison.rs"
+
+[[bin]]
+name = "p5_streaming"
+path = "p5_streaming.rs"

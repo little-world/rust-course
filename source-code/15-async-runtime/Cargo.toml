@@ -1,0 +1,249 @@
+[package]
+name = "async-runtime-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
+futures = "0.3"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+notify = "6.0"
+rayon = "1.10"
+async-std = { version = "1.12", features = ["attributes"], optional = true }
+
+[features]
+default = ["tokio-runtime"]
+tokio-runtime = []
+async-std-runtime = ["async-std"]
+
+[[example]]
+name = "p1_basic_map"
+path = "examples/p1_basic_map.rs"
+
+[[example]]
+name = "p1_chaining"
+path = "examples/p1_chaining.rs"
+
+[[example]]
+name = "p1_error_conversion"
+path = "examples/p1_error_conversion.rs"
+
+[[example]]
+name = "p1_retry"
+path = "examples/p1_retry.rs"
+
+[[example]]
+name = "p1_join"
+path = "examples/p1_join.rs"
+
+[[example]]
+name = "p1_try_join"
+path = "examples/p1_try_join.rs"
+
+[[example]]
+name = "p1_select"
+path = "examples/p1_select.rs"
+
+[[example]]
+name = "p1_futures_unordered"
+path = "examples/p1_futures_unordered.rs"
+
+[[example]]
+name = "p1_parallel_http"
+path = "examples/p1_parallel_http.rs"
+
+[[example]]
+name = "p1_timeout_wrapper"
+path = "examples/p1_timeout_wrapper.rs"
+
+[[example]]
+name = "p1_cancellation_safe"
+path = "examples/p1_cancellation_safe.rs"
+
+[[example]]
+name = "p2_creating_streams"
+path = "examples/p2_creating_streams.rs"
+
+[[example]]
+name = "p2_map_filter"
+path = "examples/p2_map_filter.rs"
+
+[[example]]
+name = "p2_then"
+path = "examples/p2_then.rs"
+
+[[example]]
+name = "p2_fold"
+path = "examples/p2_fold.rs"
+
+[[example]]
+name = "p2_take_skip"
+path = "examples/p2_take_skip.rs"
+
+[[example]]
+name = "p2_rate_limiting"
+path = "examples/p2_rate_limiting.rs"
+
+[[example]]
+name = "p2_batch"
+path = "examples/p2_batch.rs"
+
+[[example]]
+name = "p2_merge"
+path = "examples/p2_merge.rs"
+
+[[example]]
+name = "p2_custom_stream"
+path = "examples/p2_custom_stream.rs"
+
+[[example]]
+name = "p2_channel_generator"
+path = "examples/p2_channel_generator.rs"
+
+[[example]]
+name = "p2_websocket_stream"
+path = "examples/p2_websocket_stream.rs"
+
+[[example]]
+name = "p2_db_stream"
+path = "examples/p2_db_stream.rs"
+
+[[example]]
+name = "p2_interval_stream"
+path = "examples/p2_interval_stream.rs"
+
+[[example]]
+name = "p3_basic_spawn"
+path = "examples/p3_basic_spawn.rs"
+
+[[example]]
+name = "p3_joinset"
+path = "examples/p3_joinset.rs"
+
+[[example]]
+name = "p3_scoped_tasks"
+path = "examples/p3_scoped_tasks.rs"
+
+[[example]]
+name = "p3_cancellation"
+path = "examples/p3_cancellation.rs"
+
+[[example]]
+name = "p3_worker_pool"
+path = "examples/p3_worker_pool.rs"
+
+[[example]]
+name = "p3_supervisor"
+path = "examples/p3_supervisor.rs"
+
+[[example]]
+name = "p3_graceful_shutdown"
+path = "examples/p3_graceful_shutdown.rs"
+
+[[example]]
+name = "p3_result_propagation"
+path = "examples/p3_result_propagation.rs"
+
+[[example]]
+name = "p3_retry_backoff"
+path = "examples/p3_retry_backoff.rs"
+
+[[example]]
+name = "p3_circuit_breaker"
+path = "examples/p3_circuit_breaker.rs"
+
+[[example]]
+name = "p3_fallback_bulkhead"
+path = "examples/p3_fallback_bulkhead.rs"
+
+[[example]]
+name = "p4_select_channels"
+path = "examples/p4_select_channels.rs"
+
+[[example]]
+name = "p4_select_loop"
+path = "examples/p4_select_loop.rs"
+
+[[example]]
+name = "p4_biased_select"
+path = "examples/p4_biased_select.rs"
+
+[[example]]
+name = "p4_request_cancel"
+path = "examples/p4_request_cancel.rs"
+
+[[example]]
+name = "p4_server_shutdown"
+path = "examples/p4_server_shutdown.rs"
+
+[[example]]
+name = "p4_select_default"
+path = "examples/p4_select_default.rs"
+
+[[example]]
+name = "p4_basic_timeout"
+path = "examples/p4_basic_timeout.rs"
+
+[[example]]
+name = "p4_timeout_retry"
+path = "examples/p4_timeout_retry.rs"
+
+[[example]]
+name = "p4_deadline"
+path = "examples/p4_deadline.rs"
+
+[[example]]
+name = "p4_timeout_all"
+path = "examples/p4_timeout_all.rs"
+
+[[example]]
+name = "p4_rate_limiter"
+path = "examples/p4_rate_limiter.rs"
+
+[[example]]
+name = "p4_health_check"
+path = "examples/p4_health_check.rs"
+
+[[example]]
+name = "p4_graceful_timeout"
+path = "examples/p4_graceful_timeout.rs"
+
+[[example]]
+name = "p5_multi_threaded"
+path = "examples/p5_multi_threaded.rs"
+
+[[example]]
+name = "p5_single_threaded"
+path = "examples/p5_single_threaded.rs"
+
+[[example]]
+name = "p5_custom_runtime"
+path = "examples/p5_custom_runtime.rs"
+
+[[example]]
+name = "p5_blocking"
+path = "examples/p5_blocking.rs"
+
+[[example]]
+name = "p5_local_set"
+path = "examples/p5_local_set.rs"
+
+[[example]]
+name = "p5_rayon"
+path = "examples/p5_rayon.rs"
+
+[[example]]
+name = "p5_mixed"
+path = "examples/p5_mixed.rs"
+
+[[example]]
+name = "p5_runtime_agnostic"
+path = "examples/p5_runtime_agnostic.rs"
+
+[[example]]
+name = "p5_futures_interop"
+path = "examples/p5_futures_interop.rs"

@@ -1,0 +1,76 @@
+[package]
+name = "threading-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.8"
+crossbeam = "0.8"
+
+[[example]]
+name = "p1_spawn_join"
+path = "examples/p1_spawn_join.rs"
+
+[[example]]
+name = "p1_parallel_computations"
+path = "examples/p1_parallel_computations.rs"
+
+[[example]]
+name = "p1_error_handling"
+path = "examples/p1_error_handling.rs"
+
+[[example]]
+name = "p1_named_threads"
+path = "examples/p1_named_threads.rs"
+
+[[example]]
+name = "p1_file_processing"
+path = "examples/p1_file_processing.rs"
+
+[[example]]
+name = "p1_scoped_threads"
+path = "examples/p1_scoped_threads.rs"
+
+[[example]]
+name = "p2_rayon_basics"
+path = "examples/p2_rayon_basics.rs"
+
+[[example]]
+name = "p2_parallel_sort"
+path = "examples/p2_parallel_sort.rs"
+
+[[example]]
+name = "p2_image_processing"
+path = "examples/p2_image_processing.rs"
+
+[[example]]
+name = "p3_mpsc_channel"
+path = "examples/p3_mpsc_channel.rs"
+
+[[example]]
+name = "p3_multiple_producers"
+path = "examples/p3_multiple_producers.rs"
+
+[[example]]
+name = "p3_bounded_channel"
+path = "examples/p3_bounded_channel.rs"
+
+[[example]]
+name = "p3_actor_pattern"
+path = "examples/p3_actor_pattern.rs"
+
+[[example]]
+name = "p4_shared_counter"
+path = "examples/p4_shared_counter.rs"
+
+[[example]]
+name = "p4_rwlock"
+path = "examples/p4_rwlock.rs"
+
+[[example]]
+name = "p5_barrier"
+path = "examples/p5_barrier.rs"
+
+[[example]]
+name = "p5_condvar_queue"
+path = "examples/p5_condvar_queue.rs"

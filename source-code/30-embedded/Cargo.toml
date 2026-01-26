@@ -1,0 +1,32 @@
+[package]
+name = "embedded-patterns"
+version = "0.1.0"
+edition = "2021"
+
+# Note: This crate demonstrates embedded patterns using desktop-compatible
+# implementations. For actual embedded targets, you would use:
+# - stm32f4xx-hal, cortex-m, cortex-m-rt for STM32
+# - embassy-stm32, embassy-executor for Embassy
+# - rtic for RTIC framework
+
+[dependencies]
+heapless = "0.8"
+critical-section = { version = "1.1", features = ["std"] }
+
+[dev-dependencies]
+
+[[bin]]
+name = "p1_hal_drivers"
+path = "src/p1_hal_drivers.rs"
+
+[[bin]]
+name = "p2_static_allocation"
+path = "src/p2_static_allocation.rs"
+
+[[bin]]
+name = "p3_interrupt_safe"
+path = "src/p3_interrupt_safe.rs"
+
+[[bin]]
+name = "p4_scheduling"
+path = "src/p4_scheduling.rs"

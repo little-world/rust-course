@@ -1,0 +1,55 @@
+[package]
+name = "advanced-collections"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossbeam = "0.8"
+
+[[example]]
+name = "p1_task_queue"
+path = "examples/p1_task_queue.rs"
+
+[[example]]
+name = "p1_ring_buffer"
+path = "examples/p1_ring_buffer.rs"
+
+[[example]]
+name = "p1_sliding_window_max"
+path = "examples/p1_sliding_window_max.rs"
+
+[[example]]
+name = "p2_task_scheduler"
+path = "examples/p2_task_scheduler.rs"
+
+[[example]]
+name = "p2_kway_merge"
+path = "examples/p2_kway_merge.rs"
+
+[[example]]
+name = "p2_topk"
+path = "examples/p2_topk.rs"
+
+[[example]]
+name = "p3_weighted_graph"
+path = "examples/p3_weighted_graph.rs"
+
+[[example]]
+name = "p3_topological_sort"
+path = "examples/p3_topological_sort.rs"
+
+[[example]]
+name = "p4_trie"
+path = "examples/p4_trie.rs"
+
+[[example]]
+name = "p4_radix_tree"
+path = "examples/p4_radix_tree.rs"
+
+[[example]]
+name = "p5_lockfree_stack"
+path = "examples/p5_lockfree_stack.rs"
+
+[[example]]
+name = "p5_crossbeam_queue"
+path = "examples/p5_crossbeam_queue.rs"

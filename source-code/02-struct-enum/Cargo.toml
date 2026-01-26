@@ -1,0 +1,60 @@
+[package]
+name = "struct-enum-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# Pattern 1: Struct Design Patterns
+[[example]]
+name = "p1_named_struct"
+path = "examples/p1_named_struct.rs"
+
+[[example]]
+name = "p1_tuple_struct"
+path = "examples/p1_tuple_struct.rs"
+
+[[example]]
+name = "p1_unit_struct"
+path = "examples/p1_unit_struct.rs"
+
+# Pattern 2: Newtype and Wrapper Patterns
+[[example]]
+name = "p2_newtype"
+path = "examples/p2_newtype.rs"
+
+[[example]]
+name = "p2_deref_wrapper"
+path = "examples/p2_deref_wrapper.rs"
+
+# Pattern 3: Struct Memory and Update Patterns
+[[example]]
+name = "p3_struct_update"
+path = "examples/p3_struct_update.rs"
+
+[[example]]
+name = "p3_partial_moves"
+path = "examples/p3_partial_moves.rs"
+
+# Pattern 4: Enum Design Patterns
+[[example]]
+name = "p4_http_response"
+path = "examples/p4_http_response.rs"
+
+[[example]]
+name = "p4_state_machine"
+path = "examples/p4_state_machine.rs"
+
+# Pattern 5: Advanced Enum Techniques
+[[example]]
+name = "p5_recursive_enum"
+path = "examples/p5_recursive_enum.rs"
+
+[[example]]
+name = "p5_efficient_enum"
+path = "examples/p5_efficient_enum.rs"
+
+# Pattern 6: Visitor Pattern
+[[example]]
+name = "p6_visitor"
+path = "examples/p6_visitor.rs"

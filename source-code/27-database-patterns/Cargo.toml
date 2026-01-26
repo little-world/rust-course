@@ -1,0 +1,102 @@
+[package]
+name = "database-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Connection pooling (async)
+deadpool-postgres = "0.12"
+tokio-postgres = "0.7"
+deadpool = { version = "0.10", features = ["managed"] }
+
+# SQLx with compile-time checking (no native deps needed for build)
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "chrono"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures = "0.3"
+
+# r2d2 for sync pooling demos (no postgres, just the pool logic)
+r2d2 = "0.8"
+postgres = "0.19"
+r2d2_postgres = "0.18"
+
+# Diesel is optional - requires libpq installed
+# Uncomment if you have PostgreSQL client libraries installed:
+# diesel = { version = "2.1", features = ["postgres", "chrono", "r2d2"] }
+
+[[bin]]
+name = "p1_r2d2_pool"
+path = "src/p1_r2d2_pool.rs"
+
+[[bin]]
+name = "p1_pool_tuning"
+path = "src/p1_pool_tuning.rs"
+
+[[bin]]
+name = "p1_deadpool_async"
+path = "src/p1_deadpool_async.rs"
+
+[[bin]]
+name = "p1_pool_health"
+path = "src/p1_pool_health.rs"
+
+[[bin]]
+name = "p2_sqlx_queries"
+path = "src/p2_sqlx_queries.rs"
+
+[[bin]]
+name = "p2_sqlx_dynamic"
+path = "src/p2_sqlx_dynamic.rs"
+
+# Diesel examples - require libpq
+# [[bin]]
+# name = "p2_diesel_orm"
+# path = "src/p2_diesel_orm.rs"
+
+# [[bin]]
+# name = "p2_diesel_r2d2"
+# path = "src/p2_diesel_r2d2.rs"
+
+[[bin]]
+name = "p3_transactions"
+path = "src/p3_transactions.rs"
+
+[[bin]]
+name = "p3_savepoints"
+path = "src/p3_savepoints.rs"
+
+[[bin]]
+name = "p3_isolation"
+path = "src/p3_isolation.rs"
+
+# Diesel example - requires libpq
+# [[bin]]
+# name = "p3_diesel_tx"
+# path = "src/p3_diesel_tx.rs"
+
+[[bin]]
+name = "p3_optimistic_lock"
+path = "src/p3_optimistic_lock.rs"
+
+[[bin]]
+name = "p4_sqlx_migrations"
+path = "src/p4_sqlx_migrations.rs"
+
+[[bin]]
+name = "p4_data_migration"
+path = "src/p4_data_migration.rs"
+
+# Hybrid example - requires libpq for Diesel portion
+# [[bin]]
+# name = "p5_hybrid_approach"
+# path = "src/p5_hybrid_approach.rs"
+
+[[bin]]
+name = "p5_complete_app"
+path = "src/p5_complete_app.rs"

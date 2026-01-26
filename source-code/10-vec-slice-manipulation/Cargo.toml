@@ -1,0 +1,111 @@
+[package]
+name = "vec-slice-manipulation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.10"
+
+[dev-dependencies]
+
+# Pattern 1: Capacity Management
+[[example]]
+name = "p1_preallocate"
+path = "examples/p1_preallocate.rs"
+
+[[example]]
+name = "p1_reserve"
+path = "examples/p1_reserve.rs"
+
+[[example]]
+name = "p1_reuse_buffer"
+path = "examples/p1_reuse_buffer.rs"
+
+[[example]]
+name = "p1_growable_buffer"
+path = "examples/p1_growable_buffer.rs"
+
+[[example]]
+name = "p1_shrink_to_fit"
+path = "examples/p1_shrink_to_fit.rs"
+
+[[example]]
+name = "p1_size_hints"
+path = "examples/p1_size_hints.rs"
+
+# Pattern 2: Slice Algorithms
+[[example]]
+name = "p2_binary_search"
+path = "examples/p2_binary_search.rs"
+
+[[example]]
+name = "p2_partition_point"
+path = "examples/p2_partition_point.rs"
+
+[[example]]
+name = "p2_sorting"
+path = "examples/p2_sorting.rs"
+
+[[example]]
+name = "p2_select_nth"
+path = "examples/p2_select_nth.rs"
+
+[[example]]
+name = "p2_slice_ops"
+path = "examples/p2_slice_ops.rs"
+
+# Pattern 3: Chunking and Windowing
+[[example]]
+name = "p3_chunks"
+path = "examples/p3_chunks.rs"
+
+[[example]]
+name = "p3_windows"
+path = "examples/p3_windows.rs"
+
+[[example]]
+name = "p3_parallel_chunks"
+path = "examples/p3_parallel_chunks.rs"
+
+# Pattern 4: Zero-Copy Slicing
+[[example]]
+name = "p4_zero_copy_parsing"
+path = "examples/p4_zero_copy_parsing.rs"
+
+[[example]]
+name = "p4_cow"
+path = "examples/p4_cow.rs"
+
+[[example]]
+name = "p4_http_parser"
+path = "examples/p4_http_parser.rs"
+
+# Pattern 5: SIMD Operations
+[[example]]
+name = "p5_simd_friendly"
+path = "examples/p5_simd_friendly.rs"
+
+[[example]]
+name = "p5_auto_vectorize"
+path = "examples/p5_auto_vectorize.rs"
+
+[[example]]
+name = "p5_image_processing"
+path = "examples/p5_image_processing.rs"
+
+# Pattern 6: Advanced Slice Patterns
+[[example]]
+name = "p6_compact_vector"
+path = "examples/p6_compact_vector.rs"
+
+[[example]]
+name = "p6_sliding_window_max"
+path = "examples/p6_sliding_window_max.rs"
+
+[[example]]
+name = "p6_circular_buffer"
+path = "examples/p6_circular_buffer.rs"
+
+[[example]]
+name = "p6_partitioning"
+path = "examples/p6_partitioning.rs"

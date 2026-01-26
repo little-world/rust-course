@@ -1,0 +1,24 @@
+[package]
+name = "design-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.8"
+tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "p1_creational"
+path = "src/p1_creational.rs"
+
+[[bin]]
+name = "p2_structural"
+path = "src/p2_structural.rs"
+
+[[bin]]
+name = "p3_behavioral"
+path = "src/p3_behavioral.rs"
+
+[[bin]]
+name = "p4_concurrency"
+path = "src/p4_concurrency.rs"

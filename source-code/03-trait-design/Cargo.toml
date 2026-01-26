@@ -1,0 +1,99 @@
+[package]
+name = "trait-design-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# Pattern 1: Trait Inheritance and Bounds
+[[example]]
+name = "p1_supertraits"
+path = "examples/p1_supertraits.rs"
+
+[[example]]
+name = "p1_multiple_supertraits"
+path = "examples/p1_multiple_supertraits.rs"
+
+[[example]]
+name = "p1_trait_bounds"
+path = "examples/p1_trait_bounds.rs"
+
+[[example]]
+name = "p1_conditional_impl"
+path = "examples/p1_conditional_impl.rs"
+
+[[example]]
+name = "p1_bound_patterns"
+path = "examples/p1_bound_patterns.rs"
+
+# Pattern 2: Associated Types vs Generics
+[[example]]
+name = "p2_generic_parser"
+path = "examples/p2_generic_parser.rs"
+
+[[example]]
+name = "p2_associated_parser"
+path = "examples/p2_associated_parser.rs"
+
+[[example]]
+name = "p2_ergonomics"
+path = "examples/p2_ergonomics.rs"
+
+[[example]]
+name = "p2_combining"
+path = "examples/p2_combining.rs"
+
+[[example]]
+name = "p2_associated_bounds"
+path = "examples/p2_associated_bounds.rs"
+
+# Pattern 3: Trait Objects and Dynamic Dispatch
+[[example]]
+name = "p3_static_dispatch"
+path = "examples/p3_static_dispatch.rs"
+
+[[example]]
+name = "p3_dynamic_dispatch"
+path = "examples/p3_dynamic_dispatch.rs"
+
+[[example]]
+name = "p3_heterogeneous"
+path = "examples/p3_heterogeneous.rs"
+
+[[example]]
+name = "p3_downcasting"
+path = "examples/p3_downcasting.rs"
+
+[[example]]
+name = "p3_lifetime_bounds"
+path = "examples/p3_lifetime_bounds.rs"
+
+# Pattern 4: Extension Traits
+[[example]]
+name = "p4_basic_extension"
+path = "examples/p4_basic_extension.rs"
+
+[[example]]
+name = "p4_iterator_extension"
+path = "examples/p4_iterator_extension.rs"
+
+[[example]]
+name = "p4_result_extension"
+path = "examples/p4_result_extension.rs"
+
+[[example]]
+name = "p4_string_extension"
+path = "examples/p4_string_extension.rs"
+
+[[example]]
+name = "p4_conditional_extension"
+path = "examples/p4_conditional_extension.rs"
+
+# Pattern 5: Sealed Traits and Dependency Injection
+[[example]]
+name = "p5_sealed_trait"
+path = "examples/p5_sealed_trait.rs"
+
+[[example]]
+name = "p5_dependency_injection"
+path = "examples/p5_dependency_injection.rs"

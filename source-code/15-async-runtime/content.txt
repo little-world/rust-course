@@ -1,0 +1,6 @@
+
+- Pattern 1 (11 examples): Future composition - map, chaining, error           conversion, retry, join, try_join, select, FuturesUnordered, parallel HTTP,    timeout wrapper, cancellation-safe write
+- Pattern 2 (13 examples): Stream processing - creating streams, map/filter then, fold, take/skip, rate limiting, batch, merge, custom stream, channel generator, websocket stream, db stream, interval stream
+- Pattern 3 (11 examples): Async/await patterns - basic spawn, JoinSet, scoped tasks, cancellation, worker pool, supervisor, graceful shutdown, result propagation, retry backoff, circuit breaker, fallback/bulkhead
+- Pattern 4 (13 examples): Select/timeout - select channels, select loop,      biased select, request cancel, server shutdown, select default, basic timeout, timeout retry, deadline, timeout all, rate limiter, health check, graceful timeout
+- Pattern 5 (9 examples): Runtime comparison - multi-threaded, single-threaded, custom runtime, blocking, local set, rayon, mixed workload, runtime-agnostic, futures interop

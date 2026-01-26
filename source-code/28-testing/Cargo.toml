@@ -1,0 +1,66 @@
+[package]
+name = "testing-benchmarking"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+proptest = "1.0"
+quickcheck = "1.0"
+quickcheck_macros = "1.0"
+mockall = "0.12"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bin]]
+name = "p1_unit_tests"
+path = "src/p1_unit_tests.rs"
+
+[[bin]]
+name = "p2_proptest_basics"
+path = "src/p2_proptest_basics.rs"
+
+[[bin]]
+name = "p2_quickcheck"
+path = "src/p2_quickcheck.rs"
+
+[[bin]]
+name = "p6_trait_mocking"
+path = "src/p6_trait_mocking.rs"
+
+[[bin]]
+name = "p6_dependency_injection"
+path = "src/p6_dependency_injection.rs"
+
+[[bin]]
+name = "p6_test_doubles"
+path = "src/p6_test_doubles.rs"
+
+[[bin]]
+name = "p3_fuzzing_demo"
+path = "src/p3_fuzzing_demo.rs"
+
+[[bin]]
+name = "p4_mutation_testing"
+path = "src/p4_mutation_testing.rs"
+
+[[bin]]
+name = "p5_formal_verification"
+path = "src/p5_formal_verification.rs"
+
+[[bench]]
+name = "criterion_basic"
+harness = false
+
+[[bench]]
+name = "criterion_compare"
+harness = false
+
+[[bench]]
+name = "criterion_parameterized"
+harness = false
+
+[[bench]]
+name = "criterion_throughput"
+harness = false

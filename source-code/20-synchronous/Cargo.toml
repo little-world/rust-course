@@ -1,0 +1,52 @@
+[package]
+name = "synchronous-io"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "p1_file_reading"
+path = "p1_file_reading.rs"
+
+[[bin]]
+name = "p1_file_writing"
+path = "p1_file_writing.rs"
+
+[[bin]]
+name = "p1_open_options"
+path = "p1_open_options.rs"
+
+[[bin]]
+name = "p2_buffered_reading"
+path = "p2_buffered_reading.rs"
+
+[[bin]]
+name = "p2_buffered_writing"
+path = "p2_buffered_writing.rs"
+
+[[bin]]
+name = "p3_standard_streams"
+path = "p3_standard_streams.rs"
+
+[[bin]]
+name = "p5_directory_ops"
+path = "p5_directory_ops.rs"
+
+[[bin]]
+name = "p5_directory_listing"
+path = "p5_directory_listing.rs"
+
+[[bin]]
+name = "p5_recursive_walk"
+path = "p5_recursive_walk.rs"
+
+[[bin]]
+name = "p6_process_basic"
+path = "p6_process_basic.rs"
+
+[[bin]]
+name = "p6_process_streaming"
+path = "p6_process_streaming.rs"
+
+[[bin]]
+name = "p6_process_piping"
+path = "p6_process_piping.rs"

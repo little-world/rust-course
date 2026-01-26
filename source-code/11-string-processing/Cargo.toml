@@ -1,0 +1,67 @@
+[package]
+name = "string-processing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+unicode-segmentation = "1.10"
+
+[[example]]
+name = "p1_string_types"
+path = "examples/p1_string_types.rs"
+
+[[example]]
+name = "p2_string_builder"
+path = "examples/p2_string_builder.rs"
+
+[[example]]
+name = "p2_html_builder"
+path = "examples/p2_html_builder.rs"
+
+[[example]]
+name = "p3_zero_copy_parsing"
+path = "examples/p3_zero_copy_parsing.rs"
+
+[[example]]
+name = "p4_cow_whitespace"
+path = "examples/p4_cow_whitespace.rs"
+
+[[example]]
+name = "p4_cow_html_escape"
+path = "examples/p4_cow_html_escape.rs"
+
+[[example]]
+name = "p5_utf8_validation"
+path = "examples/p5_utf8_validation.rs"
+
+[[example]]
+name = "p6_grapheme_iteration"
+path = "examples/p6_grapheme_iteration.rs"
+
+[[example]]
+name = "p7_lexer"
+path = "examples/p7_lexer.rs"
+
+[[example]]
+name = "p8_url_parser"
+path = "examples/p8_url_parser.rs"
+
+[[example]]
+name = "p9_gap_buffer"
+path = "examples/p9_gap_buffer.rs"
+
+[[example]]
+name = "p9_rope"
+path = "examples/p9_rope.rs"
+
+[[example]]
+name = "p10_kmp_search"
+path = "examples/p10_kmp_search.rs"
+
+[[example]]
+name = "p11_boyer_moore"
+path = "examples/p11_boyer_moore.rs"
+
+[[example]]
+name = "p12_string_interning"
+path = "examples/p12_string_interning.rs"

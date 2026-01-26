@@ -1,0 +1,156 @@
+[package]
+name = "error-handling-architecture"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+itertools = "0.12"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Pattern 1: Custom Error Enums for Libraries
+[[example]]
+name = "p1_parse_error"
+path = "examples/p1_parse_error.rs"
+
+[[example]]
+name = "p1_non_exhaustive"
+path = "examples/p1_non_exhaustive.rs"
+
+# Pattern 2: Structured Errors and Builders
+[[example]]
+name = "p2_http_error"
+path = "examples/p2_http_error.rs"
+
+[[example]]
+name = "p2_error_builder"
+path = "examples/p2_error_builder.rs"
+
+# Pattern 3: Error Propagation Strategies
+[[example]]
+name = "p3_basic_propagation"
+path = "examples/p3_basic_propagation.rs"
+
+[[example]]
+name = "p3_error_conversion"
+path = "examples/p3_error_conversion.rs"
+
+[[example]]
+name = "p3_map_err"
+path = "examples/p3_map_err.rs"
+
+[[example]]
+name = "p3_fallible_iterator"
+path = "examples/p3_fallible_iterator.rs"
+
+[[example]]
+name = "p3_lenient_parsing"
+path = "examples/p3_lenient_parsing.rs"
+
+[[example]]
+name = "p3_anyhow_context"
+path = "examples/p3_anyhow_context.rs"
+
+[[example]]
+name = "p3_recover_specific"
+path = "examples/p3_recover_specific.rs"
+
+[[example]]
+name = "p3_retry_logic"
+path = "examples/p3_retry_logic.rs"
+
+[[example]]
+name = "p3_context_accumulation"
+path = "examples/p3_context_accumulation.rs"
+
+[[example]]
+name = "p3_partition_results"
+path = "examples/p3_partition_results.rs"
+
+# Pattern 4: Custom Error Types with Context
+[[example]]
+name = "p4_location_tracking"
+path = "examples/p4_location_tracking.rs"
+
+[[example]]
+name = "p4_stack_trace"
+path = "examples/p4_stack_trace.rs"
+
+[[example]]
+name = "p4_query_error"
+path = "examples/p4_query_error.rs"
+
+[[example]]
+name = "p4_error_context"
+path = "examples/p4_error_context.rs"
+
+[[example]]
+name = "p4_config_suggestions"
+path = "examples/p4_config_suggestions.rs"
+
+[[example]]
+name = "p4_multi_error"
+path = "examples/p4_multi_error.rs"
+
+# Pattern 5: Recoverable vs Unrecoverable Errors
+[[example]]
+name = "p5_panic_vs_result"
+path = "examples/p5_panic_vs_result.rs"
+
+[[example]]
+name = "p5_expect_informative"
+path = "examples/p5_expect_informative.rs"
+
+[[example]]
+name = "p5_debug_assertions"
+path = "examples/p5_debug_assertions.rs"
+
+[[example]]
+name = "p5_graceful_degradation"
+path = "examples/p5_graceful_degradation.rs"
+
+[[example]]
+name = "p5_mutex_recovery"
+path = "examples/p5_mutex_recovery.rs"
+
+[[example]]
+name = "p5_catch_unwind"
+path = "examples/p5_catch_unwind.rs"
+
+# Pattern 6: Error Handling in Async Contexts
+[[example]]
+name = "p6_async_propagation"
+path = "examples/p6_async_propagation.rs"
+
+[[example]]
+name = "p6_timeout"
+path = "examples/p6_timeout.rs"
+
+[[example]]
+name = "p6_try_join"
+path = "examples/p6_try_join.rs"
+
+[[example]]
+name = "p6_select_race"
+path = "examples/p6_select_race.rs"
+
+[[example]]
+name = "p6_stream_recovery"
+path = "examples/p6_stream_recovery.rs"
+
+[[example]]
+name = "p6_retry_backoff"
+path = "examples/p6_retry_backoff.rs"
+
+[[example]]
+name = "p6_circuit_breaker"
+path = "examples/p6_circuit_breaker.rs"
+
+# Pattern 7: Anti-patterns
+[[example]]
+name = "p7_anti_patterns"
+path = "examples/p7_anti_patterns.rs"

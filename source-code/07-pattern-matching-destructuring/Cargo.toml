@@ -1,0 +1,59 @@
+[package]
+name = "pattern-matching-destructuring"
+version = "0.1.0"
+edition = "2024"
+description = "Examples for Chapter 7: Pattern Matching & Destructuring"
+
+[dependencies]
+
+# Pattern 1: Advanced Match Patterns
+[[example]]
+name = "p1_range_matching"
+path = "examples/p1_range_matching.rs"
+
+[[example]]
+name = "p1_guards"
+path = "examples/p1_guards.rs"
+
+[[example]]
+name = "p1_at_bindings"
+path = "examples/p1_at_bindings.rs"
+
+[[example]]
+name = "p1_nested_destructuring"
+path = "examples/p1_nested_destructuring.rs"
+
+# Pattern 2: Exhaustiveness and Match Ergonomics
+[[example]]
+name = "p2_exhaustiveness"
+path = "examples/p2_exhaustiveness.rs"
+
+[[example]]
+name = "p2_match_ergonomics"
+path = "examples/p2_match_ergonomics.rs"
+
+[[example]]
+name = "p2_non_exhaustive"
+path = "examples/p2_non_exhaustive.rs"
+
+# Pattern 3: if let, while let, and let-else
+[[example]]
+name = "p3_if_let"
+path = "examples/p3_if_let.rs"
+
+[[example]]
+name = "p3_let_else"
+path = "examples/p3_let_else.rs"
+
+[[example]]
+name = "p3_while_let"
+path = "examples/p3_while_let.rs"
+
+# Pattern 4: State Machines and Enum-Driven Architecture
+[[example]]
+name = "p4_command_pattern"
+path = "examples/p4_command_pattern.rs"
+
+[[example]]
+name = "p4_event_sourcing"
+path = "examples/p4_event_sourcing.rs"

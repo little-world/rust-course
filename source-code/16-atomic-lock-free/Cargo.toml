@@ -1,0 +1,38 @@
+[package]
+name = "atomic-lock-free"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[[example]]
+name = "p1_memory_ordering"
+path = "examples/p1_memory_ordering.rs"
+
+[[example]]
+name = "p2_cas_patterns"
+path = "examples/p2_cas_patterns.rs"
+
+[[example]]
+name = "p2_aba_solutions"
+path = "examples/p2_aba_solutions.rs"
+
+[[example]]
+name = "p3_treiber_stack"
+path = "examples/p3_treiber_stack.rs"
+
+[[example]]
+name = "p3_mpsc_queue"
+path = "examples/p3_mpsc_queue.rs"
+
+[[example]]
+name = "p4_hazard_pointers"
+path = "examples/p4_hazard_pointers.rs"
+
+[[example]]
+name = "p5_seqlock"
+path = "examples/p5_seqlock.rs"
+
+[[example]]
+name = "advanced_patterns"
+path = "examples/advanced_patterns.rs"

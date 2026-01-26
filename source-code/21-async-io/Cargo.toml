@@ -1,0 +1,64 @@
+[package]
+name = "async-io-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+bytes = "1"
+async-trait = "0.1"
+rand = "0.8"
+
+[[bin]]
+name = "p1_file_ops"
+path = "p1_file_ops.rs"
+
+[[bin]]
+name = "p1_line_reading"
+path = "p1_line_reading.rs"
+
+[[bin]]
+name = "p1_tcp_server"
+path = "p1_tcp_server.rs"
+
+[[bin]]
+name = "p1_tcp_client"
+path = "p1_tcp_client.rs"
+
+[[bin]]
+name = "p1_udp"
+path = "p1_udp.rs"
+
+[[bin]]
+name = "p2_buffered_io"
+path = "p2_buffered_io.rs"
+
+[[bin]]
+name = "p2_codec"
+path = "p2_codec.rs"
+
+[[bin]]
+name = "p3_backpressure"
+path = "p3_backpressure.rs"
+
+[[bin]]
+name = "p3_rate_limit"
+path = "p3_rate_limit.rs"
+
+[[bin]]
+name = "p4_connection_pool"
+path = "p4_connection_pool.rs"
+
+[[bin]]
+name = "p5_timeout"
+path = "p5_timeout.rs"
+
+[[bin]]
+name = "p5_cancellation"
+path = "p5_cancellation.rs"
+
+[[bin]]
+name = "p5_retry"
+path = "p5_retry.rs"

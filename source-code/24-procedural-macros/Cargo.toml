@@ -1,0 +1,51 @@
+[package]
+name = "procedural-macros-examples"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+my_macros = { path = "my_macros" }
+
+[[bin]]
+name = "p1_basic_derive"
+path = "src/p1_basic_derive.rs"
+
+[[bin]]
+name = "p1_field_access"
+path = "src/p1_field_access.rs"
+
+[[bin]]
+name = "p1_builder"
+path = "src/p1_builder.rs"
+
+[[bin]]
+name = "p1_enum_iter"
+path = "src/p1_enum_iter.rs"
+
+[[bin]]
+name = "p2_timing"
+path = "src/p2_timing.rs"
+
+[[bin]]
+name = "p2_log"
+path = "src/p2_log.rs"
+
+[[bin]]
+name = "p2_struct_attr"
+path = "src/p2_struct_attr.rs"
+
+[[bin]]
+name = "p3_sql"
+path = "src/p3_sql.rs"
+
+[[bin]]
+name = "p3_hashmap"
+path = "src/p3_hashmap.rs"
+
+[[bin]]
+name = "p5_getter_setter"
+path = "src/p5_getter_setter.rs"
+
+[[bin]]
+name = "p5_to_json"
+path = "src/p5_to_json.rs"

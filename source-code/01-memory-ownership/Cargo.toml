@@ -1,0 +1,152 @@
+[package]
+name = "memory-ownership"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "p1_stack_vs_heap"
+path = "p1_stack_vs_heap.rs"
+
+[[bin]]
+name = "p1_heap_solution"
+path = "p1_heap_solution.rs"
+
+[[bin]]
+name = "p1_trait_objects"
+path = "p1_trait_objects.rs"
+
+[[bin]]
+name = "p2_move_semantics"
+path = "p2_move_semantics.rs"
+
+[[bin]]
+name = "p2_copy_semantics"
+path = "p2_copy_semantics.rs"
+
+[[bin]]
+name = "p2_explicit_clone"
+path = "p2_explicit_clone.rs"
+
+[[bin]]
+name = "p2_ownership_transfer"
+path = "p2_ownership_transfer.rs"
+
+[[bin]]
+name = "p3_shared_borrows"
+path = "p3_shared_borrows.rs"
+
+[[bin]]
+name = "p3_exclusive_borrows"
+path = "p3_exclusive_borrows.rs"
+
+[[bin]]
+name = "p3_nll"
+path = "p3_nll.rs"
+
+[[bin]]
+name = "p3_reborrow"
+path = "p3_reborrow.rs"
+
+[[bin]]
+name = "p3_borrow_splitting"
+path = "p3_borrow_splitting.rs"
+
+[[bin]]
+name = "p4_lifetime_elision"
+path = "p4_lifetime_elision.rs"
+
+[[bin]]
+name = "p4_explicit_lifetimes"
+path = "p4_explicit_lifetimes.rs"
+
+[[bin]]
+name = "p4_struct_lifetimes"
+path = "p4_struct_lifetimes.rs"
+
+[[bin]]
+name = "p4_static_lifetime"
+path = "p4_static_lifetime.rs"
+
+[[bin]]
+name = "p5_asref"
+path = "p5_asref.rs"
+
+[[bin]]
+name = "p5_into"
+path = "p5_into.rs"
+
+[[bin]]
+name = "p5_borrow"
+path = "p5_borrow.rs"
+
+[[bin]]
+name = "p5_deref_coercion"
+path = "p5_deref_coercion.rs"
+
+[[bin]]
+name = "p5_from_into"
+path = "p5_from_into.rs"
+
+[[bin]]
+name = "p6_recursive_types"
+path = "p6_recursive_types.rs"
+
+[[bin]]
+name = "p6_trait_objects"
+path = "p6_trait_objects.rs"
+
+[[bin]]
+name = "p7_rc"
+path = "p7_rc.rs"
+
+[[bin]]
+name = "p7_arc"
+path = "p7_arc.rs"
+
+[[bin]]
+name = "p8_cell"
+path = "p8_cell.rs"
+
+[[bin]]
+name = "p8_refcell"
+path = "p8_refcell.rs"
+
+[[bin]]
+name = "p8_rc_refcell"
+path = "p8_rc_refcell.rs"
+
+[[bin]]
+name = "p8_arc_mutex"
+path = "p8_arc_mutex.rs"
+
+[[bin]]
+name = "p9_weak"
+path = "p9_weak.rs"
+
+[[bin]]
+name = "p10_cow_string"
+path = "p10_cow_string.rs"
+
+[[bin]]
+name = "p10_cow_config"
+path = "p10_cow_config.rs"
+
+[[bin]]
+name = "p11_scope_guard"
+path = "p11_scope_guard.rs"
+
+[[bin]]
+name = "p11_timer"
+path = "p11_timer.rs"
+
+[[bin]]
+name = "p12_arena"
+path = "p12_arena.rs"
+
+[[bin]]
+name = "p12_ast_arena"
+path = "p12_ast_arena.rs"
+
+[[bin]]
+name = "p12_request_arena"
+path = "p12_request_arena.rs"

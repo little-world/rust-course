@@ -1,0 +1,57 @@
+[package]
+name = "lifetime-patterns"
+version = "0.1.0"
+edition = "2021"
+description = "Examples for Chapter 6: Lifetime Patterns"
+
+[dependencies]
+
+# Pattern 1: Named Lifetimes and Elision
+[[example]]
+name = "p1_basic_lifetimes"
+path = "examples/p1_basic_lifetimes.rs"
+
+[[example]]
+name = "p1_static_lifetime"
+path = "examples/p1_static_lifetime.rs"
+
+# Pattern 2: Lifetime Bounds
+[[example]]
+name = "p2_lifetime_bounds"
+path = "examples/p2_lifetime_bounds.rs"
+
+# Pattern 3: Higher-Ranked Trait Bounds
+[[example]]
+name = "p3_hrtb"
+path = "examples/p3_hrtb.rs"
+
+# Pattern 4: Self-Referential Structs and Pin
+[[example]]
+name = "p4_indices"
+path = "examples/p4_indices.rs"
+
+[[example]]
+name = "p4_pin_self_ref"
+path = "examples/p4_pin_self_ref.rs"
+
+[[example]]
+name = "p4_restructure"
+path = "examples/p4_restructure.rs"
+
+# Pattern 5: Variance and Subtyping
+[[example]]
+name = "p5_variance"
+path = "examples/p5_variance.rs"
+
+[[example]]
+name = "p5_phantomdata_variance"
+path = "examples/p5_phantomdata_variance.rs"
+
+# Pattern 6: Advanced Lifetime Patterns
+[[example]]
+name = "p6_streaming_iterator"
+path = "examples/p6_streaming_iterator.rs"
+
+[[example]]
+name = "p6_advanced_lifetimes"
+path = "examples/p6_advanced_lifetimes.rs"

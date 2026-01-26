@@ -1,0 +1,138 @@
+[package]
+name = "generics-polymorphism"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+# Pattern 1: Type-Safe Generic Functions
+[[example]]
+name = "p1_basic_generic"
+path = "examples/p1_basic_generic.rs"
+
+[[example]]
+name = "p1_trait_bounds"
+path = "examples/p1_trait_bounds.rs"
+
+[[example]]
+name = "p1_return_types"
+path = "examples/p1_return_types.rs"
+
+# Pattern 2: Generic Structs and Enums
+[[example]]
+name = "p2_generic_struct"
+path = "examples/p2_generic_struct.rs"
+
+[[example]]
+name = "p2_binary_tree"
+path = "examples/p2_binary_tree.rs"
+
+[[example]]
+name = "p2_wrapper"
+path = "examples/p2_wrapper.rs"
+
+[[example]]
+name = "p2_specialized_impl"
+path = "examples/p2_specialized_impl.rs"
+
+# Pattern 3: Trait Bounds and Constraints
+[[example]]
+name = "p3_trait_bounds"
+path = "examples/p3_trait_bounds.rs"
+
+[[example]]
+name = "p3_conditional_impl"
+path = "examples/p3_conditional_impl.rs"
+
+[[example]]
+name = "p3_sized_bounds"
+path = "examples/p3_sized_bounds.rs"
+
+[[example]]
+name = "p3_impl_trait"
+path = "examples/p3_impl_trait.rs"
+
+# Pattern 4: Associated Types vs Generic Parameters
+[[example]]
+name = "p4_associated_types"
+path = "examples/p4_associated_types.rs"
+
+[[example]]
+name = "p4_generic_params"
+path = "examples/p4_generic_params.rs"
+
+[[example]]
+name = "p4_gat"
+path = "examples/p4_gat.rs"
+
+[[example]]
+name = "p4_type_families"
+path = "examples/p4_type_families.rs"
+
+# Pattern 5: Blanket Implementations
+[[example]]
+name = "p5_blanket_impl"
+path = "examples/p5_blanket_impl.rs"
+
+[[example]]
+name = "p5_extension_trait"
+path = "examples/p5_extension_trait.rs"
+
+[[example]]
+name = "p5_into_from"
+path = "examples/p5_into_from.rs"
+
+[[example]]
+name = "p5_orphan_rules"
+path = "examples/p5_orphan_rules.rs"
+
+# Pattern 6: Phantom Types and Type-Level State
+[[example]]
+name = "p6_protocol_state"
+path = "examples/p6_protocol_state.rs"
+
+[[example]]
+name = "p6_units"
+path = "examples/p6_units.rs"
+
+[[example]]
+name = "p6_builder"
+path = "examples/p6_builder.rs"
+
+[[example]]
+name = "p6_ffi_ownership"
+path = "examples/p6_ffi_ownership.rs"
+
+# Pattern 7: Higher-Ranked Trait Bounds (HRTBs)
+[[example]]
+name = "p7_basic_hrtb"
+path = "examples/p7_basic_hrtb.rs"
+
+[[example]]
+name = "p7_hrtb_vs_lifetime"
+path = "examples/p7_hrtb_vs_lifetime.rs"
+
+[[example]]
+name = "p7_callback_storage"
+path = "examples/p7_callback_storage.rs"
+
+[[example]]
+name = "p7_when_to_use"
+path = "examples/p7_when_to_use.rs"
+
+# Pattern 8: Const Generics
+[[example]]
+name = "p8_basic_const"
+path = "examples/p8_basic_const.rs"
+
+[[example]]
+name = "p8_matrix"
+path = "examples/p8_matrix.rs"
+
+[[example]]
+name = "p8_ring_buffer"
+path = "examples/p8_ring_buffer.rs"
+
+[[example]]
+name = "p8_protocol_frames"
+path = "examples/p8_protocol_frames.rs"

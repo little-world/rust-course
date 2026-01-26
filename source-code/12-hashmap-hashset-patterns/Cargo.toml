@@ -1,0 +1,42 @@
+[package]
+name = "hashmap-hashset-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustc-hash = "1.1"
+indexmap = "2.0"
+dashmap = "5.5"
+rayon = "1.8"
+
+[[example]]
+name = "p1_entry_api"
+path = "examples/p1_entry_api.rs"
+
+[[example]]
+name = "p1_lru_cache"
+path = "examples/p1_lru_cache.rs"
+
+[[example]]
+name = "p2_custom_hashing"
+path = "examples/p2_custom_hashing.rs"
+
+[[example]]
+name = "p2_fxhashmap"
+path = "examples/p2_fxhashmap.rs"
+
+[[example]]
+name = "p3_capacity"
+path = "examples/p3_capacity.rs"
+
+[[example]]
+name = "p4_btreemap"
+path = "examples/p4_btreemap.rs"
+
+[[example]]
+name = "p4_indexmap"
+path = "examples/p4_indexmap.rs"
+
+[[example]]
+name = "p5_dashmap"
+path = "examples/p5_dashmap.rs"

@@ -1,0 +1,28 @@
+[package]
+name = "ffi-c-interop-examples"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.0"
+
+[[bin]]
+name = "p1_c_abi"
+path = "src/p1_c_abi.rs"
+
+[[bin]]
+name = "p2_strings"
+path = "src/p2_strings.rs"
+
+[[bin]]
+name = "p3_callbacks"
+path = "src/p3_callbacks.rs"
+
+[[bin]]
+name = "p4_error_handling"
+path = "src/p4_error_handling.rs"
+
+[[bin]]
+name = "p5_opaque_types"
+path = "src/p5_opaque_types.rs"

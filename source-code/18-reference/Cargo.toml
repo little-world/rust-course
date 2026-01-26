@@ -1,0 +1,100 @@
+[package]
+name = "reference-iterator-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "p1_binding_modes"
+path = "p1_binding_modes.rs"
+
+[[bin]]
+name = "p1_mixed_bindings"
+path = "p1_mixed_bindings.rs"
+
+[[bin]]
+name = "p1_enum_patterns"
+path = "p1_enum_patterns.rs"
+
+[[bin]]
+name = "p2_deref_hierarchy"
+path = "p2_deref_hierarchy.rs"
+
+[[bin]]
+name = "p2_deref_coercion"
+path = "p2_deref_coercion.rs"
+
+[[bin]]
+name = "p2_deref_mut_interior"
+path = "p2_deref_mut_interior.rs"
+
+[[bin]]
+name = "p3_method_resolution"
+path = "p3_method_resolution.rs"
+
+[[bin]]
+name = "p3_deref_chains"
+path = "p3_deref_chains.rs"
+
+[[bin]]
+name = "p3_disambiguation"
+path = "p3_disambiguation.rs"
+
+[[bin]]
+name = "p4_variance"
+path = "p4_variance.rs"
+
+[[bin]]
+name = "p4_phantom_data"
+path = "p4_phantom_data.rs"
+
+[[bin]]
+name = "p4_hrtb"
+path = "p4_hrtb.rs"
+
+[[bin]]
+name = "p5_reborrowing"
+path = "p5_reborrowing.rs"
+
+[[bin]]
+name = "p5_borrow_splitting"
+path = "p5_borrow_splitting.rs"
+
+[[bin]]
+name = "p6_receiver_types"
+path = "p6_receiver_types.rs"
+
+[[bin]]
+name = "p6_object_safety"
+path = "p6_object_safety.rs"
+
+[[bin]]
+name = "p7_iterator_traits"
+path = "p7_iterator_traits.rs"
+
+[[bin]]
+name = "p7_lending_iterator"
+path = "p7_lending_iterator.rs"
+
+[[bin]]
+name = "p7_returning_iterators"
+path = "p7_returning_iterators.rs"
+
+[[bin]]
+name = "p8_asref_borrow"
+path = "p8_asref_borrow.rs"
+
+[[bin]]
+name = "p8_cow"
+path = "p8_cow.rs"
+
+[[bin]]
+name = "p9_naming_conventions"
+path = "p9_naming_conventions.rs"
+
+[[bin]]
+name = "p9_raw_pointers"
+path = "p9_raw_pointers.rs"
+
+[[bin]]
+name = "p10_pin"
+path = "p10_pin.rs"

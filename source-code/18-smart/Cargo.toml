@@ -1,0 +1,68 @@
+[package]
+name = "smart-pointer-patterns"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "p1_custom_box"
+path = "p1_custom_box.rs"
+
+[[bin]]
+name = "p1_logging_ptr"
+path = "p1_logging_ptr.rs"
+
+[[bin]]
+name = "p1_lazy"
+path = "p1_lazy.rs"
+
+[[bin]]
+name = "p1_cow_ptr"
+path = "p1_cow_ptr.rs"
+
+[[bin]]
+name = "p2_intrusive_rc"
+path = "p2_intrusive_rc.rs"
+
+[[bin]]
+name = "p3_intrusive_list"
+path = "p3_intrusive_list.rs"
+
+[[bin]]
+name = "p3_lru_cache"
+path = "p3_lru_cache.rs"
+
+[[bin]]
+name = "p4_field_ordering"
+path = "p4_field_ordering.rs"
+
+[[bin]]
+name = "p4_cache_alignment"
+path = "p4_cache_alignment.rs"
+
+[[bin]]
+name = "p4_enum_size"
+path = "p4_enum_size.rs"
+
+[[bin]]
+name = "p4_soa"
+path = "p4_soa.rs"
+
+[[bin]]
+name = "p5_gen_arena"
+path = "p5_gen_arena.rs"
+
+[[bin]]
+name = "p6_borrow_vs_clone"
+path = "p6_borrow_vs_clone.rs"
+
+[[bin]]
+name = "p6_try_unwrap"
+path = "p6_try_unwrap.rs"
+
+[[bin]]
+name = "p6_string_interner"
+path = "p6_string_interner.rs"
+
+[[bin]]
+name = "p6_weak"
+path = "p6_weak.rs"
